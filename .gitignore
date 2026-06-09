@@ -1,0 +1,22 @@
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+*.log
+gh-auth.*.txt
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist/
+build/
+target/
+node_modules/
+coverage/

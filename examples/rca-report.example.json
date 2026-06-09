@@ -1,0 +1,62 @@
+{
+  "report_id": "rca-20260610-0001",
+  "cluster_id": "cluster-prod-01",
+  "status": "completed",
+  "trigger": {
+    "source": "alertmanager",
+    "alert_name": "NodeNotReady",
+    "severity": "critical",
+    "started_at": "2026-06-10T09:15:00+09:00"
+  },
+  "scope": {
+    "nodes": ["worker-3"],
+    "namespaces": ["kube-system"],
+    "components": ["kubelet", "containerd", "network"]
+  },
+  "summary": {
+    "symptom": "worker-3 node changed to NotReady.",
+    "most_likely_cause": "kubelet repeatedly restarted after containerd socket response delays and conntrack saturation.",
+    "confidence": "medium"
+  },
+  "evidence": [
+    {
+      "collector": "systemd",
+      "finding": "kubelet restarted 7 times in 10 minutes."
+    },
+    {
+      "collector": "runtime",
+      "finding": "containerd socket health check exceeded timeout."
+    },
+    {
+      "collector": "network",
+      "finding": "conntrack table usage reached 91%."
+    }
+  ],
+  "root_cause_candidates": [
+    {
+      "cause": "containerd hang caused kubelet node status update failures.",
+      "confidence": "medium",
+      "supporting_evidence": ["runtime", "systemd"]
+    },
+    {
+      "cause": "conntrack saturation caused intermittent API Server connectivity from the node.",
+      "confidence": "medium",
+      "supporting_evidence": ["network"]
+    }
+  ],
+  "recommended_actions": [
+    {
+      "action": "Collect additional kubelet and containerd journal lines for the incident window.",
+      "policy": "AUTO_SAFE"
+    },
+    {
+      "action": "Restart kubelet after operator approval if the node remains NotReady.",
+      "policy": "APPROVAL_REQUIRED"
+    },
+    {
+      "action": "Review conntrack sizing through GitOps configuration.",
+      "policy": "GITOPS_PR_ONLY"
+    }
+  ]
+}
+
