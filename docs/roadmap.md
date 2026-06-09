@@ -10,11 +10,15 @@
 
 ## Phase 2: Backend MVP
 
-- 클러스터 등록 API
-- Agent bootstrap token 발급
-- Alertmanager webhook 수신
-- RCA job 생성
-- Evidence bundle 저장
+- 클러스터 등록 API 완료
+- Agent bootstrap token 발급 완료
+- Agent 설치 명령어 조회 완료
+- Alertmanager webhook 수신 완료
+- RCA job 생성 완료
+- Fake evidence 기반 RCA report 생성 완료
+- Rule-based analyzer MVP 완료
+- Policy Engine MVP 완료
+- Persistent database 연동 예정
 
 ## Phase 3: Node Agent MVP
 
@@ -46,4 +50,3 @@
 - 장애 이벤트 목록
 - RCA 보고서 상세
 - Policy decision 표시
-

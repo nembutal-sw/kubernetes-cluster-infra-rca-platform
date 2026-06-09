@@ -13,6 +13,7 @@ gh-auth.*.txt
 .env
 .env.*
 !.env.example
+.venv/
 
 # Build outputs
 dist/
@@ -20,3 +21,8 @@ build/
 target/
 node_modules/
 coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/

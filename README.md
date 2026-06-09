@@ -69,14 +69,35 @@ Kubernetes에서 보이는 장애 증상 뒤에 숨어 있는 노드, 런타임,
 - Policy Engine: 조치 안전 등급 분류
 - Report Generator: RCA 보고서 생성
 
+## Backend MVP
+
+현재 Backend MVP는 FastAPI로 구현되어 있습니다.
+
+- 클러스터 등록
+- Agent 설치 명령어 조회
+- Alertmanager webhook 수신
+- fake evidence 생성
+- rule-based RCA report 생성
+- Policy Engine 기반 권장 조치 분류
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+```
+
+API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다. 자세한 MVP 흐름은 [docs/backend-api.md](docs/backend-api.md)를 참고합니다.
+
 ## 저장소 구조
 
 ```text
 .
 |-- README.md
+|-- backend/
+|   `-- app/
 |-- docs/
 |   |-- architecture.md
 |   |-- agent-design.md
+|   |-- backend-api.md
 |   |-- install-flow.md
 |   |-- policy-engine.md
 |   |-- rca-scope.md
@@ -85,10 +106,12 @@ Kubernetes에서 보이는 장애 증상 뒤에 숨어 있는 노드, 런타임,
 |-- examples/
 |   |-- alertmanager-webhook.json
 |   `-- rca-report.example.json
+|-- tests/
+|   `-- test_api.py
 `-- manifests/
     `-- agent-daemonset.yaml
 ```
 
 ## 현재 상태
 
-이 저장소는 프로젝트 방향과 MVP 설계를 정리한 초기 문서 스캐폴드입니다. 다음 단계에서는 Backend API, Node Agent, Web UI, Policy Engine, Report Generator 구현을 순차적으로 추가합니다.
+이 저장소는 프로젝트 방향 문서와 Backend API MVP를 포함합니다. 다음 단계에서는 실제 Node Agent, persistent database, LLM Analyzer, Web UI를 순차적으로 추가합니다.
