@@ -1,77 +1,54 @@
-# AI 기반 Kubernetes Cluster Infra RCA 플랫폼
+# Kubernetes Cluster Infra RCA Platform
 
-Kubernetes에서 보이는 장애 증상 뒤에 숨어 있는 노드, 런타임, 커널, 네트워크, 디스크, systemd 수준의 실제 원인을 자동 수집·분석하는 AI 기반 클러스터 인프라 RCA 플랫폼입니다.
+Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다. `NodeNotReady`, `Pod Pending`, `CoreDNS` 불안정, API Server 응답 지연, CNI 통신 실패 같은 식입니다.
 
-이 프로젝트는 일반적인 애플리케이션 장애 분석 도구가 아닙니다. `NodeNotReady`, `Pod Pending`, `CoreDNS 불안정`, `API Server 응답 지연`, `CNI 통신 실패`처럼 Kubernetes 표면에서 드러나는 증상을 시작점으로 삼되, 실제 원인이 Linux 시스템과 클러스터 인프라 계층에 있는지 자동으로 확인하는 것을 목표로 합니다.
+그런데 막상 노드에 들어가 보면 원인은 Kubernetes 리소스가 아니라 Linux 시스템 쪽에 있는 경우가 많습니다. 디스크 I/O가 밀려 있거나, inode가 다 찼거나, containerd가 멈춰 있거나, kubelet이 계속 재시작되고 있거나, conntrack table이 거의 꽉 차 있는 식입니다.
 
-## 핵심 원칙
+이 프로젝트는 그때 운영자가 노드에 접속해서 하나씩 확인하던 과정을 최대한 자동화해보려는 시도입니다. Alertmanager에서 장애 알림이 들어오면 관련 노드와 시간대를 기준으로 증거를 모으고, 그 증거를 바탕으로 RCA 보고서를 만드는 것이 목표입니다.
 
-- LLM은 진단과 설명만 담당합니다.
-- LLM은 직접 수정, 재시작, 삭제, 스케일 조정, 설정 변경을 수행하지 않습니다.
-- 조치 가능성은 Policy Engine이 분류합니다.
-- 실제 실행은 안전 등급, 승인 흐름, GitOps/PR 흐름에 따라 제어합니다.
-- 운영자는 노드에 직접 접속하지 않아도 장애 당시의 핵심 증거를 보고서로 확인할 수 있어야 합니다.
+## 이 프로젝트가 보려는 것
 
-## 주요 RCA 대상
-
-이 플랫폼의 메인 분석 대상은 Kubernetes 애플리케이션 자체보다 클러스터 노드와 시스템 계층입니다.
+주 대상은 애플리케이션 장애가 아니라 클러스터 인프라와 노드 레벨 문제입니다.
 
 - `NodeNotReady`
-- `DiskPressure`
-- `MemoryPressure`
-- `PIDPressure`
+- `DiskPressure`, `MemoryPressure`, `PIDPressure`
 - `NetworkUnavailable`
 - kubelet 장애
 - containerd 장애
 - CNI 장애
 - CoreDNS 장애
 - etcd latency 증가
-- API Server 지연
-- 디스크 I/O 문제
-- 커널 로그 에러
-- systemd 서비스 장애
-- 노드 네트워크 문제
-- conntrack table 고갈
+- API Server 응답 지연
+- 디스크 I/O 병목
 - inode 고갈
+- kernel log error
+- systemd unit 실패 또는 반복 재시작
+- NIC link flap
+- DNS 설정 문제
+- CNI MTU 문제
+- conntrack table 고갈
 
-## 보조 신호
+`CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`, HTTP 5xx, Ingress 설정 오류 같은 항목은 메인 분석 대상이라기보다는 보조 신호로 봅니다. 앱 자체 문제가 아니라 노드나 네트워크 문제가 위쪽에서 그렇게 보이는 경우가 있기 때문입니다.
 
-아래 항목은 메인 RCA 대상이라기보다 노드/시스템 장애의 결과로 나타날 수 있는 보조 증상으로 다룹니다.
+## 기본 흐름
 
-- `CrashLoopBackOff`
-- `ImagePullBackOff`
-- Pod `OOMKilled`
-- Deployment rollout 실패
-- HTTP 5xx 증가
-- Service endpoint 없음
-- Ingress 설정 오류
+1. Web UI에서 클러스터를 등록한다.
+2. Backend가 Agent 설치 명령어를 만들어준다.
+3. 각 노드에 DaemonSet 형태로 Agent를 배포한다.
+4. Agent는 노드 로컬 로그, systemd 상태, kernel log, 디스크/메모리/네트워크 상태, container runtime, kubelet 상태를 수집한다.
+5. Prometheus 또는 Alertmanager가 장애를 감지하면 Backend webhook으로 보낸다.
+6. Backend는 RCA job을 만들고 관련 증거를 수집한다.
+7. Analyzer가 원인 후보와 근거를 정리한다.
+8. Policy Engine이 권장 조치를 안전 등급별로 나눈다.
+9. 운영자가 볼 수 있는 RCA report를 만든다.
 
-## 전체 흐름
+중요한 점은 LLM이 직접 조치를 실행하지 않는다는 것입니다. LLM은 진단과 설명만 맡고, 실제 조치 가능 여부는 Policy Engine과 승인 흐름에서 판단합니다.
 
-1. 사용자가 Web UI에서 클러스터를 등록합니다.
-2. Backend가 해당 클러스터용 Agent 설치 명령어를 제공합니다.
-3. 운영자는 각 클러스터에 DaemonSet 형태로 Node Agent를 배포합니다.
-4. Node Agent는 각 노드의 로그, systemd, 커널, 디스크, 메모리, 네트워크, container runtime, kubelet 상태를 수집합니다.
-5. Prometheus 또는 Alertmanager가 장애를 감지하면 Backend webhook으로 이벤트를 보냅니다.
-6. RCA Backend는 관련 노드와 시간대를 식별하고 Agent에서 증거를 수집합니다.
-7. LLM Analyzer는 수집된 증거를 바탕으로 원인 후보, 근거, 영향 범위, 추가 확인 사항을 분석합니다.
-8. Policy Engine은 권장 조치를 안전 등급별로 분류합니다.
-9. Report Generator가 운영자용 RCA 보고서를 생성합니다.
+## 현재 들어있는 것
 
-## 주요 컴포넌트
+아직 전체 플랫폼이 완성된 것은 아니고, 지금은 Backend API MVP까지 만들어둔 상태입니다.
 
-- Web UI: 클러스터 등록, Agent 설치 명령어 제공, RCA 보고서 조회
-- API Backend: 클러스터/노드/알림/RCA job 관리
-- Webhook Receiver: Prometheus, Alertmanager 이벤트 수신
-- Node Agent: DaemonSet으로 배포되는 노드 로컬 증거 수집기
-- Evidence Collector: 장애 시간대와 대상 노드 기준으로 증거 패키지 생성
-- LLM Analyzer: 증거 기반 진단과 설명 생성
-- Policy Engine: 조치 안전 등급 분류
-- Report Generator: RCA 보고서 생성
-
-## Backend MVP
-
-현재 Backend MVP는 FastAPI로 구현되어 있습니다.
+현재 가능한 일:
 
 - 클러스터 등록
 - Agent 설치 명령어 조회
@@ -79,19 +56,37 @@ Kubernetes에서 보이는 장애 증상 뒤에 숨어 있는 노드, 런타임,
 - fake evidence 생성
 - rule-based RCA report 생성
 - Policy Engine 기반 권장 조치 분류
+- RCA job/report 조회
+
+실제 Node Agent, DB 저장소, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
+
+## Backend 실행
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
 ```
 
-API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인할 수 있습니다. 자세한 MVP 흐름은 [docs/backend-api.md](docs/backend-api.md)를 참고합니다.
+서버가 뜨면 아래 주소에서 확인할 수 있습니다.
 
-## 저장소 구조
+- API: `http://127.0.0.1:8000`
+- Swagger: `http://127.0.0.1:8000/docs`
+- Health check: `http://127.0.0.1:8000/health`
+
+자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다.
+
+## 테스트
+
+```powershell
+.venv\Scripts\python.exe -m pytest
+```
+
+현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, RCA report 생성 흐름을 확인합니다.
+
+## 디렉터리 구조
 
 ```text
 .
-|-- README.md
 |-- backend/
 |   `-- app/
 |-- docs/
@@ -106,12 +101,20 @@ API 문서는 서버 실행 후 `http://127.0.0.1:8000/docs`에서 확인할 수
 |-- examples/
 |   |-- alertmanager-webhook.json
 |   `-- rca-report.example.json
+|-- manifests/
+|   `-- agent-daemonset.yaml
 |-- tests/
 |   `-- test_api.py
-`-- manifests/
-    `-- agent-daemonset.yaml
+|-- pyproject.toml
+|-- requirements.txt
+`-- requirements-dev.txt
 ```
 
-## 현재 상태
+## 다음에 할 일
 
-이 저장소는 프로젝트 방향 문서와 Backend API MVP를 포함합니다. 다음 단계에서는 실제 Node Agent, persistent database, LLM Analyzer, Web UI를 순차적으로 추가합니다.
+바로 다음 단계는 둘 중 하나입니다.
+
+- SQLite 또는 PostgreSQL을 붙여서 cluster, RCA job, report를 영구 저장하기
+- Node Agent MVP를 만들어 systemd/kubelet/containerd/disk/network collector부터 붙이기
+
+개인적으로는 DB를 먼저 붙이는 쪽이 낫다고 봅니다. 그래야 Agent와 Web UI를 붙일 때 데이터 흐름이 덜 흔들립니다.
