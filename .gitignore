@@ -8,12 +8,14 @@ Thumbs.db
 # Logs
 *.log
 gh-auth.*.txt
+backend-server.*.log
 
 # Local environment
 .env
 .env.*
 !.env.example
 .venv/
+data/
 
 # Build outputs
 dist/

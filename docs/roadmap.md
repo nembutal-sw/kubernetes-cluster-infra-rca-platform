@@ -18,7 +18,8 @@
 - Fake evidence 기반 RCA report 생성 완료
 - Rule-based analyzer MVP 완료
 - Policy Engine MVP 완료
-- Persistent database 연동 예정
+- PostgreSQL/MariaDB 호환 SQLAlchemy 저장소 완료
+- Alembic migration 도입 예정
 
 ## Phase 3: Node Agent MVP
 

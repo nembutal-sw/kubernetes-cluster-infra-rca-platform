@@ -12,13 +12,13 @@ from backend.app.models import (
 )
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
 from backend.app.services.evidence import FakeEvidenceCollector
-from backend.app.store import InMemoryStore
+from backend.app.store import StoreProtocol
 
 
 class RcaService:
     def __init__(
         self,
-        store: InMemoryStore,
+        store: StoreProtocol,
         evidence_collector: FakeEvidenceCollector,
         analyzer: RuleBasedRcaAnalyzer,
     ) -> None:
@@ -71,6 +71,7 @@ class RcaService:
                 continue
 
             evidence = self._evidence_collector.collect(cluster, alert)
+            evidence = self._store.save_evidence(evidence)
             report_id = f"report-{uuid.uuid4().hex[:8]}"
             report = self._analyzer.analyze(report_id, evidence)
             self._store.save_report(report)
@@ -82,6 +83,7 @@ class RcaService:
                 node_name=evidence.node_name,
                 status=RcaJobStatus.COMPLETED,
                 report_id=report.report_id,
+                evidence_id=evidence.evidence_id,
             )
             self._store.save_job(job)
             created_jobs.append(job)
@@ -104,4 +106,3 @@ class RcaService:
     def _skip_reason(self, alert: AlertmanagerAlert, reason: str) -> str:
         alert_name = alert.labels.get("alertname", "unknown")
         return f"{alert_name}: {reason}"
-

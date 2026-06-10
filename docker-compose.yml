@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rca-postgres
+    environment:
+      POSTGRES_DB: rca
+      POSTGRES_USER: rca
+      POSTGRES_PASSWORD: rca_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mariadb:
+    image: mariadb:11
+    container_name: rca-mariadb
+    environment:
+      MARIADB_DATABASE: rca
+      MARIADB_USER: rca
+      MARIADB_PASSWORD: rca_password
+      MARIADB_ROOT_PASSWORD: root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+volumes:
+  postgres-data:
+  mariadb-data:
+

@@ -83,6 +83,7 @@ class AlertmanagerPayload(BaseModel):
 
 
 class EvidenceBundle(BaseModel):
+    evidence_id: str | None = None
     cluster_id: str
     node_name: str
     alert_name: str
@@ -129,6 +130,7 @@ class RcaJob(BaseModel):
     node_name: str
     status: RcaJobStatus
     report_id: str
+    evidence_id: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
 
 
@@ -137,4 +139,3 @@ class WebhookIngestResponse(BaseModel):
     created_jobs: list[RcaJob]
     created_reports: list[str]
     skipped_alerts: list[str]
-

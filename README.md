@@ -57,8 +57,9 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - rule-based RCA report 생성
 - Policy Engine 기반 권장 조치 분류
 - RCA job/report 조회
+- PostgreSQL/MariaDB 호환 SQLAlchemy 저장소
 
-실제 Node Agent, DB 저장소, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
+실제 Node Agent, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
 
 ## Backend 실행
 
@@ -74,6 +75,24 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Health check: `http://127.0.0.1:8000/health`
 
 자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다.
+
+## DB 선택
+
+운영 대상 DB는 PostgreSQL과 MariaDB입니다. `RCA_DATABASE_URL`만 바꿔서 선택합니다.
+
+PostgreSQL:
+
+```powershell
+$env:RCA_DATABASE_URL = "postgresql+psycopg://rca:rca_password@localhost:5432/rca"
+```
+
+MariaDB:
+
+```powershell
+$env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
+```
+
+로컬 테스트용으로는 SQLite fallback도 열어두었습니다. 자세한 내용은 [docs/database.md](docs/database.md)를 참고합니다.
 
 ## 테스트
 
@@ -93,6 +112,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 |   |-- architecture.md
 |   |-- agent-design.md
 |   |-- backend-api.md
+|   |-- database.md
 |   |-- install-flow.md
 |   |-- policy-engine.md
 |   |-- rca-scope.md
@@ -105,6 +125,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 |   `-- agent-daemonset.yaml
 |-- tests/
 |   `-- test_api.py
+|-- docker-compose.yml
 |-- pyproject.toml
 |-- requirements.txt
 `-- requirements-dev.txt
@@ -114,7 +135,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 
 바로 다음 단계는 둘 중 하나입니다.
 
-- SQLite 또는 PostgreSQL을 붙여서 cluster, RCA job, report를 영구 저장하기
 - Node Agent MVP를 만들어 systemd/kubelet/containerd/disk/network collector부터 붙이기
+- Alembic migration을 도입해서 DB schema 변경을 관리하기
 
-개인적으로는 DB를 먼저 붙이는 쪽이 낫다고 봅니다. 그래야 Agent와 Web UI를 붙일 때 데이터 흐름이 덜 흔들립니다.
+DB 저장소는 붙였지만 아직 migration 체계는 없습니다. Agent 개발 전에 Alembic을 먼저 넣는 편이 안전합니다.

@@ -2,7 +2,7 @@
 
 Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, RCA job 생성, fake evidence 기반 report 생성까지의 기본 흐름을 제공합니다.
 
-현재 구현은 인메모리 저장소를 사용합니다. 프로세스를 재시작하면 등록된 클러스터, RCA job, report 데이터는 초기화됩니다.
+현재 구현은 SQLAlchemy 저장소를 사용합니다. `RCA_DATABASE_URL`에 따라 PostgreSQL, MariaDB, 개발용 SQLite를 선택합니다.
 
 ## 실행
 
@@ -49,6 +49,8 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, RCA job �
 
 Alertmanager webhook payload는 [examples/alertmanager-webhook.json](../examples/alertmanager-webhook.json)을 참고합니다.
 
+DB 설정은 [docs/database.md](database.md)를 참고합니다.
+
 ## 현재 MVP 범위
 
 - 실제 Node Agent 연동 전까지 `FakeEvidenceCollector`가 결정론적 evidence bundle을 생성합니다.
@@ -56,4 +58,4 @@ Alertmanager webhook payload는 [examples/alertmanager-webhook.json](../examples
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
 - LLM 분석은 아직 연결하지 않았습니다.
 - 조치 실행 API는 아직 제공하지 않습니다.
-
+- DB schema migration은 아직 Alembic이 아니라 startup auto-create 방식입니다.

@@ -2,16 +2,25 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, status
 
+from backend.app.config import load_settings
+from backend.app.database import create_db_engine, create_session_factory, create_tables
 from backend.app.models import AlertmanagerPayload, Cluster, ClusterCreateRequest, RcaJob, RcaReport
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
 from backend.app.services.evidence import FakeEvidenceCollector
 from backend.app.services.policy import PolicyEngine
 from backend.app.services.rca import RcaService
-from backend.app.store import InMemoryStore
+from backend.app.store import SqlAlchemyStore, StoreProtocol
 
 
-def create_app() -> FastAPI:
-    store = InMemoryStore()
+def create_app(database_url: str | None = None, store: StoreProtocol | None = None) -> FastAPI:
+    settings = load_settings(database_url)
+    engine = None
+    if store is None:
+        engine = create_db_engine(settings.database_url)
+        if settings.auto_create_tables:
+            create_tables(engine)
+        store = SqlAlchemyStore(create_session_factory(engine))
+
     policy_engine = PolicyEngine()
     analyzer = RuleBasedRcaAnalyzer(policy_engine)
     evidence_collector = FakeEvidenceCollector()
@@ -25,6 +34,8 @@ def create_app() -> FastAPI:
 
     app.state.store = store
     app.state.rca_service = rca_service
+    app.state.database_url = settings.database_url
+    app.state.engine = engine
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -82,4 +93,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

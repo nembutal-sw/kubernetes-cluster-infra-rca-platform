@@ -1,10 +1,15 @@
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import mysql, postgresql
+from sqlalchemy.schema import CreateTable
 
+import backend.app.db_models  # noqa: F401
+from backend.app.config import normalize_database_url
+from backend.app.database import Base
 from backend.app.main import create_app
 
 
-def test_cluster_registration_and_install_command() -> None:
-    client = TestClient(create_app())
+def test_cluster_registration_and_install_command(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
 
     create_response = client.post(
         "/api/clusters",
@@ -24,8 +29,8 @@ def test_cluster_registration_and_install_command() -> None:
     assert any("agent-token" in command for command in install["commands"])
 
 
-def test_alertmanager_webhook_creates_rca_report() -> None:
-    client = TestClient(create_app())
+def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
     cluster = client.post(
         "/api/clusters",
         json={"name": "prod-cluster", "environment": "prod"},
@@ -60,6 +65,7 @@ def test_alertmanager_webhook_creates_rca_report() -> None:
     assert result["received_alerts"] == 1
     assert len(result["created_jobs"]) == 1
     assert len(result["created_reports"]) == 1
+    assert result["created_jobs"][0]["evidence_id"].startswith("evidence-")
 
     report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}")
 
@@ -74,8 +80,8 @@ def test_alertmanager_webhook_creates_rca_report() -> None:
     }
 
 
-def test_webhook_skips_unknown_cluster() -> None:
-    client = TestClient(create_app())
+def test_webhook_skips_unknown_cluster(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
 
     response = client.post(
         "/api/webhooks/alertmanager",
@@ -100,3 +106,49 @@ def test_webhook_skips_unknown_cluster() -> None:
         "DiskPressure: cluster cluster-does-not-exist is not registered"
     ]
 
+
+def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'persistent.db'}"
+    first_client = TestClient(create_app(database_url=database_url))
+
+    cluster = first_client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    second_client = TestClient(create_app(database_url=database_url))
+    response = second_client.get(f"/api/clusters/{cluster['cluster_id']}")
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "prod-cluster"
+
+
+def test_database_url_normalization() -> None:
+    assert normalize_database_url("postgres://u:p@localhost:5432/rca") == (
+        "postgresql+psycopg://u:p@localhost:5432/rca"
+    )
+    assert normalize_database_url("postgresql://u:p@localhost:5432/rca") == (
+        "postgresql+psycopg://u:p@localhost:5432/rca"
+    )
+    assert normalize_database_url("mariadb://u:p@localhost:3306/rca") == (
+        "mysql+pymysql://u:p@localhost:3306/rca"
+    )
+    assert normalize_database_url("mysql://u:p@localhost:3306/rca") == (
+        "mysql+pymysql://u:p@localhost:3306/rca"
+    )
+
+
+def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
+    postgres_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=postgresql.dialect()))
+        for table in Base.metadata.sorted_tables
+    )
+    mariadb_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=mysql.dialect()))
+        for table in Base.metadata.sorted_tables
+    )
+
+    assert "CREATE TABLE clusters" in postgres_ddl
+    assert "CREATE TABLE clusters" in mariadb_ddl
+    assert "rca_reports" in postgres_ddl
+    assert "rca_reports" in mariadb_ddl
