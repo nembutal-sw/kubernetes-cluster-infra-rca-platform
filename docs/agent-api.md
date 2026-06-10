@@ -28,6 +28,7 @@ hostPath 기본값:
 
 | 이름 | 기본값 |
 | --- | --- |
+| `HOST_ROOT` | `/host/root` |
 | `HOST_PROC` | `/host/proc` |
 | `HOST_SYS` | `/host/sys` |
 | `HOST_ETC` | `/host/etc` |

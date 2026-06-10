@@ -32,6 +32,106 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert any("agent-token" in command for command in install["commands"])
 
 
+def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    install_response = client.get(
+        f"/api/clusters/{cluster['cluster_id']}/install-command",
+        params={
+            "backend_url": "https://rca.example.com",
+            "image": "ghcr.io/acme/cluster-infra-rca-agent:v1",
+            "namespace": "custom-rca",
+        },
+    )
+
+    assert install_response.status_code == 200
+    install = install_response.json()
+    assert install["namespace"] == "custom-rca"
+    assert install["commands"][0] == "kubectl create namespace custom-rca --dry-run=client -o yaml | kubectl apply -f -"
+    assert "--from-literal=cluster-id=" + cluster["cluster_id"] in install["commands"][1]
+    assert "--from-literal=agent-token=" + cluster["bootstrap_token"] in install["commands"][1]
+    assert "/api/clusters/" + cluster["cluster_id"] + "/agent-manifest?" in install["commands"][2]
+    assert "backend_url=https%3A%2F%2Frca.example.com" in install["commands"][2]
+    assert "image=ghcr.io%2Facme%2Fcluster-infra-rca-agent%3Av1" in install["commands"][2]
+    assert "namespace=custom-rca" in install["commands"][2]
+
+
+def test_agent_manifest_generation_and_validation(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    manifest_response = client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={
+            "backend_url": "https://rca.example.com/",
+            "image": "ghcr.io/acme/cluster-infra-rca-agent:v1",
+            "namespace": "custom-rca",
+            "poll_interval_seconds": 30,
+            "http_timeout_seconds": 20,
+            "command_timeout_seconds": 7,
+        },
+    )
+
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.json()
+    assert manifest["apiVersion"] == "v1"
+    assert manifest["kind"] == "List"
+    assert "metadata" not in manifest
+
+    items = {item["kind"]: item for item in manifest["items"]}
+    assert items["Namespace"]["metadata"]["name"] == "custom-rca"
+
+    config_map = items["ConfigMap"]
+    assert config_map["metadata"]["annotations"]["cluster-infra-rca.io/cluster-id"] == cluster["cluster_id"]
+    assert config_map["data"] == {
+        "BACKEND_URL": "https://rca.example.com",
+        "POLL_INTERVAL_SECONDS": "30",
+        "HTTP_TIMEOUT_SECONDS": "20",
+        "COMMAND_TIMEOUT_SECONDS": "7",
+    }
+
+    daemonset = items["DaemonSet"]
+    container = daemonset["spec"]["template"]["spec"]["containers"][0]
+    assert container["image"] == "ghcr.io/acme/cluster-infra-rca-agent:v1"
+    assert container["command"] == ["python", "-m", "node_agent.main"]
+    assert {"name": "host-root", "mountPath": "/host/root", "readOnly": True} in container["volumeMounts"]
+    assert {"name": "host-root", "hostPath": {"path": "/"}} in daemonset["spec"]["template"]["spec"]["volumes"]
+
+    env = {item["name"]: item for item in container["env"]}
+    assert env["BACKEND_URL"]["valueFrom"]["configMapKeyRef"]["name"] == "cluster-infra-rca-agent-config"
+    assert env["CLUSTER_ID"]["valueFrom"]["secretKeyRef"]["key"] == "cluster-id"
+    assert env["AGENT_TOKEN"]["valueFrom"]["secretKeyRef"]["key"] == "agent-token"
+    assert cluster["bootstrap_token"] not in str(manifest)
+
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "not-a-url"},
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "namespace": "Bad_Namespace"},
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "image": "bad image"},
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "poll_interval_seconds": 1},
+    ).status_code == 422
+    assert client.get(
+        "/api/clusters/cluster-does-not-exist/agent-manifest",
+        params={"backend_url": "https://rca.example.com"},
+    ).status_code == 404
+
+
 def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(

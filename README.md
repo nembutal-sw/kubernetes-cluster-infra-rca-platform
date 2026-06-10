@@ -53,6 +53,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 
 - 클러스터 등록
 - Agent 설치 명령어 조회
+- 클러스터별 Agent manifest 생성
 - Alertmanager webhook 수신
 - Alertmanager 알림을 Agent evidence request로 연결
 - fake evidence 생성
@@ -67,6 +68,8 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Node Agent MVP collector와 DaemonSet manifest
 
 Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM 연동과 Web UI는 다음 단계에서 붙일 예정입니다.
+
+Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성합니다. `backend_url`, `image`, `namespace`를 query parameter로 넘기면 환경별 DaemonSet manifest를 받을 수 있습니다.
 
 ## Backend 실행
 

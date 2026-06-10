@@ -23,6 +23,7 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 | `GET` | `/api/clusters` | 등록된 클러스터 목록 |
 | `GET` | `/api/clusters/{cluster_id}` | 클러스터 상세 |
 | `GET` | `/api/clusters/{cluster_id}/install-command` | Agent 설치 명령어 조회 |
+| `GET` | `/api/clusters/{cluster_id}/agent-manifest` | 클러스터별 Agent DaemonSet manifest 생성 |
 | `GET` | `/api/clusters/{cluster_id}/agents` | 클러스터 Node Agent 목록 |
 | `GET` | `/api/clusters/{cluster_id}/agents/{node_name}` | 특정 Node Agent 상세 |
 | `POST` | `/api/agents/register` | Node Agent 등록 |
@@ -44,17 +45,33 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 1. `POST /api/clusters`로 클러스터를 등록합니다.
 2. 응답의 `cluster_id`를 확인합니다.
 3. `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
-4. Agent가 `/api/agents/register`로 자신을 등록합니다.
-5. Agent가 `/api/agents/heartbeat`로 상태를 갱신합니다.
-6. Backend가 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
-7. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
-8. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
-9. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
-10. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
-11. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
-12. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
-13. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
-14. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+4. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
+5. Agent가 `/api/agents/register`로 자신을 등록합니다.
+6. Agent가 `/api/agents/heartbeat`로 상태를 갱신합니다.
+7. Backend가 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
+8. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
+9. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
+10. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
+11. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
+12. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
+13. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
+14. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
+15. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+
+## Agent manifest 생성
+
+```text
+GET /api/clusters/{cluster_id}/agent-manifest?backend_url=https://rca.example.com&image=ghcr.io/acme/cluster-infra-rca-agent:v1&namespace=rca-system
+```
+
+응답은 `kubectl apply -f`로 적용할 수 있는 Kubernetes JSON `List`입니다. Secret은 manifest에 포함하지 않습니다. 설치 명령어가 별도로 `cluster-id`와 `agent-token` Secret을 생성합니다.
+
+검증:
+
+- `backend_url`은 `http` 또는 `https` absolute URL이어야 합니다.
+- `namespace`는 Kubernetes DNS label이어야 합니다.
+- `image`는 공백 없는 container image reference여야 합니다.
+- timeout 값은 허용 범위 밖이면 `422`를 반환합니다.
 
 ## 예시 요청
 
@@ -79,6 +96,7 @@ Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니�
 - Node Agent 등록과 heartbeat API는 구현되어 있습니다.
 - Agent evidence request/response API는 구현되어 있습니다.
 - Agent가 completed evidence를 제출하면 RCA job과 report가 자동 생성됩니다.
+- 클러스터별 Agent manifest 생성 API가 구현되어 있습니다.
 - `RuleBasedRcaAnalyzer`가 alert type에 따라 원인 후보와 confidence를 생성합니다.
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
 - LLM 분석은 아직 연결하지 않았습니다.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Query, status
 
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
@@ -22,6 +22,14 @@ from backend.app.models import (
     WebhookIngestResponse,
 )
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
+from backend.app.services.agent_manifest import (
+    DEFAULT_AGENT_IMAGE,
+    DEFAULT_AGENT_NAMESPACE,
+    DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    AgentManifestOptions,
+)
 from backend.app.services.evidence import FakeEvidenceCollector
 from backend.app.services.policy import PolicyEngine
 from backend.app.services.rca import RcaService
@@ -77,11 +85,52 @@ def create_app(
         return cluster
 
     @app.get("/api/clusters/{cluster_id}/install-command")
-    def get_install_command(cluster_id: str):
-        response = rca_service.build_install_command(cluster_id)
+    def get_install_command(
+        cluster_id: str,
+        backend_url: str | None = Query(default=None),
+        image: str = Query(default=DEFAULT_AGENT_IMAGE),
+        namespace: str = Query(default=DEFAULT_AGENT_NAMESPACE),
+    ):
+        try:
+            response = rca_service.build_install_command(
+                cluster_id,
+                backend_url=backend_url,
+                image=image,
+                namespace=namespace,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if response is None:
             raise HTTPException(status_code=404, detail="cluster not found")
         return response
+
+    @app.get("/api/clusters/{cluster_id}/agent-manifest")
+    def get_agent_manifest(
+        cluster_id: str,
+        backend_url: str = Query(...),
+        image: str = Query(default=DEFAULT_AGENT_IMAGE),
+        namespace: str = Query(default=DEFAULT_AGENT_NAMESPACE),
+        poll_interval_seconds: int = Query(default=DEFAULT_POLL_INTERVAL_SECONDS),
+        http_timeout_seconds: int = Query(default=DEFAULT_HTTP_TIMEOUT_SECONDS),
+        command_timeout_seconds: int = Query(default=DEFAULT_COMMAND_TIMEOUT_SECONDS),
+    ) -> dict[str, object]:
+        try:
+            manifest = rca_service.build_agent_manifest(
+                cluster_id,
+                AgentManifestOptions(
+                    backend_url=backend_url,
+                    image=image,
+                    namespace=namespace,
+                    poll_interval_seconds=poll_interval_seconds,
+                    http_timeout_seconds=http_timeout_seconds,
+                    command_timeout_seconds=command_timeout_seconds,
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if manifest is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        return manifest
 
     @app.get("/api/clusters/{cluster_id}/agents", response_model=list[NodeAgent])
     def list_cluster_agents(cluster_id: str) -> list[NodeAgent]:

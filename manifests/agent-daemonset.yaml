@@ -89,6 +89,9 @@ spec:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
           volumeMounts:
+            - name: host-root
+              mountPath: /host/root
+              readOnly: true
             - name: host-var-log
               mountPath: /host/var/log
               readOnly: true
@@ -115,6 +118,9 @@ spec:
               cpu: 500m
               memory: 256Mi
       volumes:
+        - name: host-root
+          hostPath:
+            path: /
         - name: host-var-log
           hostPath:
             path: /var/log

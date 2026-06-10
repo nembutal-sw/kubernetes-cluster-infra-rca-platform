@@ -18,10 +18,12 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
   --from-literal=cluster-id=cluster-prod-01 \
   --from-literal=agent-token=bootstrap-token \
   --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f manifests/agent-daemonset.yaml
+kubectl apply -f "https://rca.example.com/api/clusters/cluster-prod-01/agent-manifest?backend_url=https%3A%2F%2Frca.example.com&image=ghcr.io%2Facme%2Fcluster-infra-rca-agent%3Av1&namespace=rca-system"
 ```
 
-현재 manifest는 `cluster-id`와 `agent-token`을 Secret에서 읽고, `BACKEND_URL`과 timeout 값은 ConfigMap에서 읽습니다. 운영 배포 단계에서는 backend endpoint, image tag, RBAC 설정을 클러스터별 manifest로 생성하는 방식이 필요합니다.
+현재 manifest는 `cluster-id`와 `agent-token`을 Secret에서 읽고, `BACKEND_URL`과 timeout 값은 ConfigMap에서 읽습니다. Backend는 `/api/clusters/{cluster_id}/agent-manifest`로 클러스터별 DaemonSet manifest를 생성합니다. Secret은 manifest에 포함하지 않으므로 설치 명령어에서 별도로 생성합니다.
+
+로컬 개발에서는 repo의 `manifests/agent-daemonset.yaml`을 직접 수정해 적용할 수 있습니다. 운영 배포에서는 backend URL, image tag, namespace를 query parameter로 넘겨 manifest를 생성하는 쪽이 안전합니다.
 
 ## Alertmanager webhook 예시
 

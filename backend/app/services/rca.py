@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import urlencode
 
 from backend.app.models import (
     AlertmanagerAlert,
@@ -13,6 +14,15 @@ from backend.app.models import (
     RcaJob,
     RcaJobStatus,
     WebhookIngestResponse,
+)
+from backend.app.services.agent_manifest import (
+    DEFAULT_AGENT_IMAGE,
+    DEFAULT_AGENT_NAMESPACE,
+    AgentManifestOptions,
+    build_agent_manifest,
+    validate_backend_url,
+    validate_image,
+    validate_kubernetes_name,
 )
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
 from backend.app.services.evidence import FakeEvidenceCollector
@@ -30,29 +40,60 @@ class RcaService:
         self._evidence_collector = evidence_collector
         self._analyzer = analyzer
 
-    def build_install_command(self, cluster_id: str) -> InstallCommandResponse | None:
+    def build_install_command(
+        self,
+        cluster_id: str,
+        backend_url: str | None = None,
+        image: str = DEFAULT_AGENT_IMAGE,
+        namespace: str = DEFAULT_AGENT_NAMESPACE,
+    ) -> InstallCommandResponse | None:
         cluster = self._store.get_cluster(cluster_id)
         if cluster is None:
             return None
+        image = validate_image(image)
+        namespace = validate_kubernetes_name(namespace, "namespace")
+        manifest_command = "kubectl apply -f manifests/agent-daemonset.yaml"
+        notes = [
+            "backend_url을 제공하면 클러스터별 manifest URL을 사용합니다.",
+            "backend_url을 생략하면 repo의 로컬 manifest를 적용합니다.",
+        ]
+        if backend_url is not None:
+            backend_url = validate_backend_url(backend_url)
+            manifest_query = urlencode(
+                {
+                    "backend_url": backend_url,
+                    "image": image,
+                    "namespace": namespace,
+                }
+            )
+            manifest_url = f"{backend_url}/api/clusters/{cluster.cluster_id}/agent-manifest?{manifest_query}"
+            manifest_command = f'kubectl apply -f "{manifest_url}"'
+            notes = [
+                "Secret에는 cluster_id와 agent token이 들어갑니다. 출력된 명령어를 안전하게 취급해야 합니다.",
+                "manifest URL은 backend URL, image, namespace 값을 포함해 클러스터별 DaemonSet을 생성합니다.",
+            ]
 
         return InstallCommandResponse(
             cluster_id=cluster.cluster_id,
-            namespace="rca-system",
+            namespace=namespace,
             commands=[
-                "kubectl create namespace rca-system --dry-run=client -o yaml | kubectl apply -f -",
+                f"kubectl create namespace {namespace} --dry-run=client -o yaml | kubectl apply -f -",
                 (
-                    "kubectl -n rca-system create secret generic cluster-infra-rca-agent "
+                    f"kubectl -n {namespace} create secret generic cluster-infra-rca-agent "
                     f"--from-literal=cluster-id={cluster.cluster_id} "
                     f"--from-literal=agent-token={cluster.bootstrap_token} "
                     "--dry-run=client -o yaml | kubectl apply -f -"
                 ),
-                "kubectl apply -f manifests/agent-daemonset.yaml",
+                manifest_command,
             ],
-            notes=[
-                "MVP 단계에서는 로컬 manifest를 사용합니다.",
-                "실제 배포 단계에서는 backend endpoint와 image tag가 포함된 클러스터별 manifest URL을 제공합니다.",
-            ],
+            notes=notes,
         )
+
+    def build_agent_manifest(self, cluster_id: str, options: AgentManifestOptions) -> dict[str, object] | None:
+        cluster = self._store.get_cluster(cluster_id)
+        if cluster is None:
+            return None
+        return build_agent_manifest(cluster, options)
 
     def ingest_alertmanager(self, payload: AlertmanagerPayload) -> WebhookIngestResponse:
         created_jobs: list[RcaJob] = []
