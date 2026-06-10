@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.database import Base
@@ -30,6 +30,22 @@ class EvidenceBundleRow(Base):
     alert_name: Mapped[str] = mapped_column(String(255), nullable=False)
     collectors_json: Mapped[str] = mapped_column(Text, nullable=False)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class NodeAgentRow(Base):
+    __tablename__ = "node_agents"
+    __table_args__ = (UniqueConstraint("cluster_id", "node_name", name="uq_node_agents_cluster_node"),)
+
+    agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cluster_id: Mapped[str] = mapped_column(ForeignKey("clusters.cluster_id"), nullable=False, index=True)
+    node_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    supported_collectors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False)
+    health_json: Mapped[str] = mapped_column(Text, nullable=False)
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class RcaReportRow(Base):

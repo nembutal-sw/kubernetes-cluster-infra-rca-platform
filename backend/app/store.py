@@ -9,18 +9,23 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
-from backend.app.db_models import ClusterRow, EvidenceBundleRow, RcaJobRow, RcaReportRow
+from backend.app.db_models import ClusterRow, EvidenceBundleRow, NodeAgentRow, RcaJobRow, RcaReportRow
 from backend.app.models import (
+    AgentStatus,
     Cluster,
     ClusterCreateRequest,
     ClusterStatus,
     EvidenceBundle,
+    NodeAgent,
+    NodeAgentHeartbeatRequest,
+    NodeAgentRegisterRequest,
     RcaJob,
     RcaJobStatus,
     RcaReport,
     RcaSummary,
     RecommendedAction,
     RootCauseCandidate,
+    now_utc,
 )
 
 
@@ -28,6 +33,10 @@ class StoreProtocol(Protocol):
     def create_cluster(self, request: ClusterCreateRequest) -> Cluster: ...
     def list_clusters(self) -> list[Cluster]: ...
     def get_cluster(self, cluster_id: str) -> Cluster | None: ...
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent: ...
+    def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None: ...
+    def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]: ...
+    def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None: ...
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle: ...
     def get_evidence(self, evidence_id: str) -> EvidenceBundle | None: ...
     def save_job(self, job: RcaJob) -> RcaJob: ...
@@ -42,6 +51,7 @@ class InMemoryStore:
     def __init__(self) -> None:
         self._lock = RLock()
         self._clusters: dict[str, Cluster] = {}
+        self._agents: dict[tuple[str, str], NodeAgent] = {}
         self._evidence: dict[str, EvidenceBundle] = {}
         self._jobs: dict[str, RcaJob] = {}
         self._reports: dict[str, RcaReport] = {}
@@ -65,6 +75,57 @@ class InMemoryStore:
     def get_cluster(self, cluster_id: str) -> Cluster | None:
         with self._lock:
             return self._clusters.get(cluster_id)
+
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent:
+        with self._lock:
+            existing = self._agents.get((request.cluster_id, request.node_name))
+            registered_at = existing.registered_at if existing else now_utc()
+            agent = NodeAgent(
+                agent_id=existing.agent_id if existing else f"agent-{uuid.uuid4().hex[:8]}",
+                cluster_id=request.cluster_id,
+                node_name=request.node_name,
+                agent_version=request.agent_version,
+                status=AgentStatus.REGISTERED,
+                supported_collectors=request.supported_collectors,
+                metadata=request.metadata,
+                health=existing.health if existing else {},
+                registered_at=registered_at,
+                last_heartbeat_at=existing.last_heartbeat_at if existing else None,
+            )
+            self._agents[(request.cluster_id, request.node_name)] = agent
+            self._mark_cluster_active(request.cluster_id)
+            return agent
+
+    def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None:
+        with self._lock:
+            existing = self._agents.get((request.cluster_id, request.node_name))
+            if existing is None:
+                return None
+            agent = existing.model_copy(
+                update={
+                    "status": request.status,
+                    "agent_version": request.agent_version or existing.agent_version,
+                    "supported_collectors": request.supported_collectors
+                    if request.supported_collectors is not None
+                    else existing.supported_collectors,
+                    "health": request.health,
+                    "last_heartbeat_at": now_utc(),
+                }
+            )
+            self._agents[(request.cluster_id, request.node_name)] = agent
+            self._mark_cluster_active(request.cluster_id)
+            return agent
+
+    def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]:
+        with self._lock:
+            agents = list(self._agents.values())
+            if cluster_id is not None:
+                agents = [agent for agent in agents if agent.cluster_id == cluster_id]
+            return agents
+
+    def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None:
+        with self._lock:
+            return self._agents.get((cluster_id, node_name))
 
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle:
         with self._lock:
@@ -103,6 +164,17 @@ class InMemoryStore:
         with self._lock:
             return self._reports.get(report_id)
 
+    def _mark_cluster_active(self, cluster_id: str) -> None:
+        cluster = self._clusters.get(cluster_id)
+        if cluster is None:
+            return
+        self._clusters[cluster_id] = cluster.model_copy(
+            update={
+                "status": ClusterStatus.ACTIVE,
+                "last_seen_at": now_utc(),
+            }
+        )
+
 
 class SqlAlchemyStore:
     def __init__(self, session_factory: Callable[[], Session]) -> None:
@@ -130,6 +202,72 @@ class SqlAlchemyStore:
         with self._session_factory() as session:
             row = session.get(ClusterRow, cluster_id)
             return _cluster_from_row(row) if row else None
+
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent:
+        with self._session_factory() as session:
+            existing = (
+                session.query(NodeAgentRow)
+                .filter(NodeAgentRow.cluster_id == request.cluster_id, NodeAgentRow.node_name == request.node_name)
+                .one_or_none()
+            )
+            agent = NodeAgent(
+                agent_id=existing.agent_id if existing else f"agent-{uuid.uuid4().hex[:8]}",
+                cluster_id=request.cluster_id,
+                node_name=request.node_name,
+                agent_version=request.agent_version,
+                status=AgentStatus.REGISTERED,
+                supported_collectors=request.supported_collectors,
+                metadata=request.metadata,
+                health=_json_load(existing.health_json) if existing else {},
+                registered_at=existing.registered_at if existing else now_utc(),
+                last_heartbeat_at=existing.last_heartbeat_at if existing else None,
+            )
+            session.merge(_agent_to_row(agent))
+            _mark_cluster_active(session, request.cluster_id)
+            session.commit()
+            return agent
+
+    def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None:
+        with self._session_factory() as session:
+            existing = (
+                session.query(NodeAgentRow)
+                .filter(NodeAgentRow.cluster_id == request.cluster_id, NodeAgentRow.node_name == request.node_name)
+                .one_or_none()
+            )
+            if existing is None:
+                return None
+            agent = _agent_from_row(existing).model_copy(
+                update={
+                    "status": request.status,
+                    "agent_version": request.agent_version or existing.agent_version,
+                    "supported_collectors": request.supported_collectors
+                    if request.supported_collectors is not None
+                    else _json_load(existing.supported_collectors_json),
+                    "health": request.health,
+                    "last_heartbeat_at": now_utc(),
+                }
+            )
+            session.merge(_agent_to_row(agent))
+            _mark_cluster_active(session, request.cluster_id)
+            session.commit()
+            return agent
+
+    def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]:
+        with self._session_factory() as session:
+            query = session.query(NodeAgentRow)
+            if cluster_id is not None:
+                query = query.filter(NodeAgentRow.cluster_id == cluster_id)
+            rows = query.order_by(NodeAgentRow.node_name.asc()).all()
+            return [_agent_from_row(row) for row in rows]
+
+    def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None:
+        with self._session_factory() as session:
+            row = (
+                session.query(NodeAgentRow)
+                .filter(NodeAgentRow.cluster_id == cluster_id, NodeAgentRow.node_name == node_name)
+                .one_or_none()
+            )
+            return _agent_from_row(row) if row else None
 
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle:
         if evidence.evidence_id is None:
@@ -186,6 +324,14 @@ def _json_load(value: str):
     return json.loads(value)
 
 
+def _mark_cluster_active(session: Session, cluster_id: str) -> None:
+    cluster_row = session.get(ClusterRow, cluster_id)
+    if cluster_row is None:
+        return
+    cluster_row.status = ClusterStatus.ACTIVE.value
+    cluster_row.last_seen_at = now_utc()
+
+
 def _cluster_to_row(cluster: Cluster) -> ClusterRow:
     return ClusterRow(
         cluster_id=cluster.cluster_id,
@@ -209,6 +355,36 @@ def _cluster_from_row(row: ClusterRow) -> Cluster:
         bootstrap_token=row.bootstrap_token,
         created_at=row.created_at,
         last_seen_at=row.last_seen_at,
+    )
+
+
+def _agent_to_row(agent: NodeAgent) -> NodeAgentRow:
+    return NodeAgentRow(
+        agent_id=agent.agent_id,
+        cluster_id=agent.cluster_id,
+        node_name=agent.node_name,
+        agent_version=agent.agent_version,
+        status=agent.status.value,
+        supported_collectors_json=_json_dump(agent.supported_collectors),
+        metadata_json=_json_dump(agent.metadata),
+        health_json=_json_dump(agent.health),
+        registered_at=agent.registered_at,
+        last_heartbeat_at=agent.last_heartbeat_at,
+    )
+
+
+def _agent_from_row(row: NodeAgentRow) -> NodeAgent:
+    return NodeAgent(
+        agent_id=row.agent_id,
+        cluster_id=row.cluster_id,
+        node_name=row.node_name,
+        agent_version=row.agent_version,
+        status=AgentStatus(row.status),
+        supported_collectors=_json_load(row.supported_collectors_json),
+        metadata=_json_load(row.metadata_json),
+        health=_json_load(row.health_json),
+        registered_at=row.registered_at,
+        last_heartbeat_at=row.last_heartbeat_at,
     )
 
 

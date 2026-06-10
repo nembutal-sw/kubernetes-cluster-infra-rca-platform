@@ -36,6 +36,13 @@ class Confidence(str, Enum):
     HIGH = "high"
 
 
+class AgentStatus(str, Enum):
+    REGISTERED = "registered"
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    OFFLINE = "offline"
+
+
 class ClusterCreateRequest(BaseModel):
     name: str = Field(min_length=1, examples=["prod-cluster"])
     environment: str = Field(default="dev", examples=["prod"])
@@ -58,6 +65,38 @@ class InstallCommandResponse(BaseModel):
     namespace: str
     commands: list[str]
     notes: list[str]
+
+
+class NodeAgentRegisterRequest(BaseModel):
+    cluster_id: str
+    node_name: str = Field(min_length=1, examples=["worker-3"])
+    agent_token: str = Field(min_length=1)
+    agent_version: str = Field(min_length=1, examples=["0.1.0"])
+    supported_collectors: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NodeAgentHeartbeatRequest(BaseModel):
+    cluster_id: str
+    node_name: str = Field(min_length=1, examples=["worker-3"])
+    agent_token: str = Field(min_length=1)
+    status: AgentStatus = AgentStatus.HEALTHY
+    agent_version: str | None = None
+    supported_collectors: list[str] | None = None
+    health: dict[str, Any] = Field(default_factory=dict)
+
+
+class NodeAgent(BaseModel):
+    agent_id: str
+    cluster_id: str
+    node_name: str
+    agent_version: str
+    status: AgentStatus
+    supported_collectors: list[str]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    health: dict[str, Any] = Field(default_factory=dict)
+    registered_at: datetime = Field(default_factory=now_utc)
+    last_heartbeat_at: datetime | None = None
 
 
 class AlertmanagerAlert(BaseModel):

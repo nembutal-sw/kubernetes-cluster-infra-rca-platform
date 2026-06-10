@@ -110,6 +110,95 @@ def test_webhook_skips_unknown_cluster(tmp_path) -> None:
     ]
 
 
+def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["systemd", "disk", "network"],
+            "metadata": {"kernel": "6.8.0", "runtime": "containerd"},
+        },
+    )
+
+    assert register_response.status_code == 201
+    registered = register_response.json()
+    assert registered["agent_id"].startswith("agent-")
+    assert registered["status"] == "registered"
+    assert registered["supported_collectors"] == ["systemd", "disk", "network"]
+
+    heartbeat_response = client.post(
+        "/api/agents/heartbeat",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "healthy",
+            "agent_version": "0.1.1",
+            "supported_collectors": ["systemd", "disk", "network", "kubelet"],
+            "health": {"kubelet": "active", "containerd": "active"},
+        },
+    )
+
+    assert heartbeat_response.status_code == 200
+    heartbeat = heartbeat_response.json()
+    assert heartbeat["status"] == "healthy"
+    assert heartbeat["agent_version"] == "0.1.1"
+    assert heartbeat["last_heartbeat_at"] is not None
+
+    list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents")
+    assert list_response.status_code == 200
+    assert [agent["node_name"] for agent in list_response.json()] == ["worker-3"]
+
+    get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3")
+    assert get_response.status_code == 200
+    assert get_response.json()["health"] == {"kubelet": "active", "containerd": "active"}
+
+    cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}")
+    assert cluster_response.status_code == 200
+    cluster_after_agent = cluster_response.json()
+    assert cluster_after_agent["status"] == "active"
+    assert cluster_after_agent["last_seen_at"] is not None
+
+
+def test_agent_auth_and_registration_errors(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    invalid_token_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": "wrong-token",
+            "agent_version": "0.1.0",
+        },
+    )
+    assert invalid_token_response.status_code == 401
+
+    unregistered_heartbeat_response = client.post(
+        "/api/agents/heartbeat",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "healthy",
+        },
+    )
+    assert unregistered_heartbeat_response.status_code == 404
+
+
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'persistent.db'}"
     first_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
@@ -155,6 +244,8 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "CREATE TABLE clusters" in mariadb_ddl
     assert "rca_reports" in postgres_ddl
     assert "rca_reports" in mariadb_ddl
+    assert "node_agents" in postgres_ddl
+    assert "node_agents" in mariadb_ddl
 
 
 def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None:
@@ -165,7 +256,7 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
 
     engine = create_db_engine(database_url)
     tables = set(inspect(engine).get_table_names())
-    assert {"alembic_version", "clusters", "evidence_bundles", "rca_reports", "rca_jobs"} <= tables
+    assert {"alembic_version", "clusters", "node_agents", "evidence_bundles", "rca_reports", "rca_jobs"} <= tables
 
     client = TestClient(create_app(database_url=database_url, auto_create_tables=False))
     response = client.post(

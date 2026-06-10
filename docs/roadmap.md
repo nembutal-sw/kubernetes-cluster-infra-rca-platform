@@ -23,8 +23,10 @@
 
 ## Phase 3: Node Agent MVP
 
-- DaemonSet 배포
-- heartbeat
+- Agent register API 완료
+- Agent heartbeat API 완료
+- Agent 조회 API 완료
+- DaemonSet 배포 예정
 - kubelet/containerd/systemd collector
 - disk/inode/memory/network collector
 - evidence request API

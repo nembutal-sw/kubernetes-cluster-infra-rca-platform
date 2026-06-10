@@ -4,7 +4,16 @@ from fastapi import FastAPI, HTTPException, status
 
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
-from backend.app.models import AlertmanagerPayload, Cluster, ClusterCreateRequest, RcaJob, RcaReport
+from backend.app.models import (
+    AlertmanagerPayload,
+    Cluster,
+    ClusterCreateRequest,
+    NodeAgent,
+    NodeAgentHeartbeatRequest,
+    NodeAgentRegisterRequest,
+    RcaJob,
+    RcaReport,
+)
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
 from backend.app.services.evidence import FakeEvidenceCollector
 from backend.app.services.policy import PolicyEngine
@@ -67,6 +76,34 @@ def create_app(
             raise HTTPException(status_code=404, detail="cluster not found")
         return response
 
+    @app.get("/api/clusters/{cluster_id}/agents", response_model=list[NodeAgent])
+    def list_cluster_agents(cluster_id: str) -> list[NodeAgent]:
+        if store.get_cluster(cluster_id) is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        return store.list_agents(cluster_id)
+
+    @app.get("/api/clusters/{cluster_id}/agents/{node_name}", response_model=NodeAgent)
+    def get_cluster_agent(cluster_id: str, node_name: str) -> NodeAgent:
+        if store.get_cluster(cluster_id) is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        agent = store.get_agent(cluster_id, node_name)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        return agent
+
+    @app.post("/api/agents/register", response_model=NodeAgent, status_code=status.HTTP_201_CREATED)
+    def register_agent(request: NodeAgentRegisterRequest) -> NodeAgent:
+        _verify_agent_token(store, request.cluster_id, request.agent_token)
+        return store.register_agent(request)
+
+    @app.post("/api/agents/heartbeat", response_model=NodeAgent)
+    def record_agent_heartbeat(request: NodeAgentHeartbeatRequest) -> NodeAgent:
+        _verify_agent_token(store, request.cluster_id, request.agent_token)
+        agent = store.record_agent_heartbeat(request)
+        if agent is None:
+            raise HTTPException(status_code=404, detail="agent not registered")
+        return agent
+
     @app.post("/api/webhooks/alertmanager")
     def ingest_alertmanager(payload: AlertmanagerPayload):
         return rca_service.ingest_alertmanager(payload)
@@ -94,6 +131,14 @@ def create_app(
         return report
 
     return app
+
+
+def _verify_agent_token(store: StoreProtocol, cluster_id: str, agent_token: str) -> None:
+    cluster = store.get_cluster(cluster_id)
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    if cluster.bootstrap_token != agent_token:
+        raise HTTPException(status_code=401, detail="invalid agent token")
 
 
 app = create_app()
