@@ -9,7 +9,15 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
-from backend.app.db_models import ClusterRow, EvidenceBundleRow, EvidenceRequestRow, NodeAgentRow, RcaJobRow, RcaReportRow
+from backend.app.db_models import (
+    ClusterRow,
+    EvidenceBundleRow,
+    EvidenceRequestRow,
+    NodeAgentRow,
+    RcaJobRow,
+    RcaReportRow,
+    UserAccountRow,
+)
 from backend.app.models import (
     AgentStatus,
     AgentEvidenceSubmitRequest,
@@ -29,8 +37,14 @@ from backend.app.models import (
     RcaSummary,
     RecommendedAction,
     RootCauseCandidate,
+    UserAccount,
+    UserApprovalRequest,
+    UserRole,
+    UserSignupRequest,
+    UserStatus,
     now_utc,
 )
+from backend.app.services.auth import hash_password
 
 
 class StoreProtocol(Protocol):
@@ -59,6 +73,15 @@ class StoreProtocol(Protocol):
     def save_report(self, report: RcaReport) -> RcaReport: ...
     def list_reports(self) -> list[RcaReport]: ...
     def get_report(self, report_id: str) -> RcaReport | None: ...
+    def create_user_registration(self, request: UserSignupRequest) -> UserAccount: ...
+    def list_users(self, status: UserStatus | None = None) -> list[UserAccount]: ...
+    def get_user(self, user_id: str) -> UserAccount | None: ...
+    def decide_user_registration(
+        self,
+        user_id: str,
+        request: UserApprovalRequest,
+        approved_by: str,
+    ) -> UserAccount | None: ...
 
 
 class InMemoryStore:
@@ -70,6 +93,8 @@ class InMemoryStore:
         self._evidence: dict[str, EvidenceBundle] = {}
         self._jobs: dict[str, RcaJob] = {}
         self._reports: dict[str, RcaReport] = {}
+        self._users: dict[str, tuple[UserAccount, str]] = {}
+        self._user_ids_by_email: dict[str, str] = {}
 
     def create_cluster(self, request: ClusterCreateRequest) -> Cluster:
         with self._lock:
@@ -245,6 +270,72 @@ class InMemoryStore:
     def get_report(self, report_id: str) -> RcaReport | None:
         with self._lock:
             return self._reports.get(report_id)
+
+    def create_user_registration(self, request: UserSignupRequest) -> UserAccount:
+        with self._lock:
+            email = _normalize_email(request.email)
+            if email in self._user_ids_by_email:
+                raise ValueError("email is already registered or awaiting approval")
+            user = UserAccount(
+                user_id=f"user-{uuid.uuid4().hex[:8]}",
+                email=email,
+                full_name=request.full_name.strip(),
+                requested_role=request.requested_role,
+                status=UserStatus.PENDING_APPROVAL,
+                reason=request.reason,
+            )
+            self._users[user.user_id] = (user, hash_password(request.password))
+            self._user_ids_by_email[email] = user.user_id
+            return user
+
+    def list_users(self, status: UserStatus | None = None) -> list[UserAccount]:
+        with self._lock:
+            users = [item[0] for item in self._users.values()]
+            if status is not None:
+                users = [user for user in users if user.status == status]
+            return sorted(users, key=lambda item: item.created_at, reverse=True)
+
+    def get_user(self, user_id: str) -> UserAccount | None:
+        with self._lock:
+            item = self._users.get(user_id)
+            return item[0] if item else None
+
+    def decide_user_registration(
+        self,
+        user_id: str,
+        request: UserApprovalRequest,
+        approved_by: str,
+    ) -> UserAccount | None:
+        with self._lock:
+            item = self._users.get(user_id)
+            if item is None:
+                return None
+            user, password_hash = item
+            if user.status != UserStatus.PENDING_APPROVAL:
+                raise ValueError("user registration has already been decided")
+            approved_at = now_utc()
+            if request.decision == "approve":
+                user = user.model_copy(
+                    update={
+                        "status": UserStatus.ACTIVE,
+                        "role": request.role or user.requested_role,
+                        "approval_note": request.note,
+                        "approved_by": approved_by,
+                        "approved_at": approved_at,
+                    }
+                )
+            else:
+                user = user.model_copy(
+                    update={
+                        "status": UserStatus.REJECTED,
+                        "role": None,
+                        "approval_note": request.note,
+                        "approved_by": approved_by,
+                        "approved_at": approved_at,
+                    }
+                )
+            self._users[user_id] = (user, password_hash)
+            return user
 
     def _mark_cluster_active(self, cluster_id: str) -> None:
         cluster = self._clusters.get(cluster_id)
@@ -476,6 +567,58 @@ class SqlAlchemyStore:
             row = session.get(RcaReportRow, report_id)
             return _report_from_row(row) if row else None
 
+    def create_user_registration(self, request: UserSignupRequest) -> UserAccount:
+        email = _normalize_email(request.email)
+        user = UserAccount(
+            user_id=f"user-{uuid.uuid4().hex[:8]}",
+            email=email,
+            full_name=request.full_name.strip(),
+            requested_role=request.requested_role,
+            status=UserStatus.PENDING_APPROVAL,
+            reason=request.reason,
+        )
+        with self._session_factory() as session:
+            existing = session.query(UserAccountRow).filter(UserAccountRow.email == email).one_or_none()
+            if existing is not None:
+                raise ValueError("email is already registered or awaiting approval")
+            session.add(_user_to_row(user, hash_password(request.password)))
+            session.commit()
+        return user
+
+    def list_users(self, status: UserStatus | None = None) -> list[UserAccount]:
+        with self._session_factory() as session:
+            query = session.query(UserAccountRow)
+            if status is not None:
+                query = query.filter(UserAccountRow.status == status.value)
+            rows = query.order_by(UserAccountRow.created_at.desc()).all()
+            return [_user_from_row(row) for row in rows]
+
+    def get_user(self, user_id: str) -> UserAccount | None:
+        with self._session_factory() as session:
+            row = session.get(UserAccountRow, user_id)
+            return _user_from_row(row) if row else None
+
+    def decide_user_registration(
+        self,
+        user_id: str,
+        request: UserApprovalRequest,
+        approved_by: str,
+    ) -> UserAccount | None:
+        with self._session_factory() as session:
+            row = session.get(UserAccountRow, user_id)
+            if row is None:
+                return None
+            if row.status != UserStatus.PENDING_APPROVAL.value:
+                raise ValueError("user registration has already been decided")
+            row.status = UserStatus.ACTIVE.value if request.decision == "approve" else UserStatus.REJECTED.value
+            row.role = (request.role or UserRole(row.requested_role)).value if request.decision == "approve" else None
+            row.approval_note = request.note
+            row.approved_by = approved_by
+            row.approved_at = now_utc()
+            session.commit()
+            session.refresh(row)
+            return _user_from_row(row)
+
 
 def _json_dump(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
@@ -483,6 +626,10 @@ def _json_dump(value: object) -> str:
 
 def _json_load(value: str):
     return json.loads(value)
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
 
 
 def _mark_cluster_active(session: Session, cluster_id: str) -> None:
@@ -679,4 +826,37 @@ def _report_from_row(row: RcaReportRow) -> RcaReport:
         recommended_actions=[RecommendedAction.model_validate(item) for item in _json_load(row.recommended_actions_json)],
         policy_decisions=[RecommendedAction.model_validate(item) for item in _json_load(row.policy_decisions_json)],
         created_at=row.created_at,
+    )
+
+
+def _user_to_row(user: UserAccount, password_hash: str) -> UserAccountRow:
+    return UserAccountRow(
+        user_id=user.user_id,
+        email=user.email,
+        full_name=user.full_name,
+        password_hash=password_hash,
+        requested_role=user.requested_role.value,
+        role=user.role.value if user.role else None,
+        status=user.status.value,
+        reason=user.reason,
+        approval_note=user.approval_note,
+        approved_by=user.approved_by,
+        created_at=user.created_at,
+        approved_at=user.approved_at,
+    )
+
+
+def _user_from_row(row: UserAccountRow) -> UserAccount:
+    return UserAccount(
+        user_id=row.user_id,
+        email=row.email,
+        full_name=row.full_name,
+        requested_role=UserRole(row.requested_role),
+        role=UserRole(row.role) if row.role else None,
+        status=UserStatus(row.status),
+        reason=row.reason,
+        approval_note=row.approval_note,
+        approved_by=row.approved_by,
+        created_at=row.created_at,
+        approved_at=row.approved_at,
     )

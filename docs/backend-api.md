@@ -19,6 +19,10 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 | Method | Path | 설명 |
 | --- | --- | --- |
 | `GET` | `/health` | backend health check |
+| `GET` | `/` | 관리자 콘솔 Web UI |
+| `POST` | `/api/auth/signup` | 회원가입 승인 요청 생성 |
+| `GET` | `/api/admin/users` | 관리자 사용자 목록/승인 대기열 조회 |
+| `POST` | `/api/admin/users/{user_id}/approval` | 회원가입 요청 승인 또는 거절 |
 | `POST` | `/api/clusters` | 클러스터 등록 |
 | `GET` | `/api/clusters` | 등록된 클러스터 목록 |
 | `GET` | `/api/clusters/{cluster_id}` | 클러스터 상세 |
@@ -42,21 +46,24 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 
 ## API 흐름
 
-1. `POST /api/clusters`로 클러스터를 등록합니다.
-2. 응답의 `cluster_id`를 확인합니다.
-3. `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
-4. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
-5. Agent가 `/api/agents/register`로 자신을 등록합니다.
-6. Agent가 `/api/agents/heartbeat`로 상태를 갱신합니다.
-7. Backend가 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
-8. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
-9. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
-10. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
-11. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
-12. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
-13. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
-14. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
-15. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+1. 사용자가 `POST /api/auth/signup` 또는 Web UI에서 가입 요청을 만듭니다.
+2. 관리자가 `RCA_ADMIN_APPROVAL_TOKEN`으로 `/api/admin/users`에서 승인 대기열을 조회합니다.
+3. 관리자가 `/api/admin/users/{user_id}/approval`로 가입 요청을 승인하거나 거절합니다.
+4. `POST /api/clusters`로 클러스터를 등록합니다.
+5. 응답의 `cluster_id`를 확인합니다.
+6. `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
+7. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
+8. Agent가 `/api/agents/register`로 자신을 등록합니다.
+9. Agent가 `/api/agents/heartbeat`로 상태를 갱신합니다.
+10. Backend가 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
+11. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
+12. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
+13. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
+14. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
+15. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
+16. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
+17. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
+18. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
 
 ## Agent manifest 생성
 
@@ -88,10 +95,13 @@ Alertmanager webhook payload는 [examples/alertmanager-webhook.json](../examples
 DB 설정은 [docs/database.md](database.md)를 참고합니다.
 Agent API 계약은 [docs/agent-api.md](agent-api.md)를 참고합니다.
 Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니다.
+Web UI 구성은 [docs/web-console.md](web-console.md)를 참고합니다.
 
 ## 현재 MVP 범위
 
 - Alertmanager webhook은 등록된 Agent가 있는 노드에 대해 evidence request를 생성합니다.
+- Web UI는 FastAPI 정적 자산으로 `/`에서 제공됩니다.
+- 회원가입 요청은 `pending_approval`로 저장되고, 관리자 승인 후 `active`가 됩니다.
 - 실제 Node Agent가 없는 노드는 `FakeEvidenceCollector`가 결정론적 evidence bundle을 생성합니다.
 - Node Agent 등록과 heartbeat API는 구현되어 있습니다.
 - Agent evidence request/response API는 구현되어 있습니다.

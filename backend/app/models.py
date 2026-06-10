@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def now_utc() -> datetime:
@@ -47,6 +47,18 @@ class EvidenceRequestStatus(str, Enum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class UserStatus(str, Enum):
+    PENDING_APPROVAL = "pending_approval"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    OPERATOR = "operator"
+    VIEWER = "viewer"
 
 
 class ClusterCreateRequest(BaseModel):
@@ -177,6 +189,43 @@ class EvidenceBundle(BaseModel):
     alert_name: str
     collected_at: datetime = Field(default_factory=now_utc)
     collectors: dict[str, Any]
+
+
+class UserSignupRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255, examples=["operator@example.com"])
+    full_name: str = Field(min_length=1, max_length=255, examples=["Cluster Operator"])
+    password: str = Field(min_length=8, max_length=256)
+    requested_role: UserRole = UserRole.VIEWER
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("email must be a valid address")
+        return normalized
+
+
+class UserApprovalRequest(BaseModel):
+    admin_token: str = Field(min_length=1)
+    decision: str = Field(pattern="^(approve|reject)$")
+    role: UserRole | None = None
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class UserAccount(BaseModel):
+    user_id: str
+    email: str
+    full_name: str
+    requested_role: UserRole
+    role: UserRole | None = None
+    status: UserStatus = UserStatus.PENDING_APPROVAL
+    reason: str | None = None
+    approval_note: str | None = None
+    approved_by: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    approved_at: datetime | None = None
 
 
 class RcaSummary(BaseModel):

@@ -48,11 +48,13 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 
 ## 현재 들어있는 것
 
-아직 전체 플랫폼이 완성된 것은 아니고, 지금은 Backend API MVP까지 만들어둔 상태입니다.
+아직 전체 플랫폼이 완성된 것은 아니고, 지금은 Backend API와 관리자 콘솔 MVP까지 만들어둔 상태입니다.
 
 현재 가능한 일:
 
 - 클러스터 등록
+- 관리자 콘솔 Web UI
+- 회원가입 요청 및 관리자 승인/거절 API
 - Agent 설치 명령어 조회
 - 클러스터별 Agent manifest 생성
 - Alertmanager webhook 수신
@@ -71,7 +73,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - provider 교체 가능한 LLM Analyzer adapter
 - LLM 출력 정규화와 안전하지 않은 diagnostic command 제거
 
-Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM Analyzer adapter는 들어갔지만 기본값은 비활성화이며, Web UI는 다음 단계에서 붙일 예정입니다.
+Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM Analyzer adapter는 들어갔지만 기본값은 비활성화입니다.
 
 Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성합니다. `backend_url`, `image`, `namespace`를 query parameter로 넘기면 환경별 DaemonSet manifest를 받을 수 있습니다.
 
@@ -88,10 +90,11 @@ Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성�
 서버가 뜨면 아래 주소에서 확인할 수 있습니다.
 
 - API: `http://127.0.0.1:8000`
+- Web UI: `http://127.0.0.1:8000/`
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/health`
 
-자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. Evidence preprocessing 기준은 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md), LLM 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md), RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
+자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. Web UI 구성은 [docs/web-console.md](docs/web-console.md), Evidence preprocessing 기준은 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md), LLM 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md), RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
 
 ## DB 선택
 
@@ -117,7 +120,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 관리자 콘솔 정적 자산, 회원가입 승인 흐름, 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 
@@ -125,6 +128,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .
 |-- backend/
 |   `-- app/
+|       `-- static/
 |-- node_agent/
 |-- migrations/
 |   `-- versions/
@@ -144,6 +148,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- rca-analysis-rules.md
 |   |-- rca-scope.md
 |   |-- report-schema.md
+|   |-- web-console.md
 |   `-- roadmap.md
 |-- examples/
 |   |-- alertmanager-webhook.json
@@ -164,7 +169,8 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 
 바로 다음 단계는 둘 중 하나입니다.
 
+- Web UI 인증/세션 처리와 역할별 접근 제어 붙이기
 - Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드와 분석 threshold 보정하기
 - 실제 provider API key를 넣고 staging 환경에서 LLM Analyzer 응답 검증하기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, LLM 출력 guardrail, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.
+DB 저장소, migration, 승인 기반 회원가입, 관리자 콘솔, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, LLM 출력 guardrail, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 인증/권한과 실제 노드 collector 검증을 이어가야 합니다.

@@ -32,6 +32,21 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert any("agent-token" in command for command in install["commands"])
 
 
+def test_web_console_static_assets_are_served(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+
+    index_response = client.get("/")
+    script_response = client.get("/static/app.js")
+    style_response = client.get("/static/styles.css")
+
+    assert index_response.status_code == 200
+    assert "Cluster Infrastructure Control Plane" in index_response.text
+    assert script_response.status_code == 200
+    assert "loadPendingUsers" in script_response.text
+    assert style_response.status_code == 200
+    assert "admin-token" in style_response.text
+
+
 def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
@@ -190,6 +205,75 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
         "APPROVAL_REQUIRED",
         "GITOPS_PR_ONLY",
     }
+
+
+def test_signup_requires_admin_approval(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+
+    signup_response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "Operator@Example.com",
+            "full_name": "Cluster Operator",
+            "password": "safe-password-123",
+            "requested_role": "operator",
+            "reason": "Need access to RCA reports",
+        },
+    )
+
+    assert signup_response.status_code == 201
+    signup = signup_response.json()
+    assert signup["user_id"].startswith("user-")
+    assert signup["email"] == "operator@example.com"
+    assert signup["status"] == "pending_approval"
+    assert signup["requested_role"] == "operator"
+    assert signup["role"] is None
+    assert "password" not in signup
+    assert "password_hash" not in signup
+
+    duplicate_response = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "operator@example.com",
+            "full_name": "Duplicate Operator",
+            "password": "safe-password-456",
+        },
+    )
+    assert duplicate_response.status_code == 409
+
+    assert client.get(
+        "/api/admin/users",
+        params={"admin_token": "wrong", "status": "pending_approval"},
+    ).status_code == 401
+
+    pending_response = client.get(
+        "/api/admin/users",
+        params={"admin_token": "dev-admin-approval-token", "status": "pending_approval"},
+    )
+    assert pending_response.status_code == 200
+    assert [user["user_id"] for user in pending_response.json()] == [signup["user_id"]]
+
+    approval_response = client.post(
+        f"/api/admin/users/{signup['user_id']}/approval",
+        json={
+            "admin_token": "dev-admin-approval-token",
+            "decision": "approve",
+            "role": "operator",
+            "note": "approved for MVP validation",
+        },
+    )
+    assert approval_response.status_code == 200
+    approved = approval_response.json()
+    assert approved["status"] == "active"
+    assert approved["role"] == "operator"
+    assert approved["approved_by"] == "platform-admin"
+    assert approved["approved_at"] is not None
+
+    approve_again_response = client.post(
+        f"/api/admin/users/{signup['user_id']}/approval",
+        json={"admin_token": "dev-admin-approval-token", "decision": "approve"},
+    )
+    assert approve_again_response.status_code == 409
 
 
 def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_path) -> None:
@@ -704,6 +788,8 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "node_agents" in mariadb_ddl
     assert "evidence_requests" in postgres_ddl
     assert "evidence_requests" in mariadb_ddl
+    assert "user_accounts" in postgres_ddl
+    assert "user_accounts" in mariadb_ddl
 
 
 def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None:
@@ -722,6 +808,7 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
         "evidence_bundles",
         "rca_reports",
         "rca_jobs",
+        "user_accounts",
     } <= tables
 
     client = TestClient(create_app(database_url=database_url, auto_create_tables=False))

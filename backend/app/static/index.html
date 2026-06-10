@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cluster Infra RCA Console</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">RCA</span>
+          <div>
+            <strong>Infra RCA</strong>
+            <span>Admin Console</span>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Main navigation">
+          <a href="#overview" class="nav-link active">Overview</a>
+          <a href="#access" class="nav-link">Access</a>
+          <a href="#clusters" class="nav-link">Clusters</a>
+          <a href="#webhooks" class="nav-link">Webhooks</a>
+          <a href="#reports" class="nav-link">RCA Reports</a>
+          <a href="#settings" class="nav-link">Settings</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Kubernetes Node & Linux RCA</p>
+            <h1>Cluster Infrastructure Control Plane</h1>
+          </div>
+          <div class="admin-token">
+            <label for="adminToken">Admin token</label>
+            <div class="token-row">
+              <input id="adminToken" type="password" autocomplete="off" placeholder="approval token" />
+              <button id="saveTokenButton" type="button">Save</button>
+            </div>
+          </div>
+        </header>
+
+        <section id="overview" class="section">
+          <div class="section-heading">
+            <div>
+              <h2>Overview</h2>
+              <p>Current platform state</p>
+            </div>
+            <button id="refreshButton" type="button">Refresh</button>
+          </div>
+          <div class="metrics-grid">
+            <div class="metric">
+              <span>Clusters</span>
+              <strong id="clusterCount">0</strong>
+            </div>
+            <div class="metric">
+              <span>RCA reports</span>
+              <strong id="reportCount">0</strong>
+            </div>
+            <div class="metric">
+              <span>Pending approvals</span>
+              <strong id="pendingUserCount">0</strong>
+            </div>
+            <div class="metric">
+              <span>Webhook path</span>
+              <strong>/api/webhooks/alertmanager</strong>
+            </div>
+          </div>
+        </section>
+
+        <section id="access" class="section split">
+          <div>
+            <div class="section-heading compact">
+              <div>
+                <h2>Access Requests</h2>
+                <p>Sign-up requests wait for final admin approval</p>
+              </div>
+            </div>
+            <form id="signupForm" class="form-grid">
+              <label>
+                Email
+                <input name="email" type="email" required placeholder="operator@example.com" />
+              </label>
+              <label>
+                Full name
+                <input name="full_name" required placeholder="Cluster Operator" />
+              </label>
+              <label>
+                Password
+                <input name="password" type="password" minlength="8" required placeholder="minimum 8 characters" />
+              </label>
+              <label>
+                Requested role
+                <select name="requested_role">
+                  <option value="viewer">Viewer</option>
+                  <option value="operator">Operator</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label class="wide">
+                Reason
+                <textarea name="reason" rows="3" placeholder="Access purpose"></textarea>
+              </label>
+              <button type="submit" class="primary">Request approval</button>
+            </form>
+          </div>
+          <div>
+            <div class="section-heading compact">
+              <div>
+                <h2>Approval Queue</h2>
+                <p>Admin token required</p>
+              </div>
+              <button id="loadUsersButton" type="button">Load</button>
+            </div>
+            <div id="pendingUsers" class="list empty">No pending users loaded.</div>
+          </div>
+        </section>
+
+        <section id="clusters" class="section split">
+          <div>
+            <div class="section-heading compact">
+              <div>
+                <h2>Cluster Registration</h2>
+                <p>Register a cluster and retrieve the agent install flow</p>
+              </div>
+            </div>
+            <form id="clusterForm" class="form-grid">
+              <label>
+                Cluster name
+                <input name="name" required placeholder="prod-cluster" />
+              </label>
+              <label>
+                Environment
+                <select name="environment">
+                  <option value="prod">prod</option>
+                  <option value="stage">stage</option>
+                  <option value="dev">dev</option>
+                </select>
+              </label>
+              <label class="wide">
+                Description
+                <textarea name="description" rows="3" placeholder="Owner, region, business scope"></textarea>
+              </label>
+              <button type="submit" class="primary">Register cluster</button>
+            </form>
+          </div>
+          <div>
+            <div class="section-heading compact">
+              <div>
+                <h2>Registered Clusters</h2>
+                <p>Agent bootstrap and node status entry point</p>
+              </div>
+            </div>
+            <div id="clusterList" class="list empty">No clusters loaded.</div>
+          </div>
+        </section>
+
+        <section id="webhooks" class="section">
+          <div class="section-heading">
+            <div>
+              <h2>Webhook Integration</h2>
+              <p>Alertmanager sends firing alerts to the backend</p>
+            </div>
+          </div>
+          <div class="webhook-layout">
+            <div class="endpoint-box">
+              <span>Endpoint</span>
+              <code id="webhookEndpoint">/api/webhooks/alertmanager</code>
+              <button id="copyWebhookButton" type="button">Copy</button>
+            </div>
+            <pre class="code-block"><code>receivers:
+  - name: cluster-infra-rca
+    webhook_configs:
+      - url: https://rca.example.com/api/webhooks/alertmanager
+        send_resolved: true</code></pre>
+          </div>
+        </section>
+
+        <section id="reports" class="section">
+          <div class="section-heading">
+            <div>
+              <h2>RCA Reports</h2>
+              <p>Evidence, root cause candidates, and policy decisions</p>
+            </div>
+            <button id="loadReportsButton" type="button">Load reports</button>
+          </div>
+          <div id="reportList" class="list empty">No reports loaded.</div>
+        </section>
+
+        <section id="settings" class="section">
+          <div class="section-heading compact">
+            <div>
+              <h2>Settings</h2>
+              <p>Runtime references</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <div>
+              <span>Admin approval env</span>
+              <code>RCA_ADMIN_APPROVAL_TOKEN</code>
+            </div>
+            <div>
+              <span>LLM provider env</span>
+              <code>RCA_LLM_PROVIDER</code>
+            </div>
+            <div>
+              <span>Database env</span>
+              <code>RCA_DATABASE_URL</code>
+            </div>
+          </div>
+        </section>
+
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

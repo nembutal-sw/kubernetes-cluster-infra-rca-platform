@@ -66,8 +66,13 @@
 
 ## Phase 6: Web UI
 
-- 클러스터 등록 화면
-- Agent 설치 명령어 화면
-- 장애 이벤트 목록
-- RCA 보고서 상세
-- Policy decision 표시
+- 관리자 콘솔 정적 SPA 완료
+- 회원가입 요청 화면 완료
+- 관리자 승인/거절 화면 완료
+- 클러스터 등록 화면 완료
+- Agent 설치 명령어 화면 완료
+- Alertmanager webhook 연동 안내 화면 완료
+- RCA 보고서 목록 화면 완료
+- Policy decision 표시 완료
+- 실제 로그인 세션과 역할별 접근 제어 예정
+- RCA 보고서 상세 drill-down 예정

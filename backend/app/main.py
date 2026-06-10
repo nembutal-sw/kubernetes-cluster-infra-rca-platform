@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import secrets
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
@@ -19,6 +24,10 @@ from backend.app.models import (
     NodeAgentRegisterRequest,
     RcaJob,
     RcaReport,
+    UserAccount,
+    UserApprovalRequest,
+    UserSignupRequest,
+    UserStatus,
     WebhookIngestResponse,
 )
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
@@ -76,6 +85,32 @@ def create_app(
     @app.post("/api/clusters", response_model=Cluster, status_code=status.HTTP_201_CREATED)
     def create_cluster(request: ClusterCreateRequest) -> Cluster:
         return store.create_cluster(request)
+
+    @app.post("/api/auth/signup", response_model=UserAccount, status_code=status.HTTP_201_CREATED)
+    def request_signup(request: UserSignupRequest) -> UserAccount:
+        try:
+            return store.create_user_registration(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/admin/users", response_model=list[UserAccount])
+    def list_users(
+        admin_token: str = Query(...),
+        user_status: UserStatus | None = Query(default=None, alias="status"),
+    ) -> list[UserAccount]:
+        _verify_admin_token(settings.admin_approval_token, admin_token)
+        return store.list_users(status=user_status)
+
+    @app.post("/api/admin/users/{user_id}/approval", response_model=UserAccount)
+    def decide_user_registration(user_id: str, request: UserApprovalRequest) -> UserAccount:
+        _verify_admin_token(settings.admin_approval_token, request.admin_token)
+        try:
+            user = store.decide_user_registration(user_id, request, approved_by="platform-admin")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if user is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        return user
 
     @app.get("/api/clusters", response_model=list[Cluster])
     def list_clusters() -> list[Cluster]:
@@ -253,7 +288,20 @@ def create_app(
             raise HTTPException(status_code=404, detail="RCA report not found")
         return report
 
+    static_dir = Path(__file__).resolve().parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+        @app.get("/", include_in_schema=False)
+        def web_console() -> FileResponse:
+            return FileResponse(static_dir / "index.html")
+
     return app
+
+
+def _verify_admin_token(configured_token: str, supplied_token: str) -> None:
+    if not secrets.compare_digest(configured_token, supplied_token):
+        raise HTTPException(status_code=401, detail="invalid admin token")
 
 
 def _verify_agent_token(store: StoreProtocol, cluster_id: str, agent_token: str) -> None:

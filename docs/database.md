@@ -60,7 +60,7 @@ $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 
 현재 revision:
 
-- `0001_initial_schema`
+- `0004_user_accounts`
 
 적용:
 
@@ -86,6 +86,7 @@ $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 
 - `clusters`
 - `node_agents`
+- `user_accounts`
 - `evidence_requests`
 - `evidence_bundles`
 - `rca_reports`
