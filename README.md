@@ -68,8 +68,9 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Agent evidence 제출 이후 RCA job/report 자동 생성
 - Node Agent MVP collector와 DaemonSet manifest
 - LLM 입력용 evidence preprocessing
+- provider 교체 가능한 LLM Analyzer adapter
 
-Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM 연동과 Web UI는 다음 단계에서 붙일 예정입니다.
+Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM Analyzer adapter는 들어갔지만 기본값은 비활성화이며, Web UI는 다음 단계에서 붙일 예정입니다.
 
 Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성합니다. `backend_url`, `image`, `namespace`를 query parameter로 넘기면 환경별 DaemonSet manifest를 받을 수 있습니다.
 
@@ -89,7 +90,7 @@ Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성�
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/health`
 
-자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. Evidence preprocessing 기준은 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md), RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
+자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. Evidence preprocessing 기준은 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md), LLM 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md), RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
 
 ## DB 선택
 
@@ -115,7 +116,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 
@@ -137,6 +138,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- evidence-preprocessing.md
 |   |-- install-flow.md
 |   |-- linux-node-collector-validation.md
+|   |-- llm-analyzer.md
 |   |-- policy-engine.md
 |   |-- rca-analysis-rules.md
 |   |-- rca-scope.md
@@ -162,6 +164,6 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 바로 다음 단계는 둘 중 하나입니다.
 
 - Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드와 분석 threshold 보정하기
-- LLM 분석 adapter를 preprocessed evidence JSON 뒤에 붙이기
+- 실제 provider API key를 넣고 staging 환경에서 LLM Analyzer 응답 검증하기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.

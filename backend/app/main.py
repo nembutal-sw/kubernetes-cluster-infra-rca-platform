@@ -31,6 +31,7 @@ from backend.app.services.agent_manifest import (
     AgentManifestOptions,
 )
 from backend.app.services.evidence import FakeEvidenceCollector
+from backend.app.services.llm import LlmAnalyzer, build_llm_analyzer
 from backend.app.services.policy import PolicyEngine
 from backend.app.services.rca import RcaService
 from backend.app.store import SqlAlchemyStore, StoreProtocol
@@ -40,6 +41,7 @@ def create_app(
     database_url: str | None = None,
     store: StoreProtocol | None = None,
     auto_create_tables: bool | None = None,
+    llm_analyzer: LlmAnalyzer | None = None,
 ) -> FastAPI:
     settings = load_settings(database_url, auto_create_tables)
     engine = None
@@ -50,7 +52,8 @@ def create_app(
         store = SqlAlchemyStore(create_session_factory(engine))
 
     policy_engine = PolicyEngine()
-    analyzer = RuleBasedRcaAnalyzer(policy_engine)
+    llm_analyzer = llm_analyzer if llm_analyzer is not None else build_llm_analyzer(settings.llm)
+    analyzer = RuleBasedRcaAnalyzer(policy_engine, llm_analyzer=llm_analyzer)
     evidence_collector = FakeEvidenceCollector()
     rca_service = RcaService(store, evidence_collector, analyzer)
 
@@ -64,6 +67,7 @@ def create_app(
     app.state.rca_service = rca_service
     app.state.database_url = settings.database_url
     app.state.engine = engine
+    app.state.llm_provider = settings.llm.provider
 
     @app.get("/health")
     def health() -> dict[str, str]:

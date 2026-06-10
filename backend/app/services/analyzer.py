@@ -12,6 +12,7 @@ from backend.app.models import (
     RecommendedAction,
     RootCauseCandidate,
 )
+from backend.app.services.llm import LlmAnalyzer
 from backend.app.services.policy import PolicyEngine
 from backend.app.services.preprocessor import build_preprocessed_evidence
 
@@ -39,8 +40,9 @@ class DiagnosticSignal:
 
 
 class RuleBasedRcaAnalyzer:
-    def __init__(self, policy_engine: PolicyEngine) -> None:
+    def __init__(self, policy_engine: PolicyEngine, llm_analyzer: LlmAnalyzer | None = None) -> None:
         self._policy_engine = policy_engine
+        self._llm_analyzer = llm_analyzer
 
     def analyze(self, report_id: str, evidence: EvidenceBundle) -> RcaReport:
         collectors = evidence.collectors
@@ -52,11 +54,25 @@ class RuleBasedRcaAnalyzer:
         recommended_actions = self._build_actions(evidence.alert_name, signals)
         signal_items = [signal.as_report_item() for signal in signals]
         preprocessed_evidence = build_preprocessed_evidence(evidence, signal_items)
+        llm_analysis = self._run_llm_analysis(
+            preprocessed_evidence=preprocessed_evidence,
+            alert_name=evidence.alert_name,
+            signals=signals,
+            candidates=candidates,
+            recommended_actions=recommended_actions,
+        )
+        llm_candidates = _candidates_from_llm(llm_analysis)
+        if llm_candidates:
+            candidates.extend(llm_candidates)
+        llm_actions = self._actions_from_llm(llm_analysis)
+        if llm_actions:
+            recommended_actions = _dedupe_actions([*recommended_actions, *llm_actions])
         evidence_findings = _build_evidence_findings(
             collectors,
             signals,
             evidence.alert_name,
             preprocessed_evidence,
+            llm_analysis,
         )
         summary = _build_summary(evidence, signals, candidates)
 
@@ -163,6 +179,52 @@ class RuleBasedRcaAnalyzer:
             )
 
         return _dedupe_actions(actions)
+
+    def _run_llm_analysis(
+        self,
+        preprocessed_evidence: dict[str, Any],
+        alert_name: str,
+        signals: list[DiagnosticSignal],
+        candidates: list[RootCauseCandidate],
+        recommended_actions: list[RecommendedAction],
+    ) -> dict[str, Any]:
+        if self._llm_analyzer is None:
+            return {"status": "skipped", "reason": "llm analyzer not configured"}
+        return self._llm_analyzer.analyze(
+            preprocessed_evidence,
+            {
+                "alert_name": alert_name,
+                "derived_signal_names": [signal.signal for signal in signals],
+                "rule_candidates": [candidate.model_dump(mode="json") for candidate in candidates],
+                "policy_classified_actions": [action.model_dump(mode="json") for action in recommended_actions],
+            },
+        )
+
+    def _actions_from_llm(self, llm_analysis: dict[str, Any]) -> list[RecommendedAction]:
+        if llm_analysis.get("status") != "completed":
+            return []
+        result = llm_analysis.get("result")
+        if not isinstance(result, dict):
+            return []
+        suggestions = result.get("action_suggestions")
+        if not isinstance(suggestions, list):
+            return []
+        actions = []
+        for suggestion in suggestions:
+            if not isinstance(suggestion, dict):
+                continue
+            action = str(suggestion.get("action") or "").strip()
+            reason = str(suggestion.get("reason") or "").strip()
+            if not action or not reason:
+                continue
+            actions.append(
+                self._policy_engine.classify(
+                    str(suggestion.get("action_key") or "manual_investigation"),
+                    action,
+                    reason,
+                )
+            )
+        return actions
 
 
 def _derive_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
@@ -844,6 +906,35 @@ def _fallback_candidates(alert_name: str, collectors: dict[str, Any]) -> list[Ro
     ]
 
 
+def _candidates_from_llm(llm_analysis: dict[str, Any]) -> list[RootCauseCandidate]:
+    if llm_analysis.get("status") != "completed":
+        return []
+    result = llm_analysis.get("result")
+    if not isinstance(result, dict):
+        return []
+    raw_candidates = result.get("root_cause_candidates")
+    if not isinstance(raw_candidates, list):
+        return []
+    candidates = []
+    for raw_candidate in raw_candidates:
+        if not isinstance(raw_candidate, dict):
+            continue
+        cause = str(raw_candidate.get("cause") or "").strip()
+        if not cause:
+            continue
+        supporting_evidence = raw_candidate.get("supporting_signals") or raw_candidate.get("evidence_paths") or []
+        if not isinstance(supporting_evidence, list):
+            supporting_evidence = []
+        candidates.append(
+            RootCauseCandidate(
+                cause=f"LLM 분석: {cause}",
+                confidence=_confidence_enum(raw_candidate.get("confidence")),
+                supporting_evidence=[str(item) for item in supporting_evidence if item is not None],
+            )
+        )
+    return candidates[:5]
+
+
 def _build_summary(
     evidence: EvidenceBundle,
     signals: list[DiagnosticSignal],
@@ -877,6 +968,7 @@ def _build_evidence_findings(
     signals: list[DiagnosticSignal],
     alert_name: str,
     preprocessed_evidence: dict[str, Any],
+    llm_analysis: dict[str, Any],
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = [
         {"type": "collector", "collector": collector_name, "finding": finding}
@@ -886,6 +978,12 @@ def _build_evidence_findings(
         {
             "type": "preprocessed_evidence",
             "payload": preprocessed_evidence,
+        }
+    )
+    findings.append(
+        {
+            "type": "llm_analysis",
+            "analysis": llm_analysis,
         }
     )
     findings.append(
@@ -1026,6 +1124,14 @@ def _candidate(
 
 def _confidence_for(names: set[str], high_signals: set[str]) -> Confidence:
     return Confidence.HIGH if names & high_signals else Confidence.MEDIUM
+
+
+def _confidence_enum(value: Any) -> Confidence:
+    value = str(value or Confidence.LOW.value).lower()
+    try:
+        return Confidence(value)
+    except ValueError:
+        return Confidence.LOW
 
 
 def _kernel_io_signal(source: str) -> DiagnosticSignal:
