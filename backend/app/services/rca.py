@@ -5,8 +5,10 @@ import uuid
 from backend.app.models import (
     AlertmanagerAlert,
     AlertmanagerPayload,
+    EvidenceBundle,
     EvidenceRequest,
     EvidenceRequestCreateRequest,
+    EvidenceRequestStatus,
     InstallCommandResponse,
     RcaJob,
     RcaJobStatus,
@@ -95,22 +97,9 @@ class RcaService:
 
             evidence = self._evidence_collector.collect(cluster, alert)
             evidence = self._store.save_evidence(evidence)
-            report_id = f"report-{uuid.uuid4().hex[:8]}"
-            report = self._analyzer.analyze(report_id, evidence)
-            self._store.save_report(report)
-
-            job = RcaJob(
-                job_id=f"job-{uuid.uuid4().hex[:8]}",
-                cluster_id=cluster.cluster_id,
-                alert_name=evidence.alert_name,
-                node_name=evidence.node_name,
-                status=RcaJobStatus.COMPLETED,
-                report_id=report.report_id,
-                evidence_id=evidence.evidence_id,
-            )
-            self._store.save_job(job)
+            job = self._create_completed_job(evidence)
             created_jobs.append(job)
-            created_reports.append(report.report_id)
+            created_reports.append(job.report_id)
 
         return WebhookIngestResponse(
             received_alerts=len(payload.alerts),
@@ -119,6 +108,18 @@ class RcaService:
             created_evidence_requests=created_evidence_requests,
             skipped_alerts=skipped_alerts,
         )
+
+    def create_report_from_evidence_request(self, evidence_request: EvidenceRequest) -> RcaJob | None:
+        if evidence_request.status != EvidenceRequestStatus.COMPLETED:
+            return None
+        if evidence_request.evidence_id is None:
+            return None
+
+        evidence = self._store.get_evidence(evidence_request.evidence_id)
+        if evidence is None:
+            return None
+
+        return self._create_completed_job(evidence)
 
     def _cluster_id_for(self, payload: AlertmanagerPayload, alert: AlertmanagerAlert) -> str | None:
         return (
@@ -160,6 +161,22 @@ class RcaService:
         if alert.ends_at is not None:
             time_range["to"] = alert.ends_at.isoformat()
         return time_range
+
+    def _create_completed_job(self, evidence: EvidenceBundle) -> RcaJob:
+        report_id = f"report-{uuid.uuid4().hex[:8]}"
+        report = self._analyzer.analyze(report_id, evidence)
+        self._store.save_report(report)
+
+        job = RcaJob(
+            job_id=f"job-{uuid.uuid4().hex[:8]}",
+            cluster_id=evidence.cluster_id,
+            alert_name=evidence.alert_name,
+            node_name=evidence.node_name,
+            status=RcaJobStatus.COMPLETED,
+            report_id=report.report_id,
+            evidence_id=evidence.evidence_id,
+        )
+        return self._store.save_job(job)
 
     def _skip_reason(self, alert: AlertmanagerAlert, reason: str) -> str:
         alert_name = alert.labels.get("alertname", "unknown")

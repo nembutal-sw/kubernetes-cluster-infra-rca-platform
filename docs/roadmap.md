@@ -27,6 +27,8 @@
 - Agent heartbeat API 완료
 - Agent 조회 API 완료
 - Agent evidence request/response API 완료
+- Alertmanager webhook 기반 evidence request 생성 완료
+- completed evidence 기반 RCA job/report 생성 완료
 - DaemonSet 배포 예정
 - kubelet/containerd/systemd collector
 - disk/inode/memory/network collector

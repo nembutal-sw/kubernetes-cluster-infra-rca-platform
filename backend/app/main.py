@@ -168,6 +168,10 @@ def create_app(
         submitted = store.submit_evidence_response(request)
         if submitted is None:
             raise HTTPException(status_code=404, detail="evidence request not found")
+        if submitted.status == EvidenceRequestStatus.COMPLETED:
+            job = rca_service.create_report_from_evidence_request(submitted)
+            if job is None:
+                raise HTTPException(status_code=500, detail="completed evidence could not create RCA report")
         return submitted
 
     @app.post("/api/webhooks/alertmanager", response_model=WebhookIngestResponse)

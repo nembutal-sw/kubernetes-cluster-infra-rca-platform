@@ -157,6 +157,30 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     assert poll_response.status_code == 200
     assert [item["request_id"] for item in poll_response.json()] == [evidence_request["request_id"]]
 
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "completed",
+            "collectors": {
+                "systemd": {"kubelet_status": "restarting", "kubelet_restart_count": 7},
+                "runtime": {"containerd_socket_healthy": False},
+                "network": {"conntrack_usage_percent": 91},
+            },
+        },
+    )
+
+    assert submit_response.status_code == 200
+    jobs_response = client.get("/api/rca/jobs")
+    assert jobs_response.status_code == 200
+    jobs = jobs_response.json()
+    assert len(jobs) == 1
+    assert jobs[0]["alert_name"] == "NodeNotReady"
+    assert jobs[0]["evidence_id"] == submit_response.json()["evidence_id"]
+
 
 def test_webhook_skips_unknown_cluster(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
@@ -350,6 +374,20 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     assert evidence["alert_name"] == "NodeNotReady"
     assert evidence["collectors"]["systemd"]["kubelet_status"] == "active"
 
+    jobs_response = client.get("/api/rca/jobs")
+    assert jobs_response.status_code == 200
+    jobs = jobs_response.json()
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job["status"] == "completed"
+    assert job["evidence_id"] == completed_request["evidence_id"]
+
+    report_response = client.get(f"/api/rca/reports/{job['report_id']}")
+    assert report_response.status_code == 200
+    report = report_response.json()
+    assert report["trigger"]["alert_name"] == "NodeNotReady"
+    assert report["scope"]["nodes"] == ["worker-3"]
+
     poll_after_submit_response = client.post(
         "/api/agents/evidence-requests",
         json={
@@ -419,6 +457,9 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
     assert failed_request["status"] == "failed"
     assert failed_request["error_message"] == "journalctl timed out"
     assert failed_request["evidence_id"] is None
+
+    assert client.get("/api/rca/jobs").json() == []
+    assert client.get("/api/rca/reports").json() == []
 
 
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:

@@ -94,6 +94,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
 - request가 다른 node에 할당되어 있으면 `403`
 - 이미 닫힌 request면 `409`
 - 성공 응답은 `evidence_bundles` row를 만들고 request에 `evidence_id`를 연결합니다.
+- 성공 응답이 `completed`이면 Backend가 저장된 evidence bundle로 RCA job과 report를 자동 생성합니다.
 
 ## 조회
 

@@ -63,8 +63,9 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Alembic 기반 DB migration
 - Node Agent 등록/heartbeat API
 - Agent evidence request/response API
+- Agent evidence 제출 이후 RCA job/report 자동 생성
 
-실제 Node Agent, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
+실제 Node Agent collector, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
 
 ## Backend 실행
 
@@ -147,6 +148,6 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 바로 다음 단계는 둘 중 하나입니다.
 
 - Node Agent MVP를 만들어 systemd/kubelet/containerd/disk/network collector부터 붙이기
-- Agent가 제출한 evidence로 RCA job/report를 이어서 생성하기
+- LLM 분석 adapter를 만들어 rule-based analyzer 뒤에 붙이기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성까지 들어갔습니다. 이제 실제 collector 구현 또는 evidence 제출 이후 RCA report 생성 흐름이 필요합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성까지 들어갔습니다. 이제 실제 collector 구현이 다음 핵심 작업입니다.

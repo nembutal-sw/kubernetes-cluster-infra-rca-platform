@@ -52,8 +52,9 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 9. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
 10. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
 11. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
-12. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
-13. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+12. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
+13. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
+14. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
 
 ## 예시 요청
 
@@ -77,6 +78,7 @@ Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니�
 - 실제 Node Agent가 없는 노드는 `FakeEvidenceCollector`가 결정론적 evidence bundle을 생성합니다.
 - Node Agent 등록과 heartbeat API는 구현되어 있습니다.
 - Agent evidence request/response API는 구현되어 있습니다.
+- Agent가 completed evidence를 제출하면 RCA job과 report가 자동 생성됩니다.
 - `RuleBasedRcaAnalyzer`가 alert type에 따라 원인 후보와 confidence를 생성합니다.
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
 - LLM 분석은 아직 연결하지 않았습니다.
