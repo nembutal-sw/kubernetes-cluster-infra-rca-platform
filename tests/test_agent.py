@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from node_agent.client import AgentClient, AgentClientError
 from node_agent.collectors import AgentPaths, collect_evidence
-from node_agent.main import process_pending_requests
+import node_agent.main as agent_main
 
 
 class FakeRunner:
@@ -27,16 +33,17 @@ class FakeRunner:
 
 
 class FakeClient:
-    def __init__(self) -> None:
-        self.submitted: list[dict[str, Any]] = []
-
-    def poll_evidence_requests(self, limit: int = 10) -> list[dict[str, Any]]:
-        return [
+    def __init__(self, pending_requests: list[dict[str, Any]] | None = None) -> None:
+        self.pending_requests = pending_requests or [
             {
                 "request_id": "evidence-request-1",
                 "requested_collectors": ["node", "memory", "systemd"],
             }
         ]
+        self.submitted: list[dict[str, Any]] = []
+
+    def poll_evidence_requests(self, limit: int = 10) -> list[dict[str, Any]]:
+        return self.pending_requests[:limit]
 
     def submit_evidence_response(
         self,
@@ -112,7 +119,7 @@ def test_process_pending_requests_submits_completed_evidence(tmp_path: Path) -> 
     paths = _build_fake_host_paths(tmp_path)
     client = FakeClient()
 
-    processed = process_pending_requests(
+    processed = agent_main.process_pending_requests(
         client=client,  # type: ignore[arg-type]
         paths=paths,
         runner=FakeRunner(),  # type: ignore[arg-type]
@@ -126,6 +133,120 @@ def test_process_pending_requests_submits_completed_evidence(tmp_path: Path) -> 
     assert submitted["status"] == "completed"
     assert submitted["collectors"]["node"]["host_name"] == "worker-3"
     assert submitted["collectors"]["memory"]["usage_percent"] == 50.0
+
+
+def test_process_pending_requests_submits_failed_on_collection_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    client = FakeClient()
+
+    def fail_collection(*args: object, **kwargs: object) -> dict[str, Any]:
+        raise RuntimeError("forced collector failure")
+
+    monkeypatch.setattr(agent_main, "collect_evidence", fail_collection)
+
+    processed = agent_main.process_pending_requests(
+        client=client,  # type: ignore[arg-type]
+        paths=paths,
+        runner=FakeRunner(),  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert processed == 0
+    assert len(client.submitted) == 1
+    submitted = client.submitted[0]
+    assert submitted["request_id"] == "evidence-request-1"
+    assert submitted["status"] == "failed"
+    assert "forced collector failure" in submitted["error_message"]
+
+
+def test_process_pending_requests_skips_malformed_request(tmp_path: Path) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    client = FakeClient(pending_requests=[{"requested_collectors": ["node"]}])
+
+    processed = agent_main.process_pending_requests(
+        client=client,  # type: ignore[arg-type]
+        paths=paths,
+        runner=FakeRunner(),  # type: ignore[arg-type]
+        limit=10,
+    )
+
+    assert processed == 0
+    assert client.submitted == []
+
+
+def test_agent_client_posts_expected_payloads() -> None:
+    server = _TestHttpServer(
+        {
+            "/api/agents/register": (201, {"agent_id": "agent-1"}),
+            "/api/agents/heartbeat": (200, {"status": "healthy"}),
+            "/api/agents/evidence-requests": (
+                200,
+                [{"request_id": "evidence-request-1", "requested_collectors": ["node"]}],
+            ),
+            "/api/agents/evidence-responses": (200, {"status": "completed"}),
+        }
+    )
+    try:
+        client = AgentClient(
+            backend_url=server.url,
+            cluster_id="cluster-1",
+            node_name="worker-1",
+            agent_token="token-1",
+            timeout_seconds=2,
+        )
+
+        assert client.register("0.1.0", ["node"], {"kernel": "test"}) == {"agent_id": "agent-1"}
+        assert client.heartbeat("0.1.0", ["node"], {"agent": "running"}) == {"status": "healthy"}
+        assert client.poll_evidence_requests(limit=5) == [
+            {"request_id": "evidence-request-1", "requested_collectors": ["node"]}
+        ]
+        assert client.submit_evidence_response(
+            request_id="evidence-request-1",
+            status="completed",
+            collectors={"node": {"status": "ok"}},
+        ) == {"status": "completed"}
+
+        assert [item["path"] for item in server.records] == [
+            "/api/agents/register",
+            "/api/agents/heartbeat",
+            "/api/agents/evidence-requests",
+            "/api/agents/evidence-responses",
+        ]
+        assert server.records[0]["payload"]["cluster_id"] == "cluster-1"
+        assert server.records[0]["payload"]["agent_token"] == "token-1"
+        assert server.records[2]["payload"]["limit"] == 5
+        assert server.records[3]["payload"]["collectors"]["node"]["status"] == "ok"
+    finally:
+        server.close()
+
+
+def test_agent_client_raises_clear_errors() -> None:
+    http_error_server = _TestHttpServer({"/api/agents/heartbeat": (500, {"detail": "failed"})})
+    try:
+        client = AgentClient(http_error_server.url, "cluster-1", "worker-1", "token-1", timeout_seconds=2)
+        with pytest.raises(AgentClientError, match="HTTP 500"):
+            client.heartbeat("0.1.0", ["node"], {})
+    finally:
+        http_error_server.close()
+
+    invalid_json_server = _TestHttpServer({"/api/agents/register": (200, "not-json")})
+    try:
+        client = AgentClient(invalid_json_server.url, "cluster-1", "worker-1", "token-1", timeout_seconds=2)
+        with pytest.raises(AgentClientError, match="invalid JSON"):
+            client.register("0.1.0", ["node"], {})
+    finally:
+        invalid_json_server.close()
+
+    non_list_server = _TestHttpServer({"/api/agents/evidence-requests": (200, {"request_id": "bad-shape"})})
+    try:
+        client = AgentClient(non_list_server.url, "cluster-1", "worker-1", "token-1", timeout_seconds=2)
+        with pytest.raises(AgentClientError, match="non-list"):
+            client.poll_evidence_requests()
+    finally:
+        non_list_server.close()
 
 
 def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
@@ -200,3 +321,44 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
     )
 
     return AgentPaths(proc=proc, sys=sys, etc=etc, var_log=var_log, run=run)
+
+
+class _TestHttpServer:
+    def __init__(self, routes: dict[str, tuple[int, Any]]) -> None:
+        self.records: list[dict[str, Any]] = []
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler(routes, self.records))
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        host, port = self._server.server_address
+        self.url = f"http://{host}:{port}"
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+
+    @staticmethod
+    def _handler(routes: dict[str, tuple[int, Any]], records: list[dict[str, Any]]):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - http.server callback name.
+                length = int(self.headers.get("Content-Length", "0"))
+                raw_body = self.rfile.read(length).decode("utf-8")
+                payload = json.loads(raw_body) if raw_body else {}
+                records.append({"path": self.path, "payload": payload})
+
+                status_code, response_body = routes.get(self.path, (404, {"detail": "not found"}))
+                if isinstance(response_body, str):
+                    encoded = response_body.encode("utf-8")
+                else:
+                    encoded = json.dumps(response_body).encode("utf-8")
+
+                self.send_response(status_code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        return Handler
