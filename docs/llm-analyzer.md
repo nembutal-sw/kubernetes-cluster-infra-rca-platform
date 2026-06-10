@@ -101,6 +101,8 @@ LLM은 JSON object만 반환해야 합니다.
 
 Backend는 LLM action suggestion을 그대로 실행하지 않습니다. `action_key`를 Policy Engine에 다시 넣어 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 재분류합니다.
 
+읽기 전용 Linux low-level 진단은 `collect_linux_low_level_evidence`, `inspect_kernel_state`, `inspect_network_state`, `inspect_storage_state` 같은 action key로 제안할 수 있습니다. 단, LLM 제안은 항상 `source = "llm"`으로 들어가며 자동 실행 후보가 되지 않습니다.
+
 LLM이 제안한 action은 Policy Engine에 `source = "llm"`으로 전달됩니다. 따라서 조치 문구가 읽기 전용 수집에 해당하더라도 `automation_allowed`는 `false`로 남습니다. LLM은 원인 분석 보조 수단이며, 자동 실행 트리거가 아닙니다.
 
 ## 출력 정규화

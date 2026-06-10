@@ -21,6 +21,26 @@ ACTION_RULES: dict[str, ActionPolicyRule] = {
         automation_mode="read_only",
         description="Read-only evidence collection or verification.",
     ),
+    "collect_linux_low_level_evidence": ActionPolicyRule(
+        policy=PolicyLevel.AUTO_SAFE,
+        automation_mode="read_only",
+        description="Read-only Linux kernel, procfs, sysfs, storage, process, and network diagnostics.",
+    ),
+    "inspect_kernel_state": ActionPolicyRule(
+        policy=PolicyLevel.AUTO_SAFE,
+        automation_mode="read_only",
+        description="Read-only kernel log and kernel state inspection.",
+    ),
+    "inspect_network_state": ActionPolicyRule(
+        policy=PolicyLevel.AUTO_SAFE,
+        automation_mode="read_only",
+        description="Read-only Linux network stack inspection.",
+    ),
+    "inspect_storage_state": ActionPolicyRule(
+        policy=PolicyLevel.AUTO_SAFE,
+        automation_mode="read_only",
+        description="Read-only filesystem, mount, block device, and inode inspection.",
+    ),
     "restart_kubelet": ActionPolicyRule(
         policy=PolicyLevel.APPROVAL_REQUIRED,
         automation_mode="operator_approval",
@@ -121,6 +141,7 @@ NEVER_AUTO_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bdelete\s+(node|pod|pvc|pv|volume|disk|namespace)\b", re.I), "cluster_object_delete"),
     (re.compile(r"(노드|파드|PVC|PV|볼륨|디스크|네임스페이스).*(삭제|제거)"), "cluster_object_delete"),
     (re.compile(r"(삭제|제거).*(노드|파드|PVC|PV|볼륨|디스크|네임스페이스)"), "cluster_object_delete"),
+    (re.compile(r"\bmount\s+-o\s+remount\b", re.I), "filesystem_remount"),
 )
 
 GITOPS_ONLY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -150,11 +171,31 @@ APPROVAL_REQUIRED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bsystemctl\s+(restart|start|stop|reload)\b", re.I), "systemd_unit_mutation"),
     (re.compile(r"\b(restart|cordon|drain|evict|cleanup|clean up|truncate)\b", re.I), "node_or_workload_mutation"),
     (re.compile(r"(재시작|cordon|drain|정리|증설|축출|비우기)"), "node_or_workload_mutation"),
+    (re.compile(r"\b(?:echo|printf)\b[^\n]*(?:>|>>)\s*/(?:proc|sys)/", re.I), "direct_procfs_or_sysfs_write"),
+    (re.compile(r"\btee\b[^\n]*/(?:proc|sys)/", re.I), "direct_procfs_or_sysfs_write"),
+    (re.compile(r"\bip\s+(?:link|route|addr|neigh|rule)\s+(?:set|add|del|delete|replace|flush)\b", re.I), "direct_network_mutation"),
+    (re.compile(r"\bethtool\s+-(?:K|G|C|L|s|A)\b", re.I), "direct_nic_mutation"),
+    (re.compile(r"\bconntrack\s+-(?:D|F)\b", re.I), "conntrack_table_mutation"),
+    (re.compile(r"\btc\s+qdisc\s+(?:add|del|delete|replace|change)\b", re.I), "traffic_control_mutation"),
 )
 
 READ_ONLY_HINTS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(collect|check|inspect|list|get|read|status|describe|logs?|journalctl|dmesg|cat)\b", re.I),
     re.compile(r"(수집|확인|조회|점검|읽기|상태|로그)"),
+)
+
+LOW_LEVEL_READ_ONLY_HINTS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(?:dmesg|journalctl)\b", re.I),
+    re.compile(r"\bsystemctl\s+(?:status|show|is-active|is-failed|list-units|list-timers)\b", re.I),
+    re.compile(r"\b(?:cat|grep|awk|sed|head|tail|wc|stat|find)\b[^\n]*/(?:proc|sys|etc|var/log)/", re.I),
+    re.compile(r"/(?:proc|sys)/(?:[a-z0-9_.-]+/?)+", re.I),
+    re.compile(r"\bsysctl\s+(?!-w\b)(?:-a\b|[a-z0-9_.-]+)", re.I),
+    re.compile(r"\b(?:df|du|findmnt|mount|lsblk|blkid|free|vmstat|iostat|mpstat|pidstat|sar|uptime|ps|top)\b", re.I),
+    re.compile(r"\b(?:ss|netstat|nstat)\b", re.I),
+    re.compile(r"\bip\s+(?:-s\s+)?(?:link|addr|address|route|neigh|neighbor|rule)\b", re.I),
+    re.compile(r"\bethtool\s+(?!-(?:K|G|C|L|s|A)\b)", re.I),
+    re.compile(r"\bconntrack\s+-(?:S|L|C)\b", re.I),
+    re.compile(r"\btc\s+-s\s+qdisc\s+show\b", re.I),
 )
 
 POLICY_PRECEDENCE = {
@@ -265,7 +306,7 @@ def _matched_risks(text: str, patterns: tuple[tuple[re.Pattern[str], str], ...])
 
 
 def _has_read_only_hint(text: str) -> bool:
-    return any(pattern.search(text) for pattern in READ_ONLY_HINTS)
+    return any(pattern.search(text) for pattern in READ_ONLY_HINTS + LOW_LEVEL_READ_ONLY_HINTS)
 
 
 def _is_less_restrictive(current: PolicyLevel, candidate: PolicyLevel) -> bool:

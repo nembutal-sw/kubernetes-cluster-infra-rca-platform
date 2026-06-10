@@ -18,6 +18,56 @@ def test_policy_allows_only_read_only_rule_based_automation() -> None:
     assert action.guardrails == []
 
 
+def test_policy_allows_linux_low_level_read_only_diagnostics() -> None:
+    action = PolicyEngine().classify(
+        "collect_linux_low_level_evidence",
+        (
+            "dmesg, cat /proc/meminfo, sysctl net.netfilter.nf_conntrack_count, "
+            "ss -tanp, ip -s link, ethtool eth0, conntrack -S 결과를 수집합니다."
+        ),
+        "Linux low-level 상태 확인이며 커널, 네트워크, 파일시스템 상태를 변경하지 않습니다.",
+    )
+
+    assert action.policy == PolicyLevel.AUTO_SAFE
+    assert action.action_key == "collect_linux_low_level_evidence"
+    assert action.automation_mode == "read_only"
+    assert action.automation_allowed is True
+    assert action.guardrails == []
+
+
+def test_policy_distinguishes_sysctl_read_from_sysctl_write() -> None:
+    read_action = PolicyEngine().classify(
+        "inspect_kernel_state",
+        "sysctl net.ipv4.tcp_retries2 값을 조회합니다.",
+        "읽기 전용 kernel parameter 확인입니다.",
+    )
+    write_action = PolicyEngine().classify(
+        "inspect_kernel_state",
+        "sysctl -w net.ipv4.tcp_retries2=5 값을 적용합니다.",
+        "kernel parameter를 직접 변경합니다.",
+    )
+
+    assert read_action.policy == PolicyLevel.AUTO_SAFE
+    assert read_action.automation_allowed is True
+    assert write_action.policy == PolicyLevel.GITOPS_PR_ONLY
+    assert write_action.automation_allowed is False
+    assert "configuration_change_requires_gitops_pr" in write_action.guardrails
+
+
+def test_policy_escalates_linux_low_level_mutation() -> None:
+    action = PolicyEngine().classify(
+        "collect_linux_low_level_evidence",
+        "ip link set eth0 down 명령을 실행합니다.",
+        "네트워크 인터페이스 상태를 직접 변경합니다.",
+    )
+
+    assert action.policy == PolicyLevel.APPROVAL_REQUIRED
+    assert action.automation_mode == "operator_approval"
+    assert action.automation_allowed is False
+    assert "mutation_requires_operator_approval" in action.guardrails
+    assert "direct_network_mutation" in action.risk_factors
+
+
 def test_policy_escalates_mutation_even_when_action_key_claims_auto_safe() -> None:
     action = PolicyEngine().classify(
         "collect_more_evidence",

@@ -50,6 +50,22 @@ LLM은 조치 실행자가 아닙니다. LLM의 출력은 Policy Engine의 입�
 4. `AUTO_SAFE`는 읽기 전용 수집/확인 문맥이 확인될 때만 유지
 5. 알 수 없는 action key는 `MANUAL_INVESTIGATION`
 
+## Linux Low-Level 진단
+
+Linux low-level 진단은 이 플랫폼의 핵심 수집 대상입니다. 아래처럼 상태를 읽기만 하는 조치는 `AUTO_SAFE` 후보로 허용합니다.
+
+- `dmesg`, `journalctl`
+- `systemctl status/show/is-active/is-failed`
+- `/proc`, `/sys`, `/etc`, `/var/log` 읽기
+- `sysctl -a`, `sysctl net.*` 조회
+- `df`, `du`, `findmnt`, `mount`, `lsblk`, `blkid`
+- `free`, `vmstat`, `iostat`, `mpstat`, `pidstat`, `sar`, `ps`, `top`
+- `ss`, `netstat`, `nstat`, `ip link/addr/route/neigh/rule` 조회
+- `ethtool <interface>` 조회
+- `conntrack -S/-L/-C`, `tc -s qdisc show`
+
+다만 low-level 명령이라도 상태를 바꾸면 자동화 대상이 아닙니다. 예를 들어 `ip link set`, `ethtool -K`, `conntrack -F`, `tc qdisc add/del`, `echo > /proc/sys`, `tee /sys/...`는 `APPROVAL_REQUIRED` 이상으로 격상합니다. `sysctl -w`처럼 지속 설정과 연결되는 변경은 `GITOPS_PR_ONLY`로 분류합니다.
+
 LLM이 제안한 조치는 policy 등급과 별개로 `automation_allowed=false`가 됩니다. 자동화가 들어오더라도 LLM output을 직접 실행 트리거로 쓰지 않고, rule-based evidence와 Policy Engine 결과를 다시 확인해야 합니다.
 
 ## 예시
@@ -57,11 +73,14 @@ LLM이 제안한 조치는 policy 등급과 별개로 `automation_allowed=false`
 | 권장 조치 | Policy decision |
 | --- | --- |
 | kubelet journal 추가 수집 | `AUTO_SAFE` |
+| `/proc/meminfo`, `sysctl net.netfilter.nf_conntrack_count`, `ss`, `ip -s link` 조회 | `AUTO_SAFE` |
 | kubelet 재시작 | `APPROVAL_REQUIRED` |
 | containerd 재시작 | `APPROVAL_REQUIRED` |
 | 디스크 정리 또는 증설 | `APPROVAL_REQUIRED` |
 | 메모리 압박 지속 시 node cordon/drain 검토 | `APPROVAL_REQUIRED` |
 | CoreDNS replica 증가 PR 생성 | `GITOPS_PR_ONLY` |
+| `sysctl -w` 기반 kernel parameter 변경 | `GITOPS_PR_ONLY` |
+| `ip link set eth0 down` 같은 직접 NIC 상태 변경 | `APPROVAL_REQUIRED` |
 | etcd member 강제 제거 | `NEVER_AUTO_EXECUTE` |
 | read-only filesystem 지속 시 node reboot 검토 | `NEVER_AUTO_EXECUTE` |
 | NIC link flap 의심으로 스위치 포트 확인 | `MANUAL_INVESTIGATION` |

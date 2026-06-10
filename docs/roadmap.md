@@ -58,6 +58,7 @@
 - action taxonomy 구현 완료
 - 안전 등급 분류 완료
 - strict guardrail 기반 정책 격상 완료
+- Linux low-level read-only 진단 허용 완료
 - LLM source 직접 자동화 차단 완료
 - action별 automation metadata 제공 완료
 - 승인 필요 액션 workflow

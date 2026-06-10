@@ -14,6 +14,10 @@ PROMPT_VERSION = "llm-rca-analyzer/v1"
 SUPPORTED_PROVIDERS = {"openai", "anthropic", "gemini", "openai_compatible", "self_hosted"}
 SUPPORTED_ACTION_KEYS = {
     "collect_more_evidence",
+    "collect_linux_low_level_evidence",
+    "inspect_kernel_state",
+    "inspect_network_state",
+    "inspect_storage_state",
     "restart_kubelet",
     "restart_containerd",
     "cleanup_disk",
@@ -253,7 +257,7 @@ def _output_schema() -> dict[str, Any]:
         ],
         "action_suggestions": [
             {
-                "action_key": "collect_more_evidence|restart_kubelet|restart_containerd|cleanup_disk|cordon_node|open_gitops_pr|reboot_node|manual_hardware_check",
+                "action_key": "collect_more_evidence|collect_linux_low_level_evidence|inspect_kernel_state|inspect_network_state|inspect_storage_state|restart_kubelet|restart_containerd|cleanup_disk|cordon_node|open_gitops_pr|reboot_node|manual_hardware_check",
                 "action": "string",
                 "reason": "string",
             }
