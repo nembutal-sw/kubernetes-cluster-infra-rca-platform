@@ -123,6 +123,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- architecture.md
 |   |-- agent-design.md
 |   |-- agent-api.md
+|   |-- agent-evidence-fields.md
 |   |-- backend-api.md
 |   |-- database.md
 |   |-- evidence-api.md

@@ -45,6 +45,8 @@ Node Agent는 각 Kubernetes 노드에 DaemonSet으로 배포되는 로컬 증�
 
 MVP collector는 외부 네트워크에 능동적으로 요청하지 않습니다. DNS collector도 우선 `resolv.conf` 파싱까지만 수행합니다. 실제 lookup latency 측정은 운영 환경에서 timeout과 대상 도메인을 정한 뒤 추가하는 편이 안전합니다.
 
+필드별 기준은 [docs/agent-evidence-fields.md](agent-evidence-fields.md)에 정리합니다. 측정할 수 없는 값은 추정하지 않고 `null`로 남깁니다.
+
 ## Evidence bundle 예시
 
 ```json

@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import platform
 import re
+import json
 import shutil
 import socket
 import stat
 import subprocess
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,7 @@ SENSITIVE_PATTERNS = [
 
 @dataclass(frozen=True)
 class AgentPaths:
+    root: Path = Path("/host/root")
     proc: Path = Path("/host/proc")
     sys: Path = Path("/host/sys")
     etc: Path = Path("/host/etc")
@@ -42,6 +45,7 @@ class AgentPaths:
     @classmethod
     def from_env(cls) -> "AgentPaths":
         return cls(
+            root=Path(os.getenv("HOST_ROOT", "/host/root")),
             proc=Path(os.getenv("HOST_PROC", "/host/proc")),
             sys=Path(os.getenv("HOST_SYS", "/host/sys")),
             etc=Path(os.getenv("HOST_ETC", "/host/etc")),
@@ -60,6 +64,9 @@ class AgentPaths:
 
     def var_log_root(self) -> Path:
         return self.var_log if self.var_log.exists() else Path("/var/log")
+
+    def host_root(self) -> Path | None:
+        return self.root if self.root.exists() else None
 
 
 @dataclass(frozen=True)
@@ -190,13 +197,26 @@ def collect_kernel(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
 
 
 def collect_disk(paths: AgentPaths) -> dict[str, Any]:
-    candidates = [paths.var_log_root(), paths.etc_root(), Path("/")]
-    filesystems = [_filesystem_usage(path) for path in candidates if path.exists()]
-    root_usage = filesystems[0]["usage_percent"] if filesystems else None
-    inode_usage = filesystems[0]["inode_usage_percent"] if filesystems else None
+    root_path = paths.host_root()
+    candidates = [
+        ("root", root_path),
+        ("var_log", paths.var_log_root()),
+        ("etc", paths.etc_root()),
+    ]
+    filesystems = [
+        _filesystem_usage(path, role=role)
+        for role, path in candidates
+        if path is not None and path.exists()
+    ]
+    root_filesystem = next((item for item in filesystems if item["role"] == "root"), None)
+    kernel_logs = "\n".join(_read_kernel_log_candidates(paths.var_log_root()))
     return {
-        "root_usage_percent": root_usage,
-        "inode_usage_percent": inode_usage,
+        "root_path_available": root_path is not None,
+        "root_usage_percent": root_filesystem["usage_percent"] if root_filesystem else None,
+        "inode_usage_percent": root_filesystem["inode_usage_percent"] if root_filesystem else None,
+        "io_wait_percent": None,
+        "io_wait_percent_since_boot": _cpu_iowait_percent(paths.proc_root()),
+        "kernel_io_error_detected": _contains_any(kernel_logs, ["I/O error", "blk_update_request", "EXT4-fs error"]),
         "filesystems": filesystems,
         "mounts_excerpt": _last_lines(_read_text(paths.proc_root() / "mounts", max_bytes=32768), 40),
         "diskstats_excerpt": _last_lines(_read_text(paths.proc_root() / "diskstats", max_bytes=32768), 40),
@@ -204,15 +224,20 @@ def collect_disk(paths: AgentPaths) -> dict[str, Any]:
 
 
 def collect_inode(paths: AgentPaths) -> dict[str, Any]:
-    paths_to_check = [paths.var_log_root(), paths.etc_root(), Path("/")]
+    paths_to_check = [
+        ("root", paths.host_root()),
+        ("var_log", paths.var_log_root()),
+        ("etc", paths.etc_root()),
+    ]
     return {
         "filesystems": [
             {
+                "role": role,
                 "path": str(path),
                 "inode_usage_percent": _inode_usage_percent(path),
             }
-            for path in paths_to_check
-            if path.exists()
+            for role, path in paths_to_check
+            if path is not None and path.exists()
         ]
     }
 
@@ -228,20 +253,32 @@ def collect_memory(paths: AgentPaths) -> dict[str, Any]:
         "usage_percent": usage_percent,
         "mem_total_kib": total,
         "mem_available_kib": available,
+        "mem_free_kib": values.get("MemFree"),
+        "buffers_kib": values.get("Buffers"),
+        "cached_kib": values.get("Cached"),
         "swap_total_kib": values.get("SwapTotal"),
         "swap_free_kib": values.get("SwapFree"),
+        "oom_kill_detected": _contains_any(
+            "\n".join(_read_kernel_log_candidates(paths.var_log_root())),
+            ["Out of memory", "oom-killer", "Killed process"],
+        ),
     }
 
 
 def collect_process(paths: AgentPaths) -> dict[str, Any]:
     proc = paths.proc_root()
-    process_count = sum(1 for item in proc.iterdir() if item.name.isdigit()) if proc.exists() else None
+    try:
+        process_dirs = [item for item in proc.iterdir() if item.name.isdigit()] if proc.exists() else []
+    except OSError:
+        process_dirs = []
+    process_count = len(process_dirs) if proc.exists() else None
     pid_max = _safe_int(_read_first_line(proc / "sys/kernel/pid_max"))
     usage_percent = None
     if process_count is not None and pid_max:
         usage_percent = round((process_count / pid_max) * 100, 4)
     return {
         "process_count": process_count,
+        "zombie_process_count": _count_zombie_processes(process_dirs),
         "pid_max": pid_max,
         "pid_usage_percent": usage_percent,
     }
@@ -249,9 +286,15 @@ def collect_process(paths: AgentPaths) -> dict[str, Any]:
 
 def collect_network(paths: AgentPaths) -> dict[str, Any]:
     interfaces = _parse_net_dev(paths.proc_root() / "net/dev")
+    interface_state = _read_interface_state(paths.sys_root())
+    for interface in interfaces:
+        interface.update(interface_state.get(interface["name"], {}))
     conntrack = collect_conntrack(paths)
     return {
         "interfaces": interfaces,
+        "default_route_interfaces": _parse_default_route_interfaces(paths.proc_root() / "net/route"),
+        "nic_link_flap_detected": any((item.get("carrier_changes") or 0) > 0 for item in interfaces),
+        "mtu_mismatch_suspected": None,
         "routes_excerpt": _last_lines(_read_text(paths.proc_root() / "net/route", max_bytes=32768), 30),
         "tcp_snmp_excerpt": _last_lines(_read_text(paths.proc_root() / "net/snmp", max_bytes=32768), 40),
         "conntrack_usage_percent": conntrack.get("usage_percent"),
@@ -276,11 +319,20 @@ def collect_conntrack(paths: AgentPaths) -> dict[str, Any]:
 def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     socket_path = paths.run / "containerd/containerd.sock"
     socket_exists = socket_path.exists()
-    socket_is_socket = socket_exists and stat.S_ISSOCK(socket_path.stat().st_mode)
+    socket_stat_error = None
+    try:
+        socket_is_socket = socket_exists and stat.S_ISSOCK(socket_path.stat().st_mode)
+    except OSError as exc:
+        socket_is_socket = False
+        socket_stat_error = _clean_text(str(exc), limit=500)
+    socket_probe = _probe_unix_socket(socket_path) if socket_is_socket else {"ok": False, "error": "socket not available"}
     result = {
         "containerd_socket_path": str(socket_path),
         "containerd_socket_exists": socket_exists,
-        "containerd_socket_healthy": socket_is_socket,
+        "containerd_socket_is_socket": socket_is_socket,
+        "containerd_socket_healthy": socket_probe["ok"],
+        "containerd_socket_latency_ms": socket_probe.get("latency_ms"),
+        "containerd_socket_error": socket_stat_error or socket_probe.get("error"),
     }
     if socket_exists:
         result["ctr_version"] = runner.run(["ctr", "--address", str(socket_path), "version"])
@@ -307,19 +359,38 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
             "configs": [],
         }
     configs = []
-    for path in sorted(cni_dir.iterdir()):
+    plugin_types: list[str] = []
+    mtu_values: list[int] = []
+    try:
+        config_paths = sorted(cni_dir.iterdir())
+    except OSError:
+        config_paths = []
+    for path in config_paths:
         if not path.is_file():
             continue
+        try:
+            size_bytes = path.stat().st_size
+        except OSError:
+            size_bytes = None
+        raw_config = _read_text(path, max_bytes=65536)
+        parsed_config = _parse_json(raw_config)
+        plugin_types.extend(_cni_plugin_types(parsed_config))
+        mtu_values.extend(_find_numeric_values(parsed_config, key="mtu"))
         configs.append(
             {
                 "name": path.name,
-                "size_bytes": path.stat().st_size,
-                "excerpt": _clean_text(_read_text(path, max_bytes=4096)),
+                "size_bytes": size_bytes,
+                "excerpt": _clean_text(raw_config, limit=4096),
+                "parsed": parsed_config is not None,
             }
         )
     return {
         "config_dir": str(cni_dir),
         "config_dir_exists": True,
+        "plugin_types": _dedupe(plugin_types),
+        "mtu": mtu_values[0] if mtu_values else None,
+        "mtu_values": mtu_values,
+        "plugin_errors_detected": None,
         "configs": configs,
     }
 
@@ -343,6 +414,9 @@ def collect_dns(paths: AgentPaths) -> dict[str, Any]:
     return {
         "resolv_conf_excerpt": _clean_text(resolv_conf),
         "nameservers": nameservers,
+        "nameserver_count": len(nameservers),
+        "dns_configured": bool(nameservers),
+        "dns_lookup_latency_ms": None,
         "search": search,
         "options": options,
     }
@@ -384,9 +458,10 @@ def _parse_systemctl_show(output: str) -> dict[str, str]:
     return parsed
 
 
-def _filesystem_usage(path: Path) -> dict[str, Any]:
+def _filesystem_usage(path: Path, role: str) -> dict[str, Any]:
     usage = shutil.disk_usage(path)
     return {
+        "role": role,
         "path": str(path),
         "total_bytes": usage.total,
         "used_bytes": usage.used,
@@ -399,13 +474,86 @@ def _filesystem_usage(path: Path) -> dict[str, Any]:
 def _inode_usage_percent(path: Path) -> float | None:
     try:
         values = os.statvfs(path)
-    except OSError:
+    except (AttributeError, OSError):
         return None
     total = values.f_files
     free = values.f_ffree
     if not total:
         return None
     return round(((total - free) / total) * 100, 2)
+
+
+def _cpu_iowait_percent(proc: Path) -> float | None:
+    first_line = _read_first_line(proc / "stat")
+    if not first_line:
+        return None
+    fields = first_line.split()
+    if not fields or fields[0] != "cpu" or len(fields) < 6:
+        return None
+    values = [_safe_int(value) or 0 for value in fields[1:]]
+    total = sum(values)
+    if total == 0:
+        return None
+    iowait = values[4]
+    return round((iowait / total) * 100, 4)
+
+
+def _count_zombie_processes(process_dirs: list[Path]) -> int:
+    count = 0
+    for process_dir in process_dirs:
+        status_text = _read_text(process_dir / "status", max_bytes=4096)
+        for line in status_text.splitlines():
+            if line.startswith("State:") and re.search(r"\bZ\b", line):
+                count += 1
+                break
+    return count
+
+
+def _read_interface_state(sys_root: Path) -> dict[str, dict[str, Any]]:
+    net_root = sys_root / "class/net"
+    if not net_root.exists():
+        return {}
+    states = {}
+    try:
+        interface_dirs = list(net_root.iterdir())
+    except OSError:
+        return {}
+    for interface_dir in interface_dirs:
+        if not interface_dir.is_dir():
+            continue
+        states[interface_dir.name] = {
+            "operstate": _read_first_line(interface_dir / "operstate"),
+            "carrier": _safe_int(_read_first_line(interface_dir / "carrier")),
+            "carrier_changes": _safe_int(_read_first_line(interface_dir / "carrier_changes")),
+            "mtu": _safe_int(_read_first_line(interface_dir / "mtu")),
+        }
+    return states
+
+
+def _parse_default_route_interfaces(path: Path) -> list[str]:
+    interfaces = []
+    for line in _read_text(path, max_bytes=32768).splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        interface_name, destination, gateway = fields[0], fields[1], fields[2]
+        if destination == "00000000" and gateway != "00000000":
+            interfaces.append(interface_name)
+    return _dedupe(interfaces)
+
+
+def _probe_unix_socket(path: Path, timeout_seconds: float = 1) -> dict[str, Any]:
+    started_at = time.monotonic()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout_seconds)
+    try:
+        sock.connect(str(path))
+        latency_ms = round((time.monotonic() - started_at) * 1000, 2)
+        return {"ok": True, "latency_ms": latency_ms}
+    except OSError as exc:
+        return {"ok": False, "error": _clean_text(str(exc), limit=500)}
+    finally:
+        sock.close()
 
 
 def _parse_net_dev(path: Path) -> list[dict[str, Any]]:
@@ -430,6 +578,50 @@ def _parse_net_dev(path: Path) -> list[dict[str, Any]]:
             }
         )
     return interfaces
+
+
+def _parse_json(text: str) -> Any | None:
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _cni_plugin_types(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        plugin_types = []
+        raw_type = value.get("type")
+        if isinstance(raw_type, str):
+            plugin_types.append(raw_type)
+        raw_plugins = value.get("plugins")
+        if isinstance(raw_plugins, list):
+            for plugin in raw_plugins:
+                plugin_types.extend(_cni_plugin_types(plugin))
+        return plugin_types
+    if isinstance(value, list):
+        plugin_types = []
+        for item in value:
+            plugin_types.extend(_cni_plugin_types(item))
+        return plugin_types
+    return []
+
+
+def _find_numeric_values(value: Any, key: str) -> list[int]:
+    if isinstance(value, dict):
+        values = []
+        for raw_key, raw_value in value.items():
+            if str(raw_key).lower() == key and isinstance(raw_value, int) and not isinstance(raw_value, bool):
+                values.append(raw_value)
+            values.extend(_find_numeric_values(raw_value, key))
+        return values
+    if isinstance(value, list):
+        values = []
+        for item in value:
+            values.extend(_find_numeric_values(item, key))
+        return values
+    return []
 
 
 def _parse_key_value_file(path: Path) -> dict[str, int]:
