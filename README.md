@@ -55,6 +55,8 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - 클러스터 등록
 - 관리자 콘솔 Web UI
 - 회원가입 요청 및 관리자 승인/거절 API
+- 승인된 사용자 로그인/로그아웃과 Bearer 세션
+- `admin`, `operator`, `viewer` 역할별 API 접근 제어
 - 관리자 token header 기반 보호 API
 - cluster bootstrap token 목록 응답 비노출
 - Agent 등록 후 node별 token 발급 및 hash 저장
@@ -123,7 +125,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 관리자 콘솔 정적 자산, 보안 header, 회원가입 승인 흐름, 관리자 token 보호 API, 클러스터 등록, 설치 명령어 조회, node token 기반 Agent 인증, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 관리자 콘솔 정적 자산, 보안 header, 회원가입 승인 흐름, 로그인 세션, 역할별 접근 제어, 관리자 token 보호 API, 클러스터 등록, 설치 명령어 조회, node token 기반 Agent 인증, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 

@@ -4,6 +4,7 @@ import json
 import secrets
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from threading import RLock
 from typing import Protocol
 
@@ -17,6 +18,7 @@ from backend.app.db_models import (
     RcaJobRow,
     RcaReportRow,
     UserAccountRow,
+    UserSessionRow,
 )
 from backend.app.models import (
     AgentStatus,
@@ -45,7 +47,7 @@ from backend.app.models import (
     UserStatus,
     now_utc,
 )
-from backend.app.services.auth import hash_password, verify_password
+from backend.app.services.auth import generate_session_token, hash_password, hash_token, verify_password
 
 
 class StoreProtocol(Protocol):
@@ -78,6 +80,11 @@ class StoreProtocol(Protocol):
     def create_user_registration(self, request: UserSignupRequest) -> UserAccount: ...
     def list_users(self, status: UserStatus | None = None) -> list[UserAccount]: ...
     def get_user(self, user_id: str) -> UserAccount | None: ...
+    def get_user_by_email(self, email: str) -> UserAccount | None: ...
+    def authenticate_user(self, email: str, password: str) -> UserAccount | None: ...
+    def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None: ...
+    def get_user_by_session_token(self, token: str) -> UserAccount | None: ...
+    def revoke_user_session(self, token: str) -> bool: ...
     def decide_user_registration(
         self,
         user_id: str,
@@ -98,6 +105,7 @@ class InMemoryStore:
         self._reports: dict[str, RcaReport] = {}
         self._users: dict[str, tuple[UserAccount, str]] = {}
         self._user_ids_by_email: dict[str, str] = {}
+        self._sessions: dict[str, dict[str, object]] = {}
 
     def create_cluster(self, request: ClusterCreateRequest) -> Cluster:
         with self._lock:
@@ -309,6 +317,61 @@ class InMemoryStore:
         with self._lock:
             item = self._users.get(user_id)
             return item[0] if item else None
+
+    def get_user_by_email(self, email: str) -> UserAccount | None:
+        with self._lock:
+            user_id = self._user_ids_by_email.get(_normalize_email(email))
+            return self.get_user(user_id) if user_id else None
+
+    def authenticate_user(self, email: str, password: str) -> UserAccount | None:
+        with self._lock:
+            user_id = self._user_ids_by_email.get(_normalize_email(email))
+            item = self._users.get(user_id) if user_id else None
+            if item is None:
+                return None
+            user, password_hash = item
+            return user if verify_password(password, password_hash) else None
+
+    def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None:
+        with self._lock:
+            if user_id not in self._users:
+                return None
+            token = generate_session_token()
+            token_hash = hash_token(token)
+            session_id = f"session-{uuid.uuid4().hex[:8]}"
+            self._sessions[token_hash] = {
+                "session_id": session_id,
+                "user_id": user_id,
+                "created_at": now_utc(),
+                "expires_at": expires_at,
+                "revoked_at": None,
+            }
+            return token, session_id
+
+    def get_user_by_session_token(self, token: str) -> UserAccount | None:
+        with self._lock:
+            session = self._sessions.get(hash_token(token))
+            if session is None or session.get("revoked_at") is not None:
+                return None
+            expires_at = session.get("expires_at")
+            if not isinstance(expires_at, datetime) or _is_expired(expires_at):
+                return None
+            user_id = session.get("user_id")
+            item = self._users.get(str(user_id))
+            if item is None:
+                return None
+            user = item[0]
+            if user.status != UserStatus.ACTIVE:
+                return None
+            return user
+
+    def revoke_user_session(self, token: str) -> bool:
+        with self._lock:
+            session = self._sessions.get(hash_token(token))
+            if session is None or session.get("revoked_at") is not None:
+                return False
+            session["revoked_at"] = now_utc()
+            return True
 
     def decide_user_registration(
         self,
@@ -618,6 +681,63 @@ class SqlAlchemyStore:
             row = session.get(UserAccountRow, user_id)
             return _user_from_row(row) if row else None
 
+    def get_user_by_email(self, email: str) -> UserAccount | None:
+        with self._session_factory() as session:
+            row = session.query(UserAccountRow).filter(UserAccountRow.email == _normalize_email(email)).one_or_none()
+            return _user_from_row(row) if row else None
+
+    def authenticate_user(self, email: str, password: str) -> UserAccount | None:
+        with self._session_factory() as session:
+            row = session.query(UserAccountRow).filter(UserAccountRow.email == _normalize_email(email)).one_or_none()
+            if row is None or not verify_password(password, row.password_hash):
+                return None
+            return _user_from_row(row)
+
+    def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None:
+        token = generate_session_token()
+        session_id = f"session-{uuid.uuid4().hex[:8]}"
+        row = UserSessionRow(
+            session_id=session_id,
+            user_id=user_id,
+            token_hash=hash_token(token),
+            created_at=now_utc(),
+            expires_at=expires_at,
+            revoked_at=None,
+        )
+        with self._session_factory() as session:
+            if session.get(UserAccountRow, user_id) is None:
+                return None
+            session.add(row)
+            session.commit()
+        return token, session_id
+
+    def get_user_by_session_token(self, token: str) -> UserAccount | None:
+        with self._session_factory() as session:
+            row = (
+                session.query(UserSessionRow)
+                .filter(UserSessionRow.token_hash == hash_token(token))
+                .one_or_none()
+            )
+            if row is None or row.revoked_at is not None or _is_expired(row.expires_at):
+                return None
+            user_row = session.get(UserAccountRow, row.user_id)
+            if user_row is None or user_row.status != UserStatus.ACTIVE.value:
+                return None
+            return _user_from_row(user_row)
+
+    def revoke_user_session(self, token: str) -> bool:
+        with self._session_factory() as session:
+            row = (
+                session.query(UserSessionRow)
+                .filter(UserSessionRow.token_hash == hash_token(token))
+                .one_or_none()
+            )
+            if row is None or row.revoked_at is not None:
+                return False
+            row.revoked_at = now_utc()
+            session.commit()
+            return True
+
     def decide_user_registration(
         self,
         user_id: str,
@@ -650,6 +770,12 @@ def _json_load(value: str):
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _is_expired(expires_at: datetime) -> bool:
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= now_utc()
 
 
 def _mark_cluster_active(session: Session, cluster_id: str) -> None:

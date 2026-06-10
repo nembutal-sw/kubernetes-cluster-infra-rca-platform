@@ -9,6 +9,7 @@ import secrets
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 210_000
 PASSWORD_SALT_BYTES = 16
+SESSION_TOKEN_BYTES = 32
 
 
 def hash_password(password: str) -> str:
@@ -42,6 +43,14 @@ def verify_password(password: str, password_hash: str) -> bool:
 
     actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return hmac.compare_digest(actual, expected)
+
+
+def generate_session_token() -> str:
+    return secrets.token_urlsafe(SESSION_TOKEN_BYTES)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _b64(value: bytes) -> str:

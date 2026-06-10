@@ -33,10 +33,23 @@
             <p class="eyebrow">Kubernetes Node & Linux RCA</p>
             <h1>Cluster Infrastructure Control Plane</h1>
           </div>
-          <div class="admin-token">
-            <label for="adminToken">Admin token</label>
+          <div class="auth-panel">
+            <form id="loginForm" class="login-form">
+              <label>
+                Email
+                <input id="loginEmail" name="email" type="email" autocomplete="email" placeholder="operator@example.com" />
+              </label>
+              <label>
+                Password
+                <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="password" />
+              </label>
+              <button id="loginButton" type="submit">Login</button>
+              <button id="logoutButton" type="button">Logout</button>
+            </form>
+            <div id="sessionStatus" class="session-status">Not signed in</div>
+            <label for="adminToken">Bootstrap admin token</label>
             <div class="token-row">
-              <input id="adminToken" type="password" autocomplete="off" placeholder="approval token" />
+              <input id="adminToken" type="password" autocomplete="off" placeholder="fallback token" />
               <button id="saveTokenButton" type="button">Use</button>
             </div>
           </div>

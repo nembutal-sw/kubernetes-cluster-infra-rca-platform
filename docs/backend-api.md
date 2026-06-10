@@ -21,6 +21,9 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 | `GET` | `/health` | backend health check |
 | `GET` | `/` | 관리자 콘솔 Web UI |
 | `POST` | `/api/auth/signup` | 회원가입 승인 요청 생성 |
+| `POST` | `/api/auth/login` | 승인된 사용자 로그인 및 Bearer 세션 발급 |
+| `GET` | `/api/auth/me` | 현재 로그인 사용자 조회 |
+| `POST` | `/api/auth/logout` | 현재 세션 폐기 |
 | `GET` | `/api/admin/users` | 관리자 사용자 목록/승인 대기열 조회 |
 | `POST` | `/api/admin/users/{user_id}/approval` | 회원가입 요청 승인 또는 거절 |
 | `POST` | `/api/clusters` | 클러스터 등록 |
@@ -46,7 +49,19 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 
 ## 인증 요약
 
-관리자 API와 bootstrap token을 노출할 수 있는 API는 아래 header가 필요합니다.
+승인된 사용자는 로그인 후 Bearer token을 사용합니다.
+
+```text
+Authorization: Bearer <access_token>
+```
+
+역할별 접근:
+
+- `admin`: 사용자 승인/거절, 클러스터 등록, Agent 설치 명령어, evidence request 생성, 조회 API
+- `operator`: 클러스터 등록, Agent 설치 명령어, evidence request 생성, 조회 API
+- `viewer`: 클러스터, agent, evidence, RCA job/report 조회 API
+
+초기 관리자 계정이 아직 없을 때를 위해 bootstrap admin token도 유지합니다. 아래 header는 `admin` 권한과 같은 fallback으로 처리합니다.
 
 ```text
 X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
@@ -63,6 +78,8 @@ X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
 `GET /api/clusters`와 `GET /api/clusters/{cluster_id}`는 `bootstrap_token`을 응답하지 않습니다.
 Agent 설치용 bootstrap token은 cluster 생성 응답과 admin token이 있는 install-command 응답에서만 확인합니다.
 
+로그인 세션은 `user_sessions`에 token hash와 만료 시간을 저장합니다. raw access token은 응답으로 한 번만 내려가며 DB에는 저장하지 않습니다.
+
 Agent API는 두 단계 token을 사용합니다.
 
 1. `POST /api/agents/register`는 cluster `bootstrap_token`을 `agent_token`으로 검증합니다.
@@ -72,23 +89,24 @@ Agent API는 두 단계 token을 사용합니다.
 ## API 흐름
 
 1. 사용자가 `POST /api/auth/signup` 또는 Web UI에서 가입 요청을 만듭니다.
-2. 관리자가 `RCA_ADMIN_APPROVAL_TOKEN`으로 `/api/admin/users`에서 승인 대기열을 조회합니다.
+2. 관리자가 `RCA_ADMIN_APPROVAL_TOKEN` 또는 admin 세션으로 `/api/admin/users`에서 승인 대기열을 조회합니다.
 3. 관리자가 `/api/admin/users/{user_id}/approval`로 가입 요청을 승인하거나 거절합니다.
-4. 관리자가 `X-Admin-Token` header를 넣어 `POST /api/clusters`로 클러스터를 등록합니다.
-5. 응답의 `cluster_id`를 확인합니다.
-6. 관리자가 `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
-7. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
-8. Agent가 `/api/agents/register`로 자신을 등록하고 node별 `node_token`을 받습니다.
-9. Agent가 `agent_token + node_token`으로 `/api/agents/heartbeat` 상태를 갱신합니다.
-10. Backend가 관리자 token 검증 후 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
-11. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-requests` pending request를 조회합니다.
-12. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-responses` 수집 결과를 제출합니다.
-13. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
-14. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
-15. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
-16. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
-17. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
-18. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+4. 승인된 사용자가 `/api/auth/login`으로 로그인하고 Bearer token을 받습니다.
+5. `admin` 또는 `operator`가 `POST /api/clusters`로 클러스터를 등록합니다.
+6. 응답의 `cluster_id`를 확인합니다.
+7. `admin` 또는 `operator`가 `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
+8. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
+9. Agent가 `/api/agents/register`로 자신을 등록하고 node별 `node_token`을 받습니다.
+10. Agent가 `agent_token + node_token`으로 `/api/agents/heartbeat` 상태를 갱신합니다.
+11. Backend가 권한 검증 후 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
+12. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-requests` pending request를 조회합니다.
+13. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-responses` 수집 결과를 제출합니다.
+14. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
+15. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
+16. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
+17. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
+18. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
+19. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
 
 ## Agent manifest 생성
 

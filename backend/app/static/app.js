@@ -2,6 +2,8 @@ const state = {
   clusters: [],
   reports: [],
   pendingUsers: [],
+  sessionToken: sessionStorage.getItem("rca_session_token") || "",
+  currentUser: null,
   adminToken: sessionStorage.getItem("rca_admin_token") || "",
 };
 
@@ -11,6 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#adminToken").value = state.adminToken;
   $("#webhookEndpoint").textContent = `${window.location.origin}/api/webhooks/alertmanager`;
 
+  $("#loginForm").addEventListener("submit", login);
+  $("#logoutButton").addEventListener("click", logout);
   $("#saveTokenButton").addEventListener("click", saveAdminToken);
   $("#refreshButton").addEventListener("click", refreshAll);
   $("#loadUsersButton").addEventListener("click", loadPendingUsers);
@@ -23,12 +27,73 @@ document.addEventListener("DOMContentLoaded", () => {
     link.addEventListener("click", () => setActiveNav(link));
   });
 
-  refreshAll();
+  loadCurrentUser({ silent: true }).finally(refreshAll);
 });
 
 async function refreshAll() {
   await Promise.allSettled([loadClusters(), loadReports(), loadPendingUsers({ silent: true })]);
   renderOverview();
+}
+
+async function login(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = formPayload(form);
+  try {
+    const session = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    state.sessionToken = session.access_token;
+    state.currentUser = session.user;
+    sessionStorage.setItem("rca_session_token", state.sessionToken);
+    $("#loginPassword").value = "";
+    renderSession();
+    toast(`Signed in as ${session.user.email}.`);
+    await refreshAll();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function logout() {
+  if (state.sessionToken) {
+    await api("/api/auth/logout", {
+      method: "POST",
+      headers: authHeaders(),
+    }).catch(() => null);
+  }
+  state.sessionToken = "";
+  state.currentUser = null;
+  sessionStorage.removeItem("rca_session_token");
+  renderSession();
+  state.clusters = [];
+  state.reports = [];
+  state.pendingUsers = [];
+  renderClusters();
+  renderReports();
+  renderPendingUsers("Sign in or use bootstrap admin token.");
+  renderOverview();
+  toast("Signed out.");
+}
+
+async function loadCurrentUser(options = {}) {
+  if (!state.sessionToken) {
+    renderSession();
+    return;
+  }
+  try {
+    state.currentUser = await api("/api/auth/me", {
+      headers: authHeaders(),
+    });
+  } catch (error) {
+    state.sessionToken = "";
+    state.currentUser = null;
+    sessionStorage.removeItem("rca_session_token");
+    if (!options.silent) toast(error.message);
+  } finally {
+    renderSession();
+  }
 }
 
 function saveAdminToken() {
@@ -40,7 +105,7 @@ function saveAdminToken() {
     sessionStorage.removeItem("rca_admin_token");
     toast("Admin token cleared.");
   }
-  loadPendingUsers();
+  refreshAll();
 }
 
 async function submitSignup(event) {
@@ -62,13 +127,13 @@ async function submitSignup(event) {
 
 async function submitCluster(event) {
   event.preventDefault();
-  if (!ensureAdminToken()) return;
+  if (!ensureAuth()) return;
   const form = event.currentTarget;
   const payload = formPayload(form);
   try {
     const cluster = await api("/api/clusters", {
       method: "POST",
-      headers: adminHeaders(),
+      headers: authHeaders({ allowAdminFallback: true }),
       body: JSON.stringify(payload),
     });
     form.reset();
@@ -81,7 +146,9 @@ async function submitCluster(event) {
 
 async function loadClusters() {
   try {
-    state.clusters = await api("/api/clusters");
+    state.clusters = await api("/api/clusters", {
+      headers: authHeaders({ allowAdminFallback: true }),
+    });
     renderClusters();
   } catch (error) {
     renderError("#clusterList", error.message);
@@ -92,7 +159,9 @@ async function loadClusters() {
 
 async function loadReports() {
   try {
-    state.reports = await api("/api/rca/reports");
+    state.reports = await api("/api/rca/reports", {
+      headers: authHeaders({ allowAdminFallback: true }),
+    });
     renderReports();
   } catch (error) {
     renderError("#reportList", error.message);
@@ -102,9 +171,9 @@ async function loadReports() {
 }
 
 async function loadPendingUsers(options = {}) {
-  if (!state.adminToken) {
+  if (!state.sessionToken && !state.adminToken) {
     state.pendingUsers = [];
-    renderPendingUsers("Admin token required.");
+    renderPendingUsers("Admin role or bootstrap token required.");
     renderOverview();
     return;
   }
@@ -112,12 +181,12 @@ async function loadPendingUsers(options = {}) {
   try {
     const query = new URLSearchParams({ status: "pending_approval" });
     state.pendingUsers = await api(`/api/admin/users?${query.toString()}`, {
-      headers: adminHeaders(),
+      headers: authHeaders({ allowAdminFallback: true }),
     });
     renderPendingUsers();
   } catch (error) {
     state.pendingUsers = [];
-    renderPendingUsers(options.silent ? "Admin token required." : error.message);
+    renderPendingUsers(options.silent ? "Admin role or bootstrap token required." : error.message);
     if (!options.silent) toast(error.message);
   } finally {
     renderOverview();
@@ -125,8 +194,7 @@ async function loadPendingUsers(options = {}) {
 }
 
 async function approveUser(userId, decision) {
-  if (!state.adminToken) {
-    toast("Admin token required.");
+  if (!ensureAuth()) {
     return;
   }
   const roleSelect = document.querySelector(`[data-role-for="${userId}"]`);
@@ -134,7 +202,7 @@ async function approveUser(userId, decision) {
   try {
     await api(`/api/admin/users/${userId}/approval`, {
       method: "POST",
-      headers: adminHeaders(),
+      headers: authHeaders({ allowAdminFallback: true }),
       body: JSON.stringify({
         decision,
         role: decision === "approve" ? roleSelect.value : null,
@@ -149,12 +217,12 @@ async function approveUser(userId, decision) {
 }
 
 async function loadInstallCommand(clusterId, targetId) {
-  if (!ensureAdminToken()) return;
+  if (!ensureAuth()) return;
   const backendUrl = window.location.origin;
   const query = new URLSearchParams({ backend_url: backendUrl });
   try {
     const response = await api(`/api/clusters/${clusterId}/install-command?${query.toString()}`, {
-      headers: adminHeaders(),
+      headers: authHeaders({ allowAdminFallback: true }),
     });
     const target = document.getElementById(targetId);
     target.innerHTML = `<pre class="code-block"><code>${escapeHtml(response.commands.join("\n"))}</code></pre>`;
@@ -295,12 +363,28 @@ function renderReports() {
           </div>
           <div class="item-actions">
             ${policies.map((policy) => `<span class="badge ${policyClass(policy)}">${escapeHtml(policy)}</span>`).join("")}
-            <a class="badge" href="/api/rca/reports/${encodeURIComponent(report.report_id)}" target="_blank" rel="noreferrer">JSON</a>
+            <button type="button" data-report-json="${escapeHtml(report.report_id)}">Copy JSON</button>
           </div>
         </article>
       `;
     })
     .join("");
+
+  target.querySelectorAll("[data-report-json]").forEach((button) => {
+    button.addEventListener("click", () => copyReportJson(button.dataset.reportJson));
+  });
+}
+
+async function copyReportJson(reportId) {
+  try {
+    const report = await api(`/api/rca/reports/${encodeURIComponent(reportId)}`, {
+      headers: authHeaders({ allowAdminFallback: true }),
+    });
+    await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+    toast("Report JSON copied.");
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function copyWebhookEndpoint() {
@@ -317,11 +401,11 @@ async function api(path, options = {}) {
   const response = await fetch(path, {
     cache: "no-store",
     credentials: "same-origin",
+    ...options,
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
     },
-    ...options,
   });
   const contentType = response.headers.get("content-type") || "";
   const body = contentType.includes("application/json") ? await response.json() : await response.text();
@@ -332,13 +416,24 @@ async function api(path, options = {}) {
   return body;
 }
 
-function adminHeaders() {
-  return state.adminToken ? { "X-Admin-Token": state.adminToken } : {};
+function renderSession() {
+  const target = $("#sessionStatus");
+  if (!state.currentUser) {
+    target.textContent = state.sessionToken ? "Session expired" : "Not signed in";
+    return;
+  }
+  target.textContent = `${state.currentUser.email} / ${state.currentUser.role}`;
 }
 
-function ensureAdminToken() {
-  if (state.adminToken) return true;
-  toast("Admin token required.");
+function authHeaders(options = {}) {
+  if (state.sessionToken) return { Authorization: `Bearer ${state.sessionToken}` };
+  if (options.allowAdminFallback && state.adminToken) return { "X-Admin-Token": state.adminToken };
+  return {};
+}
+
+function ensureAuth() {
+  if (state.sessionToken || state.adminToken) return true;
+  toast("Sign in or enter bootstrap admin token.");
   return false;
 }
 

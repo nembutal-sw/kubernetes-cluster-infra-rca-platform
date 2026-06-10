@@ -71,6 +71,9 @@
 - 관리자 콘솔 정적 SPA 완료
 - Web UI 보안 header/CSP 적용 완료
 - 관리자 token query string 제거 및 header 전송 완료
+- 승인 사용자 로그인/로그아웃 완료
+- Bearer 세션 기반 API 인증 완료
+- admin/operator/viewer 역할별 접근 제어 완료
 - 회원가입 요청 화면 완료
 - 관리자 승인/거절 화면 완료
 - 클러스터 등록 화면 완료
@@ -78,5 +81,4 @@
 - Alertmanager webhook 연동 안내 화면 완료
 - RCA 보고서 목록 화면 완료
 - Policy decision 표시 완료
-- 실제 로그인 세션과 역할별 접근 제어 예정
 - RCA 보고서 상세 drill-down 예정

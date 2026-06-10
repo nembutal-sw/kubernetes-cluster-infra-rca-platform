@@ -224,6 +224,19 @@ class UserSignupRequest(BaseModel):
         return normalized
 
 
+class UserLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255, examples=["operator@example.com"])
+    password: str = Field(min_length=1, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
+            raise ValueError("email must be a valid address")
+        return normalized
+
+
 class UserApprovalRequest(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
     role: UserRole | None = None
@@ -242,6 +255,13 @@ class UserAccount(BaseModel):
     approved_by: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
     approved_at: datetime | None = None
+
+
+class AuthSessionResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    user: UserAccount
 
 
 class RcaSummary(BaseModel):

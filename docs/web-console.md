@@ -24,8 +24,9 @@ http://127.0.0.1:8000/
 3. 관리자는 `Admin token`에 `RCA_ADMIN_APPROVAL_TOKEN` 값을 입력합니다.
 4. `Approval Queue`에서 승인 또는 거절합니다.
 5. 승인된 사용자는 `active` 상태와 확정 role을 받습니다.
+6. 승인된 사용자는 상단 로그인 폼에서 email/password로 로그인하고 Bearer 세션을 받습니다.
 
-현재 MVP는 승인 기반 가입 저장과 관리자 승인 API까지만 제공합니다. 실제 로그인 세션, 쿠키, RBAC middleware는 다음 단계에서 붙입니다.
+현재 MVP는 승인 기반 가입, 로그인 세션, 역할별 API 접근 제어까지 제공합니다.
 
 ## 관리자 토큰
 
@@ -41,15 +42,17 @@ dev-admin-approval-token
 $env:RCA_ADMIN_APPROVAL_TOKEN = "replace-with-secure-token"
 ```
 
-콘솔은 관리자 token을 URL query string에 넣지 않고 `X-Admin-Token` header로 전송합니다.
-브라우저 저장도 영구 `localStorage`가 아니라 탭 단위 `sessionStorage`만 사용합니다.
+콘솔은 로그인 세션을 우선 사용하고 `Authorization: Bearer <access_token>` header로 전송합니다.
+초기 관리자 계정이 없을 때만 bootstrap admin token을 fallback으로 사용하며, 이 값은 `X-Admin-Token` header로 전송합니다.
+브라우저 저장은 영구 `localStorage`가 아니라 탭 단위 `sessionStorage`만 사용합니다.
 
-관리자 token이 필요한 화면 동작:
+로그인 세션 또는 bootstrap admin token이 필요한 화면 동작:
 
 - 승인 대기 사용자 조회
 - 회원가입 승인/거절
 - 클러스터 등록
 - Agent 설치 명령어 조회
+- 클러스터, RCA report, evidence 조회
 
 Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` header를 붙입니다.
 
@@ -58,6 +61,9 @@ Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-
 콘솔은 같은 origin의 Backend API를 호출합니다.
 
 - `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
 - `GET /api/admin/users?status=pending_approval`
 - `POST /api/admin/users/{user_id}/approval`
 - `POST /api/clusters`

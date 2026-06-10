@@ -60,7 +60,7 @@ $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 
 현재 revision:
 
-- `0005_node_agent_token_hash`
+- `0006_user_sessions`
 
 적용:
 
@@ -87,11 +87,14 @@ $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 - `clusters`
 - `node_agents`
 - `user_accounts`
+- `user_sessions`
 - `evidence_requests`
 - `evidence_bundles`
 - `rca_reports`
 - `rca_jobs`
 
 `node_agents.node_token_hash`는 node별 인증 token 검증용 hash입니다. raw `node_token`은 등록 응답에서만 내려가고 DB에는 저장하지 않습니다.
+
+`user_sessions.token_hash`는 로그인 access token 검증용 hash입니다. raw access token은 로그인 응답에서만 내려가고 DB에는 저장하지 않습니다.
 
 JSON 성격의 데이터는 DB 호환성을 위해 `Text` 컬럼에 JSON 문자열로 저장합니다. PostgreSQL `JSONB`나 MariaDB `JSON` 타입은 지금 단계에서 쓰지 않습니다. 두 DB를 동시에 지원하려면 초반에는 DB별 기능을 피하는 편이 안전합니다.

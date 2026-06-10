@@ -45,7 +45,7 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert install["namespace"] == "rca-system"
     assert any("agent-token" in command for command in install["commands"])
 
-    list_response = client.get("/api/clusters")
+    list_response = client.get("/api/clusters", headers=ADMIN_HEADERS)
     assert list_response.status_code == 200
     assert "bootstrap_token" not in list_response.json()[0]
 
@@ -64,7 +64,7 @@ def test_web_console_static_assets_are_served(tmp_path) -> None:
     assert "sessionStorage" in script_response.text
     assert "X-Admin-Token" in script_response.text
     assert style_response.status_code == 200
-    assert "admin-token" in style_response.text
+    assert "auth-panel" in style_response.text
     assert index_response.headers["X-Frame-Options"] == "DENY"
     assert "frame-ancestors 'none'" in index_response.headers["Content-Security-Policy"]
 
@@ -212,7 +212,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     assert result["created_evidence_requests"] == []
     assert result["created_jobs"][0]["evidence_id"].startswith("evidence-")
 
-    report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}")
+    report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}", headers=ADMIN_HEADERS)
 
     assert report_response.status_code == 200
     report = report_response.json()
@@ -303,6 +303,93 @@ def test_signup_requires_admin_approval(tmp_path) -> None:
         json={"decision": "approve"},
     )
     assert approve_again_response.status_code == 409
+
+
+def test_login_session_and_role_based_access(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+
+    viewer_signup = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "viewer@example.com",
+            "full_name": "Report Viewer",
+            "password": "safe-password-123",
+            "requested_role": "viewer",
+        },
+    ).json()
+
+    pending_login = client.post(
+        "/api/auth/login",
+        json={"email": "viewer@example.com", "password": "safe-password-123"},
+    )
+    assert pending_login.status_code == 403
+
+    client.post(
+        f"/api/admin/users/{viewer_signup['user_id']}/approval",
+        headers=ADMIN_HEADERS,
+        json={"decision": "approve", "role": "viewer"},
+    )
+
+    wrong_password = client.post(
+        "/api/auth/login",
+        json={"email": "viewer@example.com", "password": "wrong-password"},
+    )
+    assert wrong_password.status_code == 401
+
+    viewer_login = client.post(
+        "/api/auth/login",
+        json={"email": "viewer@example.com", "password": "safe-password-123"},
+    )
+    assert viewer_login.status_code == 200
+    viewer_session = viewer_login.json()
+    assert viewer_session["token_type"] == "bearer"
+    assert viewer_session["access_token"]
+    assert viewer_session["user"]["role"] == "viewer"
+    assert "password" not in viewer_session["user"]
+    viewer_headers = {"Authorization": f"Bearer {viewer_session['access_token']}"}
+
+    me_response = client.get("/api/auth/me", headers=viewer_headers)
+    assert me_response.status_code == 200
+    assert me_response.json()["email"] == "viewer@example.com"
+
+    assert client.get("/api/clusters", headers=viewer_headers).status_code == 200
+    assert client.post(
+        "/api/clusters",
+        headers=viewer_headers,
+        json={"name": "viewer-blocked", "environment": "dev"},
+    ).status_code == 403
+
+    logout_response = client.post("/api/auth/logout", headers=viewer_headers)
+    assert logout_response.status_code == 200
+    assert logout_response.json() == {"revoked": True}
+    assert client.get("/api/auth/me", headers=viewer_headers).status_code == 401
+
+    operator_signup = client.post(
+        "/api/auth/signup",
+        json={
+            "email": "operator@example.com",
+            "full_name": "Cluster Operator",
+            "password": "safe-password-456",
+            "requested_role": "operator",
+        },
+    ).json()
+    client.post(
+        f"/api/admin/users/{operator_signup['user_id']}/approval",
+        headers=ADMIN_HEADERS,
+        json={"decision": "approve", "role": "operator"},
+    )
+    operator_login = client.post(
+        "/api/auth/login",
+        json={"email": "operator@example.com", "password": "safe-password-456"},
+    ).json()
+    operator_headers = {"Authorization": f"Bearer {operator_login['access_token']}"}
+    create_cluster = client.post(
+        "/api/clusters",
+        headers=operator_headers,
+        json={"name": "operator-created", "environment": "stage"},
+    )
+    assert create_cluster.status_code == 201
+    assert create_cluster.json()["bootstrap_token"]
 
 
 def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_path) -> None:
@@ -399,14 +486,14 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     )
 
     assert submit_response.status_code == 200
-    jobs_response = client.get("/api/rca/jobs")
+    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
     assert jobs_response.status_code == 200
     jobs = jobs_response.json()
     assert len(jobs) == 1
     assert jobs[0]["alert_name"] == "NodeNotReady"
     assert jobs[0]["evidence_id"] == submit_response.json()["evidence_id"]
 
-    report_response = client.get(f"/api/rca/reports/{jobs[0]['report_id']}")
+    report_response = client.get(f"/api/rca/reports/{jobs[0]['report_id']}", headers=ADMIN_HEADERS)
     assert report_response.status_code == 200
     report = report_response.json()
     signals = _report_section(report, "derived_signals")["signals"]
@@ -474,8 +561,8 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
     )
 
     assert submit_response.status_code == 200
-    job = client.get("/api/rca/jobs").json()[0]
-    report = client.get(f"/api/rca/reports/{job['report_id']}").json()
+    job = client.get("/api/rca/jobs", headers=ADMIN_HEADERS).json()[0]
+    report = client.get(f"/api/rca/reports/{job['report_id']}", headers=ADMIN_HEADERS).json()
 
     assert report["summary"]["confidence"] == "high"
     signals = _report_section(report, "derived_signals")["signals"]
@@ -570,17 +657,17 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     assert heartbeat["agent_version"] == "0.1.1"
     assert heartbeat["last_heartbeat_at"] is not None
 
-    list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents")
+    list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=ADMIN_HEADERS)
     assert list_response.status_code == 200
     assert [agent["node_name"] for agent in list_response.json()] == ["worker-3"]
     assert "node_token" not in list_response.json()[0]
 
-    get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3")
+    get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3", headers=ADMIN_HEADERS)
     assert get_response.status_code == 200
     assert get_response.json()["health"] == {"kubelet": "active", "containerd": "active"}
     assert "node_token" not in get_response.json()
 
-    cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}")
+    cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}", headers=ADMIN_HEADERS)
     assert cluster_response.status_code == 200
     cluster_after_agent = cluster_response.json()
     assert cluster_after_agent["status"] == "active"
@@ -716,13 +803,13 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     assert completed_request["evidence_id"].startswith("evidence-")
     assert completed_request["completed_at"] is not None
 
-    evidence_response = client.get(f"/api/evidence/{completed_request['evidence_id']}")
+    evidence_response = client.get(f"/api/evidence/{completed_request['evidence_id']}", headers=ADMIN_HEADERS)
     assert evidence_response.status_code == 200
     evidence = evidence_response.json()
     assert evidence["alert_name"] == "NodeNotReady"
     assert evidence["collectors"]["systemd"]["kubelet_status"] == "active"
 
-    jobs_response = client.get("/api/rca/jobs")
+    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
     assert jobs_response.status_code == 200
     jobs = jobs_response.json()
     assert len(jobs) == 1
@@ -730,7 +817,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     assert job["status"] == "completed"
     assert job["evidence_id"] == completed_request["evidence_id"]
 
-    report_response = client.get(f"/api/rca/reports/{job['report_id']}")
+    report_response = client.get(f"/api/rca/reports/{job['report_id']}", headers=ADMIN_HEADERS)
     assert report_response.status_code == 200
     report = report_response.json()
     assert report["trigger"]["alert_name"] == "NodeNotReady"
@@ -813,8 +900,8 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
     assert failed_request["error_message"] == "journalctl timed out"
     assert failed_request["evidence_id"] is None
 
-    assert client.get("/api/rca/jobs").json() == []
-    assert client.get("/api/rca/reports").json() == []
+    assert client.get("/api/rca/jobs", headers=ADMIN_HEADERS).json() == []
+    assert client.get("/api/rca/reports", headers=ADMIN_HEADERS).json() == []
 
 
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
@@ -828,7 +915,7 @@ def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
     ).json()
 
     second_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
-    response = second_client.get(f"/api/clusters/{cluster['cluster_id']}")
+    response = second_client.get(f"/api/clusters/{cluster['cluster_id']}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["name"] == "prod-cluster"
@@ -871,6 +958,8 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "evidence_requests" in mariadb_ddl
     assert "user_accounts" in postgres_ddl
     assert "user_accounts" in mariadb_ddl
+    assert "user_sessions" in postgres_ddl
+    assert "user_sessions" in mariadb_ddl
 
 
 def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None:
@@ -891,6 +980,7 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
         "rca_reports",
         "rca_jobs",
         "user_accounts",
+        "user_sessions",
     } <= tables
     assert "node_token_hash" in node_agent_columns
 
