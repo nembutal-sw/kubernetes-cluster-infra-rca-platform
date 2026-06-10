@@ -37,10 +37,11 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 3. 각 노드에 DaemonSet 형태로 Agent를 배포한다.
 4. Agent는 노드 로컬 로그, systemd 상태, kernel log, 디스크/메모리/네트워크 상태, container runtime, kubelet 상태를 수집한다.
 5. Prometheus 또는 Alertmanager가 장애를 감지하면 Backend webhook으로 보낸다.
-6. Backend는 RCA job을 만들고 관련 증거를 수집한다.
-7. Analyzer가 원인 후보와 근거를 정리한다.
-8. Policy Engine이 권장 조치를 안전 등급별로 나눈다.
-9. 운영자가 볼 수 있는 RCA report를 만든다.
+6. Backend는 해당 노드 Agent가 등록되어 있으면 evidence request를 먼저 만든다.
+7. Agent가 증거를 수집해서 Backend에 제출한다.
+8. Analyzer가 원인 후보와 근거를 정리한다.
+9. Policy Engine이 권장 조치를 안전 등급별로 나눈다.
+10. 운영자가 볼 수 있는 RCA report를 만든다.
 
 중요한 점은 LLM이 직접 조치를 실행하지 않는다는 것입니다. LLM은 진단과 설명만 맡고, 실제 조치 가능 여부는 Policy Engine과 승인 흐름에서 판단합니다.
 
@@ -53,6 +54,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - 클러스터 등록
 - Agent 설치 명령어 조회
 - Alertmanager webhook 수신
+- Alertmanager 알림을 Agent evidence request로 연결
 - fake evidence 생성
 - rule-based RCA report 생성
 - Policy Engine 기반 권장 조치 분류
@@ -145,6 +147,6 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 바로 다음 단계는 둘 중 하나입니다.
 
 - Node Agent MVP를 만들어 systemd/kubelet/containerd/disk/network collector부터 붙이기
-- Evidence request를 Alertmanager webhook/RCA job 흐름에 연결하기
+- Agent가 제출한 evidence로 RCA job/report를 이어서 생성하기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약은 들어갔습니다. 이제 실제 collector 구현 또는 RCA job과 evidence request 연동이 필요합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성까지 들어갔습니다. 이제 실제 collector 구현 또는 evidence 제출 이후 RCA report 생성 흐름이 필요합니다.

@@ -1,6 +1,6 @@
 # Backend API MVP
 
-Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, RCA job 생성, fake evidence 기반 report 생성까지의 기본 흐름을 제공합니다.
+Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evidence request 생성, fake evidence 기반 RCA report 생성까지의 기본 흐름을 제공합니다.
 
 현재 구현은 SQLAlchemy 저장소를 사용합니다. `RCA_DATABASE_URL`에 따라 PostgreSQL, MariaDB, 개발용 SQLite를 선택합니다.
 
@@ -50,8 +50,10 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, RCA job �
 7. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
 8. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
 9. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
-10. Backend가 RCA job과 RCA report를 생성합니다.
-11. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+10. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
+11. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
+12. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
+13. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
 
 ## 예시 요청
 
@@ -71,7 +73,8 @@ Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니�
 
 ## 현재 MVP 범위
 
-- 실제 Node Agent 연동 전까지 `FakeEvidenceCollector`가 결정론적 evidence bundle을 생성합니다.
+- Alertmanager webhook은 등록된 Agent가 있는 노드에 대해 evidence request를 생성합니다.
+- 실제 Node Agent가 없는 노드는 `FakeEvidenceCollector`가 결정론적 evidence bundle을 생성합니다.
 - Node Agent 등록과 heartbeat API는 구현되어 있습니다.
 - Agent evidence request/response API는 구현되어 있습니다.
 - `RuleBasedRcaAnalyzer`가 alert type에 따라 원인 후보와 confidence를 생성합니다.

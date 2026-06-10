@@ -5,6 +5,8 @@ import uuid
 from backend.app.models import (
     AlertmanagerAlert,
     AlertmanagerPayload,
+    EvidenceRequest,
+    EvidenceRequestCreateRequest,
     InstallCommandResponse,
     RcaJob,
     RcaJobStatus,
@@ -53,6 +55,7 @@ class RcaService:
     def ingest_alertmanager(self, payload: AlertmanagerPayload) -> WebhookIngestResponse:
         created_jobs: list[RcaJob] = []
         created_reports: list[str] = []
+        created_evidence_requests: list[EvidenceRequest] = []
         skipped_alerts: list[str] = []
 
         for alert in payload.alerts:
@@ -68,6 +71,26 @@ class RcaService:
             cluster = self._store.get_cluster(cluster_id)
             if cluster is None:
                 skipped_alerts.append(self._skip_reason(alert, f"cluster {cluster_id} is not registered"))
+                continue
+
+            node_name = self._node_name_for(alert)
+            if node_name is not None and self._store.get_agent(cluster.cluster_id, node_name) is not None:
+                evidence_request = self._store.create_evidence_request(
+                    EvidenceRequestCreateRequest(
+                        cluster_id=cluster.cluster_id,
+                        node_name=node_name,
+                        alert_name=self._alert_name_for(alert),
+                        requested_collectors=self._collectors_for(alert),
+                        time_range=self._time_range_for(alert),
+                        reason="Alertmanager firing alert",
+                        context={
+                            "labels": alert.labels,
+                            "annotations": alert.annotations,
+                            "generator_url": alert.generator_url,
+                        },
+                    )
+                )
+                created_evidence_requests.append(evidence_request)
                 continue
 
             evidence = self._evidence_collector.collect(cluster, alert)
@@ -93,6 +116,7 @@ class RcaService:
             received_alerts=len(payload.alerts),
             created_jobs=created_jobs,
             created_reports=created_reports,
+            created_evidence_requests=created_evidence_requests,
             skipped_alerts=skipped_alerts,
         )
 
@@ -102,6 +126,40 @@ class RcaService:
             or payload.common_labels.get("cluster_id")
             or payload.group_labels.get("cluster_id")
         )
+
+    def _node_name_for(self, alert: AlertmanagerAlert) -> str | None:
+        return alert.labels.get("node") or alert.labels.get("nodename") or alert.labels.get("instance")
+
+    def _alert_name_for(self, alert: AlertmanagerAlert) -> str:
+        return alert.labels.get("alertname", "UnknownAlert")
+
+    def _collectors_for(self, alert: AlertmanagerAlert) -> list[str]:
+        alert_name = self._alert_name_for(alert)
+        if alert_name in {"NodeNotReady", "KubeletDown", "KubeletUnhealthy"}:
+            return ["node", "systemd", "runtime", "kernel", "network"]
+        if alert_name == "DiskPressure":
+            return ["node", "disk", "inode", "kernel", "systemd"]
+        if alert_name == "MemoryPressure":
+            return ["node", "memory", "kernel", "systemd"]
+        if alert_name == "PIDPressure":
+            return ["node", "process", "systemd", "kernel"]
+        if alert_name == "NetworkUnavailable":
+            return ["node", "network", "cni", "dns", "conntrack"]
+        if alert_name in {"ContainerdDown", "ContainerRuntimeUnhealthy"}:
+            return ["runtime", "systemd", "kernel", "disk"]
+        if alert_name in {"CoreDNSUnhealthy", "CoreDNSLatencyHigh"}:
+            return ["dns", "network", "cni", "conntrack"]
+        if alert_name in {"EtcdLatencyHigh", "APIServerLatencyHigh"}:
+            return ["network", "dns", "systemd", "kernel"]
+        return ["node", "systemd", "runtime", "disk", "memory", "network", "kernel"]
+
+    def _time_range_for(self, alert: AlertmanagerAlert) -> dict[str, str]:
+        time_range: dict[str, str] = {}
+        if alert.starts_at is not None:
+            time_range["from"] = alert.starts_at.isoformat()
+        if alert.ends_at is not None:
+            time_range["to"] = alert.ends_at.isoformat()
+        return time_range
 
     def _skip_reason(self, alert: AlertmanagerAlert, reason: str) -> str:
         alert_name = alert.labels.get("alertname", "unknown")

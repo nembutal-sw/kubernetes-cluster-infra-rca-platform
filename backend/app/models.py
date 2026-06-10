@@ -226,4 +226,5 @@ class WebhookIngestResponse(BaseModel):
     received_alerts: int
     created_jobs: list[RcaJob]
     created_reports: list[str]
+    created_evidence_requests: list[EvidenceRequest]
     skipped_alerts: list[str]

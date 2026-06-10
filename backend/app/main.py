@@ -19,6 +19,7 @@ from backend.app.models import (
     NodeAgentRegisterRequest,
     RcaJob,
     RcaReport,
+    WebhookIngestResponse,
 )
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
 from backend.app.services.evidence import FakeEvidenceCollector
@@ -169,8 +170,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="evidence request not found")
         return submitted
 
-    @app.post("/api/webhooks/alertmanager")
-    def ingest_alertmanager(payload: AlertmanagerPayload):
+    @app.post("/api/webhooks/alertmanager", response_model=WebhookIngestResponse)
+    def ingest_alertmanager(payload: AlertmanagerPayload) -> WebhookIngestResponse:
         return rca_service.ingest_alertmanager(payload)
 
     @app.get("/api/rca/jobs", response_model=list[RcaJob])

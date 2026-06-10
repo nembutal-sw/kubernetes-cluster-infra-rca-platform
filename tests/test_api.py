@@ -68,6 +68,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     assert result["received_alerts"] == 1
     assert len(result["created_jobs"]) == 1
     assert len(result["created_reports"]) == 1
+    assert result["created_evidence_requests"] == []
     assert result["created_jobs"][0]["evidence_id"].startswith("evidence-")
 
     report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}")
@@ -81,6 +82,80 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
         "APPROVAL_REQUIRED",
         "GITOPS_PR_ONLY",
     }
+
+
+def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["node", "systemd", "runtime", "kernel", "network"],
+        },
+    )
+
+    webhook_response = client.post(
+        "/api/webhooks/alertmanager",
+        json={
+            "receiver": "cluster-infra-rca",
+            "status": "firing",
+            "alerts": [
+                {
+                    "status": "firing",
+                    "labels": {
+                        "alertname": "NodeNotReady",
+                        "severity": "critical",
+                        "cluster_id": cluster["cluster_id"],
+                        "node": "worker-3",
+                        "component": "kubelet",
+                    },
+                    "annotations": {
+                        "summary": "worker-3 node is NotReady",
+                    },
+                    "startsAt": "2026-06-10T09:15:00+09:00",
+                }
+            ],
+        },
+    )
+
+    assert webhook_response.status_code == 200
+    result = webhook_response.json()
+    assert result["created_jobs"] == []
+    assert result["created_reports"] == []
+    assert len(result["created_evidence_requests"]) == 1
+
+    evidence_request = result["created_evidence_requests"][0]
+    assert evidence_request["status"] == "pending"
+    assert evidence_request["cluster_id"] == cluster["cluster_id"]
+    assert evidence_request["node_name"] == "worker-3"
+    assert evidence_request["alert_name"] == "NodeNotReady"
+    assert evidence_request["requested_collectors"] == [
+        "node",
+        "systemd",
+        "runtime",
+        "kernel",
+        "network",
+    ]
+    assert evidence_request["time_range"]["from"] == "2026-06-10T09:15:00+09:00"
+
+    poll_response = client.post(
+        "/api/agents/evidence-requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+        },
+    )
+
+    assert poll_response.status_code == 200
+    assert [item["request_id"] for item in poll_response.json()] == [evidence_request["request_id"]]
 
 
 def test_webhook_skips_unknown_cluster(tmp_path) -> None:

@@ -4,6 +4,8 @@ Evidence API는 Backend가 특정 노드 Agent에게 수집 요청을 만들고,
 
 현재 구현은 push 방식이 아니라 poll 방식입니다. Backend가 request를 만들면 Agent가 주기적으로 pending request를 조회하고 결과를 submit합니다.
 
+Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `cluster_id`와 `node` label에 해당하는 Agent가 등록되어 있으면 Backend는 즉시 RCA report를 만들지 않고 pending evidence request를 먼저 생성합니다.
+
 ## Backend: evidence request 생성
 
 `POST /api/evidence/requests`
@@ -112,4 +114,3 @@ GET /api/evidence/requests/{request_id}
 ```text
 GET /api/evidence/{evidence_id}
 ```
-
