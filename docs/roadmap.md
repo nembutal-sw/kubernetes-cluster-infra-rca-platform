@@ -34,12 +34,14 @@
 - 클러스터별 Agent manifest 생성 API 완료
 - kubelet/containerd/systemd collector MVP 완료
 - disk/inode/memory/network collector MVP 완료
-- 실제 Linux 노드 검증 및 필드 보강 예정
+- Backend 없는 local collect 검증 모드 완료
+- evidence 기반 RCA signal 추출 완료
+- 실제 Linux 노드 검증 및 threshold 보정 예정
 
 ## Phase 4: LLM Analyzer
 
 - evidence bundle 요약
-- 원인 후보 생성
+- rule-based signal을 입력으로 한 원인 후보 생성
 - 근거 기반 confidence 산정
 - 추가 확인 명령어 제안
 - 직접 실행 금지 guardrail 적용

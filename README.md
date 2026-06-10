@@ -57,7 +57,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Alertmanager webhook 수신
 - Alertmanager 알림을 Agent evidence request로 연결
 - fake evidence 생성
-- rule-based RCA report 생성
+- evidence field 기반 RCA signal 추출과 RCA report 생성
 - Policy Engine 기반 권장 조치 분류
 - RCA job/report 조회
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소
@@ -87,7 +87,7 @@ Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성�
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/health`
 
-자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다.
+자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
 
 ## DB 선택
 
@@ -113,7 +113,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 
@@ -135,6 +135,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- install-flow.md
 |   |-- linux-node-collector-validation.md
 |   |-- policy-engine.md
+|   |-- rca-analysis-rules.md
 |   |-- rca-scope.md
 |   |-- report-schema.md
 |   `-- roadmap.md
@@ -157,7 +158,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 
 바로 다음 단계는 둘 중 하나입니다.
 
-- Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드 보강하기
+- Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드와 분석 threshold 보정하기
 - LLM 분석 adapter를 만들어 rule-based analyzer 뒤에 붙이기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드를 보강해야 합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.

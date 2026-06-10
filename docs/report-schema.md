@@ -39,6 +39,8 @@ RCA 보고서는 장애 증상, 수집 증거, 원인 후보, 신뢰도, 영향 
 - 타임라인
 - 영향 범위
 - 수집된 증거
+- evidence field에서 도출한 `derived_signals`
+- 운영자가 원인 확정에 사용할 `resolution_checklist`
 - 원인 후보와 근거
 - 배제된 원인
 - 추가 확인 명령어
@@ -46,3 +48,4 @@ RCA 보고서는 장애 증상, 수집 증거, 원인 후보, 신뢰도, 영향 
 - Policy Engine 분류
 - 운영자 메모
 
+`derived_signals`와 `resolution_checklist`는 report의 `evidence` 배열 안에 별도 section으로 들어갑니다. 저장 스키마는 그대로 두고, report 소비자가 원본 collector 결과와 분석 결과를 같은 응답에서 볼 수 있게 하기 위한 구조입니다.

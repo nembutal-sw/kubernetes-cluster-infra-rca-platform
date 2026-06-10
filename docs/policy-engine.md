@@ -31,7 +31,10 @@ LLM은 조치 실행자가 아닙니다. LLM의 출력은 Policy Engine의 입�
 | --- | --- |
 | kubelet journal 추가 수집 | `AUTO_SAFE` |
 | kubelet 재시작 | `APPROVAL_REQUIRED` |
+| containerd 재시작 | `APPROVAL_REQUIRED` |
+| 디스크 정리 또는 증설 | `APPROVAL_REQUIRED` |
+| 메모리 압박 지속 시 node cordon/drain 검토 | `APPROVAL_REQUIRED` |
 | CoreDNS replica 증가 PR 생성 | `GITOPS_PR_ONLY` |
 | etcd member 강제 제거 | `NEVER_AUTO_EXECUTE` |
+| read-only filesystem 지속 시 node reboot 검토 | `NEVER_AUTO_EXECUTE` |
 | NIC link flap 의심으로 스위치 포트 확인 | `MANUAL_INVESTIGATION` |
-

@@ -175,8 +175,13 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
 
     assert report_response.status_code == 200
     report = report_response.json()
-    assert report["summary"]["confidence"] == "medium"
+    assert report["summary"]["confidence"] == "high"
     assert report["scope"]["nodes"] == ["worker-3"]
+    derived_signals = _report_section(report, "derived_signals")["signals"]
+    assert {signal["signal"] for signal in derived_signals} >= {
+        "containerd_socket_unhealthy",
+        "conntrack_near_limit",
+    }
     assert {action["policy"] for action in report["recommended_actions"]} == {
         "AUTO_SAFE",
         "APPROVAL_REQUIRED",
@@ -280,6 +285,91 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     assert len(jobs) == 1
     assert jobs[0]["alert_name"] == "NodeNotReady"
     assert jobs[0]["evidence_id"] == submit_response.json()["evidence_id"]
+
+    report_response = client.get(f"/api/rca/reports/{jobs[0]['report_id']}")
+    assert report_response.status_code == 200
+    report = report_response.json()
+    signals = _report_section(report, "derived_signals")["signals"]
+    assert {signal["signal"] for signal in signals} >= {
+        "kubelet_unit_unhealthy",
+        "containerd_socket_unhealthy",
+        "conntrack_near_limit",
+    }
+    checklist = _report_section(report, "resolution_checklist")["items"]
+    assert {item["component"] for item in checklist} >= {"kubelet", "containerd", "network"}
+
+
+def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["disk", "kernel", "systemd"],
+        },
+    )
+    evidence_request = client.post(
+        "/api/evidence/requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "alert_name": "DiskPressure",
+            "requested_collectors": ["disk", "kernel", "systemd"],
+        },
+    ).json()
+
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "completed",
+            "collectors": {
+                "disk": {
+                    "root_usage_percent": 96,
+                    "inode_usage_percent": 99,
+                    "root_mount_read_only": True,
+                    "kernel_io_error_detected": True,
+                    "io_pressure": {"full": {"avg10": 12}},
+                },
+                "kernel": {
+                    "io_error_detected": True,
+                    "read_only_filesystem_detected": True,
+                },
+            },
+        },
+    )
+
+    assert submit_response.status_code == 200
+    job = client.get("/api/rca/jobs").json()[0]
+    report = client.get(f"/api/rca/reports/{job['report_id']}").json()
+
+    assert report["summary"]["confidence"] == "high"
+    signals = _report_section(report, "derived_signals")["signals"]
+    assert {signal["signal"] for signal in signals} >= {
+        "disk_usage_critical",
+        "inode_usage_critical",
+        "root_filesystem_read_only",
+        "kernel_io_error",
+        "read_only_filesystem_detected",
+    }
+    assert any("filesystem" in candidate["cause"] for candidate in report["root_cause_candidates"])
+    assert {action["policy"] for action in report["recommended_actions"]} >= {
+        "APPROVAL_REQUIRED",
+        "MANUAL_INVESTIGATION",
+        "NEVER_AUTO_EXECUTE",
+    }
+    checklist = _report_section(report, "resolution_checklist")["items"]
+    assert {item["component"] for item in checklist} >= {"disk", "kernel"}
 
 
 def test_webhook_skips_unknown_cluster(tmp_path) -> None:
@@ -638,3 +728,10 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
     )
 
     assert response.status_code == 201
+
+
+def _report_section(report: dict, section_type: str) -> dict:
+    for section in report["evidence"]:
+        if section.get("type") == section_type:
+            return section
+    raise AssertionError(f"report section not found: {section_type}")
