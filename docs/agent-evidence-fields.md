@@ -20,21 +20,32 @@ Node Agent evidence는 두 종류의 값을 구분합니다.
 
 | Collector | 필드 | 의미 |
 | --- | --- | --- |
-| `systemd` | `kubelet_status`, `kubelet_restart_count` | `systemctl show kubelet` 결과 |
-| `systemd` | `containerd_status`, `containerd_restart_count` | `systemctl show containerd` 결과 |
+| `node` | `boot_id`, `kernel_tainted`, `kernel_tainted_raw` | `/proc/sys/kernel` 기반 부팅 ID와 kernel taint 상태 |
+| `systemd` | `kubelet_status`, `kubelet_sub_state`, `kubelet_result`, `kubelet_restart_count` | `systemctl show kubelet` 결과 |
+| `systemd` | `containerd_status`, `containerd_sub_state`, `containerd_result`, `containerd_restart_count` | `systemctl show containerd` 결과 |
+| `systemd` | `failed_units` | `systemctl --failed` 파싱 결과 |
+| `kubelet` | `kubelet_status`, `kubelet_sub_state`, `kubelet_result`, `kubelet_restart_count` | kubelet unit 상태와 재시작 횟수 |
 | `runtime` | `containerd_socket_exists`, `containerd_socket_is_socket` | hostPath socket 파일 상태 |
 | `runtime` | `containerd_socket_healthy`, `containerd_socket_latency_ms` | Unix socket 연결 probe 결과 |
+| `runtime` | `containerd_pid`, `containerd_pid_running` | containerd pid file과 `/proc` 기준 프로세스 존재 여부 |
 | `disk` | `root_path_available` | host root path를 읽을 수 있는지 여부 |
 | `disk` | `root_usage_percent`, `inode_usage_percent` | host root path가 있을 때만 채움 |
+| `disk` | `root_mount_read_only` | `/proc/mounts` 기준 root filesystem read-only 여부 |
 | `disk` | `io_wait_percent_since_boot` | `/proc/stat` 기반 누적 참고값 |
-| `memory` | `usage_percent`, `mem_total_kib`, `mem_available_kib` | `/proc/meminfo` 기반 값 |
+| `disk` | `io_pressure` | `/proc/pressure/io` 파싱 결과 |
+| `kernel` | `blocked_task_detected`, `read_only_filesystem_detected` | kernel log 후보에서 장애 문자열 탐지 |
+| `memory` | `usage_percent`, `mem_total_kib`, `mem_available_kib`, `swap_usage_percent` | `/proc/meminfo` 기반 값 |
+| `memory` | `dirty_kib`, `writeback_kib`, `slab_kib`, `pressure` | writeback 상태와 `/proc/pressure/memory` 파싱 결과 |
 | `memory` | `oom_kill_detected` | kernel log 후보에서 OOM 문자열 탐지 |
 | `process` | `process_count`, `zombie_process_count`, `pid_usage_percent` | `/proc` 기반 프로세스 상태 |
 | `network` | `interfaces` | `/proc/net/dev`와 `/sys/class/net` 기반 NIC 상태 |
+| `network` | `interface_rx_error_total`, `interface_tx_error_total`, `interface_rx_drop_total`, `interface_tx_drop_total` | NIC error/drop 합계 |
 | `network` | `nic_link_flap_detected` | `carrier_changes`가 0보다 큰 인터페이스가 있는지 |
+| `network` | `tcp_retrans_segments`, `tcp_attempt_fails`, `tcp_ext_listen_overflows`, `tcp_ext_listen_drops` | `/proc/net/snmp`, `/proc/net/netstat` 파싱 결과 |
 | `network` | `conntrack_usage_percent` | conntrack count/max 기반 값 |
-| `cni` | `plugin_types`, `mtu`, `mtu_values` | CNI config JSON 파싱 결과 |
-| `dns` | `nameservers`, `dns_configured` | `resolv.conf` 파싱 결과 |
+| `conntrack` | `available`, `near_limit` | conntrack 잔여량과 80% 이상 사용 여부 |
+| `cni` | `config_count`, `plugin_types`, `mtu`, `mtu_values`, `parse_errors` | CNI config JSON 파싱 결과 |
+| `dns` | `nameservers`, `dns_configured`, `ndots`, `timeout_seconds`, `attempts` | `resolv.conf` 파싱 결과 |
 
 ## 의도적으로 비워두는 필드
 

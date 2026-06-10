@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import socket
 import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from node_agent import SUPPORTED_COLLECTORS, __version__
@@ -47,6 +50,41 @@ def process_pending_requests(
     return processed
 
 
+def collect_local_evidence(
+    paths: AgentPaths,
+    runner: CommandRunner,
+    requested_collectors: list[str],
+) -> dict[str, Any]:
+    collectors = collect_evidence(requested_collectors, paths=paths, runner=runner)
+    return {
+        "agent_version": __version__,
+        "node_name": os.getenv("NODE_NAME") or socket.gethostname(),
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "requested_collectors": requested_collectors,
+        "host_paths": {
+            "root": str(paths.root),
+            "proc": str(paths.proc),
+            "sys": str(paths.sys),
+            "etc": str(paths.etc),
+            "var_log": str(paths.var_log),
+            "run": str(paths.run),
+        },
+        "collectors": collectors,
+    }
+
+
+def write_local_evidence(evidence: dict[str, Any], output: str) -> None:
+    encoded = json.dumps(evidence, ensure_ascii=False, indent=2, default=str)
+    if output == "-":
+        sys.stdout.write(encoded)
+        sys.stdout.write("\n")
+        return
+
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(encoded + "\n", encoding="utf-8")
+
+
 def build_client_from_env(timeout_seconds: float) -> AgentClient:
     backend_url = _required_env("BACKEND_URL")
     cluster_id = _required_env("CLUSTER_ID")
@@ -69,6 +107,15 @@ def run_agent(args: argparse.Namespace) -> int:
 
     paths = AgentPaths.from_env()
     runner = CommandRunner(timeout_seconds=args.command_timeout_seconds)
+    if args.collect_local:
+        evidence = collect_local_evidence(
+            paths=paths,
+            runner=runner,
+            requested_collectors=_parse_collector_list(args.collectors),
+        )
+        write_local_evidence(evidence, args.output)
+        return 0
+
     client = build_client_from_env(timeout_seconds=args.http_timeout_seconds)
     metadata = _agent_metadata(paths)
 
@@ -106,6 +153,21 @@ def run_agent(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Kubernetes cluster infra RCA node agent")
     parser.add_argument("--once", action="store_true", help="Run one heartbeat/poll/submit cycle and exit")
+    parser.add_argument(
+        "--collect-local",
+        action="store_true",
+        help="Collect evidence locally and exit without registering to backend",
+    )
+    parser.add_argument(
+        "--collectors",
+        default=",".join(SUPPORTED_COLLECTORS),
+        help="Comma-separated collector list for --collect-local",
+    )
+    parser.add_argument(
+        "--output",
+        default="-",
+        help="Output path for --collect-local, or '-' for stdout",
+    )
     parser.add_argument(
         "--poll-interval-seconds",
         type=float,
@@ -197,6 +259,11 @@ def _required_env(name: str) -> str:
     if not value:
         raise ValueError(f"{name} environment variable is required")
     return value
+
+
+def _parse_collector_list(raw_value: str) -> list[str]:
+    collectors = [item.strip() for item in raw_value.split(",") if item.strip()]
+    return collectors or SUPPORTED_COLLECTORS
 
 
 if __name__ == "__main__":

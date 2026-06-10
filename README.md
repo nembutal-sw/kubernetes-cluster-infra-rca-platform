@@ -71,6 +71,8 @@ Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있
 
 Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성합니다. `backend_url`, `image`, `namespace`를 query parameter로 넘기면 환경별 DaemonSet manifest를 받을 수 있습니다.
 
+실제 Linux 노드 검증은 Backend 연결 없이 `python -m node_agent.main --collect-local --output /tmp/cluster-infra-rca-evidence.json`로 먼저 수행합니다. 절차는 [docs/linux-node-collector-validation.md](docs/linux-node-collector-validation.md)에 정리했습니다.
+
 ## Backend 실행
 
 ```powershell
@@ -131,6 +133,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- database.md
 |   |-- evidence-api.md
 |   |-- install-flow.md
+|   |-- linux-node-collector-validation.md
 |   |-- policy-engine.md
 |   |-- rca-scope.md
 |   |-- report-schema.md

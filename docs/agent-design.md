@@ -60,9 +60,13 @@ MVP collector는 외부 네트워크에 능동적으로 요청하지 않습니�
   },
   "collectors": {
     "kubelet": {
-      "status": "failed",
-      "restart_count": 7,
-      "journal_excerpt": []
+      "status": "ok",
+      "kubelet_status": "failed",
+      "kubelet_restart_count": 7,
+      "journal": {
+        "ok": true,
+        "stdout": "..."
+      }
     },
     "containerd": {
       "socket_healthy": false,

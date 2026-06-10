@@ -156,12 +156,16 @@ def build_registry(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collec
 def collect_node(paths: AgentPaths) -> dict[str, Any]:
     proc = paths.proc_root()
     etc = paths.etc_root()
+    kernel_tainted_raw = _safe_int(_read_first_line(proc / "sys/kernel/tainted"))
     return {
         "host_name": _read_first_line(proc / "sys/kernel/hostname") or socket.gethostname(),
         "agent_node_name": os.getenv("NODE_NAME"),
         "kernel_version": platform.release(),
         "platform": platform.platform(),
         "os_release": _parse_os_release(etc / "os-release"),
+        "boot_id": _read_first_line(proc / "sys/kernel/random/boot_id"),
+        "kernel_tainted": None if kernel_tainted_raw is None else kernel_tainted_raw > 0,
+        "kernel_tainted_raw": kernel_tainted_raw,
         "uptime_seconds": _parse_first_float(proc / "uptime"),
         "load_average": _read_first_line(proc / "loadavg"),
     }
@@ -174,29 +178,46 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
     }
     kubelet = units["kubelet"]
     containerd = units["containerd"]
+    failed_units = _systemctl_failed_units(runner)
     return {
         "kubelet_status": kubelet.get("ActiveState"),
+        "kubelet_sub_state": kubelet.get("SubState"),
+        "kubelet_result": kubelet.get("Result"),
         "kubelet_restart_count": _safe_int(kubelet.get("NRestarts")),
         "containerd_status": containerd.get("ActiveState"),
+        "containerd_sub_state": containerd.get("SubState"),
+        "containerd_result": containerd.get("Result"),
         "containerd_restart_count": _safe_int(containerd.get("NRestarts")),
+        "failed_units": failed_units["units"],
+        "failed_units_command": failed_units["command"],
         "units": units,
     }
 
 
 def collect_kernel(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
+    proc = paths.proc_root()
     dmesg = runner.run(["dmesg", "--ctime", "--level=err,warn"])
     logs = _read_kernel_log_candidates(paths.var_log_root())
     combined = "\n".join([dmesg.get("stdout", ""), *logs])
+    kernel_tainted_raw = _safe_int(_read_first_line(proc / "sys/kernel/tainted"))
     return {
         "dmesg": dmesg,
         "kernel_log_excerpt": _last_lines(combined, 80),
+        "kernel_tainted": None if kernel_tainted_raw is None else kernel_tainted_raw > 0,
+        "kernel_tainted_raw": kernel_tainted_raw,
         "io_error_detected": _contains_any(combined, ["I/O error", "blk_update_request", "EXT4-fs error"]),
         "nic_error_detected": _contains_any(combined, ["link is down", "link down", "NIC", "tx timeout"]),
         "oom_detected": _contains_any(combined, ["Out of memory", "oom-killer", "Killed process"]),
+        "blocked_task_detected": _contains_any(combined, ["blocked for more than", "task blocked"]),
+        "read_only_filesystem_detected": _contains_any(
+            combined,
+            ["Remounting filesystem read-only", "read-only filesystem"],
+        ),
     }
 
 
 def collect_disk(paths: AgentPaths) -> dict[str, Any]:
+    proc = paths.proc_root()
     root_path = paths.host_root()
     candidates = [
         ("root", root_path),
@@ -210,16 +231,19 @@ def collect_disk(paths: AgentPaths) -> dict[str, Any]:
     ]
     root_filesystem = next((item for item in filesystems if item["role"] == "root"), None)
     kernel_logs = "\n".join(_read_kernel_log_candidates(paths.var_log_root()))
+    mounts_text = _read_text(proc / "mounts", max_bytes=32768)
     return {
         "root_path_available": root_path is not None,
         "root_usage_percent": root_filesystem["usage_percent"] if root_filesystem else None,
         "inode_usage_percent": root_filesystem["inode_usage_percent"] if root_filesystem else None,
+        "root_mount_read_only": _root_mount_read_only(mounts_text),
         "io_wait_percent": None,
-        "io_wait_percent_since_boot": _cpu_iowait_percent(paths.proc_root()),
+        "io_wait_percent_since_boot": _cpu_iowait_percent(proc),
+        "io_pressure": _parse_pressure_file(proc / "pressure/io"),
         "kernel_io_error_detected": _contains_any(kernel_logs, ["I/O error", "blk_update_request", "EXT4-fs error"]),
         "filesystems": filesystems,
-        "mounts_excerpt": _last_lines(_read_text(paths.proc_root() / "mounts", max_bytes=32768), 40),
-        "diskstats_excerpt": _last_lines(_read_text(paths.proc_root() / "diskstats", max_bytes=32768), 40),
+        "mounts_excerpt": _last_lines(mounts_text, 40),
+        "diskstats_excerpt": _last_lines(_read_text(proc / "diskstats", max_bytes=32768), 40),
     }
 
 
@@ -246,9 +270,16 @@ def collect_memory(paths: AgentPaths) -> dict[str, Any]:
     values = _parse_key_value_file(paths.proc_root() / "meminfo")
     total = values.get("MemTotal")
     available = values.get("MemAvailable") or values.get("MemFree")
+    swap_total = values.get("SwapTotal")
+    swap_free = values.get("SwapFree")
     usage_percent = None
     if total and available is not None:
         usage_percent = round(((total - available) / total) * 100, 2)
+    swap_used = None
+    swap_usage_percent = None
+    if swap_total is not None and swap_free is not None:
+        swap_used = max(swap_total - swap_free, 0)
+        swap_usage_percent = round((swap_used / swap_total) * 100, 2) if swap_total else 0.0
     return {
         "usage_percent": usage_percent,
         "mem_total_kib": total,
@@ -256,8 +287,14 @@ def collect_memory(paths: AgentPaths) -> dict[str, Any]:
         "mem_free_kib": values.get("MemFree"),
         "buffers_kib": values.get("Buffers"),
         "cached_kib": values.get("Cached"),
-        "swap_total_kib": values.get("SwapTotal"),
-        "swap_free_kib": values.get("SwapFree"),
+        "swap_total_kib": swap_total,
+        "swap_free_kib": swap_free,
+        "swap_used_kib": swap_used,
+        "swap_usage_percent": swap_usage_percent,
+        "dirty_kib": values.get("Dirty"),
+        "writeback_kib": values.get("Writeback"),
+        "slab_kib": values.get("Slab"),
+        "pressure": _parse_pressure_file(paths.proc_root() / "pressure/memory"),
         "oom_kill_detected": _contains_any(
             "\n".join(_read_kernel_log_candidates(paths.var_log_root())),
             ["Out of memory", "oom-killer", "Killed process"],
@@ -285,18 +322,34 @@ def collect_process(paths: AgentPaths) -> dict[str, Any]:
 
 
 def collect_network(paths: AgentPaths) -> dict[str, Any]:
+    proc = paths.proc_root()
     interfaces = _parse_net_dev(paths.proc_root() / "net/dev")
     interface_state = _read_interface_state(paths.sys_root())
     for interface in interfaces:
         interface.update(interface_state.get(interface["name"], {}))
+    snmp_metrics = _parse_proc_net_table(proc / "net/snmp")
+    netstat_metrics = _parse_proc_net_table(proc / "net/netstat")
     conntrack = collect_conntrack(paths)
     return {
         "interfaces": interfaces,
-        "default_route_interfaces": _parse_default_route_interfaces(paths.proc_root() / "net/route"),
+        "interfaces_down": [
+            item["name"]
+            for item in interfaces
+            if item.get("operstate") not in (None, "up", "unknown")
+        ],
+        "interface_rx_error_total": sum(item.get("rx_errors") or 0 for item in interfaces),
+        "interface_tx_error_total": sum(item.get("tx_errors") or 0 for item in interfaces),
+        "interface_rx_drop_total": sum(item.get("rx_dropped") or 0 for item in interfaces),
+        "interface_tx_drop_total": sum(item.get("tx_dropped") or 0 for item in interfaces),
+        "default_route_interfaces": _parse_default_route_interfaces(proc / "net/route"),
         "nic_link_flap_detected": any((item.get("carrier_changes") or 0) > 0 for item in interfaces),
         "mtu_mismatch_suspected": None,
-        "routes_excerpt": _last_lines(_read_text(paths.proc_root() / "net/route", max_bytes=32768), 30),
-        "tcp_snmp_excerpt": _last_lines(_read_text(paths.proc_root() / "net/snmp", max_bytes=32768), 40),
+        "tcp_retrans_segments": snmp_metrics.get("Tcp", {}).get("RetransSegs"),
+        "tcp_attempt_fails": snmp_metrics.get("Tcp", {}).get("AttemptFails"),
+        "tcp_ext_listen_overflows": netstat_metrics.get("TcpExt", {}).get("ListenOverflows"),
+        "tcp_ext_listen_drops": netstat_metrics.get("TcpExt", {}).get("ListenDrops"),
+        "routes_excerpt": _last_lines(_read_text(proc / "net/route", max_bytes=32768), 30),
+        "tcp_snmp_excerpt": _last_lines(_read_text(proc / "net/snmp", max_bytes=32768), 40),
         "conntrack_usage_percent": conntrack.get("usage_percent"),
         "conntrack": conntrack,
     }
@@ -307,17 +360,23 @@ def collect_conntrack(paths: AgentPaths) -> dict[str, Any]:
     count = _safe_int(_read_first_line(proc / "sys/net/netfilter/nf_conntrack_count"))
     maximum = _safe_int(_read_first_line(proc / "sys/net/netfilter/nf_conntrack_max"))
     usage_percent = None
+    available = None
     if count is not None and maximum:
         usage_percent = round((count / maximum) * 100, 2)
+        available = max(maximum - count, 0)
     return {
         "count": count,
         "max": maximum,
+        "available": available,
         "usage_percent": usage_percent,
+        "near_limit": None if usage_percent is None else usage_percent >= 80.0,
     }
 
 
 def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     socket_path = paths.run / "containerd/containerd.sock"
+    pid_file = paths.run / "containerd/containerd.pid"
+    containerd_pid = _safe_int(_read_first_line(pid_file))
     socket_exists = socket_path.exists()
     socket_stat_error = None
     try:
@@ -333,6 +392,11 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
         "containerd_socket_healthy": socket_probe["ok"],
         "containerd_socket_latency_ms": socket_probe.get("latency_ms"),
         "containerd_socket_error": socket_stat_error or socket_probe.get("error"),
+        "containerd_pid_file": str(pid_file),
+        "containerd_pid": containerd_pid,
+        "containerd_pid_running": (paths.proc_root() / str(containerd_pid)).exists()
+        if containerd_pid is not None
+        else None,
     }
     if socket_exists:
         result["ctr_version"] = runner.run(["ctr", "--address", str(socket_path), "version"])
@@ -343,8 +407,10 @@ def collect_kubelet(runner: CommandRunner) -> dict[str, Any]:
     status = _systemctl_show(runner, "kubelet")
     journal = runner.run(["journalctl", "-u", "kubelet", "-n", "80", "--no-pager"])
     return {
-        "status": status.get("ActiveState"),
-        "restart_count": _safe_int(status.get("NRestarts")),
+        "kubelet_status": status.get("ActiveState"),
+        "kubelet_sub_state": status.get("SubState"),
+        "kubelet_result": status.get("Result"),
+        "kubelet_restart_count": _safe_int(status.get("NRestarts")),
         "systemd": status,
         "journal": journal,
     }
@@ -356,11 +422,18 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
         return {
             "config_dir": str(cni_dir),
             "config_dir_exists": False,
+            "config_count": 0,
+            "plugin_types": [],
+            "mtu": None,
+            "mtu_values": [],
+            "parse_errors": [],
+            "plugin_errors_detected": None,
             "configs": [],
         }
     configs = []
     plugin_types: list[str] = []
     mtu_values: list[int] = []
+    parse_errors: list[dict[str, str]] = []
     try:
         config_paths = sorted(cni_dir.iterdir())
     except OSError:
@@ -374,6 +447,8 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
             size_bytes = None
         raw_config = _read_text(path, max_bytes=65536)
         parsed_config = _parse_json(raw_config)
+        if raw_config and parsed_config is None:
+            parse_errors.append({"name": path.name, "error": "invalid JSON"})
         plugin_types.extend(_cni_plugin_types(parsed_config))
         mtu_values.extend(_find_numeric_values(parsed_config, key="mtu"))
         configs.append(
@@ -387,16 +462,19 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
     return {
         "config_dir": str(cni_dir),
         "config_dir_exists": True,
+        "config_count": len(configs),
         "plugin_types": _dedupe(plugin_types),
         "mtu": mtu_values[0] if mtu_values else None,
         "mtu_values": mtu_values,
+        "parse_errors": parse_errors,
         "plugin_errors_detected": None,
         "configs": configs,
     }
 
 
 def collect_dns(paths: AgentPaths) -> dict[str, Any]:
-    resolv_conf = _read_text(paths.etc_root() / "resolv.conf", max_bytes=8192)
+    resolv_conf_path = paths.etc_root() / "resolv.conf"
+    resolv_conf = _read_text(resolv_conf_path, max_bytes=8192)
     nameservers = []
     search = []
     options = []
@@ -411,7 +489,10 @@ def collect_dns(paths: AgentPaths) -> dict[str, Any]:
             search.extend(parts[1:])
         elif parts[0] == "options":
             options.extend(parts[1:])
+    parsed_options = _parse_resolv_options(options)
     return {
+        "resolv_conf_path": str(resolv_conf_path),
+        "resolv_conf_exists": resolv_conf_path.exists(),
         "resolv_conf_excerpt": _clean_text(resolv_conf),
         "nameservers": nameservers,
         "nameserver_count": len(nameservers),
@@ -419,6 +500,11 @@ def collect_dns(paths: AgentPaths) -> dict[str, Any]:
         "dns_lookup_latency_ms": None,
         "search": search,
         "options": options,
+        "ndots": parsed_options.get("ndots"),
+        "timeout_seconds": parsed_options.get("timeout_seconds"),
+        "attempts": parsed_options.get("attempts"),
+        "rotate": parsed_options.get("rotate"),
+        "single_request_reopen": parsed_options.get("single_request_reopen"),
     }
 
 
@@ -448,6 +534,14 @@ def _systemctl_show(runner: CommandRunner, unit: str) -> dict[str, Any]:
     return parsed
 
 
+def _systemctl_failed_units(runner: CommandRunner) -> dict[str, Any]:
+    result = runner.run(["systemctl", "--failed", "--no-legend", "--plain", "--no-pager"])
+    return {
+        "units": _parse_failed_units(result.get("stdout", "")) if result.get("ok") else [],
+        "command": result,
+    }
+
+
 def _parse_systemctl_show(output: str) -> dict[str, str]:
     parsed = {}
     for line in output.splitlines():
@@ -456,6 +550,23 @@ def _parse_systemctl_show(output: str) -> dict[str, str]:
         key, value = line.split("=", 1)
         parsed[key] = value
     return parsed
+
+
+def _parse_failed_units(output: str) -> list[dict[str, str]]:
+    units = []
+    for line in output.splitlines():
+        fields = line.split(None, 4)
+        if len(fields) < 4:
+            continue
+        unit = {
+            "unit": fields[0],
+            "load": fields[1],
+            "active": fields[2],
+            "sub": fields[3],
+            "description": fields[4] if len(fields) > 4 else "",
+        }
+        units.append(unit)
+    return units
 
 
 def _filesystem_usage(path: Path, role: str) -> dict[str, Any]:
@@ -483,6 +594,18 @@ def _inode_usage_percent(path: Path) -> float | None:
     return round(((total - free) / total) * 100, 2)
 
 
+def _root_mount_read_only(mounts_text: str) -> bool | None:
+    for line in mounts_text.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        if fields[1] != "/":
+            continue
+        options = fields[3].split(",")
+        return "ro" in options
+    return None
+
+
 def _cpu_iowait_percent(proc: Path) -> float | None:
     first_line = _read_first_line(proc / "stat")
     if not first_line:
@@ -496,6 +619,30 @@ def _cpu_iowait_percent(proc: Path) -> float | None:
         return None
     iowait = values[4]
     return round((iowait / total) * 100, 4)
+
+
+def _parse_pressure_file(path: Path) -> dict[str, dict[str, float | int]]:
+    parsed: dict[str, dict[str, float | int]] = {}
+    for line in _read_text(path, max_bytes=8192).splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        category = fields[0]
+        values: dict[str, float | int] = {}
+        for field in fields[1:]:
+            if "=" not in field:
+                continue
+            key, raw_value = field.split("=", 1)
+            if key == "total":
+                int_value = _safe_int(raw_value)
+                if int_value is not None:
+                    values[key] = int_value
+                continue
+            float_value = _safe_float(raw_value)
+            if float_value is not None:
+                values[key] = float_value
+        parsed[category] = values
+    return parsed
 
 
 def _count_zombie_processes(process_dirs: list[Path]) -> int:
@@ -580,6 +727,27 @@ def _parse_net_dev(path: Path) -> list[dict[str, Any]]:
     return interfaces
 
 
+def _parse_proc_net_table(path: Path) -> dict[str, dict[str, int]]:
+    parsed: dict[str, dict[str, int]] = {}
+    pending_headers: dict[str, list[str]] = {}
+    for line in _read_text(path, max_bytes=65536).splitlines():
+        if ":" not in line:
+            continue
+        protocol, raw_fields = line.split(":", 1)
+        fields = raw_fields.split()
+        if not fields:
+            continue
+        previous_headers = pending_headers.get(protocol)
+        if previous_headers and len(previous_headers) == len(fields):
+            values = [_safe_int(value) for value in fields]
+            if all(value is not None for value in values):
+                parsed[protocol] = dict(zip(previous_headers, values))
+                pending_headers.pop(protocol, None)
+                continue
+        pending_headers[protocol] = fields
+    return parsed
+
+
 def _parse_json(text: str) -> Any | None:
     if not text:
         return None
@@ -622,6 +790,32 @@ def _find_numeric_values(value: Any, key: str) -> list[int]:
             values.extend(_find_numeric_values(item, key))
         return values
     return []
+
+
+def _parse_resolv_options(options: list[str]) -> dict[str, Any]:
+    parsed: dict[str, Any] = {
+        "ndots": None,
+        "timeout_seconds": None,
+        "attempts": None,
+        "rotate": False,
+        "single_request_reopen": False,
+    }
+    for option in options:
+        if ":" in option:
+            key, value = option.split(":", 1)
+        else:
+            key, value = option, None
+        if key == "ndots":
+            parsed["ndots"] = _safe_int(value)
+        elif key == "timeout":
+            parsed["timeout_seconds"] = _safe_int(value)
+        elif key == "attempts":
+            parsed["attempts"] = _safe_int(value)
+        elif key == "rotate":
+            parsed["rotate"] = True
+        elif key == "single-request-reopen":
+            parsed["single_request_reopen"] = True
+    return parsed
 
 
 def _parse_key_value_file(path: Path) -> dict[str, int]:
@@ -707,6 +901,15 @@ def _safe_int(value: object) -> int | None:
         return None
     try:
         return int(str(value).strip())
+    except ValueError:
+        return None
+
+
+def _safe_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip())
     except ValueError:
         return None
 

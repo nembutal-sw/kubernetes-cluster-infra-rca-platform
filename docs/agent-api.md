@@ -12,6 +12,14 @@ python -m node_agent.main --once
 
 DaemonSet에서는 같은 모듈을 장기 실행 프로세스로 실행합니다.
 
+Backend 연결 없이 실제 Linux 노드에서 collector만 확인하려면 local collect 모드를 사용합니다.
+
+```bash
+python -m node_agent.main --collect-local --output /tmp/cluster-infra-rca-evidence.json
+```
+
+상세 절차는 [docs/linux-node-collector-validation.md](linux-node-collector-validation.md)를 참고합니다.
+
 ## Agent 환경변수
 
 | 이름 | 설명 |

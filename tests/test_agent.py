@@ -24,6 +24,13 @@ class FakeRunner:
                 "stdout": f"Id={unit}.service\nActiveState={state}\nSubState=running\nNRestarts=2\nResult=success\n",
                 "stderr": "",
             }
+        if command[:2] == ["systemctl", "--failed"]:
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "stdout": "containerd.service loaded failed failed container runtime\n",
+                "stderr": "",
+            }
         return {
             "ok": False,
             "exit_code": None,
@@ -66,34 +73,73 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     paths = _build_fake_host_paths(tmp_path)
 
     evidence = collect_evidence(
-        ["node", "disk", "inode", "memory", "process", "network", "conntrack", "systemd", "cni", "dns"],
+        [
+            "node",
+            "kernel",
+            "disk",
+            "inode",
+            "memory",
+            "process",
+            "network",
+            "conntrack",
+            "systemd",
+            "kubelet",
+            "cni",
+            "dns",
+        ],
         paths=paths,
         runner=FakeRunner(),
     )
 
     assert evidence["node"]["status"] == "ok"
     assert evidence["node"]["host_name"] == "worker-3"
+    assert evidence["node"]["boot_id"] == "11111111-2222-3333-4444-555555555555"
+    assert evidence["node"]["kernel_tainted"] is True
+    assert evidence["kernel"]["kernel_tainted_raw"] == 512
+    assert evidence["kernel"]["blocked_task_detected"] is True
+    assert evidence["kernel"]["read_only_filesystem_detected"] is True
     assert evidence["disk"]["root_path_available"] is False
     assert evidence["disk"]["root_usage_percent"] is None
+    assert evidence["disk"]["root_mount_read_only"] is True
+    assert evidence["disk"]["io_pressure"]["some"]["avg10"] == 0.1
     assert evidence["disk"]["kernel_io_error_detected"] is True
     assert evidence["inode"]["filesystems"][0]["role"] == "var_log"
     assert evidence["memory"]["usage_percent"] == 50.0
+    assert evidence["memory"]["swap_used_kib"] == 128
+    assert evidence["memory"]["swap_usage_percent"] == 50.0
+    assert evidence["memory"]["dirty_kib"] == 7
+    assert evidence["memory"]["pressure"]["full"]["avg60"] == 0.2
     assert evidence["memory"]["oom_kill_detected"] is True
     assert evidence["process"]["process_count"] == 2
     assert evidence["process"]["zombie_process_count"] == 1
     assert evidence["network"]["interfaces"][0]["name"] == "eth0"
     assert evidence["network"]["interfaces"][0]["mtu"] == 1450
+    assert evidence["network"]["interface_rx_error_total"] == 1
+    assert evidence["network"]["interface_tx_error_total"] == 3
+    assert evidence["network"]["tcp_retrans_segments"] == 9
+    assert evidence["network"]["tcp_ext_listen_overflows"] == 2
     assert evidence["network"]["default_route_interfaces"] == ["eth0"]
     assert evidence["network"]["nic_link_flap_detected"] is True
     assert evidence["network"]["mtu_mismatch_suspected"] is None
     assert evidence["network"]["conntrack_usage_percent"] == 50.0
+    assert evidence["conntrack"]["available"] == 50
+    assert evidence["conntrack"]["near_limit"] is False
     assert evidence["systemd"]["kubelet_status"] == "active"
+    assert evidence["systemd"]["kubelet_sub_state"] == "running"
     assert evidence["systemd"]["containerd_status"] == "failed"
+    assert evidence["systemd"]["failed_units"][0]["unit"] == "containerd.service"
+    assert evidence["kubelet"]["status"] == "ok"
+    assert evidence["kubelet"]["kubelet_status"] == "active"
+    assert evidence["kubelet"]["kubelet_restart_count"] == 2
     assert evidence["cni"]["plugin_types"] == ["bridge", "portmap"]
     assert evidence["cni"]["mtu"] == 1450
+    assert evidence["cni"]["config_count"] == 1
+    assert evidence["cni"]["parse_errors"] == []
     assert evidence["cni"]["plugin_errors_detected"] is None
     assert evidence["dns"]["dns_configured"] is True
     assert evidence["dns"]["nameserver_count"] == 1
+    assert evidence["dns"]["resolv_conf_exists"] is True
+    assert evidence["dns"]["ndots"] == 5
     assert evidence["dns"]["dns_lookup_latency_ms"] is None
 
 
@@ -177,6 +223,58 @@ def test_process_pending_requests_skips_malformed_request(tmp_path: Path) -> Non
     assert client.submitted == []
 
 
+def test_collect_local_evidence_writes_json_without_backend_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    output_path = tmp_path / "local-evidence.json"
+
+    monkeypatch.delenv("BACKEND_URL", raising=False)
+    monkeypatch.delenv("CLUSTER_ID", raising=False)
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    monkeypatch.setenv("NODE_NAME", "worker-local")
+    monkeypatch.setenv("HOST_PROC", str(paths.proc))
+    monkeypatch.setenv("HOST_SYS", str(paths.sys))
+    monkeypatch.setenv("HOST_ETC", str(paths.etc))
+    monkeypatch.setenv("HOST_VAR_LOG", str(paths.var_log))
+    monkeypatch.setenv("HOST_RUN", str(paths.run))
+
+    exit_code = agent_main.main(
+        [
+            "--collect-local",
+            "--collectors",
+            "node,memory,network",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    evidence = json.loads(output_path.read_text(encoding="utf-8"))
+    assert evidence["node_name"] == "worker-local"
+    assert evidence["requested_collectors"] == ["node", "memory", "network"]
+    assert set(evidence["collectors"]) == {"node", "memory", "network"}
+    assert evidence["collectors"]["node"]["host_name"] == "worker-3"
+    assert evidence["collectors"]["memory"]["usage_percent"] == 50.0
+    assert evidence["collectors"]["network"]["default_route_interfaces"] == ["eth0"]
+
+
+def test_collect_local_evidence_uses_all_collectors_when_list_is_empty(tmp_path: Path) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+
+    evidence = agent_main.collect_local_evidence(
+        paths=paths,
+        runner=FakeRunner(),  # type: ignore[arg-type]
+        requested_collectors=agent_main._parse_collector_list(""),
+    )
+
+    assert "node" in evidence["collectors"]
+    assert "systemd" in evidence["collectors"]
+    assert "dns" in evidence["collectors"]
+    assert evidence["host_paths"]["proc"] == str(paths.proc)
+
+
 def test_agent_client_posts_expected_payloads() -> None:
     server = _TestHttpServer(
         {
@@ -258,7 +356,9 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
 
     for path in [
         proc / "sys/kernel",
+        proc / "sys/kernel/random",
         proc / "sys/net/netfilter",
+        proc / "pressure",
         proc / "net",
         sys / "class/net/eth0",
         etc / "cni/net.d",
@@ -273,6 +373,8 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
 
     (proc / "sys/kernel/hostname").write_text("worker-3\n", encoding="utf-8")
     (proc / "sys/kernel/pid_max").write_text("100\n", encoding="utf-8")
+    (proc / "sys/kernel/random/boot_id").write_text("11111111-2222-3333-4444-555555555555\n", encoding="utf-8")
+    (proc / "sys/kernel/tainted").write_text("512\n", encoding="utf-8")
     (proc / "stat").write_text("cpu  100 0 100 20 80 0 0 0 0 0\n", encoding="utf-8")
     (proc / "uptime").write_text("1000.0 10.0\n", encoding="utf-8")
     (proc / "loadavg").write_text("0.10 0.20 0.30 1/100 1234\n", encoding="utf-8")
@@ -284,8 +386,21 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
         "MemFree:         400 kB\n"
         "Buffers:          10 kB\n"
         "Cached:          200 kB\n"
-        "SwapTotal:         0 kB\n"
-        "SwapFree:          0 kB\n",
+        "SwapTotal:       256 kB\n"
+        "SwapFree:        128 kB\n"
+        "Dirty:             7 kB\n"
+        "Writeback:         3 kB\n"
+        "Slab:             30 kB\n",
+        encoding="utf-8",
+    )
+    (proc / "pressure/io").write_text(
+        "some avg10=0.10 avg60=0.20 avg300=0.30 total=100\n"
+        "full avg10=0.00 avg60=0.01 avg300=0.02 total=10\n",
+        encoding="utf-8",
+    )
+    (proc / "pressure/memory").write_text(
+        "some avg10=0.00 avg60=0.10 avg300=0.20 total=50\n"
+        "full avg10=0.00 avg60=0.20 avg300=0.30 total=25\n",
         encoding="utf-8",
     )
     (proc / "net/dev").write_text(
@@ -303,18 +418,35 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
         "eth0\t00000000\t01060A0A\t0003\t0\t0\t0\t00000000\t0\t0\t0\n",
         encoding="utf-8",
     )
-    (proc / "net/snmp").write_text("", encoding="utf-8")
+    (proc / "net/snmp").write_text(
+        "Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets "
+        "CurrEstab InSegs OutSegs RetransSegs\n"
+        "Tcp: 1 200 120000 -1 10 20 3 4 5 100 200 9\n",
+        encoding="utf-8",
+    )
+    (proc / "net/netstat").write_text(
+        "TcpExt: ListenOverflows ListenDrops TCPTimeouts\n"
+        "TcpExt: 2 4 6\n",
+        encoding="utf-8",
+    )
     (proc / "sys/net/netfilter/nf_conntrack_count").write_text("50\n", encoding="utf-8")
     (proc / "sys/net/netfilter/nf_conntrack_max").write_text("100\n", encoding="utf-8")
-    (proc / "mounts").write_text("", encoding="utf-8")
+    (proc / "mounts").write_text("/dev/sda1 / ext4 ro,relatime 0 0\n", encoding="utf-8")
     (proc / "diskstats").write_text("", encoding="utf-8")
     (var_log / "kern.log").write_text(
         "kernel: blk_update_request: I/O error\n"
-        "kernel: Out of memory: Killed process 1000\n",
+        "kernel: Out of memory: Killed process 1000\n"
+        "kernel: task kubelet blocked for more than 120 seconds\n"
+        "kernel: EXT4-fs error: Remounting filesystem read-only\n",
         encoding="utf-8",
     )
     (etc / "os-release").write_text('NAME="Test Linux"\nVERSION_ID="1"\n', encoding="utf-8")
-    (etc / "resolv.conf").write_text("nameserver 10.96.0.10\nsearch svc.cluster.local\n", encoding="utf-8")
+    (etc / "resolv.conf").write_text(
+        "nameserver 10.96.0.10\n"
+        "search svc.cluster.local\n"
+        "options ndots:5 timeout:2 attempts:3 rotate single-request-reopen\n",
+        encoding="utf-8",
+    )
     (etc / "cni/net.d/10-test.conflist").write_text(
         '{"plugins":[{"type":"bridge","mtu":1450},{"type":"portmap"}]}',
         encoding="utf-8",
