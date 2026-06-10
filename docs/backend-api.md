@@ -86,6 +86,18 @@ Agent API는 두 단계 token을 사용합니다.
 2. 등록 성공 시 node별 `node_token`을 발급합니다.
 3. Heartbeat, evidence poll, evidence submit은 `agent_token + node_token + node_name`이 모두 맞아야 합니다.
 
+Alertmanager webhook은 사용자 세션이나 admin token을 쓰지 않고 별도 webhook token을 검증합니다.
+
+```text
+Authorization: Bearer <RCA_WEBHOOK_TOKEN>
+```
+
+일반 HTTP 클라이언트나 proxy 연동에서는 아래 header도 사용할 수 있습니다.
+
+```text
+X-Webhook-Token: <RCA_WEBHOOK_TOKEN>
+```
+
 ## API 흐름
 
 1. 사용자가 `POST /api/auth/signup` 또는 Web UI에서 가입 요청을 만듭니다.
@@ -101,7 +113,7 @@ Agent API는 두 단계 token을 사용합니다.
 11. Backend가 권한 검증 후 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
 12. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-requests` pending request를 조회합니다.
 13. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-responses` 수집 결과를 제출합니다.
-14. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
+14. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣고 `Authorization: Bearer <RCA_WEBHOOK_TOKEN>` header와 함께 `/api/webhooks/alertmanager`로 전송합니다.
 15. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
 16. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.
 17. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.

@@ -382,6 +382,12 @@ h2 {
   display: grid;
   grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
   gap: 14px;
+  align-items: start;
+}
+
+.webhook-details {
+  display: grid;
+  gap: 12px;
 }
 
 .endpoint-box,

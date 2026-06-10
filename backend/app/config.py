@@ -22,6 +22,7 @@ class Settings:
     database_url: str = DEFAULT_DATABASE_URL
     auto_create_tables: bool = False
     admin_approval_token: str = "dev-admin-approval-token"
+    webhook_token: str = "dev-webhook-token"
     session_ttl_hours: int = 12
     llm: LlmSettings = field(default_factory=LlmSettings)
 
@@ -36,6 +37,7 @@ def load_settings(database_url: str | None = None, auto_create_tables: bool | No
         database_url=database_url or os.getenv("RCA_DATABASE_URL", DEFAULT_DATABASE_URL),
         auto_create_tables=auto_create_value,
         admin_approval_token=os.getenv("RCA_ADMIN_APPROVAL_TOKEN", "dev-admin-approval-token"),
+        webhook_token=_empty_to_none(os.getenv("RCA_WEBHOOK_TOKEN")) or "dev-webhook-token",
         session_ttl_hours=_int_env("RCA_SESSION_TTL_HOURS", 12),
         llm=_load_llm_settings(),
     )

@@ -14,6 +14,7 @@
 - Agent bootstrap token 발급 완료
 - Agent 설치 명령어 조회 완료
 - Alertmanager webhook 수신 완료
+- Alertmanager webhook token 인증 완료
 - RCA job 생성 완료
 - Fake evidence 기반 RCA report 생성 완료
 - Rule-based analyzer MVP 완료

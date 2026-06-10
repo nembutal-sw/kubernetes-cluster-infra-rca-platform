@@ -71,4 +71,4 @@ Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-
 - `GET /api/clusters/{cluster_id}/install-command`
 - `GET /api/rca/reports`
 
-Alertmanager webhook URL은 현재 origin을 기준으로 화면에서 자동 표시합니다.
+Alertmanager webhook URL은 현재 origin을 기준으로 화면에서 자동 표시합니다. 화면에는 `Authorization: Bearer ${RCA_WEBHOOK_TOKEN}` 예시도 같이 표시하지만 실제 token 값은 노출하지 않습니다.

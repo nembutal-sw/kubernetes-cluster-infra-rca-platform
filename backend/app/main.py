@@ -427,7 +427,12 @@ def create_app(
         return submitted
 
     @app.post("/api/webhooks/alertmanager", response_model=WebhookIngestResponse)
-    def ingest_alertmanager(payload: AlertmanagerPayload) -> WebhookIngestResponse:
+    def ingest_alertmanager(
+        payload: AlertmanagerPayload,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+        x_webhook_token: str | None = Header(default=None, alias="X-Webhook-Token"),
+    ) -> WebhookIngestResponse:
+        _verify_webhook_token(settings.webhook_token, authorization, x_webhook_token)
         return rca_service.ingest_alertmanager(payload)
 
     @app.get("/api/rca/jobs", response_model=list[RcaJob])
@@ -510,6 +515,20 @@ def _verify_admin_token(configured_token: str, supplied_token: str | None) -> No
         raise HTTPException(status_code=401, detail="invalid admin token")
 
 
+def _verify_webhook_token(
+    configured_token: str,
+    authorization: str | None,
+    supplied_webhook_token: str | None,
+) -> None:
+    candidate_tokens = [
+        supplied_webhook_token.strip() if supplied_webhook_token else None,
+        _extract_optional_bearer_token(authorization),
+    ]
+    if any(token and secrets.compare_digest(configured_token, token) for token in candidate_tokens):
+        return
+    raise HTTPException(status_code=401, detail="invalid webhook token")
+
+
 def _authorize_access(
     store: StoreProtocol,
     configured_admin_token: str,
@@ -547,6 +566,15 @@ def _extract_bearer_token(authorization: str | None) -> str:
     scheme, separator, token = authorization.partition(" ")
     if not separator or scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status_code=401, detail="invalid authorization header")
+    return token.strip()
+
+
+def _extract_optional_bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer" or not token.strip():
+        return None
     return token.strip()
 
 

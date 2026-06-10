@@ -12,6 +12,7 @@ from backend.app.main import create_app
 
 
 ADMIN_HEADERS = {"X-Admin-Token": "dev-admin-approval-token"}
+WEBHOOK_HEADERS = {"X-Webhook-Token": "dev-webhook-token"}
 
 
 def test_cluster_registration_and_install_command(tmp_path) -> None:
@@ -63,6 +64,7 @@ def test_web_console_static_assets_are_served(tmp_path) -> None:
     assert "loadPendingUsers" in script_response.text
     assert "sessionStorage" in script_response.text
     assert "X-Admin-Token" in script_response.text
+    assert "RCA_WEBHOOK_TOKEN" in index_response.text
     assert style_response.status_code == 200
     assert "auth-panel" in style_response.text
     assert index_response.headers["X-Frame-Options"] == "DENY"
@@ -182,6 +184,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
 
     webhook_response = client.post(
         "/api/webhooks/alertmanager",
+        headers=WEBHOOK_HEADERS,
         json={
             "receiver": "cluster-infra-rca",
             "status": "firing",
@@ -231,6 +234,31 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
         "APPROVAL_REQUIRED",
         "GITOPS_PR_ONLY",
     }
+
+
+def test_alertmanager_webhook_requires_webhook_token(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    payload = {"receiver": "cluster-infra-rca", "status": "firing", "alerts": []}
+
+    assert client.post("/api/webhooks/alertmanager", json=payload).status_code == 401
+    assert client.post(
+        "/api/webhooks/alertmanager",
+        headers={"X-Webhook-Token": "wrong-token"},
+        json=payload,
+    ).status_code == 401
+    assert client.post(
+        "/api/webhooks/alertmanager",
+        headers={"Authorization": "Bearer wrong-token"},
+        json=payload,
+    ).status_code == 401
+
+    bearer_response = client.post(
+        "/api/webhooks/alertmanager",
+        headers={"Authorization": "Bearer dev-webhook-token"},
+        json=payload,
+    )
+    assert bearer_response.status_code == 200
+    assert bearer_response.json()["received_alerts"] == 0
 
 
 def test_signup_requires_admin_approval(tmp_path) -> None:
@@ -413,6 +441,7 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
 
     webhook_response = client.post(
         "/api/webhooks/alertmanager",
+        headers=WEBHOOK_HEADERS,
         json={
             "receiver": "cluster-infra-rca",
             "status": "firing",
@@ -588,6 +617,7 @@ def test_webhook_skips_unknown_cluster(tmp_path) -> None:
 
     response = client.post(
         "/api/webhooks/alertmanager",
+        headers=WEBHOOK_HEADERS,
         json={
             "alerts": [
                 {

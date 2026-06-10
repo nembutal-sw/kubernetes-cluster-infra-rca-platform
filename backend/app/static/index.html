@@ -185,16 +185,26 @@
             </div>
           </div>
           <div class="webhook-layout">
-            <div class="endpoint-box">
-              <span>Endpoint</span>
-              <code id="webhookEndpoint">/api/webhooks/alertmanager</code>
-              <button id="copyWebhookButton" type="button">Copy</button>
+            <div class="webhook-details">
+              <div class="endpoint-box">
+                <span>Endpoint</span>
+                <code id="webhookEndpoint">/api/webhooks/alertmanager</code>
+                <button id="copyWebhookButton" type="button">Copy</button>
+              </div>
+              <div class="endpoint-box">
+                <span>Authentication</span>
+                <code>Authorization: Bearer ${RCA_WEBHOOK_TOKEN}</code>
+              </div>
             </div>
             <pre class="code-block"><code>receivers:
   - name: cluster-infra-rca
     webhook_configs:
       - url: https://rca.example.com/api/webhooks/alertmanager
-        send_resolved: true</code></pre>
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/rca-webhook-token</code></pre>
           </div>
         </section>
 
@@ -220,6 +230,10 @@
             <div>
               <span>Admin approval env</span>
               <code>RCA_ADMIN_APPROVAL_TOKEN</code>
+            </div>
+            <div>
+              <span>Webhook token env</span>
+              <code>RCA_WEBHOOK_TOKEN</code>
             </div>
             <div>
               <span>LLM provider env</span>

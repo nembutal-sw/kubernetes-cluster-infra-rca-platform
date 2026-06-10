@@ -36,8 +36,10 @@ receivers:
         http_config:
           authorization:
             type: Bearer
-            credentials: ${RCA_WEBHOOK_TOKEN}
+            credentials_file: /etc/alertmanager/secrets/rca-webhook-token
 ```
+
+`credentials_file`에는 Backend의 `RCA_WEBHOOK_TOKEN`과 같은 값을 넣습니다. 다른 webhook sender를 붙일 때는 `X-Webhook-Token: <RCA_WEBHOOK_TOKEN>` header도 허용합니다.
 
 ## Agent 등록 상태
 
