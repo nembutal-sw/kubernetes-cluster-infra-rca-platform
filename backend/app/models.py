@@ -195,6 +195,14 @@ class RecommendedAction(BaseModel):
     action: str
     policy: PolicyLevel
     reason: str
+    action_key: str | None = None
+    source: str = "rule_based"
+    automation_mode: str = "manual"
+    automation_allowed: bool = False
+    requires_approval: bool = False
+    review_required: bool = False
+    guardrails: list[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
 
 
 class RcaReport(BaseModel):

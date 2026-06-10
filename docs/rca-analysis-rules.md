@@ -53,6 +53,7 @@ RCA report의 `evidence`에는 원본 collector 결과 외에 두 가지 섹션�
 ## 조치 분류
 
 Analyzer는 조치를 직접 실행하지 않습니다. 조치 문구를 만들고 Policy Engine이 등급을 붙입니다.
+Policy Engine은 action key와 조치 문구를 함께 검증하며, 위험 패턴이 있으면 더 보수적인 등급으로 격상합니다.
 
 | 상황 | 권장 조치 | Policy |
 | --- | --- | --- |
@@ -71,3 +72,4 @@ Analyzer는 조치를 직접 실행하지 않습니다. 조치 문구를 만들�
 - `null`은 정상값이 아니라 수집 불가 또는 판단 불가로 취급합니다.
 - confidence는 alert 이름보다 실제 evidence signal을 우선합니다.
 - 조치는 모두 보고서 제안이며, backend나 LLM이 직접 실행하지 않습니다.
+- LLM이 제안한 조치는 `source = "llm"`으로 분류되어 자동 실행 후보가 될 수 없습니다.

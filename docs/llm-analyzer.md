@@ -101,6 +101,8 @@ LLM은 JSON object만 반환해야 합니다.
 
 Backend는 LLM action suggestion을 그대로 실행하지 않습니다. `action_key`를 Policy Engine에 다시 넣어 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 재분류합니다.
 
+LLM이 제안한 action은 Policy Engine에 `source = "llm"`으로 전달됩니다. 따라서 조치 문구가 읽기 전용 수집에 해당하더라도 `automation_allowed`는 `false`로 남습니다. LLM은 원인 분석 보조 수단이며, 자동 실행 트리거가 아닙니다.
+
 ## 출력 정규화
 
 LLM provider 응답은 신뢰하지 않는 입력으로 취급합니다. Backend는 report에 반영하기 전에 다음 검증을 수행합니다.

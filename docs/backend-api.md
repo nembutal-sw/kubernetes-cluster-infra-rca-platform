@@ -101,6 +101,6 @@ Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니�
 - `LLM Analyzer` adapter는 `RCA_LLM_PROVIDER` 설정에 따라 OpenAI, Claude, Gemini, OpenAI-compatible, self-hosted endpoint를 선택할 수 있습니다. 기본값은 비활성화입니다.
 - LLM 분석이 활성화되면 provider 응답은 RCA report의 `llm_analysis` section에 들어가며, action suggestion은 다시 `PolicyEngine`을 통과합니다.
 - `RuleBasedRcaAnalyzer`가 evidence field에서 derived signal을 추출하고 원인 후보, confidence, resolution checklist를 생성합니다.
-- `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
+- `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류하고 `automation_allowed`, `automation_mode`, `guardrails`, `risk_factors`를 함께 제공합니다.
 - 조치 실행 API는 아직 제공하지 않습니다.
 - DB schema 변경은 Alembic migration으로 관리합니다.

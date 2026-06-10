@@ -59,7 +59,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Alertmanager 알림을 Agent evidence request로 연결
 - fake evidence 생성
 - evidence field 기반 RCA signal 추출과 RCA report 생성
-- Policy Engine 기반 권장 조치 분류
+- Policy Engine 기반 권장 조치 분류와 자동화 guardrail
 - RCA job/report 조회
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소
 - Alembic 기반 DB migration
@@ -117,7 +117,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 

@@ -222,6 +222,7 @@ class RuleBasedRcaAnalyzer:
                     str(suggestion.get("action_key") or "manual_investigation"),
                     action,
                     reason,
+                    source="llm",
                 )
             )
         return actions
