@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,12 +15,14 @@ from backend.app.models import (
     AlertmanagerPayload,
     Cluster,
     ClusterCreateRequest,
+    ClusterView,
     EvidenceBundle,
     EvidenceRequest,
     EvidenceRequestCreateRequest,
     EvidenceRequestStatus,
     NodeAgent,
     NodeAgentHeartbeatRequest,
+    NodeAgentRegistrationResponse,
     NodeAgentRegisterRequest,
     RcaJob,
     RcaReport,
@@ -78,12 +80,38 @@ def create_app(
     app.state.engine = engine
     app.state.llm_provider = settings.llm.provider
 
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self'; "
+                "img-src 'self' data:; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "frame-ancestors 'none'"
+            )
+        return response
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/api/clusters", response_model=Cluster, status_code=status.HTTP_201_CREATED)
-    def create_cluster(request: ClusterCreateRequest) -> Cluster:
+    def create_cluster(
+        request: ClusterCreateRequest,
+        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    ) -> Cluster:
+        _verify_admin_token(settings.admin_approval_token, x_admin_token)
         return store.create_cluster(request)
 
     @app.post("/api/auth/signup", response_model=UserAccount, status_code=status.HTTP_201_CREATED)
@@ -95,15 +123,19 @@ def create_app(
 
     @app.get("/api/admin/users", response_model=list[UserAccount])
     def list_users(
-        admin_token: str = Query(...),
+        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
         user_status: UserStatus | None = Query(default=None, alias="status"),
     ) -> list[UserAccount]:
-        _verify_admin_token(settings.admin_approval_token, admin_token)
+        _verify_admin_token(settings.admin_approval_token, x_admin_token)
         return store.list_users(status=user_status)
 
     @app.post("/api/admin/users/{user_id}/approval", response_model=UserAccount)
-    def decide_user_registration(user_id: str, request: UserApprovalRequest) -> UserAccount:
-        _verify_admin_token(settings.admin_approval_token, request.admin_token)
+    def decide_user_registration(
+        user_id: str,
+        request: UserApprovalRequest,
+        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    ) -> UserAccount:
+        _verify_admin_token(settings.admin_approval_token, x_admin_token)
         try:
             user = store.decide_user_registration(user_id, request, approved_by="platform-admin")
         except ValueError as exc:
@@ -112,11 +144,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="user not found")
         return user
 
-    @app.get("/api/clusters", response_model=list[Cluster])
+    @app.get("/api/clusters", response_model=list[ClusterView])
     def list_clusters() -> list[Cluster]:
         return store.list_clusters()
 
-    @app.get("/api/clusters/{cluster_id}", response_model=Cluster)
+    @app.get("/api/clusters/{cluster_id}", response_model=ClusterView)
     def get_cluster(cluster_id: str) -> Cluster:
         cluster = store.get_cluster(cluster_id)
         if cluster is None:
@@ -126,10 +158,12 @@ def create_app(
     @app.get("/api/clusters/{cluster_id}/install-command")
     def get_install_command(
         cluster_id: str,
+        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
         backend_url: str | None = Query(default=None),
         image: str = Query(default=DEFAULT_AGENT_IMAGE),
         namespace: str = Query(default=DEFAULT_AGENT_NAMESPACE),
     ):
+        _verify_admin_token(settings.admin_approval_token, x_admin_token)
         try:
             response = rca_service.build_install_command(
                 cluster_id,
@@ -186,21 +220,25 @@ def create_app(
             raise HTTPException(status_code=404, detail="agent not found")
         return agent
 
-    @app.post("/api/agents/register", response_model=NodeAgent, status_code=status.HTTP_201_CREATED)
-    def register_agent(request: NodeAgentRegisterRequest) -> NodeAgent:
+    @app.post("/api/agents/register", response_model=NodeAgentRegistrationResponse, status_code=status.HTTP_201_CREATED)
+    def register_agent(request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
         _verify_agent_token(store, request.cluster_id, request.agent_token)
         return store.register_agent(request)
 
     @app.post("/api/agents/heartbeat", response_model=NodeAgent)
     def record_agent_heartbeat(request: NodeAgentHeartbeatRequest) -> NodeAgent:
-        _verify_agent_token(store, request.cluster_id, request.agent_token)
+        _verify_agent_identity(store, request.cluster_id, request.node_name, request.agent_token, request.node_token)
         agent = store.record_agent_heartbeat(request)
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not registered")
         return agent
 
     @app.post("/api/evidence/requests", response_model=EvidenceRequest, status_code=status.HTTP_201_CREATED)
-    def create_evidence_request(request: EvidenceRequestCreateRequest) -> EvidenceRequest:
+    def create_evidence_request(
+        request: EvidenceRequestCreateRequest,
+        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+    ) -> EvidenceRequest:
+        _verify_admin_token(settings.admin_approval_token, x_admin_token)
         if store.get_cluster(request.cluster_id) is None:
             raise HTTPException(status_code=404, detail="cluster not found")
         if store.get_agent(request.cluster_id, request.node_name) is None:
@@ -229,9 +267,7 @@ def create_app(
 
     @app.post("/api/agents/evidence-requests", response_model=list[EvidenceRequest])
     def poll_agent_evidence_requests(request: AgentEvidencePollRequest) -> list[EvidenceRequest]:
-        _verify_agent_token(store, request.cluster_id, request.agent_token)
-        if store.get_agent(request.cluster_id, request.node_name) is None:
-            raise HTTPException(status_code=404, detail="agent not registered")
+        _verify_agent_identity(store, request.cluster_id, request.node_name, request.agent_token, request.node_token)
         return store.list_evidence_requests(
             cluster_id=request.cluster_id,
             node_name=request.node_name,
@@ -241,9 +277,7 @@ def create_app(
 
     @app.post("/api/agents/evidence-responses", response_model=EvidenceRequest)
     def submit_agent_evidence_response(request: AgentEvidenceSubmitRequest) -> EvidenceRequest:
-        _verify_agent_token(store, request.cluster_id, request.agent_token)
-        if store.get_agent(request.cluster_id, request.node_name) is None:
-            raise HTTPException(status_code=404, detail="agent not registered")
+        _verify_agent_identity(store, request.cluster_id, request.node_name, request.agent_token, request.node_token)
         if request.status not in {EvidenceRequestStatus.COMPLETED, EvidenceRequestStatus.FAILED}:
             raise HTTPException(status_code=422, detail="evidence response status must be completed or failed")
         evidence_request = store.get_evidence_request(request.request_id)
@@ -299,8 +333,8 @@ def create_app(
     return app
 
 
-def _verify_admin_token(configured_token: str, supplied_token: str) -> None:
-    if not secrets.compare_digest(configured_token, supplied_token):
+def _verify_admin_token(configured_token: str, supplied_token: str | None) -> None:
+    if not supplied_token or not secrets.compare_digest(configured_token, supplied_token):
         raise HTTPException(status_code=401, detail="invalid admin token")
 
 
@@ -308,8 +342,22 @@ def _verify_agent_token(store: StoreProtocol, cluster_id: str, agent_token: str)
     cluster = store.get_cluster(cluster_id)
     if cluster is None:
         raise HTTPException(status_code=404, detail="cluster not found")
-    if cluster.bootstrap_token != agent_token:
+    if not secrets.compare_digest(cluster.bootstrap_token, agent_token):
         raise HTTPException(status_code=401, detail="invalid agent token")
+
+
+def _verify_agent_identity(
+    store: StoreProtocol,
+    cluster_id: str,
+    node_name: str,
+    agent_token: str,
+    node_token: str,
+) -> None:
+    _verify_agent_token(store, cluster_id, agent_token)
+    if store.get_agent(cluster_id, node_name) is None:
+        raise HTTPException(status_code=404, detail="agent not registered")
+    if not store.verify_agent_node_token(cluster_id, node_name, node_token):
+        raise HTTPException(status_code=401, detail="invalid node token")
 
 
 app = create_app()

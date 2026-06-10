@@ -39,6 +39,7 @@ class NodeAgentRow(Base):
     agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     cluster_id: Mapped[str] = mapped_column(ForeignKey("clusters.cluster_id"), nullable=False, index=True)
     node_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    node_token_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     supported_collectors_json: Mapped[str] = mapped_column(Text, nullable=False)

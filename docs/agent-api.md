@@ -45,9 +45,16 @@ hostPath 기본값:
 
 ## 인증
 
-Agent 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_token` 필드로 보냅니다.
+Agent 등록 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_token` 필드로 보냅니다.
 
-토큰이 맞지 않으면 `401`을 반환합니다.
+등록이 성공하면 Backend는 해당 `cluster_id + node_name`에만 사용할 수 있는 `node_token`을 발급합니다.
+이 값은 등록 응답에서만 raw 값으로 내려가고, Backend DB에는 hash만 저장합니다.
+
+Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token`을 모두 보내야 합니다.
+
+- `agent_token`이 틀리면 `401`
+- 등록되지 않은 node면 `404`
+- `node_token`이 해당 node와 맞지 않으면 `401`
 
 ## Register
 
@@ -69,11 +76,32 @@ Agent 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_to
 }
 ```
 
+응답:
+
+```json
+{
+  "agent_id": "agent-12345678",
+  "cluster_id": "cluster-12345678",
+  "node_name": "worker-3",
+  "node_token": "node-specific-token",
+  "agent_version": "0.1.0",
+  "status": "registered",
+  "supported_collectors": ["systemd", "disk", "network", "kubelet"],
+  "metadata": {
+    "kernel": "6.8.0",
+    "runtime": "containerd"
+  },
+  "health": {},
+  "registered_at": "2026-06-10T00:00:00Z",
+  "last_heartbeat_at": null
+}
+```
+
 동작:
 
 - `cluster_id`가 없으면 `404`
 - `agent_token`이 틀리면 `401`
-- 같은 `cluster_id + node_name`으로 다시 등록하면 기존 Agent row를 갱신
+- 같은 `cluster_id + node_name`으로 다시 등록하면 기존 Agent row를 갱신하고 `node_token`을 재발급
 - 클러스터 상태를 `active`로 변경
 
 ## Heartbeat
@@ -87,6 +115,7 @@ Agent 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_to
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
   "agent_token": "bootstrap-token",
+  "node_token": "node-specific-token",
   "status": "healthy",
   "agent_version": "0.1.1",
   "supported_collectors": ["systemd", "disk", "network", "kubelet"],

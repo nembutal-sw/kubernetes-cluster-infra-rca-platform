@@ -2,7 +2,7 @@ const state = {
   clusters: [],
   reports: [],
   pendingUsers: [],
-  adminToken: localStorage.getItem("rca_admin_token") || "",
+  adminToken: sessionStorage.getItem("rca_admin_token") || "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -33,8 +33,13 @@ async function refreshAll() {
 
 function saveAdminToken() {
   state.adminToken = $("#adminToken").value.trim();
-  localStorage.setItem("rca_admin_token", state.adminToken);
-  toast("Admin token saved.");
+  if (state.adminToken) {
+    sessionStorage.setItem("rca_admin_token", state.adminToken);
+    toast("Admin token stored for this session.");
+  } else {
+    sessionStorage.removeItem("rca_admin_token");
+    toast("Admin token cleared.");
+  }
   loadPendingUsers();
 }
 
@@ -57,11 +62,13 @@ async function submitSignup(event) {
 
 async function submitCluster(event) {
   event.preventDefault();
+  if (!ensureAdminToken()) return;
   const form = event.currentTarget;
   const payload = formPayload(form);
   try {
     const cluster = await api("/api/clusters", {
       method: "POST",
+      headers: adminHeaders(),
       body: JSON.stringify(payload),
     });
     form.reset();
@@ -103,11 +110,10 @@ async function loadPendingUsers(options = {}) {
   }
 
   try {
-    const query = new URLSearchParams({
-      admin_token: state.adminToken,
-      status: "pending_approval",
+    const query = new URLSearchParams({ status: "pending_approval" });
+    state.pendingUsers = await api(`/api/admin/users?${query.toString()}`, {
+      headers: adminHeaders(),
     });
-    state.pendingUsers = await api(`/api/admin/users?${query.toString()}`);
     renderPendingUsers();
   } catch (error) {
     state.pendingUsers = [];
@@ -128,8 +134,8 @@ async function approveUser(userId, decision) {
   try {
     await api(`/api/admin/users/${userId}/approval`, {
       method: "POST",
+      headers: adminHeaders(),
       body: JSON.stringify({
-        admin_token: state.adminToken,
         decision,
         role: decision === "approve" ? roleSelect.value : null,
         note: noteInput.value || null,
@@ -143,10 +149,13 @@ async function approveUser(userId, decision) {
 }
 
 async function loadInstallCommand(clusterId, targetId) {
+  if (!ensureAdminToken()) return;
   const backendUrl = window.location.origin;
   const query = new URLSearchParams({ backend_url: backendUrl });
   try {
-    const response = await api(`/api/clusters/${clusterId}/install-command?${query.toString()}`);
+    const response = await api(`/api/clusters/${clusterId}/install-command?${query.toString()}`, {
+      headers: adminHeaders(),
+    });
     const target = document.getElementById(targetId);
     target.innerHTML = `<pre class="code-block"><code>${escapeHtml(response.commands.join("\n"))}</code></pre>`;
   } catch (error) {
@@ -306,6 +315,8 @@ async function copyWebhookEndpoint() {
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
+    cache: "no-store",
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -321,9 +332,24 @@ async function api(path, options = {}) {
   return body;
 }
 
+function adminHeaders() {
+  return state.adminToken ? { "X-Admin-Token": state.adminToken } : {};
+}
+
+function ensureAdminToken() {
+  if (state.adminToken) return true;
+  toast("Admin token required.");
+  return false;
+}
+
 function formPayload(form) {
   const data = new FormData(form);
-  return Object.fromEntries([...data.entries()].map(([key, value]) => [key, value === "" ? null : value]));
+  return Object.fromEntries(
+    [...data.entries()].map(([key, value]) => {
+      const normalized = typeof value === "string" ? value.trim() : value;
+      return [key, normalized === "" ? null : normalized];
+    }),
+  );
 }
 
 function renderError(selector, message) {

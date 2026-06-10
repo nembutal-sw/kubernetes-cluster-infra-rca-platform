@@ -78,6 +78,16 @@ class Cluster(BaseModel):
     last_seen_at: datetime | None = None
 
 
+class ClusterView(BaseModel):
+    cluster_id: str
+    name: str
+    environment: str
+    description: str | None = None
+    status: ClusterStatus = ClusterStatus.AGENT_PENDING
+    created_at: datetime = Field(default_factory=now_utc)
+    last_seen_at: datetime | None = None
+
+
 class InstallCommandResponse(BaseModel):
     cluster_id: str
     namespace: str
@@ -98,6 +108,7 @@ class NodeAgentHeartbeatRequest(BaseModel):
     cluster_id: str
     node_name: str = Field(min_length=1, examples=["worker-3"])
     agent_token: str = Field(min_length=1)
+    node_token: str = Field(min_length=1)
     status: AgentStatus = AgentStatus.HEALTHY
     agent_version: str | None = None
     supported_collectors: list[str] | None = None
@@ -115,6 +126,10 @@ class NodeAgent(BaseModel):
     health: dict[str, Any] = Field(default_factory=dict)
     registered_at: datetime = Field(default_factory=now_utc)
     last_heartbeat_at: datetime | None = None
+
+
+class NodeAgentRegistrationResponse(NodeAgent):
+    node_token: str = Field(min_length=1)
 
 
 class EvidenceRequestCreateRequest(BaseModel):
@@ -147,6 +162,7 @@ class AgentEvidencePollRequest(BaseModel):
     cluster_id: str
     node_name: str = Field(min_length=1, examples=["worker-3"])
     agent_token: str = Field(min_length=1)
+    node_token: str = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=100)
 
 
@@ -155,6 +171,7 @@ class AgentEvidenceSubmitRequest(BaseModel):
     cluster_id: str
     node_name: str = Field(min_length=1, examples=["worker-3"])
     agent_token: str = Field(min_length=1)
+    node_token: str = Field(min_length=1)
     status: EvidenceRequestStatus = EvidenceRequestStatus.COMPLETED
     collectors: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
@@ -208,7 +225,6 @@ class UserSignupRequest(BaseModel):
 
 
 class UserApprovalRequest(BaseModel):
-    admin_token: str = Field(min_length=1)
     decision: str = Field(pattern="^(approve|reject)$")
     role: UserRole | None = None
     note: str | None = Field(default=None, max_length=1000)

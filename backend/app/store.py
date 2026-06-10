@@ -30,6 +30,7 @@ from backend.app.models import (
     EvidenceRequestStatus,
     NodeAgent,
     NodeAgentHeartbeatRequest,
+    NodeAgentRegistrationResponse,
     NodeAgentRegisterRequest,
     RcaJob,
     RcaJobStatus,
@@ -44,17 +45,18 @@ from backend.app.models import (
     UserStatus,
     now_utc,
 )
-from backend.app.services.auth import hash_password
+from backend.app.services.auth import hash_password, verify_password
 
 
 class StoreProtocol(Protocol):
     def create_cluster(self, request: ClusterCreateRequest) -> Cluster: ...
     def list_clusters(self) -> list[Cluster]: ...
     def get_cluster(self, cluster_id: str) -> Cluster | None: ...
-    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent: ...
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse: ...
     def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None: ...
     def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]: ...
     def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None: ...
+    def verify_agent_node_token(self, cluster_id: str, node_name: str, node_token: str) -> bool: ...
     def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest: ...
     def list_evidence_requests(
         self,
@@ -89,6 +91,7 @@ class InMemoryStore:
         self._lock = RLock()
         self._clusters: dict[str, Cluster] = {}
         self._agents: dict[tuple[str, str], NodeAgent] = {}
+        self._agent_node_token_hashes: dict[tuple[str, str], str] = {}
         self._evidence_requests: dict[str, EvidenceRequest] = {}
         self._evidence: dict[str, EvidenceBundle] = {}
         self._jobs: dict[str, RcaJob] = {}
@@ -116,10 +119,11 @@ class InMemoryStore:
         with self._lock:
             return self._clusters.get(cluster_id)
 
-    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent:
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
         with self._lock:
             existing = self._agents.get((request.cluster_id, request.node_name))
             registered_at = existing.registered_at if existing else now_utc()
+            node_token = secrets.token_urlsafe(32)
             agent = NodeAgent(
                 agent_id=existing.agent_id if existing else f"agent-{uuid.uuid4().hex[:8]}",
                 cluster_id=request.cluster_id,
@@ -133,8 +137,9 @@ class InMemoryStore:
                 last_heartbeat_at=existing.last_heartbeat_at if existing else None,
             )
             self._agents[(request.cluster_id, request.node_name)] = agent
+            self._agent_node_token_hashes[(request.cluster_id, request.node_name)] = hash_password(node_token)
             self._mark_cluster_active(request.cluster_id)
-            return agent
+            return NodeAgentRegistrationResponse(**agent.model_dump(), node_token=node_token)
 
     def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None:
         with self._lock:
@@ -166,6 +171,11 @@ class InMemoryStore:
     def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None:
         with self._lock:
             return self._agents.get((cluster_id, node_name))
+
+    def verify_agent_node_token(self, cluster_id: str, node_name: str, node_token: str) -> bool:
+        with self._lock:
+            node_token_hash = self._agent_node_token_hashes.get((cluster_id, node_name))
+            return bool(node_token_hash and verify_password(node_token, node_token_hash))
 
     def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest:
         with self._lock:
@@ -376,13 +386,14 @@ class SqlAlchemyStore:
             row = session.get(ClusterRow, cluster_id)
             return _cluster_from_row(row) if row else None
 
-    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgent:
+    def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
         with self._session_factory() as session:
             existing = (
                 session.query(NodeAgentRow)
                 .filter(NodeAgentRow.cluster_id == request.cluster_id, NodeAgentRow.node_name == request.node_name)
                 .one_or_none()
             )
+            node_token = secrets.token_urlsafe(32)
             agent = NodeAgent(
                 agent_id=existing.agent_id if existing else f"agent-{uuid.uuid4().hex[:8]}",
                 cluster_id=request.cluster_id,
@@ -395,10 +406,10 @@ class SqlAlchemyStore:
                 registered_at=existing.registered_at if existing else now_utc(),
                 last_heartbeat_at=existing.last_heartbeat_at if existing else None,
             )
-            session.merge(_agent_to_row(agent))
+            session.merge(_agent_to_row(agent, hash_password(node_token)))
             _mark_cluster_active(session, request.cluster_id)
             session.commit()
-            return agent
+            return NodeAgentRegistrationResponse(**agent.model_dump(), node_token=node_token)
 
     def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None:
         with self._session_factory() as session:
@@ -420,7 +431,7 @@ class SqlAlchemyStore:
                     "last_heartbeat_at": now_utc(),
                 }
             )
-            session.merge(_agent_to_row(agent))
+            session.merge(_agent_to_row(agent, existing.node_token_hash))
             _mark_cluster_active(session, request.cluster_id)
             session.commit()
             return agent
@@ -441,6 +452,15 @@ class SqlAlchemyStore:
                 .one_or_none()
             )
             return _agent_from_row(row) if row else None
+
+    def verify_agent_node_token(self, cluster_id: str, node_name: str, node_token: str) -> bool:
+        with self._session_factory() as session:
+            row = (
+                session.query(NodeAgentRow)
+                .filter(NodeAgentRow.cluster_id == cluster_id, NodeAgentRow.node_name == node_name)
+                .one_or_none()
+            )
+            return bool(row and verify_password(node_token, row.node_token_hash))
 
     def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest:
         evidence_request = EvidenceRequest(
@@ -681,11 +701,12 @@ def _cluster_from_row(row: ClusterRow) -> Cluster:
     )
 
 
-def _agent_to_row(agent: NodeAgent) -> NodeAgentRow:
+def _agent_to_row(agent: NodeAgent, node_token_hash: str) -> NodeAgentRow:
     return NodeAgentRow(
         agent_id=agent.agent_id,
         cluster_id=agent.cluster_id,
         node_name=agent.node_name,
+        node_token_hash=node_token_hash,
         agent_version=agent.agent_version,
         status=agent.status.value,
         supported_collectors_json=_json_dump(agent.supported_collectors),

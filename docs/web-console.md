@@ -41,6 +41,18 @@ dev-admin-approval-token
 $env:RCA_ADMIN_APPROVAL_TOKEN = "replace-with-secure-token"
 ```
 
+콘솔은 관리자 token을 URL query string에 넣지 않고 `X-Admin-Token` header로 전송합니다.
+브라우저 저장도 영구 `localStorage`가 아니라 탭 단위 `sessionStorage`만 사용합니다.
+
+관리자 token이 필요한 화면 동작:
+
+- 승인 대기 사용자 조회
+- 회원가입 승인/거절
+- 클러스터 등록
+- Agent 설치 명령어 조회
+
+Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` header를 붙입니다.
+
 ## API 연결
 
 콘솔은 같은 origin의 Backend API를 호출합니다.

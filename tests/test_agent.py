@@ -278,7 +278,7 @@ def test_collect_local_evidence_uses_all_collectors_when_list_is_empty(tmp_path:
 def test_agent_client_posts_expected_payloads() -> None:
     server = _TestHttpServer(
         {
-            "/api/agents/register": (201, {"agent_id": "agent-1"}),
+            "/api/agents/register": (201, {"agent_id": "agent-1", "node_token": "node-token-1"}),
             "/api/agents/heartbeat": (200, {"status": "healthy"}),
             "/api/agents/evidence-requests": (
                 200,
@@ -296,7 +296,11 @@ def test_agent_client_posts_expected_payloads() -> None:
             timeout_seconds=2,
         )
 
-        assert client.register("0.1.0", ["node"], {"kernel": "test"}) == {"agent_id": "agent-1"}
+        assert client.register("0.1.0", ["node"], {"kernel": "test"}) == {
+            "agent_id": "agent-1",
+            "node_token": "node-token-1",
+        }
+        assert client.node_token == "node-token-1"
         assert client.heartbeat("0.1.0", ["node"], {"agent": "running"}) == {"status": "healthy"}
         assert client.poll_evidence_requests(limit=5) == [
             {"request_id": "evidence-request-1", "requested_collectors": ["node"]}
@@ -315,8 +319,11 @@ def test_agent_client_posts_expected_payloads() -> None:
         ]
         assert server.records[0]["payload"]["cluster_id"] == "cluster-1"
         assert server.records[0]["payload"]["agent_token"] == "token-1"
+        assert server.records[1]["payload"]["node_token"] == "node-token-1"
         assert server.records[2]["payload"]["limit"] == 5
+        assert server.records[2]["payload"]["node_token"] == "node-token-1"
         assert server.records[3]["payload"]["collectors"]["node"]["status"] == "ok"
+        assert server.records[3]["payload"]["node_token"] == "node-token-1"
     finally:
         server.close()
 
@@ -324,7 +331,14 @@ def test_agent_client_posts_expected_payloads() -> None:
 def test_agent_client_raises_clear_errors() -> None:
     http_error_server = _TestHttpServer({"/api/agents/heartbeat": (500, {"detail": "failed"})})
     try:
-        client = AgentClient(http_error_server.url, "cluster-1", "worker-1", "token-1", timeout_seconds=2)
+        client = AgentClient(
+            http_error_server.url,
+            "cluster-1",
+            "worker-1",
+            "token-1",
+            node_token="node-token-1",
+            timeout_seconds=2,
+        )
         with pytest.raises(AgentClientError, match="HTTP 500"):
             client.heartbeat("0.1.0", ["node"], {})
     finally:
@@ -340,11 +354,25 @@ def test_agent_client_raises_clear_errors() -> None:
 
     non_list_server = _TestHttpServer({"/api/agents/evidence-requests": (200, {"request_id": "bad-shape"})})
     try:
-        client = AgentClient(non_list_server.url, "cluster-1", "worker-1", "token-1", timeout_seconds=2)
+        client = AgentClient(
+            non_list_server.url,
+            "cluster-1",
+            "worker-1",
+            "token-1",
+            node_token="node-token-1",
+            timeout_seconds=2,
+        )
         with pytest.raises(AgentClientError, match="non-list"):
             client.poll_evidence_requests()
     finally:
         non_list_server.close()
+
+
+def test_agent_client_requires_registration_before_node_requests() -> None:
+    client = AgentClient("http://127.0.0.1:1", "cluster-1", "worker-1", "token-1", timeout_seconds=0.1)
+
+    with pytest.raises(AgentClientError, match="node_token is missing"):
+        client.heartbeat("0.1.0", ["node"], {})
 
 
 def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:

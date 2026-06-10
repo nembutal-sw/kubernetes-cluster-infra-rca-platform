@@ -11,11 +11,20 @@ from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
 
 
+ADMIN_HEADERS = {"X-Admin-Token": "dev-admin-approval-token"}
+
+
 def test_cluster_registration_and_install_command(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
+    assert client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).status_code == 401
+
     create_response = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     )
 
@@ -24,12 +33,21 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert cluster["cluster_id"].startswith("cluster-")
     assert cluster["status"] == "agent_pending"
 
-    install_response = client.get(f"/api/clusters/{cluster['cluster_id']}/install-command")
+    assert client.get(f"/api/clusters/{cluster['cluster_id']}/install-command").status_code == 401
+
+    install_response = client.get(
+        f"/api/clusters/{cluster['cluster_id']}/install-command",
+        headers=ADMIN_HEADERS,
+    )
 
     assert install_response.status_code == 200
     install = install_response.json()
     assert install["namespace"] == "rca-system"
     assert any("agent-token" in command for command in install["commands"])
+
+    list_response = client.get("/api/clusters")
+    assert list_response.status_code == 200
+    assert "bootstrap_token" not in list_response.json()[0]
 
 
 def test_web_console_static_assets_are_served(tmp_path) -> None:
@@ -43,19 +61,25 @@ def test_web_console_static_assets_are_served(tmp_path) -> None:
     assert "Cluster Infrastructure Control Plane" in index_response.text
     assert script_response.status_code == 200
     assert "loadPendingUsers" in script_response.text
+    assert "sessionStorage" in script_response.text
+    assert "X-Admin-Token" in script_response.text
     assert style_response.status_code == 200
     assert "admin-token" in style_response.text
+    assert index_response.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in index_response.headers["Content-Security-Policy"]
 
 
 def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
     install_response = client.get(
         f"/api/clusters/{cluster['cluster_id']}/install-command",
+        headers=ADMIN_HEADERS,
         params={
             "backend_url": "https://rca.example.com",
             "image": "ghcr.io/acme/cluster-infra-rca-agent:v1",
@@ -79,6 +103,7 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -151,6 +176,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -243,20 +269,22 @@ def test_signup_requires_admin_approval(tmp_path) -> None:
 
     assert client.get(
         "/api/admin/users",
-        params={"admin_token": "wrong", "status": "pending_approval"},
+        headers={"X-Admin-Token": "wrong"},
+        params={"status": "pending_approval"},
     ).status_code == 401
 
     pending_response = client.get(
         "/api/admin/users",
-        params={"admin_token": "dev-admin-approval-token", "status": "pending_approval"},
+        headers={"X-Admin-Token": "dev-admin-approval-token"},
+        params={"status": "pending_approval"},
     )
     assert pending_response.status_code == 200
     assert [user["user_id"] for user in pending_response.json()] == [signup["user_id"]]
 
     approval_response = client.post(
         f"/api/admin/users/{signup['user_id']}/approval",
+        headers={"X-Admin-Token": "dev-admin-approval-token"},
         json={
-            "admin_token": "dev-admin-approval-token",
             "decision": "approve",
             "role": "operator",
             "note": "approved for MVP validation",
@@ -271,7 +299,8 @@ def test_signup_requires_admin_approval(tmp_path) -> None:
 
     approve_again_response = client.post(
         f"/api/admin/users/{signup['user_id']}/approval",
-        json={"admin_token": "dev-admin-approval-token", "decision": "approve"},
+        headers={"X-Admin-Token": "dev-admin-approval-token"},
+        json={"decision": "approve"},
     )
     assert approve_again_response.status_code == 409
 
@@ -280,9 +309,10 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
-    client.post(
+    register_response = client.post(
         "/api/agents/register",
         json={
             "cluster_id": cluster["cluster_id"],
@@ -292,6 +322,7 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
             "supported_collectors": ["node", "systemd", "runtime", "kernel", "network"],
         },
     )
+    node_token = register_response.json()["node_token"]
 
     webhook_response = client.post(
         "/api/webhooks/alertmanager",
@@ -343,6 +374,7 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
         },
     )
 
@@ -356,6 +388,7 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
             "status": "completed",
             "collectors": {
                 "systemd": {"kubelet_status": "restarting", "kubelet_restart_count": 7},
@@ -390,9 +423,10 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
-    client.post(
+    register_response = client.post(
         "/api/agents/register",
         json={
             "cluster_id": cluster["cluster_id"],
@@ -402,8 +436,10 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
             "supported_collectors": ["disk", "kernel", "systemd"],
         },
     )
+    node_token = register_response.json()["node_token"]
     evidence_request = client.post(
         "/api/evidence/requests",
+        headers=ADMIN_HEADERS,
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -419,6 +455,7 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
             "status": "completed",
             "collectors": {
                 "disk": {
@@ -490,6 +527,7 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -508,6 +546,7 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     assert register_response.status_code == 201
     registered = register_response.json()
     assert registered["agent_id"].startswith("agent-")
+    assert registered["node_token"]
     assert registered["status"] == "registered"
     assert registered["supported_collectors"] == ["systemd", "disk", "network"]
 
@@ -517,6 +556,7 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": registered["node_token"],
             "status": "healthy",
             "agent_version": "0.1.1",
             "supported_collectors": ["systemd", "disk", "network", "kubelet"],
@@ -533,10 +573,12 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents")
     assert list_response.status_code == 200
     assert [agent["node_name"] for agent in list_response.json()] == ["worker-3"]
+    assert "node_token" not in list_response.json()[0]
 
     get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3")
     assert get_response.status_code == 200
     assert get_response.json()["health"] == {"kubelet": "active", "containerd": "active"}
+    assert "node_token" not in get_response.json()
 
     cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}")
     assert cluster_response.status_code == 200
@@ -549,6 +591,7 @@ def test_agent_auth_and_registration_errors(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -569,19 +612,43 @@ def test_agent_auth_and_registration_errors(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": "node-token-for-unregistered-agent",
             "status": "healthy",
         },
     )
     assert unregistered_heartbeat_response.status_code == 404
+
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+        },
+    )
+    assert register_response.status_code == 201
+    wrong_node_token_response = client.post(
+        "/api/agents/heartbeat",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": "wrong-node-token",
+            "status": "healthy",
+        },
+    )
+    assert wrong_node_token_response.status_code == 401
 
 
 def test_evidence_request_poll_and_submit(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
-    client.post(
+    register_response = client.post(
         "/api/agents/register",
         json={
             "cluster_id": cluster["cluster_id"],
@@ -591,9 +658,11 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
             "supported_collectors": ["systemd", "disk", "network"],
         },
     )
+    node_token = register_response.json()["node_token"]
 
     create_response = client.post(
         "/api/evidence/requests",
+        headers=ADMIN_HEADERS,
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -618,6 +687,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
         },
     )
 
@@ -631,6 +701,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
             "status": "completed",
             "collectors": {
                 "systemd": {"kubelet_status": "active"},
@@ -671,6 +742,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
         },
     )
     assert poll_after_submit_response.status_code == 200
@@ -681,10 +753,12 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
+    node_tokens = {}
     for node_name in ("worker-3", "worker-4"):
-        client.post(
+        register_response = client.post(
             "/api/agents/register",
             json={
                 "cluster_id": cluster["cluster_id"],
@@ -694,9 +768,11 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
                 "supported_collectors": ["systemd"],
             },
         )
+        node_tokens[node_name] = register_response.json()["node_token"]
 
     evidence_request = client.post(
         "/api/evidence/requests",
+        headers=ADMIN_HEADERS,
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -712,6 +788,7 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-4",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_tokens["worker-4"],
             "status": "completed",
             "collectors": {"systemd": {"kubelet_status": "failed"}},
         },
@@ -725,6 +802,7 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
             "agent_token": cluster["bootstrap_token"],
+            "node_token": node_tokens["worker-3"],
             "status": "failed",
             "error_message": "journalctl timed out",
         },
@@ -745,6 +823,7 @@ def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
 
     cluster = first_client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -786,6 +865,8 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "rca_reports" in mariadb_ddl
     assert "node_agents" in postgres_ddl
     assert "node_agents" in mariadb_ddl
+    assert "node_token_hash" in postgres_ddl
+    assert "node_token_hash" in mariadb_ddl
     assert "evidence_requests" in postgres_ddl
     assert "evidence_requests" in mariadb_ddl
     assert "user_accounts" in postgres_ddl
@@ -800,6 +881,7 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
 
     engine = create_db_engine(database_url)
     tables = set(inspect(engine).get_table_names())
+    node_agent_columns = {column["name"] for column in inspect(engine).get_columns("node_agents")}
     assert {
         "alembic_version",
         "clusters",
@@ -810,10 +892,12 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
         "rca_jobs",
         "user_accounts",
     } <= tables
+    assert "node_token_hash" in node_agent_columns
 
     client = TestClient(create_app(database_url=database_url, auto_create_tables=False))
     response = client.post(
         "/api/clusters",
+        headers=ADMIN_HEADERS,
         json={"name": "prod-cluster", "environment": "prod"},
     )
 

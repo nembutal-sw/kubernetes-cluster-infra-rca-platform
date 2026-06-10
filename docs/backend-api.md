@@ -44,20 +44,45 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 | `GET` | `/api/rca/reports` | RCA report 목록 |
 | `GET` | `/api/rca/reports/{report_id}` | RCA report 상세 |
 
+## 인증 요약
+
+관리자 API와 bootstrap token을 노출할 수 있는 API는 아래 header가 필요합니다.
+
+```text
+X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
+```
+
+현재 적용 대상:
+
+- `GET /api/admin/users`
+- `POST /api/admin/users/{user_id}/approval`
+- `POST /api/clusters`
+- `GET /api/clusters/{cluster_id}/install-command`
+- `POST /api/evidence/requests`
+
+`GET /api/clusters`와 `GET /api/clusters/{cluster_id}`는 `bootstrap_token`을 응답하지 않습니다.
+Agent 설치용 bootstrap token은 cluster 생성 응답과 admin token이 있는 install-command 응답에서만 확인합니다.
+
+Agent API는 두 단계 token을 사용합니다.
+
+1. `POST /api/agents/register`는 cluster `bootstrap_token`을 `agent_token`으로 검증합니다.
+2. 등록 성공 시 node별 `node_token`을 발급합니다.
+3. Heartbeat, evidence poll, evidence submit은 `agent_token + node_token + node_name`이 모두 맞아야 합니다.
+
 ## API 흐름
 
 1. 사용자가 `POST /api/auth/signup` 또는 Web UI에서 가입 요청을 만듭니다.
 2. 관리자가 `RCA_ADMIN_APPROVAL_TOKEN`으로 `/api/admin/users`에서 승인 대기열을 조회합니다.
 3. 관리자가 `/api/admin/users/{user_id}/approval`로 가입 요청을 승인하거나 거절합니다.
-4. `POST /api/clusters`로 클러스터를 등록합니다.
+4. 관리자가 `X-Admin-Token` header를 넣어 `POST /api/clusters`로 클러스터를 등록합니다.
 5. 응답의 `cluster_id`를 확인합니다.
-6. `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
+6. 관리자가 `GET /api/clusters/{cluster_id}/install-command`로 Agent 설치 명령어를 확인합니다.
 7. 운영 환경에서는 `backend_url`, `image`, `namespace` query parameter를 넣어 클러스터별 manifest URL을 생성합니다.
-8. Agent가 `/api/agents/register`로 자신을 등록합니다.
-9. Agent가 `/api/agents/heartbeat`로 상태를 갱신합니다.
-10. Backend가 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
-11. Agent가 `/api/agents/evidence-requests`로 pending request를 조회합니다.
-12. Agent가 `/api/agents/evidence-responses`로 수집 결과를 제출합니다.
+8. Agent가 `/api/agents/register`로 자신을 등록하고 node별 `node_token`을 받습니다.
+9. Agent가 `agent_token + node_token`으로 `/api/agents/heartbeat` 상태를 갱신합니다.
+10. Backend가 관리자 token 검증 후 `/api/evidence/requests`로 특정 노드 수집 요청을 만듭니다.
+11. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-requests` pending request를 조회합니다.
+12. Agent가 `agent_token + node_token`으로 `/api/agents/evidence-responses` 수집 결과를 제출합니다.
 13. Alertmanager payload의 `labels.cluster_id`에 등록된 `cluster_id`를 넣어 `/api/webhooks/alertmanager`로 전송합니다.
 14. 해당 노드 Agent가 등록되어 있으면 Backend가 pending evidence request를 생성합니다.
 15. Agent가 evidence request를 poll하고 수집 결과를 제출합니다.

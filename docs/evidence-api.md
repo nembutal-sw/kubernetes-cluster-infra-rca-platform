@@ -10,6 +10,12 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
 
 `POST /api/evidence/requests`
 
+Header:
+
+```text
+X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
+```
+
 요청:
 
 ```json
@@ -31,6 +37,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
 
 조건:
 
+- 관리자 token이 없거나 틀리면 `401`
 - cluster가 없으면 `404`
 - 대상 node agent가 등록되어 있지 않으면 `404`
 
@@ -45,6 +52,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
   "agent_token": "bootstrap-token",
+  "node_token": "node-specific-token",
   "limit": 10
 }
 ```
@@ -63,6 +71,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
   "agent_token": "bootstrap-token",
+  "node_token": "node-specific-token",
   "status": "completed",
   "collectors": {
     "systemd": {
@@ -83,6 +92,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
   "agent_token": "bootstrap-token",
+  "node_token": "node-specific-token",
   "status": "failed",
   "error_message": "journalctl timed out"
 }
@@ -91,6 +101,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
 제약:
 
 - `status`는 `completed` 또는 `failed`만 허용합니다.
+- `agent_token`과 `node_token`이 모두 맞아야 합니다.
 - request가 다른 node에 할당되어 있으면 `403`
 - 이미 닫힌 request면 `409`
 - 성공 응답은 `evidence_bundles` row를 만들고 request에 `evidence_id`를 연결합니다.

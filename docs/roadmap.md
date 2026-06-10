@@ -24,6 +24,8 @@
 ## Phase 3: Node Agent MVP
 
 - Agent register API 완료
+- node별 Agent token 발급 및 hash 저장 완료
+- `agent_token + node_token + node_name` 검증 완료
 - Agent heartbeat API 완료
 - Agent 조회 API 완료
 - Agent evidence request/response API 완료
@@ -67,6 +69,8 @@
 ## Phase 6: Web UI
 
 - 관리자 콘솔 정적 SPA 완료
+- Web UI 보안 header/CSP 적용 완료
+- 관리자 token query string 제거 및 header 전송 완료
 - 회원가입 요청 화면 완료
 - 관리자 승인/거절 화면 완료
 - 클러스터 등록 화면 완료

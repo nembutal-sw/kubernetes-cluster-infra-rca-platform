@@ -12,12 +12,13 @@ class AgentClientError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass
 class AgentClient:
     backend_url: str
     cluster_id: str
     node_name: str
     agent_token: str
+    node_token: str | None = None
     timeout_seconds: float = 10
 
     def register(
@@ -26,7 +27,7 @@ class AgentClient:
         supported_collectors: list[str],
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
-        return self._post(
+        response = self._post(
             "/api/agents/register",
             {
                 "cluster_id": self.cluster_id,
@@ -37,6 +38,11 @@ class AgentClient:
                 "metadata": metadata,
             },
         )
+        node_token = response.get("node_token") if isinstance(response, dict) else None
+        if not isinstance(node_token, str) or not node_token:
+            raise AgentClientError("backend registration response did not include node_token")
+        self.node_token = node_token
+        return response
 
     def heartbeat(
         self,
@@ -51,6 +57,7 @@ class AgentClient:
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
                 "agent_token": self.agent_token,
+                "node_token": self._required_node_token(),
                 "status": status,
                 "agent_version": agent_version,
                 "supported_collectors": supported_collectors,
@@ -65,6 +72,7 @@ class AgentClient:
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
                 "agent_token": self.agent_token,
+                "node_token": self._required_node_token(),
                 "limit": limit,
             },
         )
@@ -84,11 +92,17 @@ class AgentClient:
             "cluster_id": self.cluster_id,
             "node_name": self.node_name,
             "agent_token": self.agent_token,
+            "node_token": self._required_node_token(),
             "status": status,
             "collectors": collectors or {},
             "error_message": error_message,
         }
         return self._post("/api/agents/evidence-responses", payload)
+
+    def _required_node_token(self) -> str:
+        if not self.node_token:
+            raise AgentClientError("node_token is missing; register the agent before sending node requests")
+        return self.node_token
 
     def _post(self, path: str, payload: dict[str, Any]) -> Any:
         url = self.backend_url.rstrip("/") + path

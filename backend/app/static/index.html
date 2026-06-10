@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
     <title>Cluster Infra RCA Console</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -36,7 +37,7 @@
             <label for="adminToken">Admin token</label>
             <div class="token-row">
               <input id="adminToken" type="password" autocomplete="off" placeholder="approval token" />
-              <button id="saveTokenButton" type="button">Save</button>
+              <button id="saveTokenButton" type="button">Use</button>
             </div>
           </div>
         </header>
@@ -80,15 +81,22 @@
             <form id="signupForm" class="form-grid">
               <label>
                 Email
-                <input name="email" type="email" required placeholder="operator@example.com" />
+                <input name="email" type="email" autocomplete="email" required placeholder="operator@example.com" />
               </label>
               <label>
                 Full name
-                <input name="full_name" required placeholder="Cluster Operator" />
+                <input name="full_name" autocomplete="name" required placeholder="Cluster Operator" />
               </label>
               <label>
                 Password
-                <input name="password" type="password" minlength="8" required placeholder="minimum 8 characters" />
+                <input
+                  name="password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  required
+                  placeholder="minimum 8 characters"
+                />
               </label>
               <label>
                 Requested role
