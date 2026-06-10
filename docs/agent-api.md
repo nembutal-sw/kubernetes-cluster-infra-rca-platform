@@ -88,3 +88,18 @@ GET /api/clusters/{cluster_id}/agents/{node_name}
 
 `offline` 판정은 아직 자동 계산하지 않습니다. 다음 단계에서 scheduler 또는 monitor job이 `last_heartbeat_at` 기준으로 갱신해야 합니다.
 
+## Evidence poll/submit
+
+Agent는 수집 요청을 받기 위해 pending evidence request를 poll합니다.
+
+```text
+POST /api/agents/evidence-requests
+```
+
+수집이 끝나면 결과를 제출합니다.
+
+```text
+POST /api/agents/evidence-responses
+```
+
+자세한 요청/응답 형식은 [docs/evidence-api.md](evidence-api.md)를 참고합니다.

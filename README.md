@@ -60,6 +60,7 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소
 - Alembic 기반 DB migration
 - Node Agent 등록/heartbeat API
+- Agent evidence request/response API
 
 실제 Node Agent, LLM 연동, Web UI는 다음 단계에서 붙일 예정입니다.
 
@@ -119,6 +120,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 |   |-- agent-api.md
 |   |-- backend-api.md
 |   |-- database.md
+|   |-- evidence-api.md
 |   |-- install-flow.md
 |   |-- policy-engine.md
 |   |-- rca-scope.md
@@ -143,6 +145,6 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 바로 다음 단계는 둘 중 하나입니다.
 
 - Node Agent MVP를 만들어 systemd/kubelet/containerd/disk/network collector부터 붙이기
-- Agent evidence request/response API를 만들어 Backend가 수집 요청을 보낼 수 있게 하기
+- Evidence request를 Alertmanager webhook/RCA job 흐름에 연결하기
 
-DB 저장소, migration, Agent register/heartbeat 계약은 들어갔습니다. 이제 실제 collector와 evidence 수집 계약을 고정해야 합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약은 들어갔습니다. 이제 실제 collector 구현 또는 RCA job과 evidence request 연동이 필요합니다.

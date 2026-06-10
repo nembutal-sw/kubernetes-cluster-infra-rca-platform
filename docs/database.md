@@ -86,6 +86,7 @@ $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 
 - `clusters`
 - `node_agents`
+- `evidence_requests`
 - `evidence_bundles`
 - `rca_reports`
 - `rca_jobs`

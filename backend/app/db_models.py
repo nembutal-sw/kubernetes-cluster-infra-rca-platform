@@ -48,6 +48,24 @@ class NodeAgentRow(Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class EvidenceRequestRow(Base):
+    __tablename__ = "evidence_requests"
+
+    request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cluster_id: Mapped[str] = mapped_column(ForeignKey("clusters.cluster_id"), nullable=False, index=True)
+    node_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    alert_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_collectors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    time_range_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    context_json: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_id: Mapped[str | None] = mapped_column(ForeignKey("evidence_bundles.evidence_id"), nullable=True, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class RcaReportRow(Base):
     __tablename__ = "rca_reports"
 

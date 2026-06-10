@@ -5,9 +5,15 @@ from fastapi import FastAPI, HTTPException, status
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
 from backend.app.models import (
+    AgentEvidencePollRequest,
+    AgentEvidenceSubmitRequest,
     AlertmanagerPayload,
     Cluster,
     ClusterCreateRequest,
+    EvidenceBundle,
+    EvidenceRequest,
+    EvidenceRequestCreateRequest,
+    EvidenceRequestStatus,
     NodeAgent,
     NodeAgentHeartbeatRequest,
     NodeAgentRegisterRequest,
@@ -103,6 +109,65 @@ def create_app(
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not registered")
         return agent
+
+    @app.post("/api/evidence/requests", response_model=EvidenceRequest, status_code=status.HTTP_201_CREATED)
+    def create_evidence_request(request: EvidenceRequestCreateRequest) -> EvidenceRequest:
+        if store.get_cluster(request.cluster_id) is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        if store.get_agent(request.cluster_id, request.node_name) is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        return store.create_evidence_request(request)
+
+    @app.get("/api/clusters/{cluster_id}/evidence-requests", response_model=list[EvidenceRequest])
+    def list_cluster_evidence_requests(cluster_id: str) -> list[EvidenceRequest]:
+        if store.get_cluster(cluster_id) is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        return store.list_evidence_requests(cluster_id=cluster_id)
+
+    @app.get("/api/evidence/requests/{request_id}", response_model=EvidenceRequest)
+    def get_evidence_request(request_id: str) -> EvidenceRequest:
+        evidence_request = store.get_evidence_request(request_id)
+        if evidence_request is None:
+            raise HTTPException(status_code=404, detail="evidence request not found")
+        return evidence_request
+
+    @app.get("/api/evidence/{evidence_id}", response_model=EvidenceBundle)
+    def get_evidence(evidence_id: str) -> EvidenceBundle:
+        evidence = store.get_evidence(evidence_id)
+        if evidence is None:
+            raise HTTPException(status_code=404, detail="evidence not found")
+        return evidence
+
+    @app.post("/api/agents/evidence-requests", response_model=list[EvidenceRequest])
+    def poll_agent_evidence_requests(request: AgentEvidencePollRequest) -> list[EvidenceRequest]:
+        _verify_agent_token(store, request.cluster_id, request.agent_token)
+        if store.get_agent(request.cluster_id, request.node_name) is None:
+            raise HTTPException(status_code=404, detail="agent not registered")
+        return store.list_evidence_requests(
+            cluster_id=request.cluster_id,
+            node_name=request.node_name,
+            status=EvidenceRequestStatus.PENDING,
+            limit=request.limit,
+        )
+
+    @app.post("/api/agents/evidence-responses", response_model=EvidenceRequest)
+    def submit_agent_evidence_response(request: AgentEvidenceSubmitRequest) -> EvidenceRequest:
+        _verify_agent_token(store, request.cluster_id, request.agent_token)
+        if store.get_agent(request.cluster_id, request.node_name) is None:
+            raise HTTPException(status_code=404, detail="agent not registered")
+        if request.status not in {EvidenceRequestStatus.COMPLETED, EvidenceRequestStatus.FAILED}:
+            raise HTTPException(status_code=422, detail="evidence response status must be completed or failed")
+        evidence_request = store.get_evidence_request(request.request_id)
+        if evidence_request is None:
+            raise HTTPException(status_code=404, detail="evidence request not found")
+        if evidence_request.cluster_id != request.cluster_id or evidence_request.node_name != request.node_name:
+            raise HTTPException(status_code=403, detail="evidence request is assigned to another agent")
+        if evidence_request.status != EvidenceRequestStatus.PENDING:
+            raise HTTPException(status_code=409, detail="evidence request is already closed")
+        submitted = store.submit_evidence_response(request)
+        if submitted is None:
+            raise HTTPException(status_code=404, detail="evidence request not found")
+        return submitted
 
     @app.post("/api/webhooks/alertmanager")
     def ingest_alertmanager(payload: AlertmanagerPayload):

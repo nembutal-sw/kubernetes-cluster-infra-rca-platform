@@ -199,6 +199,153 @@ def test_agent_auth_and_registration_errors(tmp_path) -> None:
     assert unregistered_heartbeat_response.status_code == 404
 
 
+def test_evidence_request_poll_and_submit(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["systemd", "disk", "network"],
+        },
+    )
+
+    create_response = client.post(
+        "/api/evidence/requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "alert_name": "NodeNotReady",
+            "requested_collectors": ["systemd", "runtime"],
+            "time_range": {
+                "from": "2026-06-10T09:10:00+09:00",
+                "to": "2026-06-10T09:25:00+09:00",
+            },
+            "reason": "NodeNotReady fired",
+        },
+    )
+
+    assert create_response.status_code == 201
+    evidence_request = create_response.json()
+    assert evidence_request["request_id"].startswith("evidence-request-")
+    assert evidence_request["status"] == "pending"
+
+    poll_response = client.post(
+        "/api/agents/evidence-requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+        },
+    )
+
+    assert poll_response.status_code == 200
+    assert [item["request_id"] for item in poll_response.json()] == [evidence_request["request_id"]]
+
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "completed",
+            "collectors": {
+                "systemd": {"kubelet_status": "active"},
+                "runtime": {"containerd_socket_healthy": True},
+            },
+        },
+    )
+
+    assert submit_response.status_code == 200
+    completed_request = submit_response.json()
+    assert completed_request["status"] == "completed"
+    assert completed_request["evidence_id"].startswith("evidence-")
+    assert completed_request["completed_at"] is not None
+
+    evidence_response = client.get(f"/api/evidence/{completed_request['evidence_id']}")
+    assert evidence_response.status_code == 200
+    evidence = evidence_response.json()
+    assert evidence["alert_name"] == "NodeNotReady"
+    assert evidence["collectors"]["systemd"]["kubelet_status"] == "active"
+
+    poll_after_submit_response = client.post(
+        "/api/agents/evidence-requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+        },
+    )
+    assert poll_after_submit_response.status_code == 200
+    assert poll_after_submit_response.json() == []
+
+
+def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    cluster = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    for node_name in ("worker-3", "worker-4"):
+        client.post(
+            "/api/agents/register",
+            json={
+                "cluster_id": cluster["cluster_id"],
+                "node_name": node_name,
+                "agent_token": cluster["bootstrap_token"],
+                "agent_version": "0.1.0",
+                "supported_collectors": ["systemd"],
+            },
+        )
+
+    evidence_request = client.post(
+        "/api/evidence/requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "alert_name": "KubeletDown",
+            "requested_collectors": ["systemd"],
+        },
+    ).json()
+
+    wrong_agent_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-4",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "completed",
+            "collectors": {"systemd": {"kubelet_status": "failed"}},
+        },
+    )
+    assert wrong_agent_response.status_code == 403
+
+    failed_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "status": "failed",
+            "error_message": "journalctl timed out",
+        },
+    )
+    assert failed_response.status_code == 200
+    failed_request = failed_response.json()
+    assert failed_request["status"] == "failed"
+    assert failed_request["error_message"] == "journalctl timed out"
+    assert failed_request["evidence_id"] is None
+
+
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'persistent.db'}"
     first_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
@@ -246,6 +393,8 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "rca_reports" in mariadb_ddl
     assert "node_agents" in postgres_ddl
     assert "node_agents" in mariadb_ddl
+    assert "evidence_requests" in postgres_ddl
+    assert "evidence_requests" in mariadb_ddl
 
 
 def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None:
@@ -256,7 +405,15 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
 
     engine = create_db_engine(database_url)
     tables = set(inspect(engine).get_table_names())
-    assert {"alembic_version", "clusters", "node_agents", "evidence_bundles", "rca_reports", "rca_jobs"} <= tables
+    assert {
+        "alembic_version",
+        "clusters",
+        "node_agents",
+        "evidence_requests",
+        "evidence_bundles",
+        "rca_reports",
+        "rca_jobs",
+    } <= tables
 
     client = TestClient(create_app(database_url=database_url, auto_create_tables=False))
     response = client.post(

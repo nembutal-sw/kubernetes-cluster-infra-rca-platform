@@ -43,6 +43,12 @@ class AgentStatus(str, Enum):
     OFFLINE = "offline"
 
 
+class EvidenceRequestStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class ClusterCreateRequest(BaseModel):
     name: str = Field(min_length=1, examples=["prod-cluster"])
     environment: str = Field(default="dev", examples=["prod"])
@@ -97,6 +103,49 @@ class NodeAgent(BaseModel):
     health: dict[str, Any] = Field(default_factory=dict)
     registered_at: datetime = Field(default_factory=now_utc)
     last_heartbeat_at: datetime | None = None
+
+
+class EvidenceRequestCreateRequest(BaseModel):
+    cluster_id: str
+    node_name: str = Field(min_length=1, examples=["worker-3"])
+    alert_name: str = Field(min_length=1, examples=["NodeNotReady"])
+    requested_collectors: list[str] = Field(default_factory=list)
+    time_range: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceRequest(BaseModel):
+    request_id: str
+    cluster_id: str
+    node_name: str
+    alert_name: str
+    requested_collectors: list[str]
+    status: EvidenceRequestStatus
+    time_range: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+    evidence_id: str | None = None
+    error_message: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    completed_at: datetime | None = None
+
+
+class AgentEvidencePollRequest(BaseModel):
+    cluster_id: str
+    node_name: str = Field(min_length=1, examples=["worker-3"])
+    agent_token: str = Field(min_length=1)
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class AgentEvidenceSubmitRequest(BaseModel):
+    request_id: str
+    cluster_id: str
+    node_name: str = Field(min_length=1, examples=["worker-3"])
+    agent_token: str = Field(min_length=1)
+    status: EvidenceRequestStatus = EvidenceRequestStatus.COMPLETED
+    collectors: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
 
 
 class AlertmanagerAlert(BaseModel):

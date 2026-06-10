@@ -9,13 +9,17 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
-from backend.app.db_models import ClusterRow, EvidenceBundleRow, NodeAgentRow, RcaJobRow, RcaReportRow
+from backend.app.db_models import ClusterRow, EvidenceBundleRow, EvidenceRequestRow, NodeAgentRow, RcaJobRow, RcaReportRow
 from backend.app.models import (
     AgentStatus,
+    AgentEvidenceSubmitRequest,
     Cluster,
     ClusterCreateRequest,
     ClusterStatus,
     EvidenceBundle,
+    EvidenceRequest,
+    EvidenceRequestCreateRequest,
+    EvidenceRequestStatus,
     NodeAgent,
     NodeAgentHeartbeatRequest,
     NodeAgentRegisterRequest,
@@ -37,6 +41,16 @@ class StoreProtocol(Protocol):
     def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None: ...
     def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]: ...
     def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None: ...
+    def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest: ...
+    def list_evidence_requests(
+        self,
+        cluster_id: str | None = None,
+        node_name: str | None = None,
+        status: EvidenceRequestStatus | None = None,
+        limit: int | None = None,
+    ) -> list[EvidenceRequest]: ...
+    def get_evidence_request(self, request_id: str) -> EvidenceRequest | None: ...
+    def submit_evidence_response(self, request: AgentEvidenceSubmitRequest) -> EvidenceRequest | None: ...
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle: ...
     def get_evidence(self, evidence_id: str) -> EvidenceBundle | None: ...
     def save_job(self, job: RcaJob) -> RcaJob: ...
@@ -52,6 +66,7 @@ class InMemoryStore:
         self._lock = RLock()
         self._clusters: dict[str, Cluster] = {}
         self._agents: dict[tuple[str, str], NodeAgent] = {}
+        self._evidence_requests: dict[str, EvidenceRequest] = {}
         self._evidence: dict[str, EvidenceBundle] = {}
         self._jobs: dict[str, RcaJob] = {}
         self._reports: dict[str, RcaReport] = {}
@@ -126,6 +141,73 @@ class InMemoryStore:
     def get_agent(self, cluster_id: str, node_name: str) -> NodeAgent | None:
         with self._lock:
             return self._agents.get((cluster_id, node_name))
+
+    def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest:
+        with self._lock:
+            evidence_request = EvidenceRequest(
+                request_id=f"evidence-request-{uuid.uuid4().hex[:8]}",
+                cluster_id=request.cluster_id,
+                node_name=request.node_name,
+                alert_name=request.alert_name,
+                requested_collectors=request.requested_collectors,
+                status=EvidenceRequestStatus.PENDING,
+                time_range=request.time_range,
+                reason=request.reason,
+                context=request.context,
+            )
+            self._evidence_requests[evidence_request.request_id] = evidence_request
+            return evidence_request
+
+    def list_evidence_requests(
+        self,
+        cluster_id: str | None = None,
+        node_name: str | None = None,
+        status: EvidenceRequestStatus | None = None,
+        limit: int | None = None,
+    ) -> list[EvidenceRequest]:
+        with self._lock:
+            requests = list(self._evidence_requests.values())
+            requests = _filter_evidence_requests(requests, cluster_id, node_name, status)
+            requests.sort(key=lambda item: item.created_at)
+            return requests[:limit] if limit is not None else requests
+
+    def get_evidence_request(self, request_id: str) -> EvidenceRequest | None:
+        with self._lock:
+            return self._evidence_requests.get(request_id)
+
+    def submit_evidence_response(self, request: AgentEvidenceSubmitRequest) -> EvidenceRequest | None:
+        with self._lock:
+            evidence_request = self._evidence_requests.get(request.request_id)
+            if evidence_request is None:
+                return None
+            if request.status == EvidenceRequestStatus.COMPLETED:
+                evidence = self.save_evidence(
+                    EvidenceBundle(
+                        cluster_id=request.cluster_id,
+                        node_name=request.node_name,
+                        alert_name=evidence_request.alert_name,
+                        collectors=request.collectors,
+                    )
+                )
+                evidence_request = evidence_request.model_copy(
+                    update={
+                        "status": EvidenceRequestStatus.COMPLETED,
+                        "evidence_id": evidence.evidence_id,
+                        "error_message": None,
+                        "completed_at": now_utc(),
+                    }
+                )
+            else:
+                evidence_request = evidence_request.model_copy(
+                    update={
+                        "status": EvidenceRequestStatus.FAILED,
+                        "error_message": request.error_message,
+                        "completed_at": now_utc(),
+                    }
+                )
+            self._evidence_requests[request.request_id] = evidence_request
+            self._mark_cluster_active(request.cluster_id)
+            return evidence_request
 
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle:
         with self._lock:
@@ -269,6 +351,85 @@ class SqlAlchemyStore:
             )
             return _agent_from_row(row) if row else None
 
+    def create_evidence_request(self, request: EvidenceRequestCreateRequest) -> EvidenceRequest:
+        evidence_request = EvidenceRequest(
+            request_id=f"evidence-request-{uuid.uuid4().hex[:8]}",
+            cluster_id=request.cluster_id,
+            node_name=request.node_name,
+            alert_name=request.alert_name,
+            requested_collectors=request.requested_collectors,
+            status=EvidenceRequestStatus.PENDING,
+            time_range=request.time_range,
+            reason=request.reason,
+            context=request.context,
+        )
+        with self._session_factory() as session:
+            session.add(_evidence_request_to_row(evidence_request))
+            session.commit()
+        return evidence_request
+
+    def list_evidence_requests(
+        self,
+        cluster_id: str | None = None,
+        node_name: str | None = None,
+        status: EvidenceRequestStatus | None = None,
+        limit: int | None = None,
+    ) -> list[EvidenceRequest]:
+        with self._session_factory() as session:
+            query = session.query(EvidenceRequestRow)
+            if cluster_id is not None:
+                query = query.filter(EvidenceRequestRow.cluster_id == cluster_id)
+            if node_name is not None:
+                query = query.filter(EvidenceRequestRow.node_name == node_name)
+            if status is not None:
+                query = query.filter(EvidenceRequestRow.status == status.value)
+            query = query.order_by(EvidenceRequestRow.created_at.asc())
+            if limit is not None:
+                query = query.limit(limit)
+            return [_evidence_request_from_row(row) for row in query.all()]
+
+    def get_evidence_request(self, request_id: str) -> EvidenceRequest | None:
+        with self._session_factory() as session:
+            row = session.get(EvidenceRequestRow, request_id)
+            return _evidence_request_from_row(row) if row else None
+
+    def submit_evidence_response(self, request: AgentEvidenceSubmitRequest) -> EvidenceRequest | None:
+        with self._session_factory() as session:
+            row = session.get(EvidenceRequestRow, request.request_id)
+            if row is None:
+                return None
+            evidence_request = _evidence_request_from_row(row)
+            if request.status == EvidenceRequestStatus.COMPLETED:
+                evidence = EvidenceBundle(
+                    cluster_id=request.cluster_id,
+                    node_name=request.node_name,
+                    alert_name=evidence_request.alert_name,
+                    collectors=request.collectors,
+                )
+                if evidence.evidence_id is None:
+                    evidence = evidence.model_copy(update={"evidence_id": f"evidence-{uuid.uuid4().hex[:8]}"})
+                session.merge(_evidence_to_row(evidence))
+                evidence_request = evidence_request.model_copy(
+                    update={
+                        "status": EvidenceRequestStatus.COMPLETED,
+                        "evidence_id": evidence.evidence_id,
+                        "error_message": None,
+                        "completed_at": now_utc(),
+                    }
+                )
+            else:
+                evidence_request = evidence_request.model_copy(
+                    update={
+                        "status": EvidenceRequestStatus.FAILED,
+                        "error_message": request.error_message,
+                        "completed_at": now_utc(),
+                    }
+                )
+            session.merge(_evidence_request_to_row(evidence_request))
+            _mark_cluster_active(session, request.cluster_id)
+            session.commit()
+            return evidence_request
+
     def save_evidence(self, evidence: EvidenceBundle) -> EvidenceBundle:
         if evidence.evidence_id is None:
             evidence = evidence.model_copy(update={"evidence_id": f"evidence-{uuid.uuid4().hex[:8]}"})
@@ -332,6 +493,21 @@ def _mark_cluster_active(session: Session, cluster_id: str) -> None:
     cluster_row.last_seen_at = now_utc()
 
 
+def _filter_evidence_requests(
+    requests: list[EvidenceRequest],
+    cluster_id: str | None,
+    node_name: str | None,
+    status: EvidenceRequestStatus | None,
+) -> list[EvidenceRequest]:
+    if cluster_id is not None:
+        requests = [request for request in requests if request.cluster_id == cluster_id]
+    if node_name is not None:
+        requests = [request for request in requests if request.node_name == node_name]
+    if status is not None:
+        requests = [request for request in requests if request.status == status]
+    return requests
+
+
 def _cluster_to_row(cluster: Cluster) -> ClusterRow:
     return ClusterRow(
         cluster_id=cluster.cluster_id,
@@ -385,6 +561,42 @@ def _agent_from_row(row: NodeAgentRow) -> NodeAgent:
         health=_json_load(row.health_json),
         registered_at=row.registered_at,
         last_heartbeat_at=row.last_heartbeat_at,
+    )
+
+
+def _evidence_request_to_row(request: EvidenceRequest) -> EvidenceRequestRow:
+    return EvidenceRequestRow(
+        request_id=request.request_id,
+        cluster_id=request.cluster_id,
+        node_name=request.node_name,
+        alert_name=request.alert_name,
+        requested_collectors_json=_json_dump(request.requested_collectors),
+        status=request.status.value,
+        time_range_json=_json_dump(request.time_range),
+        reason=request.reason,
+        context_json=_json_dump(request.context),
+        evidence_id=request.evidence_id,
+        error_message=request.error_message,
+        created_at=request.created_at,
+        completed_at=request.completed_at,
+    )
+
+
+def _evidence_request_from_row(row: EvidenceRequestRow) -> EvidenceRequest:
+    return EvidenceRequest(
+        request_id=row.request_id,
+        cluster_id=row.cluster_id,
+        node_name=row.node_name,
+        alert_name=row.alert_name,
+        requested_collectors=_json_load(row.requested_collectors_json),
+        status=EvidenceRequestStatus(row.status),
+        time_range=_json_load(row.time_range_json),
+        reason=row.reason,
+        context=_json_load(row.context_json),
+        evidence_id=row.evidence_id,
+        error_message=row.error_message,
+        created_at=row.created_at,
+        completed_at=row.completed_at,
     )
 
 
