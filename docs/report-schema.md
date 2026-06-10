@@ -52,4 +52,6 @@ RCA 보고서는 장애 증상, 수집 증거, 원인 후보, 신뢰도, 영향 
 
 `preprocessed_evidence`, `llm_analysis`, `derived_signals`, `resolution_checklist`는 report의 `evidence` 배열 안에 별도 section으로 들어갑니다. 저장 스키마는 그대로 두고, report 소비자가 원본 collector 결과, LLM 입력 payload, provider 응답, 분석 결과를 같은 응답에서 볼 수 있게 하기 위한 구조입니다.
 
+`preprocessed_evidence.payload`는 `preprocessed-evidence/v2` 기준으로 `evidence_quality`, `incident_focus`, `component_health`, `log_summary`를 포함합니다. 이 값은 LLM이 raw collector 전체를 보지 않고도 수집 품질, 우선 component, 주요 failure mode, 로그 집계를 판단하기 위한 요약입니다.
+
 LLM Analyzer를 붙일 때는 raw collector 결과가 아니라 `preprocessed_evidence.payload`만 입력으로 사용합니다.

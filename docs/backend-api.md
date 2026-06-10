@@ -97,10 +97,10 @@ Evidence API 계약은 [docs/evidence-api.md](evidence-api.md)를 참고합니�
 - Agent evidence request/response API는 구현되어 있습니다.
 - Agent가 completed evidence를 제출하면 RCA job과 report가 자동 생성됩니다.
 - 클러스터별 Agent manifest 생성 API가 구현되어 있습니다.
-- `Evidence Preprocessor`가 raw collector output을 LLM 입력용 JSON으로 정리합니다.
+- `Evidence Preprocessor`가 raw collector output을 LLM 입력용 JSON으로 정리하고 evidence quality, incident focus, component health, log summary를 추가합니다.
 - `LLM Analyzer` adapter는 `RCA_LLM_PROVIDER` 설정에 따라 OpenAI, Claude, Gemini, OpenAI-compatible, self-hosted endpoint를 선택할 수 있습니다. 기본값은 비활성화입니다.
+- LLM 분석이 활성화되면 provider 응답은 RCA report의 `llm_analysis` section에 들어가며, action suggestion은 다시 `PolicyEngine`을 통과합니다.
 - `RuleBasedRcaAnalyzer`가 evidence field에서 derived signal을 추출하고 원인 후보, confidence, resolution checklist를 생성합니다.
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
-- LLM 분석은 아직 연결하지 않았습니다.
 - 조치 실행 API는 아직 제공하지 않습니다.
 - DB schema 변경은 Alembic migration으로 관리합니다.

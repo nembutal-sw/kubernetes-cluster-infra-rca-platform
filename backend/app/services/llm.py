@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -11,6 +12,39 @@ from backend.app.config import LlmSettings
 
 PROMPT_VERSION = "llm-rca-analyzer/v1"
 SUPPORTED_PROVIDERS = {"openai", "anthropic", "gemini", "openai_compatible", "self_hosted"}
+SUPPORTED_ACTION_KEYS = {
+    "collect_more_evidence",
+    "restart_kubelet",
+    "restart_containerd",
+    "cleanup_disk",
+    "cordon_node",
+    "open_gitops_pr",
+    "reboot_node",
+    "manual_hardware_check",
+    "manual_investigation",
+}
+MAX_LLM_CANDIDATES = 5
+MAX_LLM_CHECKS = 10
+MAX_LLM_ACTIONS = 10
+MAX_LLM_RISK_NOTES = 10
+UNSAFE_COMMAND_PATTERNS = [
+    r"\brm\s+-",
+    r"\breboot\b",
+    r"\bshutdown\b",
+    r"\bpoweroff\b",
+    r"\bhalt\b",
+    r"\bmkfs\b",
+    r"\bdd\s+",
+    r"\bsystemctl\s+(restart|stop|start|kill|disable|mask)\b",
+    r"\bkubectl\s+(delete|drain|cordon|uncordon|apply|patch|replace|scale|rollout)\b",
+    r"\bcrictl\s+(rm|rmp|stop|kill)\b",
+    r"\bdocker\s+(rm|stop|kill|restart)\b",
+    r"\bmount\s+-o\s+remount\b",
+    r"\bsysctl\s+-w\b",
+    r"\bsed\s+-i\b",
+    r"\btee\s+",
+]
+SHELL_CONTROL_TOKENS = [";", "&&", "||", "`", "$(", ">", "<"]
 
 
 class LlmClient(Protocol):
@@ -190,6 +224,8 @@ def _system_prompt() -> str:
         "Return valid JSON only. "
         "Classify confidence as low, medium, or high. "
         "Action suggestions must be diagnostic or operator-reviewed proposals."
+        " Evidence paths must start with preprocessed_evidence."
+        " Diagnostic commands must be read-only and must not contain shell control operators."
     )
 
 
@@ -230,16 +266,14 @@ def _normalize_result(result: dict[str, Any]) -> dict[str, Any]:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     return {
         "summary": {
-            "most_likely_cause": str(summary.get("most_likely_cause") or ""),
+            "most_likely_cause": _safe_text(summary.get("most_likely_cause"), 300),
             "confidence": _confidence(summary.get("confidence")),
-            "reasoning": str(summary.get("reasoning") or ""),
+            "reasoning": _safe_text(summary.get("reasoning"), 800),
         },
-        "root_cause_candidates": _list_of_dicts(result.get("root_cause_candidates")),
-        "additional_checks": _list_of_dicts(result.get("additional_checks")),
-        "action_suggestions": _list_of_dicts(result.get("action_suggestions")),
-        "risk_notes": [str(item) for item in result.get("risk_notes", []) if item is not None]
-        if isinstance(result.get("risk_notes"), list)
-        else [],
+        "root_cause_candidates": _normalize_candidates(result.get("root_cause_candidates")),
+        "additional_checks": _normalize_additional_checks(result.get("additional_checks")),
+        "action_suggestions": _normalize_action_suggestions(result.get("action_suggestions")),
+        "risk_notes": _normalize_risk_notes(result.get("risk_notes")),
     }
 
 
@@ -248,10 +282,102 @@ def _confidence(value: Any) -> str:
     return value if value in {"low", "medium", "high"} else "low"
 
 
-def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+def _normalize_candidates(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
-    return [item for item in value if isinstance(item, dict)]
+    candidates = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        cause = _safe_text(item.get("cause"), 300)
+        if not cause:
+            continue
+        candidates.append(
+            {
+                "cause": cause,
+                "confidence": _confidence(item.get("confidence")),
+                "supporting_signals": _safe_string_list(item.get("supporting_signals"), 20, 120),
+                "evidence_paths": _evidence_paths(item.get("evidence_paths")),
+            }
+        )
+    return candidates[:MAX_LLM_CANDIDATES]
+
+
+def _normalize_additional_checks(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    checks = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        component = _safe_text(item.get("component"), 80)
+        reason = _safe_text(item.get("reason"), 300)
+        command = _read_only_command(item.get("command"))
+        if not component and not reason and not command:
+            continue
+        checks.append({"component": component, "reason": reason, "command": command})
+    return checks[:MAX_LLM_CHECKS]
+
+
+def _normalize_action_suggestions(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    actions = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        action = _safe_text(item.get("action"), 300)
+        reason = _safe_text(item.get("reason"), 300)
+        if not action or not reason:
+            continue
+        action_key = str(item.get("action_key") or "manual_investigation").strip()
+        if action_key not in SUPPORTED_ACTION_KEYS:
+            action_key = "manual_investigation"
+        actions.append({"action_key": action_key, "action": action, "reason": reason})
+    return actions[:MAX_LLM_ACTIONS]
+
+
+def _normalize_risk_notes(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [_safe_text(item, 300) for item in value if _safe_text(item, 300)][:MAX_LLM_RISK_NOTES]
+
+
+def _evidence_paths(value: Any) -> list[str]:
+    paths = _safe_string_list(value, 20, 180)
+    return [path for path in paths if path == "preprocessed_evidence" or path.startswith("preprocessed_evidence.")]
+
+
+def _safe_string_list(value: Any, limit: int, item_limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result = []
+    for item in value:
+        text = _safe_text(item, item_limit)
+        if text:
+            result.append(text)
+    return result[:limit]
+
+
+def _safe_text(value: Any, limit: int) -> str:
+    if value is None:
+        return ""
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...<truncated>"
+
+
+def _read_only_command(value: Any) -> str:
+    command = _safe_text(value, 300)
+    if not command:
+        return ""
+    lowered = command.lower()
+    if any(token in command for token in SHELL_CONTROL_TOKENS):
+        return ""
+    if any(re.search(pattern, lowered) for pattern in UNSAFE_COMMAND_PATTERNS):
+        return ""
+    return command
 
 
 def _chat_completions_endpoint(base_url: str) -> str:

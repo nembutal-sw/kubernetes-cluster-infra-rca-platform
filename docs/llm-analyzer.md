@@ -70,8 +70,12 @@ LLM에는 raw collector output을 넘기지 않습니다. `preprocessed_evidence
 
 - alert, node 요약
 - collector status
+- evidence quality
+- incident focus
+- component health
 - key metrics
 - derived signals
+- log summary
 - log clusters
 - command failures
 - config findings
@@ -96,6 +100,27 @@ LLM은 JSON object만 반환해야 합니다.
 ```
 
 Backend는 LLM action suggestion을 그대로 실행하지 않습니다. `action_key`를 Policy Engine에 다시 넣어 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 재분류합니다.
+
+## 출력 정규화
+
+LLM provider 응답은 신뢰하지 않는 입력으로 취급합니다. Backend는 report에 반영하기 전에 다음 검증을 수행합니다.
+
+- `confidence`는 `low`, `medium`, `high`만 허용하고 나머지는 `low`로 낮춥니다.
+- root cause candidate는 최대 5개만 사용합니다.
+- `evidence_paths`는 `preprocessed_evidence` 아래 경로만 유지합니다.
+- 추가 확인 command는 읽기 전용 형태만 유지하고, shell control operator나 restart/delete/drain 같은 변경 명령은 제거합니다.
+- `action_key`가 taxonomy에 없으면 `manual_investigation`으로 낮춥니다.
+- action suggestion은 다시 Policy Engine을 통과합니다.
+
+## Provider 검증
+
+현재 자동 테스트는 실제 외부 API를 호출하지 않습니다. 대신 provider별 HTTP request contract를 mock으로 검증합니다.
+
+- OpenAI/OpenAI-compatible: `/chat/completions`, `messages`, `response_format`
+- Anthropic: `/v1/messages`, `x-api-key`, `anthropic-version`
+- Gemini: `generateContent`, `generationConfig.response_mime_type`
+
+실제 provider API 검증은 staging 환경에서 API key를 주입해 별도로 수행합니다.
 
 ## Report 반영
 

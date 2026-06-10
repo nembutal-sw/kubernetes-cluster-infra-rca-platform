@@ -1,9 +1,11 @@
+import json
 from typing import Any
 
 from backend.app.config import LlmSettings
 from backend.app.models import EvidenceBundle
+from backend.app.services import llm as llm_module
 from backend.app.services.analyzer import RuleBasedRcaAnalyzer
-from backend.app.services.llm import LlmAnalyzer, build_llm_analyzer
+from backend.app.services.llm import HttpLlmClient, LlmAnalyzer, build_llm_analyzer
 from backend.app.services.policy import PolicyEngine
 
 
@@ -85,8 +87,145 @@ def test_llm_analyzer_skips_when_configuration_is_incomplete() -> None:
     assert result["reason"] == "RCA_LLM_API_KEY is not configured"
 
 
+def test_llm_analyzer_normalizes_untrusted_model_output() -> None:
+    class UnsafeClient:
+        def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "summary": {
+                    "most_likely_cause": "containerd hang",
+                    "confidence": "certain",
+                    "reasoning": "based on runtime evidence",
+                },
+                "root_cause_candidates": [
+                    {
+                        "cause": "containerd hang",
+                        "confidence": "high",
+                        "supporting_signals": ["containerd_socket_unhealthy"],
+                        "evidence_paths": [
+                            "preprocessed_evidence.key_metrics.runtime",
+                            "raw_collectors.runtime.stderr",
+                        ],
+                    }
+                ],
+                "additional_checks": [
+                    {
+                        "component": "kubelet",
+                        "reason": "unsafe mutation must be dropped",
+                        "command": "systemctl restart kubelet",
+                    }
+                ],
+                "action_suggestions": [
+                    {
+                        "action_key": "delete_node",
+                        "action": "delete the node immediately",
+                        "reason": "unsupported action key should become manual investigation",
+                    }
+                ],
+                "risk_notes": ["never execute provider output directly"],
+            }
+
+    analyzer = LlmAnalyzer(
+        LlmSettings(provider="self_hosted", model="local", base_url="http://llm.local/v1"),
+        client=UnsafeClient(),
+    )
+    result = analyzer.analyze({"alert": {"alert_name": "NodeNotReady"}}, {"rule_candidates": []})
+
+    normalized = result["result"]
+    assert normalized["summary"]["confidence"] == "low"
+    assert normalized["root_cause_candidates"][0]["evidence_paths"] == [
+        "preprocessed_evidence.key_metrics.runtime"
+    ]
+    assert normalized["additional_checks"][0]["command"] == ""
+    assert normalized["action_suggestions"][0]["action_key"] == "manual_investigation"
+
+
+def test_openai_compatible_client_uses_chat_completions_contract(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_post_json(endpoint: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> dict[str, Any]:
+        calls.append({"endpoint": endpoint, "headers": headers, "body": body, "timeout": timeout})
+        return {"choices": [{"message": {"content": json.dumps(_minimal_llm_result())}}]}
+
+    monkeypatch.setattr(llm_module, "_post_json", fake_post_json)
+    client = HttpLlmClient(
+        LlmSettings(
+            provider="openai_compatible",
+            model="local-rca",
+            base_url="http://llm.local/v1",
+            timeout_seconds=3.0,
+            max_output_tokens=512,
+        )
+    )
+
+    result = client.complete_json("system", {"payload": True})
+
+    assert result["summary"]["most_likely_cause"] == "containerd hang"
+    assert calls[0]["endpoint"] == "http://llm.local/v1/chat/completions"
+    assert calls[0]["headers"] == {"Content-Type": "application/json"}
+    assert calls[0]["body"]["model"] == "local-rca"
+    assert calls[0]["body"]["response_format"] == {"type": "json_object"}
+    assert calls[0]["body"]["max_tokens"] == 512
+    assert calls[0]["timeout"] == 3.0
+
+
+def test_anthropic_client_uses_messages_contract(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_post_json(endpoint: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> dict[str, Any]:
+        calls.append({"endpoint": endpoint, "headers": headers, "body": body, "timeout": timeout})
+        return {"content": [{"type": "text", "text": json.dumps(_minimal_llm_result())}]}
+
+    monkeypatch.setattr(llm_module, "_post_json", fake_post_json)
+    client = HttpLlmClient(LlmSettings(provider="anthropic", model="claude-test", api_key="secret"))
+
+    result = client.complete_json("system", {"payload": True})
+
+    assert result["summary"]["most_likely_cause"] == "containerd hang"
+    assert calls[0]["endpoint"] == "https://api.anthropic.com/v1/messages"
+    assert calls[0]["headers"]["x-api-key"] == "secret"
+    assert calls[0]["headers"]["anthropic-version"] == "2023-06-01"
+    assert calls[0]["body"]["system"] == "system"
+    assert calls[0]["body"]["messages"][0]["role"] == "user"
+
+
+def test_gemini_client_uses_generate_content_contract(monkeypatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_post_json(endpoint: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> dict[str, Any]:
+        calls.append({"endpoint": endpoint, "headers": headers, "body": body, "timeout": timeout})
+        return {"candidates": [{"content": {"parts": [{"text": json.dumps(_minimal_llm_result())}]}}]}
+
+    monkeypatch.setattr(llm_module, "_post_json", fake_post_json)
+    client = HttpLlmClient(LlmSettings(provider="gemini", model="gemini-test", api_key="secret key"))
+
+    result = client.complete_json("system", {"payload": True})
+
+    assert result["summary"]["most_likely_cause"] == "containerd hang"
+    assert calls[0]["endpoint"].startswith(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent"
+    )
+    assert "key=secret%20key" in calls[0]["endpoint"]
+    assert calls[0]["headers"] == {"Content-Type": "application/json"}
+    assert calls[0]["body"]["generationConfig"]["response_mime_type"] == "application/json"
+    assert calls[0]["body"]["contents"][0]["parts"][0]["text"].startswith("system")
+
+
 def _section(evidence: list[dict[str, Any]], section_type: str) -> dict[str, Any]:
     for section in evidence:
         if section.get("type") == section_type:
             return section
     raise AssertionError(f"missing section: {section_type}")
+
+
+def _minimal_llm_result() -> dict[str, Any]:
+    return {
+        "summary": {
+            "most_likely_cause": "containerd hang",
+            "confidence": "medium",
+            "reasoning": "runtime socket is unhealthy",
+        },
+        "root_cause_candidates": [],
+        "additional_checks": [],
+        "action_suggestions": [],
+        "risk_notes": [],
+    }

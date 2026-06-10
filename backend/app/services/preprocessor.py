@@ -14,6 +14,32 @@ MAX_LOG_CLUSTERS = 30
 MAX_SAMPLE_LINES = 3
 MAX_SAMPLE_LINE_LENGTH = 500
 
+CORE_COLLECTORS = {
+    "node",
+    "systemd",
+    "runtime",
+    "kernel",
+    "disk",
+    "memory",
+    "process",
+    "network",
+    "conntrack",
+    "cni",
+    "dns",
+}
+
+EXPECTED_COLLECTORS_BY_ALERT = {
+    "NodeNotReady": ["node", "systemd", "runtime", "kernel", "network", "conntrack"],
+    "DiskPressure": ["node", "disk", "kernel", "systemd"],
+    "MemoryPressure": ["node", "memory", "process", "kernel"],
+    "PIDPressure": ["node", "process", "systemd", "kernel"],
+    "NetworkUnavailable": ["node", "network", "conntrack", "cni", "dns", "kernel"],
+    "ContainerdDown": ["node", "runtime", "systemd", "kernel"],
+    "ContainerRuntimeUnhealthy": ["node", "runtime", "systemd", "kernel"],
+    "KubeletDown": ["node", "systemd", "runtime", "kernel"],
+    "KubeletUnhealthy": ["node", "systemd", "runtime", "kernel"],
+}
+
 NOISE_KEYS = {
     "user_agent",
     "user-agent",
@@ -98,9 +124,16 @@ def build_preprocessed_evidence(
     derived_signals: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     collectors = evidence.collectors
+    signal_items = [item for item in (derived_signals or []) if isinstance(item, dict)]
     log_events = _extract_log_events(collectors)
+    log_clusters = _cluster_log_events(log_events)
+    collector_status = _collector_status(collectors)
+    key_metrics = _key_metrics(collectors)
+    command_failures = _command_failures(collectors)
+    config_findings = _config_findings(collectors)
+    log_summary = _log_summary(log_clusters)
     return {
-        "schema_version": "preprocessed-evidence/v1",
+        "schema_version": "preprocessed-evidence/v2",
         "alert": {
             "cluster_id": evidence.cluster_id,
             "node_name": evidence.node_name,
@@ -108,12 +141,23 @@ def build_preprocessed_evidence(
             "collected_at": evidence.collected_at.isoformat(),
         },
         "node": _node_summary(collectors, evidence.node_name),
-        "collector_status": _collector_status(collectors),
-        "key_metrics": _key_metrics(collectors),
-        "derived_signals": derived_signals or [],
-        "log_clusters": _cluster_log_events(log_events),
-        "command_failures": _command_failures(collectors),
-        "config_findings": _config_findings(collectors),
+        "collector_status": collector_status,
+        "evidence_quality": _evidence_quality(
+            collectors,
+            collector_status,
+            evidence.alert_name,
+            command_failures,
+            log_clusters,
+            signal_items,
+        ),
+        "incident_focus": _incident_focus(evidence.alert_name, signal_items, key_metrics, log_summary),
+        "component_health": _component_health(collector_status, key_metrics, signal_items),
+        "key_metrics": key_metrics,
+        "derived_signals": signal_items,
+        "log_summary": log_summary,
+        "log_clusters": log_clusters,
+        "command_failures": command_failures,
+        "config_findings": config_findings,
         "llm_input_policy": {
             "use_this_payload_only": True,
             "raw_collectors_excluded": True,
@@ -143,6 +187,122 @@ def _collector_status(collectors: dict[str, Any]) -> dict[str, str | None]:
         item = _dict_value(value)
         statuses[name] = item.get("status") if item else None
     return statuses
+
+
+def _evidence_quality(
+    collectors: dict[str, Any],
+    collector_status: dict[str, str | None],
+    alert_name: str,
+    command_failures: list[dict[str, Any]],
+    log_clusters: list[dict[str, Any]],
+    derived_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    expected_collectors = EXPECTED_COLLECTORS_BY_ALERT.get(alert_name, sorted(CORE_COLLECTORS))
+    available_collectors = sorted(collectors.keys())
+    failed_collectors = {
+        name: status
+        for name, status in collector_status.items()
+        if status is not None and str(status).lower() not in {"ok", "success", "completed", "healthy"}
+    }
+    return {
+        "collector_count": len(available_collectors),
+        "available_collectors": available_collectors,
+        "expected_collectors": expected_collectors,
+        "missing_expected_collectors": sorted(set(expected_collectors) - set(available_collectors)),
+        "missing_core_collectors": sorted(CORE_COLLECTORS - set(available_collectors)),
+        "failed_collector_count": len(failed_collectors),
+        "failed_collectors": failed_collectors,
+        "command_failure_count": len(command_failures),
+        "log_cluster_count": len(log_clusters),
+        "log_severity_counts": _log_severity_counts(log_clusters),
+        "critical_or_error_signal_count": sum(
+            1 for signal in derived_signals if str(signal.get("severity", "")).lower() in {"critical", "error"}
+        ),
+        "input_limits": {
+            "max_log_events": MAX_LOG_EVENTS,
+            "max_log_clusters": MAX_LOG_CLUSTERS,
+            "max_sample_lines_per_cluster": MAX_SAMPLE_LINES,
+        },
+    }
+
+
+def _incident_focus(
+    alert_name: str,
+    derived_signals: list[dict[str, Any]],
+    key_metrics: dict[str, Any],
+    log_summary: dict[str, Any],
+) -> dict[str, Any]:
+    ranked_components = _rank_signal_components(derived_signals)
+    top_signals = [
+        _drop_none(
+            {
+                "signal": signal.get("signal"),
+                "component": signal.get("component"),
+                "severity": signal.get("severity"),
+                "interpretation": signal.get("interpretation"),
+                "next_step": signal.get("next_step"),
+            }
+        )
+        for signal in sorted(derived_signals, key=_signal_sort_key)
+        if signal.get("signal")
+    ][:10]
+    return {
+        "alert_name": alert_name,
+        "expected_collectors": EXPECTED_COLLECTORS_BY_ALERT.get(alert_name, sorted(CORE_COLLECTORS)),
+        "primary_components": ranked_components[:6],
+        "top_signals": top_signals,
+        "observed_failure_modes": _observed_failure_modes(key_metrics, log_summary),
+    }
+
+
+def _component_health(
+    collector_status: dict[str, str | None],
+    key_metrics: dict[str, Any],
+    derived_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    metric_components = {name for name, metrics in key_metrics.items() if isinstance(metrics, dict) and metrics}
+    signal_components = {str(item.get("component")) for item in derived_signals if item.get("component")}
+    components = sorted(metric_components | set(collector_status) | signal_components)
+    health: dict[str, Any] = {}
+    for component in components:
+        if not component or component == "None":
+            continue
+        component_signals = [
+            item
+            for item in derived_signals
+            if str(item.get("component") or "").lower() == component.lower()
+        ]
+        status = _component_status(collector_status.get(component), key_metrics.get(component), component_signals)
+        health[component] = _drop_none(
+            {
+                "status": status,
+                "collector_status": collector_status.get(component),
+                "signal_count": len(component_signals),
+                "critical_signal_count": sum(
+                    1 for item in component_signals if str(item.get("severity", "")).lower() == "critical"
+                ),
+                "warning_signal_count": sum(
+                    1 for item in component_signals if str(item.get("severity", "")).lower() == "warning"
+                ),
+                "signals": [item.get("signal") for item in component_signals if item.get("signal")],
+            }
+        )
+    return health
+
+
+def _component_status(collector_status: str | None, metrics: Any, component_signals: list[dict[str, Any]]) -> str:
+    severities = {str(item.get("severity", "")).lower() for item in component_signals}
+    if "critical" in severities or "error" in severities:
+        return "critical"
+    if "warning" in severities:
+        return "warning"
+    if collector_status is not None and str(collector_status).lower() not in {"ok", "success", "completed", "healthy"}:
+        return "warning"
+    if isinstance(metrics, dict) and metrics:
+        return "ok"
+    if collector_status is not None:
+        return "ok"
+    return "unknown"
 
 
 def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
@@ -568,6 +728,233 @@ def _config_findings(collectors: dict[str, Any]) -> dict[str, Any]:
             }
         ),
     }
+
+
+def _log_summary(log_clusters: list[dict[str, Any]]) -> dict[str, Any]:
+    http_status_family_counts: dict[str, int] = {}
+    http_error_path_counts: dict[str, int] = {}
+    client_ips: list[str] = []
+    max_http_latency_ms: float | None = None
+
+    for cluster in log_clusters:
+        count = int(cluster.get("count") or 0)
+        client_ips.extend(str(ip) for ip in cluster.get("client_ips", []) if ip is not None)
+        http = cluster.get("http") if isinstance(cluster.get("http"), dict) else {}
+        for family in http.get("status_families", []):
+            key = str(family)
+            http_status_family_counts[key] = http_status_family_counts.get(key, 0) + count
+        if str(cluster.get("severity")) in {"error", "warning"}:
+            for path in http.get("paths", []):
+                key = str(path)
+                http_error_path_counts[key] = http_error_path_counts.get(key, 0) + count
+        latency = http.get("max_latency_ms")
+        if isinstance(latency, int | float):
+            max_http_latency_ms = max(max_http_latency_ms, float(latency)) if max_http_latency_ms is not None else float(latency)
+
+    top_error_clusters = [
+        _drop_none(
+            {
+                "fingerprint": cluster.get("fingerprint"),
+                "severity": cluster.get("severity"),
+                "count": cluster.get("count"),
+                "normalized_message": cluster.get("normalized_message"),
+                "sources": cluster.get("sources"),
+                "http": cluster.get("http"),
+                "first_seen": cluster.get("first_seen"),
+                "last_seen": cluster.get("last_seen"),
+                "client_ip_count": len(cluster.get("client_ips", []))
+                if isinstance(cluster.get("client_ips"), list)
+                else None,
+            }
+        )
+        for cluster in log_clusters
+        if cluster.get("severity") in {"error", "warning"}
+    ][:10]
+
+    return _drop_none(
+        {
+            "cluster_count": len(log_clusters),
+            "severity_counts": _log_severity_counts(log_clusters),
+            "http_status_family_counts": http_status_family_counts,
+            "top_http_error_paths": _top_counts(http_error_path_counts, 10),
+            "top_error_clusters": top_error_clusters,
+            "unique_client_ip_count": len(_dedupe(client_ips)),
+            "max_http_latency_ms": max_http_latency_ms,
+        }
+    )
+
+
+def _log_severity_counts(log_clusters: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for cluster in log_clusters:
+        severity = str(cluster.get("severity") or "unknown")
+        counts[severity] = counts.get(severity, 0) + int(cluster.get("count") or 0)
+    return counts
+
+
+def _rank_signal_components(derived_signals: list[dict[str, Any]]) -> list[str]:
+    scores: dict[str, tuple[int, int, int]] = {}
+    for signal in derived_signals:
+        component = str(signal.get("component") or "").strip()
+        if not component:
+            continue
+        critical, warning, info = scores.get(component, (0, 0, 0))
+        severity = str(signal.get("severity") or "").lower()
+        if severity in {"critical", "error"}:
+            critical += 1
+        elif severity == "warning":
+            warning += 1
+        else:
+            info += 1
+        scores[component] = (critical, warning, info)
+    return [
+        component
+        for component, _ in sorted(
+            scores.items(),
+            key=lambda item: (-item[1][0], -item[1][1], -item[1][2], item[0]),
+        )
+    ]
+
+
+def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, Any]) -> list[dict[str, Any]]:
+    modes: list[dict[str, Any]] = []
+    systemd = _dict_value(key_metrics.get("systemd"))
+    runtime = _dict_value(key_metrics.get("runtime"))
+    disk = _dict_value(key_metrics.get("disk"))
+    memory = _dict_value(key_metrics.get("memory"))
+    process = _dict_value(key_metrics.get("process"))
+    network = _dict_value(key_metrics.get("network"))
+    conntrack = _dict_value(key_metrics.get("conntrack"))
+    cni = _dict_value(key_metrics.get("cni"))
+    dns = _dict_value(key_metrics.get("dns"))
+    kernel = _dict_value(key_metrics.get("kernel"))
+
+    _append_mode_if(modes, _bad_unit_value(systemd.get("kubelet_status")), "kubelet_unit_unhealthy", "kubelet", systemd)
+    _append_mode_if(
+        modes,
+        _number_at_least(systemd.get("kubelet_restart_count"), 3),
+        "kubelet_restarting",
+        "kubelet",
+        {"kubelet_restart_count": systemd.get("kubelet_restart_count")},
+    )
+    _append_mode_if(
+        modes,
+        runtime.get("containerd_socket_healthy") is False,
+        "containerd_socket_unhealthy",
+        "containerd",
+        runtime,
+    )
+    _append_mode_if(
+        modes,
+        _number_at_least(systemd.get("containerd_restart_count"), 3),
+        "containerd_restarting",
+        "containerd",
+        {"containerd_restart_count": systemd.get("containerd_restart_count")},
+    )
+    _append_mode_if(modes, _number_at_least(disk.get("root_usage_percent"), 90), "disk_usage_high", "disk", disk)
+    _append_mode_if(modes, _number_at_least(disk.get("inode_usage_percent"), 90), "inode_usage_high", "disk", disk)
+    _append_mode_if(modes, disk.get("root_mount_read_only") is True, "root_filesystem_read_only", "disk", disk)
+    _append_mode_if(
+        modes,
+        disk.get("kernel_io_error_detected") is True or kernel.get("io_error_detected") is True,
+        "kernel_io_error",
+        "kernel",
+        _drop_none({"disk": disk.get("kernel_io_error_detected"), "kernel": kernel.get("io_error_detected")}),
+    )
+    _append_mode_if(modes, _number_at_least(memory.get("usage_percent"), 90), "memory_usage_high", "memory", memory)
+    _append_mode_if(
+        modes,
+        memory.get("oom_kill_detected") is True or kernel.get("oom_detected") is True,
+        "oom_detected",
+        "memory",
+        _drop_none({"memory": memory.get("oom_kill_detected"), "kernel": kernel.get("oom_detected")}),
+    )
+    _append_mode_if(modes, _number_at_least(process.get("pid_usage_percent"), 90), "pid_usage_high", "process", process)
+    _append_mode_if(
+        modes,
+        _non_empty_list(network.get("interfaces_down")),
+        "interface_down",
+        "network",
+        {"interfaces_down": network.get("interfaces_down")},
+    )
+    _append_mode_if(modes, network.get("nic_link_flap_detected") is True, "nic_link_flap", "network", network)
+    _append_mode_if(
+        modes,
+        conntrack.get("near_limit") is True or _number_at_least(conntrack.get("usage_percent"), 85),
+        "conntrack_near_limit",
+        "conntrack",
+        conntrack,
+    )
+    _append_mode_if(modes, _non_empty_list(cni.get("parse_errors")), "cni_config_invalid", "cni", cni)
+    _append_mode_if(modes, dns.get("dns_configured") is False, "dns_unconfigured", "dns", dns)
+    _append_mode_if(
+        modes,
+        kernel.get("blocked_task_detected") is True,
+        "kernel_blocked_task",
+        "kernel",
+        {"blocked_task_detected": kernel.get("blocked_task_detected")},
+    )
+    _append_mode_if(
+        modes,
+        _number_at_least(log_summary.get("severity_counts", {}).get("error"), 1),
+        "error_log_cluster_present",
+        "logs",
+        {"error_count": log_summary.get("severity_counts", {}).get("error")},
+    )
+    _append_mode_if(
+        modes,
+        _number_at_least(log_summary.get("http_status_family_counts", {}).get("5xx"), 1),
+        "http_5xx_present",
+        "logs",
+        {"http_5xx_count": log_summary.get("http_status_family_counts", {}).get("5xx")},
+    )
+    return modes[:20]
+
+
+def _append_mode_if(
+    modes: list[dict[str, Any]],
+    condition: bool,
+    mode: str,
+    component: str,
+    observed: dict[str, Any],
+) -> None:
+    if condition:
+        modes.append({"mode": mode, "component": component, "observed": _drop_none(observed)})
+
+
+def _signal_sort_key(signal: dict[str, Any]) -> tuple[int, str, str]:
+    return (
+        _signal_severity_rank(str(signal.get("severity") or "")),
+        str(signal.get("component") or ""),
+        str(signal.get("signal") or ""),
+    )
+
+
+def _signal_severity_rank(severity: str) -> int:
+    return {"critical": 0, "error": 0, "warning": 1, "info": 2}.get(severity.lower(), 3)
+
+
+def _bad_unit_value(value: Any) -> bool:
+    if value is None:
+        return False
+    return str(value).lower() not in {"active", "running", "ok", "healthy"}
+
+
+def _number_at_least(value: Any, threshold: float) -> bool:
+    if not isinstance(value, int | float):
+        return False
+    return float(value) >= threshold
+
+
+def _non_empty_list(value: Any) -> bool:
+    return isinstance(value, list) and len(value) > 0
+
+
+def _top_counts(counts: dict[str, int], limit: int) -> list[dict[str, Any]]:
+    return [
+        {"value": value, "count": count}
+        for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
 
 
 def _is_log_path(path: str) -> bool:

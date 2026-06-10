@@ -67,8 +67,9 @@ Kubernetes 장애를 보다 보면 처음에는 전부 비슷하게 보입니다
 - Agent evidence request/response API
 - Agent evidence 제출 이후 RCA job/report 자동 생성
 - Node Agent MVP collector와 DaemonSet manifest
-- LLM 입력용 evidence preprocessing
+- LLM 입력용 evidence preprocessing과 focus/health/log summary 보강
 - provider 교체 가능한 LLM Analyzer adapter
+- LLM 출력 정규화와 안전하지 않은 diagnostic command 제거
 
 Node Agent collector는 MVP 수준입니다. Linux hostPath에서 읽을 수 있는 `/proc`, `/etc`, `/var/log`, `/run` 기반 정보를 수집하고, 접근 권한이나 명령어 부재로 실패한 항목은 agent를 죽이지 않고 evidence 안에 오류로 남깁니다. LLM Analyzer adapter는 들어갔지만 기본값은 비활성화이며, Web UI는 다음 단계에서 붙일 예정입니다.
 
@@ -116,7 +117,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 클러스터 등록, 설치 명령어 조회, Alertmanager webhook 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 출력 정규화, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 
@@ -166,4 +167,4 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 - Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드와 분석 threshold 보정하기
 - 실제 provider API key를 넣고 staging 환경에서 LLM Analyzer 응답 검증하기
 
-DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.
+DB 저장소, migration, Agent register/heartbeat, evidence request/response 계약, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, LLM 출력 guardrail, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드에서 collector 결과를 확인하고 부족한 필드와 threshold를 보정해야 합니다.

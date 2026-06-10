@@ -36,7 +36,9 @@
 - disk/inode/memory/network collector MVP 완료
 - Backend 없는 local collect 검증 모드 완료
 - LLM 입력용 evidence preprocessing 완료
+- LLM 입력용 evidence quality/focus/health/log summary 보강 완료
 - provider 교체 가능한 LLM Analyzer adapter 완료
+- OpenAI/Anthropic/Gemini/OpenAI-compatible request contract mock 검증 완료
 - evidence 기반 RCA signal 추출 완료
 - 실제 Linux 노드 검증 및 threshold 보정 예정
 
@@ -48,6 +50,7 @@
 - 근거 기반 confidence 산정 완료
 - 추가 확인 명령어 제안 완료
 - 직접 실행 금지 guardrail 적용 완료
+- LLM 출력 정규화 및 unsafe diagnostic command 제거 완료
 - staging provider 실 API 검증 예정
 
 ## Phase 5: Policy Engine

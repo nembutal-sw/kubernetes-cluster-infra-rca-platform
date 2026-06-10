@@ -18,12 +18,16 @@ LLM Analyzer는 raw collector output을 직접 입력으로 받지 않습니다.
 {
   "type": "preprocessed_evidence",
   "payload": {
-    "schema_version": "preprocessed-evidence/v1",
+    "schema_version": "preprocessed-evidence/v2",
     "alert": {},
     "node": {},
     "collector_status": {},
+    "evidence_quality": {},
+    "incident_focus": {},
+    "component_health": {},
     "key_metrics": {},
     "derived_signals": [],
+    "log_summary": {},
     "log_clusters": [],
     "command_failures": [],
     "config_findings": {},
@@ -36,6 +40,17 @@ LLM Analyzer는 raw collector output을 직접 입력으로 받지 않습니다.
   }
 }
 ```
+
+## RCA Focus
+
+`preprocessed-evidence/v2`부터는 LLM이 우선순위를 잡기 쉽도록 아래 요약을 추가합니다.
+
+- `evidence_quality`: 수집된 collector, alert별 기대 collector, 누락 collector, 실패 collector, command failure 수, log cluster 수
+- `incident_focus`: alert 기준으로 봐야 할 collector, 우선 component, 상위 signal, 관측된 failure mode
+- `component_health`: component별 `ok`, `warning`, `critical`, `unknown` 상태와 관련 signal
+- `log_summary`: severity count, HTTP status family count, 에러 path 집계, 상위 error cluster
+
+이 값들은 원본 collector를 새로 노출하지 않고, 이미 선별한 metric과 signal에서 만든 요약입니다.
 
 ## Log Cluster
 

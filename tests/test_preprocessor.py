@@ -34,6 +34,7 @@ def test_preprocessor_clusters_web_logs_without_user_agent_noise() -> None:
     payload = build_preprocessed_evidence(evidence)
     encoded = json.dumps(payload)
 
+    assert payload["schema_version"] == "preprocessed-evidence/v2"
     assert "Mozilla" not in encoded
     assert "Windows NT" not in encoded
     assert "Chrome" not in encoded
@@ -49,6 +50,10 @@ def test_preprocessor_clusters_web_logs_without_user_agent_noise() -> None:
     assert cluster["http"]["paths"] == ["/api/orders/:id"]
     assert set(cluster["http"]["status_codes"]) == {500, 503}
     assert cluster["http"]["max_latency_ms"] == 1200.0
+    assert payload["log_summary"]["severity_counts"]["error"] == 2
+    assert payload["log_summary"]["http_status_family_counts"]["5xx"] == 2
+    assert payload["log_summary"]["top_http_error_paths"] == [{"value": "/api/orders/:id", "count": 2}]
+    assert payload["log_summary"]["unique_client_ip_count"] == 2
     assert payload["llm_input_policy"]["web_user_agent_removed"] is True
     assert payload["llm_input_policy"]["client_ips_preserved_for_filtering"] is True
 
@@ -91,5 +96,20 @@ def test_preprocessor_keeps_infra_metrics_and_command_failures() -> None:
     assert payload["key_metrics"]["systemd"]["kubelet_status"] == "failed"
     assert payload["key_metrics"]["runtime"]["containerd_socket_healthy"] is False
     assert payload["key_metrics"]["conntrack"]["near_limit"] is True
+    assert payload["evidence_quality"]["expected_collectors"] == [
+        "node",
+        "systemd",
+        "runtime",
+        "kernel",
+        "network",
+        "conntrack",
+    ]
+    assert payload["evidence_quality"]["critical_or_error_signal_count"] == 1
     assert payload["derived_signals"][0]["signal"] == "containerd_socket_unhealthy"
+    assert payload["component_health"]["containerd"]["status"] == "critical"
+    assert "containerd" in payload["incident_focus"]["primary_components"]
+    assert any(
+        mode["mode"] == "containerd_socket_unhealthy"
+        for mode in payload["incident_focus"]["observed_failure_modes"]
+    )
     assert payload["command_failures"][0]["source"] == "collectors.systemd.command"
