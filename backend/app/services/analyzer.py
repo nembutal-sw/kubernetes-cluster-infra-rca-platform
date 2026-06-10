@@ -13,6 +13,7 @@ from backend.app.models import (
     RootCauseCandidate,
 )
 from backend.app.services.policy import PolicyEngine
+from backend.app.services.preprocessor import build_preprocessed_evidence
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,14 @@ class RuleBasedRcaAnalyzer:
             candidates = _fallback_candidates(evidence.alert_name, collectors)
 
         recommended_actions = self._build_actions(evidence.alert_name, signals)
-        evidence_findings = _build_evidence_findings(collectors, signals, evidence.alert_name)
+        signal_items = [signal.as_report_item() for signal in signals]
+        preprocessed_evidence = build_preprocessed_evidence(evidence, signal_items)
+        evidence_findings = _build_evidence_findings(
+            collectors,
+            signals,
+            evidence.alert_name,
+            preprocessed_evidence,
+        )
         summary = _build_summary(evidence, signals, candidates)
 
         return RcaReport(
@@ -868,11 +876,18 @@ def _build_evidence_findings(
     collectors: dict[str, Any],
     signals: list[DiagnosticSignal],
     alert_name: str,
+    preprocessed_evidence: dict[str, Any],
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = [
         {"type": "collector", "collector": collector_name, "finding": finding}
         for collector_name, finding in collectors.items()
     ]
+    findings.append(
+        {
+            "type": "preprocessed_evidence",
+            "payload": preprocessed_evidence,
+        }
+    )
     findings.append(
         {
             "type": "derived_signals",

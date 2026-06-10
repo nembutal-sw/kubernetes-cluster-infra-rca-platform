@@ -177,6 +177,9 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     report = report_response.json()
     assert report["summary"]["confidence"] == "high"
     assert report["scope"]["nodes"] == ["worker-3"]
+    preprocessed = _report_section(report, "preprocessed_evidence")["payload"]
+    assert preprocessed["llm_input_policy"]["use_this_payload_only"] is True
+    assert preprocessed["key_metrics"]["runtime"]["containerd_socket_healthy"] is False
     derived_signals = _report_section(report, "derived_signals")["signals"]
     assert {signal["signal"] for signal in derived_signals} >= {
         "containerd_socket_unhealthy",

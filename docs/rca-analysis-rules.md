@@ -2,6 +2,8 @@
 
 Analyzer는 alert 이름만 보고 결론을 만들지 않습니다. Agent evidence에서 장애 해결에 필요한 신호를 추출하고, 신호별 원인 후보, 확인 명령, 정책 분류된 조치를 생성합니다.
 
+LLM Analyzer를 연결할 때는 raw collector output이 아니라 [evidence-preprocessing.md](evidence-preprocessing.md)의 `preprocessed_evidence.payload`를 입력으로 사용합니다.
+
 ## 보고서에 추가되는 분석 섹션
 
 RCA report의 `evidence`에는 원본 collector 결과 외에 두 가지 섹션이 추가됩니다.
