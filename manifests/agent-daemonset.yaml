@@ -16,7 +16,9 @@ metadata:
   namespace: rca-system
 data:
   BACKEND_URL: "https://rca.example.com"
-  CLUSTER_ID: "replace-me"
+  POLL_INTERVAL_SECONDS: "15"
+  HTTP_TIMEOUT_SECONDS: "10"
+  COMMAND_TIMEOUT_SECONDS: "5"
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -43,7 +45,12 @@ spec:
         - name: agent
           image: ghcr.io/example/cluster-infra-rca-agent:latest
           imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "node_agent.main"]
           env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: BACKEND_URL
               valueFrom:
                 configMapKeyRef:
@@ -51,13 +58,33 @@ spec:
                   key: BACKEND_URL
             - name: CLUSTER_ID
               valueFrom:
-                configMapKeyRef:
-                  name: cluster-infra-rca-agent-config
-                  key: CLUSTER_ID
+                secretKeyRef:
+                  name: cluster-infra-rca-agent
+                  key: cluster-id
+            - name: AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cluster-infra-rca-agent
+                  key: agent-token
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: POLL_INTERVAL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: POLL_INTERVAL_SECONDS
+            - name: HTTP_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: HTTP_TIMEOUT_SECONDS
+            - name: COMMAND_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: COMMAND_TIMEOUT_SECONDS
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -107,4 +134,3 @@ spec:
           hostPath:
             path: /run/containerd/containerd.sock
             type: Socket
-

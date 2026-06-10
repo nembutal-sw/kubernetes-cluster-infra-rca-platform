@@ -13,11 +13,15 @@
 ## 설치 명령어 예시
 
 ```bash
-kubectl create namespace rca-system
-kubectl apply -f https://example.com/install/cluster-prod-01/agent-daemonset.yaml
+kubectl create namespace rca-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n rca-system create secret generic cluster-infra-rca-agent \
+  --from-literal=cluster-id=cluster-prod-01 \
+  --from-literal=agent-token=bootstrap-token \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f manifests/agent-daemonset.yaml
 ```
 
-실제 구현에서는 설치 manifest URL에 클러스터별 bootstrap token, backend endpoint, image tag, RBAC 설정을 포함합니다.
+현재 manifest는 `cluster-id`와 `agent-token`을 Secret에서 읽고, `BACKEND_URL`과 timeout 값은 ConfigMap에서 읽습니다. 운영 배포 단계에서는 backend endpoint, image tag, RBAC 설정을 클러스터별 manifest로 생성하는 방식이 필요합니다.
 
 ## Alertmanager webhook 예시
 
@@ -43,4 +47,3 @@ Web UI는 다음 상태를 표시합니다.
 - last heartbeat
 - supported collector list
 - last evidence collection status
-

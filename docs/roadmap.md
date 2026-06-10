@@ -29,10 +29,11 @@
 - Agent evidence request/response API 완료
 - Alertmanager webhook 기반 evidence request 생성 완료
 - completed evidence 기반 RCA job/report 생성 완료
-- DaemonSet 배포 예정
-- kubelet/containerd/systemd collector
-- disk/inode/memory/network collector
-- 실제 collector 구현 예정
+- Node Agent runtime MVP 완료
+- DaemonSet manifest Secret/env 연동 완료
+- kubelet/containerd/systemd collector MVP 완료
+- disk/inode/memory/network collector MVP 완료
+- 실제 Linux 노드 검증 및 필드 보강 예정
 
 ## Phase 4: LLM Analyzer
 

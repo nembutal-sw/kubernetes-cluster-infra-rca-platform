@@ -4,6 +4,36 @@ Node Agent는 DaemonSet으로 각 노드에 배포되고 Backend에 등록 및 h
 
 현재 API는 실제 evidence streaming 전에 Agent identity와 상태 흐름을 고정하기 위한 MVP입니다.
 
+현재 repo에는 `node_agent` Python 패키지로 Agent MVP가 들어 있습니다. 실행 진입점은 아래와 같습니다.
+
+```powershell
+python -m node_agent.main --once
+```
+
+DaemonSet에서는 같은 모듈을 장기 실행 프로세스로 실행합니다.
+
+## Agent 환경변수
+
+| 이름 | 설명 |
+| --- | --- |
+| `BACKEND_URL` | Backend API 주소 |
+| `CLUSTER_ID` | 등록된 클러스터 ID |
+| `AGENT_TOKEN` | 클러스터 bootstrap token |
+| `NODE_NAME` | Kubernetes node name |
+| `POLL_INTERVAL_SECONDS` | evidence request poll 주기, 기본 15초 |
+| `HTTP_TIMEOUT_SECONDS` | Backend API 요청 timeout, 기본 10초 |
+| `COMMAND_TIMEOUT_SECONDS` | 로컬 수집 명령 timeout, 기본 5초 |
+
+hostPath 기본값:
+
+| 이름 | 기본값 |
+| --- | --- |
+| `HOST_PROC` | `/host/proc` |
+| `HOST_SYS` | `/host/sys` |
+| `HOST_ETC` | `/host/etc` |
+| `HOST_VAR_LOG` | `/host/var/log` |
+| `HOST_RUN` | `/host/run` |
+
 ## 인증
 
 Agent 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_token` 필드로 보냅니다.

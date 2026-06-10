@@ -13,6 +13,18 @@ Node Agent는 각 Kubernetes 노드에 DaemonSet으로 배포되는 로컬 증�
 - CNI, DNS, conntrack 관련 증거 수집
 - Backend의 evidence request에 응답
 
+## 현재 구현된 MVP
+
+현재 `node_agent` 패키지는 다음 흐름을 수행합니다.
+
+1. 환경변수에서 `BACKEND_URL`, `CLUSTER_ID`, `AGENT_TOKEN`, `NODE_NAME`을 읽습니다.
+2. `/api/agents/register`로 Agent를 등록합니다.
+3. 주기적으로 heartbeat를 보냅니다.
+4. `/api/agents/evidence-requests`에서 pending request를 poll합니다.
+5. 요청된 collector를 실행하고 `/api/agents/evidence-responses`로 결과를 제출합니다.
+
+실제 Linux 노드에서는 hostPath mount를 통해 `/host/proc`, `/host/sys`, `/host/etc`, `/host/var/log`, `/host/run`을 읽습니다. collector 실행 중 권한 부족, 명령어 부재, 파일 부재가 발생해도 Agent 프로세스는 종료하지 않고 해당 collector 결과를 `status: "error"` 또는 명령 실패 결과로 남깁니다.
+
 ## Collector 목록
 
 | Collector | 수집 대상 |
@@ -30,6 +42,8 @@ Node Agent는 각 Kubernetes 노드에 DaemonSet으로 배포되는 로컬 증�
 | kubelet | kubelet health, journal, node lease/API Server 연결 hint |
 | CNI | CNI config, plugin log, iptables/ipvs hint, pod CIDR, MTU |
 | DNS | `/etc/resolv.conf`, CoreDNS reachability, upstream lookup latency |
+
+MVP collector는 외부 네트워크에 능동적으로 요청하지 않습니다. DNS collector도 우선 `resolv.conf` 파싱까지만 수행합니다. 실제 lookup latency 측정은 운영 환경에서 timeout과 대상 도메인을 정한 뒤 추가하는 편이 안전합니다.
 
 ## Evidence bundle 예시
 
@@ -73,4 +87,3 @@ Node Agent는 각 Kubernetes 노드에 DaemonSet으로 배포되는 로컬 증�
 - 민감한 값은 Backend 전송 전에 마스킹합니다.
 - Kubernetes Secret, token, kubeconfig 원문은 보고서에 포함하지 않습니다.
 - 수집 범위는 alert type과 time window 기준으로 제한합니다.
-
