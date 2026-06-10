@@ -57,6 +57,5 @@ class RcaJobRow(Base):
     node_name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     report_id: Mapped[str] = mapped_column(ForeignKey("rca_reports.report_id"), nullable=False, index=True)
-    evidence_id: Mapped[str | None] = mapped_column(ForeignKey("evidence_bundles.evidence_id"), nullable=True)
+    evidence_id: Mapped[str | None] = mapped_column(ForeignKey("evidence_bundles.evidence_id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-

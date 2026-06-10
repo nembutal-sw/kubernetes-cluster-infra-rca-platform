@@ -8,6 +8,7 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, RCA job �
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m alembic upgrade head
 .venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
 ```
 
@@ -58,4 +59,4 @@ DB 설정은 [docs/database.md](database.md)를 참고합니다.
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류합니다.
 - LLM 분석은 아직 연결하지 않았습니다.
 - 조치 실행 API는 아직 제공하지 않습니다.
-- DB schema migration은 아직 Alembic이 아니라 startup auto-create 방식입니다.
+- DB schema 변경은 Alembic migration으로 관리합니다.

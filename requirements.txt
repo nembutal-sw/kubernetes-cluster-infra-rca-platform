@@ -3,3 +3,4 @@ uvicorn[standard]>=0.30,<1.0
 sqlalchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
 pymysql>=1.1,<2.0
+alembic>=1.14,<2.0

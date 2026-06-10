@@ -12,8 +12,12 @@ from backend.app.services.rca import RcaService
 from backend.app.store import SqlAlchemyStore, StoreProtocol
 
 
-def create_app(database_url: str | None = None, store: StoreProtocol | None = None) -> FastAPI:
-    settings = load_settings(database_url)
+def create_app(
+    database_url: str | None = None,
+    store: StoreProtocol | None = None,
+    auto_create_tables: bool | None = None,
+) -> FastAPI:
+    settings = load_settings(database_url, auto_create_tables)
     engine = None
     if store is None:
         engine = create_db_engine(settings.database_url)

@@ -1,15 +1,18 @@
 from fastapi.testclient import TestClient
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import inspect
 from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.schema import CreateTable
 
 import backend.app.db_models  # noqa: F401
 from backend.app.config import normalize_database_url
-from backend.app.database import Base
+from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
 
 
 def test_cluster_registration_and_install_command(tmp_path) -> None:
-    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
     create_response = client.post(
         "/api/clusters",
@@ -30,7 +33,7 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
 
 
 def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
-    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
         json={"name": "prod-cluster", "environment": "prod"},
@@ -81,7 +84,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
 
 
 def test_webhook_skips_unknown_cluster(tmp_path) -> None:
-    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}"))
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
     response = client.post(
         "/api/webhooks/alertmanager",
@@ -109,14 +112,14 @@ def test_webhook_skips_unknown_cluster(tmp_path) -> None:
 
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'persistent.db'}"
-    first_client = TestClient(create_app(database_url=database_url))
+    first_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
 
     cluster = first_client.post(
         "/api/clusters",
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
-    second_client = TestClient(create_app(database_url=database_url))
+    second_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
     response = second_client.get(f"/api/clusters/{cluster['cluster_id']}")
 
     assert response.status_code == 200
@@ -152,3 +155,22 @@ def test_schema_compiles_for_postgresql_and_mariadb_dialects() -> None:
     assert "CREATE TABLE clusters" in mariadb_ddl
     assert "rca_reports" in postgres_ddl
     assert "rca_reports" in mariadb_ddl
+
+
+def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'alembic.db'}"
+    monkeypatch.setenv("RCA_DATABASE_URL", database_url)
+
+    command.upgrade(Config("alembic.ini"), "head")
+
+    engine = create_db_engine(database_url)
+    tables = set(inspect(engine).get_table_names())
+    assert {"alembic_version", "clusters", "evidence_bundles", "rca_reports", "rca_jobs"} <= tables
+
+    client = TestClient(create_app(database_url=database_url, auto_create_tables=False))
+    response = client.post(
+        "/api/clusters",
+        json={"name": "prod-cluster", "environment": "prod"},
+    )
+
+    assert response.status_code == 201

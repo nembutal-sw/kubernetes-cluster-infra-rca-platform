@@ -19,7 +19,7 @@
 - Rule-based analyzer MVP 완료
 - Policy Engine MVP 완료
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소 완료
-- Alembic migration 도입 예정
+- Alembic migration 도입 완료
 
 ## Phase 3: Node Agent MVP
 

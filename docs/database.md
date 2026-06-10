@@ -1,8 +1,8 @@
 # Database
 
-Backend는 SQLAlchemy 기반 저장소를 사용합니다. 운영 대상 DB는 PostgreSQL과 MariaDB입니다.
+Backend는 SQLAlchemy 기반 저장소와 Alembic migration을 사용합니다. 운영 대상 DB는 PostgreSQL과 MariaDB입니다.
 
-MVP에서는 서버 시작 시 `Base.metadata.create_all()`로 테이블을 자동 생성합니다. 실제 운영 단계에서는 Alembic migration으로 바꿔야 합니다.
+서버 시작 시 table을 자동 생성하지 않는 것이 기본값입니다. DB schema 변경은 `alembic upgrade head`로 적용합니다.
 
 ## 지원 DB
 
@@ -53,6 +53,34 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 ```powershell
 $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 ```
+
+`RCA_AUTO_CREATE_TABLES=true`를 설정하면 앱 시작 시 SQLAlchemy `create_all()`을 실행할 수 있습니다. 이 옵션은 테스트나 임시 개발 용도만 가정합니다. 일반 개발/운영 흐름에서는 `false`로 두고 Alembic을 사용합니다.
+
+## Migration
+
+현재 revision:
+
+- `0001_initial_schema`
+
+적용:
+
+```powershell
+.venv\Scripts\python.exe -m alembic upgrade head
+```
+
+현재 상태 확인:
+
+```powershell
+.venv\Scripts\python.exe -m alembic current
+```
+
+새 migration 생성:
+
+```powershell
+.venv\Scripts\python.exe -m alembic revision --autogenerate -m "describe change"
+```
+
+생성된 migration은 PostgreSQL과 MariaDB 양쪽에서 동작 가능한 타입과 DDL인지 확인해야 합니다.
 
 ## 현재 테이블
 
