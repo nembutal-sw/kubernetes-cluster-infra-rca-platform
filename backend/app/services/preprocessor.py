@@ -336,6 +336,8 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "rke2_agent_status": systemd.get("rke2_agent_status"),
                 "rke2_agent_sub_state": systemd.get("rke2_agent_sub_state"),
                 "rke2_agent_restart_count": systemd.get("rke2_agent_restart_count"),
+                "rke2_embedded_kubelet_running": systemd.get("rke2_embedded_kubelet_running"),
+                "rke2_embedded_containerd_running": systemd.get("rke2_embedded_containerd_running"),
                 "failed_unit_count": len(systemd.get("failed_units", []))
                 if isinstance(systemd.get("failed_units"), list)
                 else None,
@@ -366,6 +368,8 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
         "runtime": _drop_none(
             {
                 "containerd_socket_healthy": runtime.get("containerd_socket_healthy"),
+                "containerd_socket_path": runtime.get("containerd_socket_path"),
+                "containerd_socket_candidates": runtime.get("containerd_socket_candidates"),
                 "containerd_socket_latency_ms": runtime.get("containerd_socket_latency_ms"),
                 "containerd_pid_running": runtime.get("containerd_pid_running"),
                 "containerd_socket_error": runtime.get("containerd_socket_error"),
@@ -408,7 +412,14 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "interface_tx_error_total": network.get("interface_tx_error_total"),
                 "interface_rx_drop_total": network.get("interface_rx_drop_total"),
                 "interface_tx_drop_total": network.get("interface_tx_drop_total"),
+                "physical_interfaces": network.get("physical_interfaces"),
+                "physical_interface_rx_error_total": network.get("physical_interface_rx_error_total"),
+                "physical_interface_tx_error_total": network.get("physical_interface_tx_error_total"),
+                "physical_interface_rx_drop_total": network.get("physical_interface_rx_drop_total"),
+                "physical_interface_tx_drop_total": network.get("physical_interface_tx_drop_total"),
+                "flapping_physical_interfaces": network.get("flapping_physical_interfaces"),
                 "tcp_retrans_segments": network.get("tcp_retrans_segments"),
+                "tcp_retrans_segments_per_hour_since_boot": network.get("tcp_retrans_segments_per_hour_since_boot"),
                 "tcp_ext_listen_overflows": network.get("tcp_ext_listen_overflows"),
                 "conntrack_usage_percent": network.get("conntrack_usage_percent"),
             }
@@ -425,6 +436,8 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
         "cni": _drop_none(
             {
                 "config_count": cni.get("config_count"),
+                "config_dirs": cni.get("config_dirs"),
+                "config_dir_results": cni.get("config_dir_results"),
                 "plugin_types": cni.get("plugin_types"),
                 "mtu": cni.get("mtu"),
                 "mtu_values": cni.get("mtu_values"),
@@ -735,6 +748,8 @@ def _config_findings(collectors: dict[str, Any]) -> dict[str, Any]:
         "cni": _drop_none(
             {
                 "config_dir_exists": cni.get("config_dir_exists"),
+                "config_dirs": cni.get("config_dirs"),
+                "config_dir_results": cni.get("config_dir_results"),
                 "config_count": cni.get("config_count"),
                 "plugin_types": cni.get("plugin_types"),
                 "mtu_values": cni.get("mtu_values"),
@@ -861,8 +876,15 @@ def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, 
     cni = _dict_value(key_metrics.get("cni"))
     dns = _dict_value(key_metrics.get("dns"))
     kernel = _dict_value(key_metrics.get("kernel"))
+    rke2_embedded_kubelet_active = systemd.get("rke2_embedded_kubelet_running") is True
 
-    _append_mode_if(modes, _bad_unit_value(systemd.get("kubelet_status")), "kubelet_unit_unhealthy", "kubelet", systemd)
+    _append_mode_if(
+        modes,
+        _bad_unit_value(systemd.get("kubelet_status")) and not rke2_embedded_kubelet_active,
+        "kubelet_unit_unhealthy",
+        "kubelet",
+        systemd,
+    )
     _append_mode_if(
         modes,
         _number_at_least(systemd.get("kubelet_restart_count"), 3),

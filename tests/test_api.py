@@ -155,7 +155,10 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     assert container["image"] == "ghcr.io/acme/cluster-infra-rca-agent:v1"
     assert container["command"] == ["python", "-m", "node_agent.main"]
     assert {"name": "host-root", "mountPath": "/host/root", "readOnly": True} in container["volumeMounts"]
+    assert {"name": "host-run", "mountPath": "/host/run", "readOnly": True} in container["volumeMounts"]
     assert {"name": "host-root", "hostPath": {"path": "/"}} in daemonset["spec"]["template"]["spec"]["volumes"]
+    assert {"name": "host-run", "hostPath": {"path": "/run"}} in daemonset["spec"]["template"]["spec"]["volumes"]
+    assert "containerd-sock" not in {item["name"] for item in container["volumeMounts"]}
 
     env = {item["name"]: item for item in container["env"]}
     assert env["BACKEND_URL"]["valueFrom"]["configMapKeyRef"]["name"] == "cluster-infra-rca-agent-config"

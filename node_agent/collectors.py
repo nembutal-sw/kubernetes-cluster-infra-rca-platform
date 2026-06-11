@@ -195,6 +195,7 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
     rke2_server = units["rke2-server"]
     rke2_agent = units["rke2-agent"]
     failed_units = _systemctl_failed_units(runner)
+    rke2_processes = _matching_processes(runner, ["rke2", "containerd", "kubelet"])
     return {
         "kubelet_status": kubelet.get("ActiveState"),
         "kubelet_sub_state": kubelet.get("SubState"),
@@ -212,6 +213,9 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
         "rke2_agent_sub_state": rke2_agent.get("SubState"),
         "rke2_agent_result": rke2_agent.get("Result"),
         "rke2_agent_restart_count": _safe_int(rke2_agent.get("NRestarts")),
+        "rke2_embedded_kubelet_running": _process_sample_contains(rke2_processes, "kubelet"),
+        "rke2_embedded_containerd_running": _process_sample_contains(rke2_processes, "containerd"),
+        "rke2_process_sample": rke2_processes[:20],
         "failed_units": failed_units["units"],
         "failed_units_command": failed_units["command"],
         "units": units,
@@ -424,9 +428,25 @@ def collect_network(paths: AgentPaths) -> dict[str, Any]:
     interface_state = _read_interface_state(paths.sys_root())
     for interface in interfaces:
         interface.update(interface_state.get(interface["name"], {}))
+        interface["interface_kind"] = _interface_kind(interface["name"], interface)
+        interface["physical_candidate"] = _is_physical_interface(interface)
+    physical_interfaces = [item for item in interfaces if item.get("physical_candidate") is True]
+    link_flap_threshold = _bounded_int(
+        os.getenv("NIC_LINK_FLAP_CARRIER_CHANGES_THRESHOLD"),
+        default=3,
+        minimum=1,
+        maximum=1000,
+    )
+    flapping_physical_interfaces = [
+        item
+        for item in physical_interfaces
+        if (item.get("carrier_changes") or 0) >= link_flap_threshold
+    ]
     snmp_metrics = _parse_proc_net_table(proc / "net/snmp")
     netstat_metrics = _parse_proc_net_table(proc / "net/netstat")
     conntrack = collect_conntrack(paths)
+    uptime_seconds = _parse_first_float(proc / "uptime")
+    tcp_retrans_segments = snmp_metrics.get("Tcp", {}).get("RetransSegs")
     return {
         "interfaces": interfaces,
         "interfaces_down": [
@@ -438,10 +458,26 @@ def collect_network(paths: AgentPaths) -> dict[str, Any]:
         "interface_tx_error_total": sum(item.get("tx_errors") or 0 for item in interfaces),
         "interface_rx_drop_total": sum(item.get("rx_dropped") or 0 for item in interfaces),
         "interface_tx_drop_total": sum(item.get("tx_dropped") or 0 for item in interfaces),
+        "physical_interfaces": [item["name"] for item in physical_interfaces],
+        "physical_interface_rx_error_total": sum(item.get("rx_errors") or 0 for item in physical_interfaces),
+        "physical_interface_tx_error_total": sum(item.get("tx_errors") or 0 for item in physical_interfaces),
+        "physical_interface_rx_drop_total": sum(item.get("rx_dropped") or 0 for item in physical_interfaces),
+        "physical_interface_tx_drop_total": sum(item.get("tx_dropped") or 0 for item in physical_interfaces),
         "default_route_interfaces": _parse_default_route_interfaces(proc / "net/route"),
-        "nic_link_flap_detected": any((item.get("carrier_changes") or 0) > 0 for item in interfaces),
+        "nic_link_flap_detected": bool(flapping_physical_interfaces),
+        "nic_link_flap_threshold": link_flap_threshold,
+        "flapping_physical_interfaces": [
+            {
+                "name": item.get("name"),
+                "carrier_changes": item.get("carrier_changes"),
+                "operstate": item.get("operstate"),
+                "carrier": item.get("carrier"),
+            }
+            for item in flapping_physical_interfaces[:10]
+        ],
         "mtu_mismatch_suspected": None,
-        "tcp_retrans_segments": snmp_metrics.get("Tcp", {}).get("RetransSegs"),
+        "tcp_retrans_segments": tcp_retrans_segments,
+        "tcp_retrans_segments_per_hour_since_boot": _per_hour(tcp_retrans_segments, uptime_seconds),
         "tcp_attempt_fails": snmp_metrics.get("Tcp", {}).get("AttemptFails"),
         "tcp_ext_listen_overflows": netstat_metrics.get("TcpExt", {}).get("ListenOverflows"),
         "tcp_ext_listen_drops": netstat_metrics.get("TcpExt", {}).get("ListenDrops"),
@@ -471,8 +507,9 @@ def collect_conntrack(paths: AgentPaths) -> dict[str, Any]:
 
 
 def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
-    socket_path = paths.run / "containerd/containerd.sock"
-    pid_file = paths.run / "containerd/containerd.pid"
+    socket_candidates = _containerd_socket_candidates(paths)
+    socket_path = _first_existing_socket(socket_candidates) or socket_candidates[0]
+    pid_file = socket_path.with_name("containerd.pid")
     containerd_pid = _safe_int(_read_first_line(pid_file))
     socket_exists = socket_path.exists()
     socket_stat_error = None
@@ -481,9 +518,14 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     except OSError as exc:
         socket_is_socket = False
         socket_stat_error = _clean_text(str(exc), limit=500)
-    socket_probe = _probe_unix_socket(socket_path) if socket_is_socket else {"ok": False, "error": "socket not available"}
+    socket_probe = (
+        _probe_unix_socket(socket_path)
+        if socket_is_socket
+        else {"ok": False, "error": "socket not available"}
+    )
     result = {
         "containerd_socket_path": str(socket_path),
+        "containerd_socket_candidates": [str(path) for path in socket_candidates],
         "containerd_socket_exists": socket_exists,
         "containerd_socket_is_socket": socket_is_socket,
         "containerd_socket_healthy": socket_probe["ok"],
@@ -495,7 +537,7 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
         if containerd_pid is not None
         else None,
     }
-    if socket_exists:
+    if socket_is_socket:
         result["ctr_version"] = runner.run(["ctr", "--address", str(socket_path), "version"])
     return result
 
@@ -514,51 +556,63 @@ def collect_kubelet(runner: CommandRunner) -> dict[str, Any]:
 
 
 def collect_cni(paths: AgentPaths) -> dict[str, Any]:
-    cni_dir = paths.etc_root() / "cni/net.d"
-    if not cni_dir.exists():
-        return {
-            "config_dir": str(cni_dir),
-            "config_dir_exists": False,
-            "config_count": 0,
-            "plugin_types": [],
-            "mtu": None,
-            "mtu_values": [],
-            "parse_errors": [],
-            "plugin_errors_detected": None,
-            "configs": [],
-        }
-    configs = []
+    cni_dirs = _cni_config_dirs(paths)
+    configs: list[dict[str, Any]] = []
     plugin_types: list[str] = []
     mtu_values: list[int] = []
     parse_errors: list[dict[str, str]] = []
-    try:
-        config_paths = sorted(cni_dir.iterdir())
-    except OSError:
+    directory_results = []
+    for cni_dir in cni_dirs:
+        dir_configs: list[dict[str, Any]] = []
+        exists = cni_dir.exists()
         config_paths = []
-    for path in config_paths:
-        if not path.is_file():
-            continue
-        try:
-            size_bytes = path.stat().st_size
-        except OSError:
-            size_bytes = None
-        raw_config = _read_text(path, max_bytes=65536)
-        parsed_config = _parse_json(raw_config)
-        if raw_config and parsed_config is None:
-            parse_errors.append({"name": path.name, "error": "invalid JSON"})
-        plugin_types.extend(_cni_plugin_types(parsed_config))
-        mtu_values.extend(_find_numeric_values(parsed_config, key="mtu"))
-        configs.append(
-            {
+        if exists:
+            try:
+                config_paths = sorted(cni_dir.iterdir())
+            except OSError as exc:
+                parse_errors.append(
+                    {
+                        "dir": str(cni_dir),
+                        "name": "<directory>",
+                        "error": _clean_text(str(exc), limit=500),
+                    }
+                )
+        for path in config_paths:
+            if not path.is_file():
+                continue
+            try:
+                size_bytes = path.stat().st_size
+            except OSError:
+                size_bytes = None
+            raw_config = _read_text(path, max_bytes=65536)
+            parsed_config = _parse_json(raw_config)
+            if raw_config and parsed_config is None:
+                parse_errors.append({"dir": str(cni_dir), "name": path.name, "error": "invalid JSON"})
+            plugin_types.extend(_cni_plugin_types(parsed_config))
+            mtu_values.extend(_find_numeric_values(parsed_config, key="mtu"))
+            config = {
+                "dir": str(cni_dir),
                 "name": path.name,
+                "path": str(path),
                 "size_bytes": size_bytes,
                 "excerpt": _clean_text(raw_config, limit=4096),
                 "parsed": parsed_config is not None,
             }
+            dir_configs.append(config)
+            configs.append(config)
+        directory_results.append(
+            {
+                "path": str(cni_dir),
+                "exists": exists,
+                "config_count": len(dir_configs),
+            }
         )
+    primary_dir = next((item for item in cni_dirs if item.exists()), cni_dirs[0])
     return {
-        "config_dir": str(cni_dir),
-        "config_dir_exists": True,
+        "config_dir": str(primary_dir),
+        "config_dirs": [str(path) for path in cni_dirs],
+        "config_dir_results": directory_results,
+        "config_dir_exists": any(item["exists"] for item in directory_results),
         "config_count": len(configs),
         "plugin_types": _dedupe(plugin_types),
         "mtu": mtu_values[0] if mtu_values else None,
@@ -942,6 +996,37 @@ def _systemctl_failed_units(runner: CommandRunner) -> dict[str, Any]:
     }
 
 
+def _matching_processes(runner: CommandRunner, keywords: list[str]) -> list[dict[str, str]]:
+    result = runner.run(["ps", "-eo", "pid=,comm=,args="])
+    if not result.get("ok"):
+        return []
+    lowered_keywords = [keyword.lower() for keyword in keywords]
+    matches = []
+    for line in str(result.get("stdout") or "").splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if not any(keyword in lowered for keyword in lowered_keywords):
+            continue
+        fields = cleaned.split(None, 2)
+        if len(fields) < 2:
+            continue
+        matches.append(
+            {
+                "pid": fields[0],
+                "command": fields[1],
+                "args": _clean_text(fields[2] if len(fields) > 2 else fields[1], limit=500),
+            }
+        )
+    return matches
+
+
+def _process_sample_contains(processes: list[dict[str, str]], keyword: str) -> bool:
+    lowered_keyword = keyword.lower()
+    return any(lowered_keyword in str(item.get("args") or item.get("command") or "").lower() for item in processes)
+
+
 def _parse_systemctl_show(output: str) -> dict[str, str]:
     parsed = {}
     for line in output.splitlines():
@@ -1073,8 +1158,49 @@ def _read_interface_state(sys_root: Path) -> dict[str, dict[str, Any]]:
             "carrier": _safe_int(_read_first_line(interface_dir / "carrier")),
             "carrier_changes": _safe_int(_read_first_line(interface_dir / "carrier_changes")),
             "mtu": _safe_int(_read_first_line(interface_dir / "mtu")),
+            "device_path_exists": (interface_dir / "device").exists(),
         }
     return states
+
+
+def _interface_kind(name: str, interface: dict[str, Any]) -> str:
+    lowered = name.lower()
+    if lowered == "lo":
+        return "loopback"
+    virtual_prefixes = (
+        "veth",
+        "cni",
+        "flannel",
+        "cilium",
+        "lxc",
+        "docker",
+        "br-",
+        "virbr",
+        "kube-ipvs",
+        "kube-bridge",
+        "cali",
+        "tunl",
+        "ip6tnl",
+        "vxlan",
+        "genev",
+        "dummy",
+        "tailscale",
+        "wg",
+        "zt",
+        "tap",
+        "tun",
+    )
+    if lowered.startswith(virtual_prefixes):
+        return "virtual"
+    if interface.get("device_path_exists") is True:
+        return "physical"
+    if re.match(r"^(eth|en[ospx]?\d|eno|ens|enp|bond|team|ib|wl|ww)", lowered):
+        return "physical_candidate"
+    return "unknown"
+
+
+def _is_physical_interface(interface: dict[str, Any]) -> bool:
+    return interface.get("interface_kind") in {"physical", "physical_candidate"}
 
 
 def _parse_default_route_interfaces(path: Path) -> list[str]:
@@ -1101,6 +1227,107 @@ def _probe_unix_socket(path: Path, timeout_seconds: float = 1) -> dict[str, Any]
         return {"ok": False, "error": _clean_text(str(exc), limit=500)}
     finally:
         sock.close()
+
+
+def _containerd_socket_candidates(paths: AgentPaths) -> list[Path]:
+    raw_candidates = [
+        os.getenv("CONTAINERD_SOCKET_PATH"),
+        "containerd/containerd.sock",
+        "k3s/containerd/containerd.sock",
+        "rke2/containerd/containerd.sock",
+    ]
+    candidates: list[Path] = []
+    for raw_candidate in raw_candidates:
+        if not raw_candidate:
+            continue
+        candidate = Path(raw_candidate)
+        if candidate.is_absolute():
+            try:
+                candidate = paths.run / candidate.relative_to("/run")
+            except ValueError:
+                pass
+        else:
+            candidate = paths.run / candidate
+        candidates.append(candidate)
+    deduped: list[Path] = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def _cni_config_dirs(paths: AgentPaths) -> list[Path]:
+    raw_dirs = os.getenv("CNI_CONFIG_DIRS")
+    if raw_dirs:
+        return _dedupe_paths(
+            [
+                _resolve_host_path(paths, raw_dir.strip())
+                for raw_dir in re.split(r"[,;:]", raw_dirs)
+                if raw_dir.strip()
+            ]
+        )
+
+    host_root = paths.host_root()
+    candidates = [
+        paths.etc_root() / "cni/net.d",
+    ]
+    if host_root is not None:
+        candidates.extend(
+            [
+                host_root / "var/lib/rancher/rke2/agent/etc/cni/net.d",
+                host_root / "var/lib/rancher/k3s/agent/etc/cni/net.d",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                paths.root / "var/lib/rancher/rke2/agent/etc/cni/net.d",
+                paths.root / "var/lib/rancher/k3s/agent/etc/cni/net.d",
+            ]
+        )
+    return _dedupe_paths(candidates)
+
+
+def _resolve_host_path(paths: AgentPaths, raw_path: str) -> Path:
+    path = Path(raw_path)
+    if not path.is_absolute():
+        return path
+    try:
+        return paths.etc_root() / path.relative_to("/etc")
+    except ValueError:
+        pass
+    try:
+        return paths.run / path.relative_to("/run")
+    except ValueError:
+        pass
+    host_root = paths.host_root()
+    return (host_root or paths.root) / path.relative_to("/")
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen = set()
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def _first_existing_socket(paths: list[Path]) -> Path | None:
+    for path in paths:
+        try:
+            if path.exists() and stat.S_ISSOCK(path.stat().st_mode):
+                return path
+        except OSError:
+            continue
+    return None
 
 
 def _parse_net_dev(path: Path) -> list[dict[str, Any]]:
@@ -1319,6 +1546,21 @@ def _bounded_float(value: object, default: float, minimum: float, maximum: float
     if parsed is None:
         return default
     return min(max(parsed, minimum), maximum)
+
+
+def _bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
+    parsed = _safe_int(value)
+    if parsed is None:
+        return default
+    return min(max(parsed, minimum), maximum)
+
+
+def _per_hour(value: object, uptime_seconds: object) -> float | None:
+    parsed_value = _safe_float(value)
+    parsed_uptime = _safe_float(uptime_seconds)
+    if parsed_value is None or parsed_uptime is None or parsed_uptime <= 0:
+        return None
+    return round(parsed_value / (parsed_uptime / 3600), 2)
 
 
 def _dedupe(values: list[str]) -> list[str]:

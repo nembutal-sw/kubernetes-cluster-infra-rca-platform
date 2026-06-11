@@ -36,6 +36,17 @@ class FakeRunner:
                 "stdout": "containerd.service loaded failed failed container runtime\n",
                 "stderr": "",
             }
+        if command == ["ps", "-eo", "pid=,comm=,args="]:
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "stdout": (
+                    "100 rke2 /usr/local/bin/rke2 server\n"
+                    "101 containerd containerd -c /var/lib/rancher/rke2/agent/etc/containerd/config.toml\n"
+                    "102 kubelet kubelet --container-runtime-endpoint=unix:///run/k3s/containerd/containerd.sock\n"
+                ),
+                "stderr": "",
+            }
         return {
             "ok": False,
             "exit_code": None,
@@ -122,9 +133,12 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["network"]["interface_rx_error_total"] == 1
     assert evidence["network"]["interface_tx_error_total"] == 3
     assert evidence["network"]["tcp_retrans_segments"] == 9
+    assert evidence["network"]["tcp_retrans_segments_per_hour_since_boot"] == 32.4
     assert evidence["network"]["tcp_ext_listen_overflows"] == 2
     assert evidence["network"]["default_route_interfaces"] == ["eth0"]
     assert evidence["network"]["nic_link_flap_detected"] is True
+    assert evidence["network"]["physical_interfaces"] == ["eth0"]
+    assert evidence["network"]["physical_interface_tx_drop_total"] == 4
     assert evidence["network"]["mtu_mismatch_suspected"] is None
     assert evidence["network"]["conntrack_usage_percent"] == 50.0
     assert evidence["conntrack"]["available"] == 50
@@ -133,6 +147,8 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["systemd"]["kubelet_sub_state"] == "running"
     assert evidence["systemd"]["containerd_status"] == "failed"
     assert evidence["systemd"]["rke2_server_status"] == "active"
+    assert evidence["systemd"]["rke2_embedded_kubelet_running"] is True
+    assert evidence["systemd"]["rke2_embedded_containerd_running"] is True
     assert evidence["systemd"]["failed_units"][0]["unit"] == "containerd.service"
     assert evidence["kubelet"]["status"] == "ok"
     assert evidence["kubelet"]["kubelet_status"] == "active"
@@ -460,7 +476,7 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
     )
     (sys / "class/net/eth0/operstate").write_text("up\n", encoding="utf-8")
     (sys / "class/net/eth0/carrier").write_text("1\n", encoding="utf-8")
-    (sys / "class/net/eth0/carrier_changes").write_text("2\n", encoding="utf-8")
+    (sys / "class/net/eth0/carrier_changes").write_text("3\n", encoding="utf-8")
     (sys / "class/net/eth0/mtu").write_text("1450\n", encoding="utf-8")
     (proc / "net/route").write_text(
         "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"

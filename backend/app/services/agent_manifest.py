@@ -258,15 +258,10 @@ def _agent_volume_mounts() -> list[dict[str, object]]:
     return [
         {"name": "host-root", "mountPath": "/host/root", "readOnly": True},
         {"name": "host-var-log", "mountPath": "/host/var/log", "readOnly": True},
-        {"name": "host-run-systemd", "mountPath": "/host/run/systemd", "readOnly": True},
+        {"name": "host-run", "mountPath": "/host/run", "readOnly": True},
         {"name": "host-etc", "mountPath": "/host/etc", "readOnly": True},
         {"name": "host-proc", "mountPath": "/host/proc", "readOnly": True},
         {"name": "host-sys", "mountPath": "/host/sys", "readOnly": True},
-        {
-            "name": "containerd-sock",
-            "mountPath": "/host/run/containerd/containerd.sock",
-            "readOnly": True,
-        },
     ]
 
 
@@ -274,12 +269,8 @@ def _agent_volumes() -> list[dict[str, object]]:
     return [
         {"name": "host-root", "hostPath": {"path": "/"}},
         {"name": "host-var-log", "hostPath": {"path": "/var/log"}},
-        {"name": "host-run-systemd", "hostPath": {"path": "/run/systemd"}},
+        {"name": "host-run", "hostPath": {"path": "/run"}},
         {"name": "host-etc", "hostPath": {"path": "/etc"}},
         {"name": "host-proc", "hostPath": {"path": "/proc"}},
         {"name": "host-sys", "hostPath": {"path": "/sys"}},
-        {
-            "name": "containerd-sock",
-            "hostPath": {"path": "/run/containerd/containerd.sock", "type": "Socket"},
-        },
     ]

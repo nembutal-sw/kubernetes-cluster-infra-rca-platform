@@ -137,8 +137,8 @@ spec:
             - name: host-var-log
               mountPath: /host/var/log
               readOnly: true
-            - name: host-run-systemd
-              mountPath: /host/run/systemd
+            - name: host-run
+              mountPath: /host/run
               readOnly: true
             - name: host-etc
               mountPath: /host/etc
@@ -148,9 +148,6 @@ spec:
               readOnly: true
             - name: host-sys
               mountPath: /host/sys
-              readOnly: true
-            - name: containerd-sock
-              mountPath: /host/run/containerd/containerd.sock
               readOnly: true
           resources:
             requests:
@@ -166,9 +163,9 @@ spec:
         - name: host-var-log
           hostPath:
             path: /var/log
-        - name: host-run-systemd
+        - name: host-run
           hostPath:
-            path: /run/systemd
+            path: /run
         - name: host-etc
           hostPath:
             path: /etc
@@ -178,7 +175,3 @@ spec:
         - name: host-sys
           hostPath:
             path: /sys
-        - name: containerd-sock
-          hostPath:
-            path: /run/containerd/containerd.sock
-            type: Socket

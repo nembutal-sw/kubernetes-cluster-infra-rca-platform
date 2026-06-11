@@ -258,7 +258,18 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
     kubelet_status = _first_present(systemd.get("kubelet_status"), kubelet.get("kubelet_status"))
     kubelet_sub_state = _first_present(systemd.get("kubelet_sub_state"), kubelet.get("kubelet_sub_state"))
     kubelet_restarts = _max_number(systemd.get("kubelet_restart_count"), kubelet.get("kubelet_restart_count"))
-    if _bad_unit_state(kubelet_status, kubelet_sub_state):
+    rke2_server_status = systemd.get("rke2_server_status")
+    rke2_server_sub_state = systemd.get("rke2_server_sub_state")
+    rke2_agent_status = systemd.get("rke2_agent_status")
+    rke2_agent_sub_state = systemd.get("rke2_agent_sub_state")
+    rke2_active = _healthy_unit_state(rke2_server_status, rke2_server_sub_state) or _healthy_unit_state(
+        rke2_agent_status,
+        rke2_agent_sub_state,
+    )
+    embedded_kubelet_active = rke2_active and systemd.get("rke2_embedded_kubelet_running") is True
+    embedded_containerd_active = rke2_active and systemd.get("rke2_embedded_containerd_running") is True
+
+    if _bad_unit_state(kubelet_status, kubelet_sub_state) and not embedded_kubelet_active:
         signals.append(
             DiagnosticSignal(
                 signal="kubelet_unit_unhealthy",
@@ -285,7 +296,7 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
 
     containerd_status = systemd.get("containerd_status")
     containerd_sub_state = systemd.get("containerd_sub_state")
-    if _bad_unit_state(containerd_status, containerd_sub_state):
+    if _bad_unit_state(containerd_status, containerd_sub_state) and not embedded_containerd_active:
         signals.append(
             DiagnosticSignal(
                 signal="containerd_unit_unhealthy",
@@ -298,8 +309,6 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
             )
         )
 
-    rke2_server_status = systemd.get("rke2_server_status")
-    rke2_server_sub_state = systemd.get("rke2_server_sub_state")
     if _bad_unit_state(rke2_server_status, rke2_server_sub_state):
         signals.append(
             DiagnosticSignal(
@@ -803,21 +812,36 @@ def _network_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
             )
         )
 
-    rx_errors = _number(network.get("interface_rx_error_total")) or 0
-    tx_errors = _number(network.get("interface_tx_error_total")) or 0
-    rx_drops = _number(network.get("interface_rx_drop_total")) or 0
-    tx_drops = _number(network.get("interface_tx_drop_total")) or 0
-    if rx_errors + tx_errors + rx_drops + tx_drops > 0:
+    rx_errors = (
+        _number(_first_present(network.get("physical_interface_rx_error_total"), network.get("interface_rx_error_total")))
+        or 0
+    )
+    tx_errors = (
+        _number(_first_present(network.get("physical_interface_tx_error_total"), network.get("interface_tx_error_total")))
+        or 0
+    )
+    rx_drops = (
+        _number(_first_present(network.get("physical_interface_rx_drop_total"), network.get("interface_rx_drop_total")))
+        or 0
+    )
+    tx_drops = (
+        _number(_first_present(network.get("physical_interface_tx_drop_total"), network.get("interface_tx_drop_total")))
+        or 0
+    )
+    packet_drop_threshold = 1000
+    if rx_errors + tx_errors > 0 or rx_drops + tx_drops >= packet_drop_threshold:
         signals.append(
             DiagnosticSignal(
                 signal="interface_packet_errors",
                 component="network",
                 severity="warning",
                 observed={
+                    "physical_interfaces": network.get("physical_interfaces"),
                     "rx_errors": rx_errors,
                     "tx_errors": tx_errors,
                     "rx_drops": rx_drops,
                     "tx_drops": tx_drops,
+                    "drop_threshold": packet_drop_threshold,
                 },
                 interpretation="NIC error/drop이 있어 패킷 손실 또는 driver/link 문제가 있을 수 있습니다.",
                 next_step="/proc/net/dev, ethtool -S, CNI overlay interface error를 확인합니다.",
@@ -826,9 +850,14 @@ def _network_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
         )
 
     retrans = _number(network.get("tcp_retrans_segments"))
+    retrans_per_hour = _number(network.get("tcp_retrans_segments_per_hour_since_boot"))
     listen_overflows = _number(network.get("tcp_ext_listen_overflows"))
     listen_drops = _number(network.get("tcp_ext_listen_drops"))
-    if (retrans is not None and retrans >= 100) or (listen_overflows is not None and listen_overflows > 0):
+    if (
+        (listen_overflows is not None and listen_overflows > 0)
+        or (listen_drops is not None and listen_drops > 0)
+        or (retrans_per_hour is not None and retrans_per_hour >= 50000)
+    ):
         signals.append(
             DiagnosticSignal(
                 signal="tcp_error_counters_high",
@@ -836,6 +865,7 @@ def _network_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
                 severity="warning",
                 observed={
                     "tcp_retrans_segments": retrans,
+                    "tcp_retrans_segments_per_hour_since_boot": retrans_per_hour,
                     "tcp_ext_listen_overflows": listen_overflows,
                     "tcp_ext_listen_drops": listen_drops,
                 },
@@ -1414,6 +1444,12 @@ def _bad_unit_state(active_state: Any, sub_state: Any) -> bool:
         "auto-restart",
         "dead",
     }
+
+
+def _healthy_unit_state(active_state: Any, sub_state: Any) -> bool:
+    active = str(active_state or "").lower()
+    sub = str(sub_state or "").lower()
+    return active == "active" and sub in {"running", "exited", ""}
 
 
 def _severity_rank(severity: str) -> int:
