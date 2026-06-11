@@ -12,7 +12,7 @@ http://127.0.0.1:8000/
 - `Access`: 회원가입 요청과 관리자 승인/거절 대기열
 - `Clusters`: 클러스터 등록, 등록된 클러스터 목록, Agent 설치 명령어, manifest 링크
 - `Webhooks`: Alertmanager webhook endpoint와 receiver 예시
-- `RCA Reports`: RCA report 목록과 정책 분류 요약
+- `RCA Reports`: RCA report 목록, 정책 분류 요약, 원인 후보/조치/신호/체크리스트 상세 drill-down
 - `Settings`: 주요 환경변수 참조
 
 디자인은 운영 관리자 페이지에 맞춰 저채도 배경, 좌측 메뉴, 고밀도 테이블형 리스트, 상태 badge 중심으로 구성했습니다. 화면 폭이 좁아지면 좌측 메뉴는 상단 가로 메뉴로 바뀌고, 2열 영역은 1열로 내려갑니다.
@@ -70,6 +70,7 @@ Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-
 - `GET /api/clusters`
 - `GET /api/clusters/{cluster_id}/install-command`
 - `GET /api/rca/reports`
+- `GET /api/rca/reports/{report_id}`
 
 네트워크 오류나 JSON이 아닌 에러 응답은 화면 toast와 목록 영역에 사람이 읽을 수 있는 메시지로 표시합니다.
 

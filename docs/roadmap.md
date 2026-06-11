@@ -17,6 +17,7 @@
 - Alertmanager webhook token 인증 완료
 - RCA job 생성 완료
 - Fake evidence 기반 RCA report 생성 완료
+- RCA report/job atomic save 경계 완료
 - Rule-based analyzer MVP 완료
 - Policy Engine MVP 완료
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소 완료
@@ -85,4 +86,4 @@
 - Alertmanager webhook 연동 안내 화면 완료
 - RCA 보고서 목록 화면 완료
 - Policy decision 표시 완료
-- RCA 보고서 상세 drill-down 예정
+- RCA 보고서 상세 drill-down 완료

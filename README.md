@@ -125,7 +125,7 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 .venv\Scripts\python.exe -m pytest
 ```
 
-현재 테스트는 관리자 콘솔 정적 자산, 보안 header, 회원가입 승인 흐름, 로그인 세션, 역할별 접근 제어, 관리자 token fallback, DB readiness, 클러스터 등록, 설치 명령어 조회, node token 기반 Agent 인증, Alertmanager webhook token 인증 및 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 오류 마스킹과 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report 생성, Node Agent collector 기본 동작을 확인합니다.
+현재 테스트는 관리자 콘솔 정적 자산, 보안 header, 회원가입 승인 흐름, 로그인 세션, 역할별 접근 제어, 관리자 token fallback, DB readiness, 클러스터 등록, 설치 명령어 조회, node token 기반 Agent 인증, Alertmanager webhook token 인증 및 수신, Agent evidence 흐름, evidence preprocessing, LLM adapter, provider별 request contract, LLM 오류 마스킹과 출력 정규화, Policy Engine guardrail, RCA signal 추출, RCA report/job 저장과 상세 drill-down, Node Agent collector 기본 동작을 확인합니다.
 
 ## 디렉터리 구조
 
@@ -177,4 +177,4 @@ $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 - Node Agent collector를 실제 Linux 노드에서 돌려보고 수집 필드와 분석 threshold 보정하기
 - 실제 provider API key를 넣고 staging 환경에서 LLM Analyzer 응답 검증하기
 
-DB 저장소, migration, 승인 기반 회원가입, 관리자 콘솔, 세션/역할 기반 접근 제어, Agent register/heartbeat, evidence request/response 계약, webhook token 인증, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report 생성, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, LLM 출력 guardrail, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드 collector 검증과 staging LLM 검증을 이어가야 합니다.
+DB 저장소, migration, 승인 기반 회원가입, 관리자 콘솔, 세션/역할 기반 접근 제어, Agent register/heartbeat, evidence request/response 계약, webhook token 인증, webhook 기반 evidence request 생성, evidence 제출 이후 RCA report/job 저장, RCA report 상세 drill-down, Node Agent MVP collector, evidence preprocessing, provider 교체 가능한 LLM Analyzer, LLM 출력 guardrail, evidence 기반 RCA signal 분석까지 들어갔습니다. 이제 실제 노드 collector 검증과 staging LLM 검증을 이어가야 합니다.

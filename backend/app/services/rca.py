@@ -206,8 +206,6 @@ class RcaService:
     def _create_completed_job(self, evidence: EvidenceBundle) -> RcaJob:
         report_id = f"report-{uuid.uuid4().hex[:8]}"
         report = self._analyzer.analyze(report_id, evidence)
-        self._store.save_report(report)
-
         job = RcaJob(
             job_id=f"job-{uuid.uuid4().hex[:8]}",
             cluster_id=evidence.cluster_id,
@@ -217,7 +215,7 @@ class RcaService:
             report_id=report.report_id,
             evidence_id=evidence.evidence_id,
         )
-        return self._store.save_job(job)
+        return self._store.save_report_and_job(report, job)
 
     def _skip_reason(self, alert: AlertmanagerAlert, reason: str) -> str:
         alert_name = alert.labels.get("alertname", "unknown")

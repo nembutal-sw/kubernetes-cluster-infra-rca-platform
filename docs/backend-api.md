@@ -162,6 +162,7 @@ Web UI 구성은 [docs/web-console.md](web-console.md)를 참고합니다.
 - Node Agent 등록과 heartbeat API는 구현되어 있습니다.
 - Agent evidence request/response API는 구현되어 있습니다.
 - Agent가 completed evidence를 제출하면 RCA job과 report가 자동 생성됩니다.
+- RCA report와 RCA job은 같은 저장소 호출 안에서 함께 저장되어 report/job 짝이 어긋나지 않도록 처리합니다.
 - 클러스터별 Agent manifest 생성 API가 구현되어 있습니다.
 - `Evidence Preprocessor`가 raw collector output을 LLM 입력용 JSON으로 정리하고 evidence quality, incident focus, component health, log summary를 추가합니다.
 - `LLM Analyzer` adapter는 `RCA_LLM_PROVIDER` 설정에 따라 OpenAI, Claude, Gemini, OpenAI-compatible, self-hosted endpoint를 선택할 수 있습니다. 기본값은 비활성화입니다.

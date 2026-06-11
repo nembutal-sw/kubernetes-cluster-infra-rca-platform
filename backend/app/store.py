@@ -75,6 +75,7 @@ class StoreProtocol(Protocol):
     def list_jobs(self) -> list[RcaJob]: ...
     def get_job(self, job_id: str) -> RcaJob | None: ...
     def save_report(self, report: RcaReport) -> RcaReport: ...
+    def save_report_and_job(self, report: RcaReport, job: RcaJob) -> RcaJob: ...
     def list_reports(self) -> list[RcaReport]: ...
     def get_report(self, report_id: str) -> RcaReport | None: ...
     def create_user_registration(self, request: UserSignupRequest) -> UserAccount: ...
@@ -280,6 +281,12 @@ class InMemoryStore:
         with self._lock:
             self._reports[report.report_id] = report
             return report
+
+    def save_report_and_job(self, report: RcaReport, job: RcaJob) -> RcaJob:
+        with self._lock:
+            self._reports[report.report_id] = report
+            self._jobs[job.job_id] = job
+            return job
 
     def list_reports(self) -> list[RcaReport]:
         with self._lock:
@@ -639,6 +646,13 @@ class SqlAlchemyStore:
             session.merge(_report_to_row(report))
             session.commit()
         return report
+
+    def save_report_and_job(self, report: RcaReport, job: RcaJob) -> RcaJob:
+        with self._session_factory() as session:
+            session.merge(_report_to_row(report))
+            session.merge(_job_to_row(job))
+            session.commit()
+        return job
 
     def list_reports(self) -> list[RcaReport]:
         with self._session_factory() as session:

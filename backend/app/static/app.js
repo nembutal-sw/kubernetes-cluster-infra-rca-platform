@@ -1,6 +1,8 @@
 const state = {
   clusters: [],
   reports: [],
+  reportDetails: {},
+  expandedReportId: "",
   pendingUsers: [],
   sessionToken: sessionStorage.getItem("rca_session_token") || "",
   currentUser: null,
@@ -69,6 +71,8 @@ async function logout() {
   renderSession();
   state.clusters = [];
   state.reports = [];
+  state.reportDetails = {};
+  state.expandedReportId = "";
   state.pendingUsers = [];
   renderClusters();
   renderReports();
@@ -345,6 +349,8 @@ function renderReports() {
   target.innerHTML = state.reports
     .map((report) => {
       const policies = [...new Set(report.recommended_actions.map((action) => action.policy))];
+      const expanded = state.expandedReportId === report.report_id;
+      const detail = state.reportDetails[report.report_id];
       return `
         <article class="item">
           <div class="item-head">
@@ -363,16 +369,186 @@ function renderReports() {
           </div>
           <div class="item-actions">
             ${policies.map((policy) => `<span class="badge ${policyClass(policy)}">${escapeHtml(policy)}</span>`).join("")}
+            <button type="button" data-report-detail="${escapeHtml(report.report_id)}">${expanded ? "Hide details" : "Details"}</button>
             <button type="button" data-report-json="${escapeHtml(report.report_id)}">Copy JSON</button>
           </div>
+          <div class="detail-slot">${expanded ? renderReportDetail(detail) : ""}</div>
         </article>
       `;
     })
     .join("");
 
+  target.querySelectorAll("[data-report-detail]").forEach((button) => {
+    button.addEventListener("click", () => toggleReportDetail(button.dataset.reportDetail));
+  });
   target.querySelectorAll("[data-report-json]").forEach((button) => {
     button.addEventListener("click", () => copyReportJson(button.dataset.reportJson));
   });
+}
+
+async function toggleReportDetail(reportId) {
+  if (state.expandedReportId === reportId) {
+    state.expandedReportId = "";
+    renderReports();
+    return;
+  }
+
+  state.expandedReportId = reportId;
+  if (!state.reportDetails[reportId]) {
+    state.reportDetails[reportId] = { loading: true };
+    renderReports();
+    try {
+      state.reportDetails[reportId] = await api(`/api/rca/reports/${encodeURIComponent(reportId)}`, {
+        headers: authHeaders({ allowAdminFallback: true }),
+      });
+    } catch (error) {
+      state.reportDetails[reportId] = { error: error.message };
+      toast(error.message);
+    }
+  }
+  renderReports();
+}
+
+function renderReportDetail(report) {
+  if (!report || report.loading) {
+    return `<div class="report-detail empty">Loading report detail.</div>`;
+  }
+  if (report.error) {
+    return `<div class="report-detail empty">${escapeHtml(report.error)}</div>`;
+  }
+
+  const signals = asArray(reportSection(report, "derived_signals").signals);
+  const checklist = asArray(reportSection(report, "resolution_checklist").items);
+  const llmAnalysis = reportSection(report, "llm_analysis").analysis || {};
+
+  return `
+    <div class="report-detail">
+      <div class="detail-grid">
+        <div>
+          <h3>Scope</h3>
+          <dl class="detail-list">
+            <div><dt>Report</dt><dd>${escapeHtml(report.report_id)}</dd></div>
+            <div><dt>Cluster</dt><dd>${escapeHtml(report.cluster_id)}</dd></div>
+            <div><dt>Nodes</dt><dd>${escapeHtml(formatList(report.scope?.nodes))}</dd></div>
+            <div><dt>Components</dt><dd>${escapeHtml(formatList(report.scope?.components))}</dd></div>
+          </dl>
+        </div>
+        <div>
+          <h3>LLM</h3>
+          <dl class="detail-list">
+            <div><dt>Status</dt><dd>${escapeHtml(llmAnalysis.status || "unknown")}</dd></div>
+            <div><dt>Provider</dt><dd>${escapeHtml(llmAnalysis.provider || "n/a")}</dd></div>
+            <div><dt>Model</dt><dd>${escapeHtml(llmAnalysis.model || "n/a")}</dd></div>
+            <div><dt>Reason</dt><dd>${escapeHtml(llmAnalysis.reason || llmAnalysis.error || "n/a")}</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="detail-block">
+        <h3>Root Cause Candidates</h3>
+        ${renderRootCauseCandidates(report.root_cause_candidates)}
+      </div>
+      <div class="detail-block">
+        <h3>Recommended Actions</h3>
+        ${renderRecommendedActions(report.recommended_actions)}
+      </div>
+      <div class="detail-block">
+        <h3>Derived Signals</h3>
+        ${renderSignals(signals)}
+      </div>
+      <div class="detail-block">
+        <h3>Resolution Checklist</h3>
+        ${renderChecklist(checklist)}
+      </div>
+    </div>
+  `;
+}
+
+function renderRootCauseCandidates(candidates) {
+  const items = asArray(candidates);
+  if (!items.length) return `<p class="detail-empty">No root cause candidates.</p>`;
+  return `
+    <ol class="detail-rows">
+      ${items
+        .map(
+          (candidate) => `
+            <li>
+              <div class="detail-row-head">
+                <strong>${escapeHtml(candidate.cause)}</strong>
+                <span class="badge ${confidenceClass(candidate.confidence)}">${escapeHtml(candidate.confidence)}</span>
+              </div>
+              <p>${escapeHtml(formatList(candidate.supporting_evidence))}</p>
+            </li>
+          `,
+        )
+        .join("")}
+    </ol>
+  `;
+}
+
+function renderRecommendedActions(actions) {
+  const items = asArray(actions);
+  if (!items.length) return `<p class="detail-empty">No recommended actions.</p>`;
+  return `
+    <div class="detail-rows">
+      ${items
+        .map(
+          (action) => `
+            <div>
+              <div class="detail-row-head">
+                <strong>${escapeHtml(action.action)}</strong>
+                <span class="badge ${policyClass(action.policy)}">${escapeHtml(action.policy)}</span>
+              </div>
+              <p>${escapeHtml(action.reason)}</p>
+              <p>${escapeHtml(action.automation_mode || "manual")} / automation allowed: ${escapeHtml(action.automation_allowed)}</p>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderSignals(signals) {
+  if (!signals.length) return `<p class="detail-empty">No derived signals.</p>`;
+  return `
+    <div class="detail-rows">
+      ${signals
+        .map(
+          (signal) => `
+            <div>
+              <div class="detail-row-head">
+                <strong>${escapeHtml(signal.signal)}</strong>
+                <span class="badge ${signal.severity === "critical" ? "red" : "amber"}">${escapeHtml(signal.severity)}</span>
+              </div>
+              <p>${escapeHtml(signal.component)}: ${escapeHtml(signal.interpretation)}</p>
+              <p>${escapeHtml(signal.next_step)}</p>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderChecklist(items) {
+  if (!items.length) return `<p class="detail-empty">No checklist items.</p>`;
+  return `
+    <div class="detail-rows">
+      ${items
+        .map(
+          (item) => `
+            <div>
+              <div class="detail-row-head">
+                <strong>${escapeHtml(item.component)}</strong>
+                <span>${escapeHtml(item.check)}</span>
+              </div>
+              <code>${escapeHtml(item.command)}</code>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 async function copyReportJson(reportId) {
@@ -486,6 +662,20 @@ function errorMessage(body, fallback) {
     return JSON.stringify(detail);
   }
   return detail || fallback || "Request failed.";
+}
+
+function reportSection(report, sectionType) {
+  return asArray(report.evidence).find((section) => section.type === sectionType) || {};
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function formatList(value) {
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "n/a";
+  if (value === undefined || value === null || value === "") return "n/a";
+  return String(value);
 }
 
 function setActiveNav(activeLink) {

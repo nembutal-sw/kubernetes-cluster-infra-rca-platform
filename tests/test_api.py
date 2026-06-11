@@ -66,6 +66,8 @@ def test_web_console_static_assets_are_served(tmp_path) -> None:
     assert "X-Admin-Token" in script_response.text
     assert "Backend is unreachable" in script_response.text
     assert "parseResponseBody" in script_response.text
+    assert "toggleReportDetail" in script_response.text
+    assert "Root Cause Candidates" in script_response.text
     assert "RCA_WEBHOOK_TOKEN" in index_response.text
     assert style_response.status_code == 200
     assert "auth-panel" in style_response.text
@@ -216,6 +218,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     assert len(result["created_reports"]) == 1
     assert result["created_evidence_requests"] == []
     assert result["created_jobs"][0]["evidence_id"].startswith("evidence-")
+    assert result["created_jobs"][0]["report_id"] == result["created_reports"][0]
 
     report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}", headers=ADMIN_HEADERS)
 
@@ -236,6 +239,9 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
         "APPROVAL_REQUIRED",
         "GITOPS_PR_ONLY",
     }
+    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
+    reports_response = client.get("/api/rca/reports", headers=ADMIN_HEADERS)
+    assert jobs_response.json()[0]["report_id"] == reports_response.json()[0]["report_id"]
 
 
 def test_alertmanager_webhook_requires_webhook_token(tmp_path) -> None:
