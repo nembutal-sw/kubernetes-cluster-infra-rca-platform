@@ -146,7 +146,13 @@ class RuleBasedRcaAnalyzer:
                 )
             )
 
-        if signal_names & {"conntrack_near_limit", "cni_config_invalid", "dns_unconfigured", "dns_latency_high"}:
+        if signal_names & {
+            "conntrack_near_limit",
+            "cni_config_invalid",
+            "dns_unconfigured",
+            "dns_latency_high",
+            "control_plane_peer_unreachable",
+        }:
             actions.append(
                 self._policy_engine.classify(
                     "open_gitops_pr",
@@ -160,6 +166,7 @@ class RuleBasedRcaAnalyzer:
             "nic_link_flap",
             "kernel_io_error",
             "root_filesystem_read_only",
+            "control_plane_peer_unreachable",
         }:
             actions.append(
                 self._policy_engine.classify(
@@ -230,6 +237,7 @@ class RuleBasedRcaAnalyzer:
 
 def _derive_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
     signals: list[DiagnosticSignal] = []
+    signals.extend(_kubernetes_signals(collectors))
     signals.extend(_systemd_signals(collectors))
     signals.extend(_runtime_signals(collectors))
     signals.extend(_disk_signals(collectors))
@@ -290,6 +298,35 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
             )
         )
 
+    rke2_server_status = systemd.get("rke2_server_status")
+    rke2_server_sub_state = systemd.get("rke2_server_sub_state")
+    if _bad_unit_state(rke2_server_status, rke2_server_sub_state):
+        signals.append(
+            DiagnosticSignal(
+                signal="rke2_server_unit_unhealthy",
+                component="rke2",
+                severity="critical",
+                observed={"status": rke2_server_status, "sub_state": rke2_server_sub_state},
+                interpretation="rke2-server unit is not healthy, so embedded kubelet/containerd/control-plane components may be unstable.",
+                next_step="Check systemctl status rke2-server and journalctl -u rke2-server around the incident window.",
+                supporting_evidence=["systemd"],
+            )
+        )
+
+    rke2_server_restarts = _number(systemd.get("rke2_server_restart_count"))
+    if rke2_server_restarts is not None and rke2_server_restarts >= 5:
+        signals.append(
+            DiagnosticSignal(
+                signal="rke2_server_restarting",
+                component="rke2",
+                severity="warning",
+                observed={"restart_count": rke2_server_restarts},
+                interpretation="rke2-server restart count is high; control-plane or embedded runtime instability may have occurred.",
+                next_step="Correlate rke2-server restarts with node Ready changes, CNI restarts, and API timeout logs.",
+                supporting_evidence=["systemd", "kubernetes"],
+            )
+        )
+
     failed_units = systemd.get("failed_units")
     if isinstance(failed_units, list) and failed_units:
         signals.append(
@@ -301,6 +338,143 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
                 interpretation="노드에 failed systemd unit이 남아 있어 의존 서비스 장애 가능성이 있습니다.",
                 next_step="systemctl --failed와 각 unit journal을 확인해 장애 전파 여부를 판단합니다.",
                 supporting_evidence=["systemd"],
+            )
+        )
+
+    return signals
+
+
+def _kubernetes_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
+    kubernetes = _collector(collectors, "kubernetes")
+    signals: list[DiagnosticSignal] = []
+    if not kubernetes:
+        return signals
+
+    if kubernetes.get("api_available") is False:
+        signals.append(
+            DiagnosticSignal(
+                signal="kubernetes_api_unavailable",
+                component="kubernetes",
+                severity="critical",
+                observed={"api_error": kubernetes.get("api_error")},
+                interpretation="The node agent could not read the Kubernetes API, which may indicate local API path, service account, or control-plane connectivity trouble.",
+                next_step="Check in-cluster API service reachability, ServiceAccount RBAC, and kube-apiserver health from the node.",
+                supporting_evidence=["kubernetes", "network"],
+            )
+        )
+
+    if kubernetes.get("node_ready") is False:
+        signals.append(
+            DiagnosticSignal(
+                signal="node_not_ready_condition",
+                component="kubernetes",
+                severity="critical",
+                observed={"node_conditions": kubernetes.get("node_conditions")},
+                interpretation="Kubernetes reports the node Ready condition as false.",
+                next_step="Compare node condition transition time with kubelet, runtime, kernel, and network evidence.",
+                supporting_evidence=["kubernetes", "kubelet"],
+            )
+        )
+
+    pressure = kubernetes.get("node_pressure")
+    if isinstance(pressure, dict):
+        active_pressure = {key: value for key, value in pressure.items() if str(value).lower() == "true"}
+        if active_pressure:
+            signals.append(
+                DiagnosticSignal(
+                    signal="node_pressure_condition_active",
+                    component="kubernetes",
+                    severity="critical",
+                    observed=active_pressure,
+                    interpretation="Kubernetes node pressure conditions are active.",
+                    next_step="Use disk, memory, process, and kernel collectors to identify the pressure source.",
+                    supporting_evidence=["kubernetes", "disk", "memory", "process"],
+                )
+            )
+
+    failed_peer_probe_count = _number(kubernetes.get("failed_peer_probe_count"))
+    if failed_peer_probe_count is not None and failed_peer_probe_count > 0:
+        signals.append(
+            DiagnosticSignal(
+                signal="control_plane_peer_unreachable",
+                component="network",
+                severity="critical",
+                observed={
+                    "failed_peer_probe_count": failed_peer_probe_count,
+                    "peer_connectivity": kubernetes.get("control_plane_peer_connectivity"),
+                },
+                interpretation="Control-plane peer TCP probes failed from this node. This can break RKE2 remotedialer, API server, CNI watch, or etcd/client paths.",
+                next_step="Check firewall, routing, security groups, node-to-node ACLs, and listener state for the failed peer ports.",
+                supporting_evidence=["kubernetes", "network", "systemd"],
+            )
+        )
+
+    cni_high_restart_pods = kubernetes.get("cni_high_restart_pods")
+    if isinstance(cni_high_restart_pods, list) and cni_high_restart_pods:
+        signals.append(
+            DiagnosticSignal(
+                signal="cni_pod_restarting",
+                component="cni",
+                severity="warning",
+                observed={"pods": cni_high_restart_pods[:10]},
+                interpretation="CNI pods on the node have high restart counts, which can indicate API watch timeouts, CNI agent crashes, or node network instability.",
+                next_step="Inspect the CNI pod previous logs and correlate restart times with API server or node network errors.",
+                supporting_evidence=["kubernetes", "cni"],
+            )
+        )
+
+    high_restart_pods = kubernetes.get("high_restart_pods")
+    if isinstance(high_restart_pods, list) and high_restart_pods and not cni_high_restart_pods:
+        signals.append(
+            DiagnosticSignal(
+                signal="system_pod_restarts_high",
+                component="kubernetes",
+                severity="warning",
+                observed={"pods": high_restart_pods[:10]},
+                interpretation="Pods on the node have high restart counts, which may be a secondary symptom of node/runtime/network instability.",
+                next_step="Separate application restarts from kube-system/runtime restarts before assigning root cause.",
+                supporting_evidence=["kubernetes"],
+            )
+        )
+
+    if kubernetes.get("metrics_available") is False and kubernetes.get("metrics_error"):
+        signals.append(
+            DiagnosticSignal(
+                signal="node_metrics_unavailable",
+                component="kubernetes",
+                severity="warning",
+                observed={"metrics_error": kubernetes.get("metrics_error")},
+                interpretation="Node metrics are unavailable through metrics.k8s.io, so scheduler/autoscaler/operator visibility may be incomplete.",
+                next_step="Check metrics-server logs and kubelet summary API reachability for the affected node.",
+                supporting_evidence=["kubernetes"],
+            )
+        )
+
+    readyz_failures = kubernetes.get("api_readyz_failed_checks")
+    if isinstance(readyz_failures, list) and readyz_failures:
+        signals.append(
+            DiagnosticSignal(
+                signal="apiserver_readyz_failed",
+                component="apiserver",
+                severity="critical",
+                observed={"failed_checks": readyz_failures[:10]},
+                interpretation="API server readiness has failed checks.",
+                next_step="Inspect the failed readyz checks and correlate with etcd/API server logs.",
+                supporting_evidence=["kubernetes"],
+            )
+        )
+
+    cert_warnings = kubernetes.get("certificate_expiration_warnings")
+    if isinstance(cert_warnings, list) and cert_warnings:
+        signals.append(
+            DiagnosticSignal(
+                signal="node_certificate_expiring",
+                component="kubernetes",
+                severity="warning",
+                observed={"warnings": cert_warnings[:5]},
+                interpretation="Kubernetes emitted node certificate expiration warnings. This is usually not the immediate outage root cause, but it is operationally important.",
+                next_step="Plan controlled RKE2 certificate rotation before expiry; do not restart control-plane nodes without an operator-approved maintenance plan.",
+                supporting_evidence=["kubernetes"],
             )
         )
 
@@ -823,23 +997,35 @@ def _build_candidates(
             )
         )
 
-    if names & {"conntrack_near_limit", "interface_down", "nic_link_flap", "interface_packet_errors"}:
+    if names & {
+        "conntrack_near_limit",
+        "interface_down",
+        "nic_link_flap",
+        "interface_packet_errors",
+        "control_plane_peer_unreachable",
+    }:
         candidates.append(
             _candidate(
                 "노드 네트워크 경로, NIC link, 또는 conntrack 고갈로 API Server/CNI/DNS 통신이 불안정합니다.",
-                _confidence_for(names, {"conntrack_near_limit", "interface_down"}),
+                _confidence_for(names, {"control_plane_peer_unreachable", "conntrack_near_limit", "interface_down"}),
                 signals,
-                {"conntrack_near_limit", "interface_down", "nic_link_flap", "interface_packet_errors"},
+                {
+                    "control_plane_peer_unreachable",
+                    "conntrack_near_limit",
+                    "interface_down",
+                    "nic_link_flap",
+                    "interface_packet_errors",
+                },
             )
         )
 
-    if names & {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent"}:
+    if names & {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent", "cni_pod_restarting"}:
         candidates.append(
             _candidate(
                 "CNI 설정 또는 plugin 오류로 pod network attach와 노드 네트워크 구성이 실패하고 있습니다.",
-                _confidence_for(names, {"cni_config_invalid", "cni_plugin_error"}),
+                _confidence_for(names, {"cni_config_invalid", "cni_plugin_error", "cni_pod_restarting"}),
                 signals,
-                {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent"},
+                {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent", "cni_pod_restarting"},
             )
         )
 
@@ -850,6 +1036,16 @@ def _build_candidates(
                 _confidence_for(names, {"dns_unconfigured", "dns_latency_high"}),
                 signals,
                 {"dns_unconfigured", "dns_latency_high", "dns_resolver_timeout_budget_high"},
+            )
+        )
+
+    if names & {"apiserver_readyz_failed", "kubernetes_api_unavailable", "node_metrics_unavailable"}:
+        candidates.append(
+            _candidate(
+                "Kubernetes API readiness or metrics path is unhealthy, so controllers and operators may see stale or missing node state.",
+                _confidence_for(names, {"apiserver_readyz_failed", "kubernetes_api_unavailable"}),
+                signals,
+                {"apiserver_readyz_failed", "kubernetes_api_unavailable", "node_metrics_unavailable"},
             )
         )
 
@@ -1046,20 +1242,34 @@ def _resolution_checklist(signals: list[DiagnosticSignal], alert_name: str) -> l
                 "command": "cat /proc/meminfo && dmesg -T | grep -Ei 'out of memory|oom|killed process' | tail -50",
             }
         )
-    if names & {"conntrack_near_limit", "interface_down", "nic_link_flap", "interface_packet_errors"}:
+    if names & {
+        "conntrack_near_limit",
+        "interface_down",
+        "nic_link_flap",
+        "interface_packet_errors",
+        "control_plane_peer_unreachable",
+    }:
         items.append(
             {
                 "component": "network",
                 "check": "NIC, route, conntrack 상태 확인",
-                "command": "ip link && ip route && cat /proc/sys/net/netfilter/nf_conntrack_count && cat /proc/sys/net/netfilter/nf_conntrack_max",
+                "command": "ip link && ip route && ss -ltn && cat /proc/sys/net/netfilter/nf_conntrack_count && cat /proc/sys/net/netfilter/nf_conntrack_max",
             }
         )
-    if names & {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent"}:
+    if names & {"cni_config_invalid", "cni_plugin_error", "cni_mtu_values_inconsistent", "cni_pod_restarting"}:
         items.append(
             {
                 "component": "cni",
                 "check": "CNI config와 MTU 설정 확인",
-                "command": "find /etc/cni/net.d -maxdepth 1 -type f -print -exec sed -n '1,160p' {} \\;",
+                "command": "find /etc/cni/net.d -maxdepth 1 -type f -print -exec sed -n '1,160p' {} \\; && kubectl -n kube-system get pods -o wide",
+            }
+        )
+    if names & {"apiserver_readyz_failed", "kubernetes_api_unavailable", "node_metrics_unavailable", "node_certificate_expiring"}:
+        items.append(
+            {
+                "component": "kubernetes",
+                "check": "Kubernetes API readiness, metrics path, and node events",
+                "command": "kubectl get --raw='/readyz?verbose' && kubectl top nodes && kubectl get events -A --sort-by=.lastTimestamp | tail -100",
             }
         )
     if names & {"dns_unconfigured", "dns_latency_high", "dns_resolver_timeout_budget_high"}:
@@ -1090,7 +1300,7 @@ def _scope_components(alert_name: str, signals: list[DiagnosticSignal]) -> list[
 
 def _collector_names_for_alert(alert_name: str) -> list[str]:
     if alert_name == "NodeNotReady":
-        return ["kubelet", "containerd", "network"]
+        return ["kubernetes", "kubelet", "containerd", "network"]
     if alert_name == "DiskPressure":
         return ["disk", "inode", "kernel"]
     if alert_name == "MemoryPressure":
@@ -1098,7 +1308,7 @@ def _collector_names_for_alert(alert_name: str) -> list[str]:
     if alert_name == "PIDPressure":
         return ["process", "systemd", "kernel"]
     if alert_name == "NetworkUnavailable":
-        return ["network", "cni", "dns", "conntrack"]
+        return ["kubernetes", "network", "cni", "dns", "conntrack"]
     if alert_name in {"ContainerdDown", "ContainerRuntimeUnhealthy"}:
         return ["containerd", "systemd", "kernel"]
     if alert_name in {"KubeletDown", "KubeletUnhealthy"}:

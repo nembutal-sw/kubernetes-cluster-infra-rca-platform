@@ -71,6 +71,20 @@ def test_preprocessor_keeps_infra_metrics_and_command_failures() -> None:
                 "failed_units": [{"unit": "kubelet.service"}],
                 "command": {"ok": False, "exit_code": 1, "stdout": "", "stderr": "systemctl failed"},
             },
+            "kubernetes": {
+                "api_available": True,
+                "node_ready": False,
+                "metrics_available": False,
+                "metrics_error": "HTTP Error 503: Service Unavailable",
+                "failed_peer_probe_count": 1,
+                "control_plane_peer_connectivity": [
+                    {"node": "core-b", "address": "10.0.0.2", "port": 9345, "ok": False}
+                ],
+                "cni_high_restart_pods": [
+                    {"namespace": "kube-system", "name": "cilium-pdvd8", "restart_count": 22029}
+                ],
+                "certificate_expiration_warnings": [{"reason": "CertificateExpirationWarning"}],
+            },
             "runtime": {
                 "containerd_socket_healthy": False,
                 "containerd_socket_error": "connection refused",
@@ -94,10 +108,13 @@ def test_preprocessor_keeps_infra_metrics_and_command_failures() -> None:
     )
 
     assert payload["key_metrics"]["systemd"]["kubelet_status"] == "failed"
+    assert payload["key_metrics"]["kubernetes"]["node_ready"] is False
+    assert payload["key_metrics"]["kubernetes"]["failed_peer_probe_count"] == 1
     assert payload["key_metrics"]["runtime"]["containerd_socket_healthy"] is False
     assert payload["key_metrics"]["conntrack"]["near_limit"] is True
     assert payload["evidence_quality"]["expected_collectors"] == [
         "node",
+        "kubernetes",
         "systemd",
         "runtime",
         "kernel",
@@ -110,6 +127,10 @@ def test_preprocessor_keeps_infra_metrics_and_command_failures() -> None:
     assert "containerd" in payload["incident_focus"]["primary_components"]
     assert any(
         mode["mode"] == "containerd_socket_unhealthy"
+        for mode in payload["incident_focus"]["observed_failure_modes"]
+    )
+    assert any(
+        mode["mode"] == "control_plane_peer_unreachable"
         for mode in payload["incident_focus"]["observed_failure_modes"]
     )
     assert payload["command_failures"][0]["source"] == "collectors.systemd.command"

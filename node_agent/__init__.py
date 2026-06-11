@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 SUPPORTED_COLLECTORS = [
     "node",
+    "kubernetes",
     "systemd",
     "kernel",
     "disk",

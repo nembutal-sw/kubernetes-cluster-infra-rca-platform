@@ -141,7 +141,14 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
         "POLL_INTERVAL_SECONDS": "30",
         "HTTP_TIMEOUT_SECONDS": "20",
         "COMMAND_TIMEOUT_SECONDS": "7",
+        "KUBERNETES_API_TIMEOUT_SECONDS": "7",
+        "CONTROL_PLANE_PROBE_PORTS": "6443,9345",
     }
+    cluster_role = items["ClusterRole"]
+    assert cluster_role["rules"][0]["resources"] == ["nodes", "pods", "events"]
+    assert cluster_role["rules"][0]["verbs"] == ["get", "list"]
+    cluster_role_binding = items["ClusterRoleBinding"]
+    assert cluster_role_binding["subjects"][0]["namespace"] == "custom-rca"
 
     daemonset = items["DaemonSet"]
     container = daemonset["spec"]["template"]["spec"]["containers"][0]
@@ -154,6 +161,8 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     assert env["BACKEND_URL"]["valueFrom"]["configMapKeyRef"]["name"] == "cluster-infra-rca-agent-config"
     assert env["CLUSTER_ID"]["valueFrom"]["secretKeyRef"]["key"] == "cluster-id"
     assert env["AGENT_TOKEN"]["valueFrom"]["secretKeyRef"]["key"] == "agent-token"
+    assert env["KUBERNETES_API_TIMEOUT_SECONDS"]["valueFrom"]["configMapKeyRef"]["key"] == "KUBERNETES_API_TIMEOUT_SECONDS"
+    assert env["CONTROL_PLANE_PROBE_PORTS"]["valueFrom"]["configMapKeyRef"]["key"] == "CONTROL_PLANE_PROBE_PORTS"
     assert cluster["bootstrap_token"] not in str(manifest)
 
     assert client.get(
@@ -492,10 +501,12 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     assert evidence_request["alert_name"] == "NodeNotReady"
     assert evidence_request["requested_collectors"] == [
         "node",
+        "kubernetes",
         "systemd",
         "runtime",
         "kernel",
         "network",
+        "conntrack",
     ]
     assert evidence_request["time_range"]["from"] == "2026-06-10T09:15:00+09:00"
 
@@ -522,6 +533,19 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
             "node_token": node_token,
             "status": "completed",
             "collectors": {
+                "kubernetes": {
+                    "api_available": True,
+                    "node_ready": False,
+                    "metrics_available": False,
+                    "metrics_error": "HTTP Error 503: Service Unavailable",
+                    "failed_peer_probe_count": 1,
+                    "control_plane_peer_connectivity": [
+                        {"node": "core-b", "address": "10.0.0.2", "port": 9345, "ok": False}
+                    ],
+                    "cni_high_restart_pods": [
+                        {"namespace": "kube-system", "name": "cilium-pdvd8", "restart_count": 22029}
+                    ],
+                },
                 "systemd": {"kubelet_status": "restarting", "kubelet_restart_count": 7},
                 "runtime": {"containerd_socket_healthy": False},
                 "network": {"conntrack_usage_percent": 91},
@@ -545,6 +569,9 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
         "kubelet_unit_unhealthy",
         "containerd_socket_unhealthy",
         "conntrack_near_limit",
+        "control_plane_peer_unreachable",
+        "cni_pod_restarting",
+        "node_metrics_unavailable",
     }
     checklist = _report_section(report, "resolution_checklist")["items"]
     assert {item["component"] for item in checklist} >= {"kubelet", "containerd", "network"}

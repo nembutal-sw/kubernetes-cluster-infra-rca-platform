@@ -16,6 +16,7 @@ MAX_SAMPLE_LINE_LENGTH = 500
 
 CORE_COLLECTORS = {
     "node",
+    "kubernetes",
     "systemd",
     "runtime",
     "kernel",
@@ -29,15 +30,17 @@ CORE_COLLECTORS = {
 }
 
 EXPECTED_COLLECTORS_BY_ALERT = {
-    "NodeNotReady": ["node", "systemd", "runtime", "kernel", "network", "conntrack"],
+    "NodeNotReady": ["node", "kubernetes", "systemd", "runtime", "kernel", "network", "conntrack"],
     "DiskPressure": ["node", "disk", "kernel", "systemd"],
     "MemoryPressure": ["node", "memory", "process", "kernel"],
     "PIDPressure": ["node", "process", "systemd", "kernel"],
-    "NetworkUnavailable": ["node", "network", "conntrack", "cni", "dns", "kernel"],
+    "NetworkUnavailable": ["node", "kubernetes", "network", "conntrack", "cni", "dns", "kernel"],
     "ContainerdDown": ["node", "runtime", "systemd", "kernel"],
     "ContainerRuntimeUnhealthy": ["node", "runtime", "systemd", "kernel"],
-    "KubeletDown": ["node", "systemd", "runtime", "kernel"],
-    "KubeletUnhealthy": ["node", "systemd", "runtime", "kernel"],
+    "KubeletDown": ["node", "kubernetes", "systemd", "runtime", "kernel"],
+    "KubeletUnhealthy": ["node", "kubernetes", "systemd", "runtime", "kernel"],
+    "EtcdLatencyHigh": ["node", "kubernetes", "network", "systemd", "kernel"],
+    "APIServerLatencyHigh": ["node", "kubernetes", "network", "systemd", "kernel"],
 }
 
 NOISE_KEYS = {
@@ -307,6 +310,7 @@ def _component_status(collector_status: str | None, metrics: Any, component_sign
 
 def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
     systemd = _dict_value(collectors.get("systemd"))
+    kubernetes = _dict_value(collectors.get("kubernetes"))
     runtime = _dict_value(collectors.get("runtime"))
     disk = _dict_value(collectors.get("disk"))
     memory = _dict_value(collectors.get("memory"))
@@ -326,8 +330,36 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "containerd_status": systemd.get("containerd_status"),
                 "containerd_sub_state": systemd.get("containerd_sub_state"),
                 "containerd_restart_count": systemd.get("containerd_restart_count"),
+                "rke2_server_status": systemd.get("rke2_server_status"),
+                "rke2_server_sub_state": systemd.get("rke2_server_sub_state"),
+                "rke2_server_restart_count": systemd.get("rke2_server_restart_count"),
+                "rke2_agent_status": systemd.get("rke2_agent_status"),
+                "rke2_agent_sub_state": systemd.get("rke2_agent_sub_state"),
+                "rke2_agent_restart_count": systemd.get("rke2_agent_restart_count"),
                 "failed_unit_count": len(systemd.get("failed_units", []))
                 if isinstance(systemd.get("failed_units"), list)
+                else None,
+            }
+        ),
+        "kubernetes": _drop_none(
+            {
+                "api_available": kubernetes.get("api_available"),
+                "api_error": kubernetes.get("api_error"),
+                "node_ready": kubernetes.get("node_ready"),
+                "node_pressure": kubernetes.get("node_pressure"),
+                "kubelet_version": kubernetes.get("kubelet_version"),
+                "container_runtime_version": kubernetes.get("container_runtime_version"),
+                "pod_count_on_node": kubernetes.get("pod_count_on_node"),
+                "pod_restart_count_total": kubernetes.get("pod_restart_count_total"),
+                "high_restart_pods": kubernetes.get("high_restart_pods"),
+                "cni_high_restart_pods": kubernetes.get("cni_high_restart_pods"),
+                "metrics_available": kubernetes.get("metrics_available"),
+                "metrics_error": kubernetes.get("metrics_error"),
+                "failed_peer_probe_count": kubernetes.get("failed_peer_probe_count"),
+                "control_plane_peer_connectivity": kubernetes.get("control_plane_peer_connectivity"),
+                "api_readyz_failed_checks": kubernetes.get("api_readyz_failed_checks"),
+                "certificate_expiration_warning_count": len(kubernetes.get("certificate_expiration_warnings", []))
+                if isinstance(kubernetes.get("certificate_expiration_warnings"), list)
                 else None,
             }
         ),
@@ -819,6 +851,7 @@ def _rank_signal_components(derived_signals: list[dict[str, Any]]) -> list[str]:
 def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, Any]) -> list[dict[str, Any]]:
     modes: list[dict[str, Any]] = []
     systemd = _dict_value(key_metrics.get("systemd"))
+    kubernetes = _dict_value(key_metrics.get("kubernetes"))
     runtime = _dict_value(key_metrics.get("runtime"))
     disk = _dict_value(key_metrics.get("disk"))
     memory = _dict_value(key_metrics.get("memory"))
@@ -893,6 +926,48 @@ def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, 
         "kernel_blocked_task",
         "kernel",
         {"blocked_task_detected": kernel.get("blocked_task_detected")},
+    )
+    _append_mode_if(
+        modes,
+        kubernetes.get("api_available") is False,
+        "kubernetes_api_unavailable",
+        "kubernetes",
+        kubernetes,
+    )
+    _append_mode_if(
+        modes,
+        kubernetes.get("node_ready") is False,
+        "node_not_ready",
+        "kubernetes",
+        kubernetes,
+    )
+    _append_mode_if(
+        modes,
+        _number_at_least(kubernetes.get("failed_peer_probe_count"), 1),
+        "control_plane_peer_unreachable",
+        "network",
+        {"failed_peer_probe_count": kubernetes.get("failed_peer_probe_count")},
+    )
+    _append_mode_if(
+        modes,
+        _non_empty_list(kubernetes.get("cni_high_restart_pods")),
+        "cni_pod_restarting",
+        "cni",
+        {"cni_high_restart_pods": kubernetes.get("cni_high_restart_pods")},
+    )
+    _append_mode_if(
+        modes,
+        kubernetes.get("metrics_available") is False and kubernetes.get("metrics_error"),
+        "node_metrics_unavailable",
+        "kubernetes",
+        {"metrics_error": kubernetes.get("metrics_error")},
+    )
+    _append_mode_if(
+        modes,
+        _number_at_least(kubernetes.get("certificate_expiration_warning_count"), 1),
+        "node_certificate_expiring",
+        "kubernetes",
+        {"certificate_expiration_warning_count": kubernetes.get("certificate_expiration_warning_count")},
     )
     _append_mode_if(
         modes,

@@ -6,9 +6,13 @@ import re
 import json
 import shutil
 import socket
+import ssl
 import stat
 import subprocess
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,12 +23,19 @@ Collector = Callable[[], dict[str, Any]]
 
 DEFAULT_COLLECTORS = [
     "node",
+    "kubernetes",
     "systemd",
     "kernel",
     "disk",
+    "inode",
     "memory",
+    "process",
     "network",
+    "conntrack",
     "runtime",
+    "kubelet",
+    "cni",
+    "dns",
 ]
 
 SENSITIVE_PATTERNS = [
@@ -138,6 +149,7 @@ def collect_evidence(
 def build_registry(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collector]:
     return {
         "node": lambda: collect_node(paths),
+        "kubernetes": lambda: collect_kubernetes(),
         "systemd": lambda: collect_systemd(runner),
         "kernel": lambda: collect_kernel(paths, runner),
         "disk": lambda: collect_disk(paths),
@@ -175,9 +187,13 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
     units = {
         "kubelet": _systemctl_show(runner, "kubelet"),
         "containerd": _systemctl_show(runner, "containerd"),
+        "rke2-server": _systemctl_show(runner, "rke2-server"),
+        "rke2-agent": _systemctl_show(runner, "rke2-agent"),
     }
     kubelet = units["kubelet"]
     containerd = units["containerd"]
+    rke2_server = units["rke2-server"]
+    rke2_agent = units["rke2-agent"]
     failed_units = _systemctl_failed_units(runner)
     return {
         "kubelet_status": kubelet.get("ActiveState"),
@@ -188,10 +204,91 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
         "containerd_sub_state": containerd.get("SubState"),
         "containerd_result": containerd.get("Result"),
         "containerd_restart_count": _safe_int(containerd.get("NRestarts")),
+        "rke2_server_status": rke2_server.get("ActiveState"),
+        "rke2_server_sub_state": rke2_server.get("SubState"),
+        "rke2_server_result": rke2_server.get("Result"),
+        "rke2_server_restart_count": _safe_int(rke2_server.get("NRestarts")),
+        "rke2_agent_status": rke2_agent.get("ActiveState"),
+        "rke2_agent_sub_state": rke2_agent.get("SubState"),
+        "rke2_agent_result": rke2_agent.get("Result"),
+        "rke2_agent_restart_count": _safe_int(rke2_agent.get("NRestarts")),
         "failed_units": failed_units["units"],
         "failed_units_command": failed_units["command"],
         "units": units,
     }
+
+
+def collect_kubernetes() -> dict[str, Any]:
+    node_name = os.getenv("NODE_NAME") or socket.gethostname()
+    timeout_seconds = _bounded_float(os.getenv("KUBERNETES_API_TIMEOUT_SECONDS"), default=3.0, minimum=0.5, maximum=30.0)
+    client = _KubernetesApiClient(timeout_seconds=timeout_seconds)
+    base: dict[str, Any] = {
+        "node_name": node_name,
+        "api_available": False,
+        "metrics_available": False,
+        "node_ready": None,
+        "node_pressure": {},
+        "pod_count_on_node": None,
+        "high_restart_pods": [],
+        "cni_high_restart_pods": [],
+        "control_plane_peer_connectivity": [],
+        "failed_peer_probe_count": 0,
+        "certificate_expiration_warnings": [],
+    }
+
+    if not client.configured:
+        base["api_error"] = client.config_error
+        return base
+
+    node_response = client.get_json(f"/api/v1/nodes/{urllib.parse.quote(node_name, safe='')}")
+    base["api_available"] = node_response.get("ok") is True
+    if not node_response.get("ok"):
+        base["api_error"] = node_response.get("error")
+        return base
+
+    node = _dict_value(node_response.get("data"))
+    node_summary = _summarize_kubernetes_node(node)
+    base.update(node_summary)
+
+    pods_response = client.get_json(
+        f"/api/v1/pods?fieldSelector={urllib.parse.quote(f'spec.nodeName={node_name}', safe='=')}"
+    )
+    base["pods"] = pods_response
+    if pods_response.get("ok"):
+        pod_summary = _summarize_kubernetes_pods(_list_items(pods_response.get("data")))
+        base.update(pod_summary)
+
+    events_response = client.get_json(
+        "/api/v1/events?fieldSelector="
+        + urllib.parse.quote(f"involvedObject.kind=Node,involvedObject.name={node_name}", safe="=,")
+    )
+    base["node_events"] = events_response
+    if events_response.get("ok"):
+        base["certificate_expiration_warnings"] = _certificate_expiration_warnings(_list_items(events_response.get("data")))
+
+    readyz_response = client.get_text("/readyz?verbose")
+    base["readyz"] = readyz_response
+    if readyz_response.get("ok"):
+        base["api_readyz_failed_checks"] = _parse_readyz_failures(str(readyz_response.get("body") or ""))
+
+    metrics_response = client.get_json(f"/apis/metrics.k8s.io/v1beta1/nodes/{urllib.parse.quote(node_name, safe='')}")
+    base["metrics"] = metrics_response
+    base["metrics_available"] = metrics_response.get("ok") is True
+    if not metrics_response.get("ok"):
+        base["metrics_error"] = metrics_response.get("error")
+
+    nodes_response = client.get_json("/api/v1/nodes")
+    base["nodes"] = nodes_response
+    if nodes_response.get("ok"):
+        peer_results = _probe_control_plane_peers(
+            nodes=_list_items(nodes_response.get("data")),
+            current_node_name=node_name,
+            timeout_seconds=timeout_seconds,
+        )
+        base["control_plane_peer_connectivity"] = peer_results
+        base["failed_peer_probe_count"] = sum(1 for item in peer_results if item.get("ok") is False)
+
+    return base
 
 
 def collect_kernel(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
@@ -506,6 +603,309 @@ def collect_dns(paths: AgentPaths) -> dict[str, Any]:
         "rotate": parsed_options.get("rotate"),
         "single_request_reopen": parsed_options.get("single_request_reopen"),
     }
+
+
+class _KubernetesApiClient:
+    def __init__(self, timeout_seconds: float) -> None:
+        self.timeout_seconds = timeout_seconds
+        host = os.getenv("KUBERNETES_SERVICE_HOST")
+        port = os.getenv("KUBERNETES_SERVICE_PORT", "443")
+        token_path = Path(os.getenv("KUBERNETES_SERVICEACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
+        ca_path = Path(os.getenv("KUBERNETES_SERVICEACCOUNT_CA", "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"))
+        self.config_error: str | None = None
+        self.base_url = ""
+        self.token = ""
+        self.context = None
+
+        if not host:
+            self.config_error = "KUBERNETES_SERVICE_HOST is not set"
+            return
+        self.base_url = f"https://{host}:{port}"
+        self.token = _read_first_line(token_path) or ""
+        if not self.token:
+            self.config_error = f"service account token is not readable: {token_path}"
+            return
+        try:
+            self.context = ssl.create_default_context(cafile=str(ca_path)) if ca_path.exists() else None
+        except OSError as exc:
+            self.config_error = _clean_text(str(exc), limit=500)
+
+    @property
+    def configured(self) -> bool:
+        return self.config_error is None
+
+    def get_json(self, path: str) -> dict[str, Any]:
+        response = self.get_text(path)
+        if not response.get("ok"):
+            return response
+        try:
+            response["data"] = json.loads(str(response.get("body") or "{}"))
+            response.pop("body", None)
+            return response
+        except json.JSONDecodeError as exc:
+            return {
+                "ok": False,
+                "status_code": response.get("status_code"),
+                "error": f"invalid JSON response: {exc}",
+            }
+
+    def get_text(self, path: str) -> dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+        try:
+            started_at = time.monotonic()
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds, context=self.context) as response:
+                body = response.read(512 * 1024).decode("utf-8", errors="replace")
+            return {
+                "ok": True,
+                "status_code": response.status,
+                "latency_ms": round((time.monotonic() - started_at) * 1000, 2),
+                "body": _clean_text(body, limit=20000),
+            }
+        except urllib.error.HTTPError as exc:
+            return {
+                "ok": False,
+                "status_code": exc.code,
+                "error": _clean_text(str(exc), limit=500),
+            }
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return {
+                "ok": False,
+                "status_code": None,
+                "error": _clean_text(str(exc), limit=500),
+            }
+
+
+def _summarize_kubernetes_node(node: dict[str, Any]) -> dict[str, Any]:
+    status = _dict_value(node.get("status"))
+    metadata = _dict_value(node.get("metadata"))
+    node_info = _dict_value(status.get("nodeInfo"))
+    conditions = _node_conditions(status.get("conditions"))
+    pressure = {
+        key: value.get("status")
+        for key, value in conditions.items()
+        if key in {"DiskPressure", "MemoryPressure", "PIDPressure", "NetworkUnavailable"}
+    }
+    return {
+        "node_uid": metadata.get("uid"),
+        "node_labels": _redact_mapping(_dict_value(metadata.get("labels"))),
+        "node_taints": _safe_json_list(_dict_value(node.get("spec")).get("taints")),
+        "node_conditions": conditions,
+        "node_ready": conditions.get("Ready", {}).get("status") == "True",
+        "node_pressure": pressure,
+        "kubelet_version": node_info.get("kubeletVersion"),
+        "container_runtime_version": node_info.get("containerRuntimeVersion"),
+        "kernel_version": node_info.get("kernelVersion"),
+        "addresses": _node_addresses(status.get("addresses")),
+        "capacity": _dict_value(status.get("capacity")),
+        "allocatable": _dict_value(status.get("allocatable")),
+    }
+
+
+def _summarize_kubernetes_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
+    high_restart_pods = []
+    cni_high_restart_pods = []
+    non_running_pods = []
+    total_restart_count = 0
+    kube_system_pod_count = 0
+    for pod in pods:
+        metadata = _dict_value(pod.get("metadata"))
+        status = _dict_value(pod.get("status"))
+        spec = _dict_value(pod.get("spec"))
+        namespace = str(metadata.get("namespace") or "")
+        name = str(metadata.get("name") or "")
+        phase = str(status.get("phase") or "")
+        if namespace == "kube-system":
+            kube_system_pod_count += 1
+        if phase not in {"Running", "Succeeded"}:
+            non_running_pods.append({"namespace": namespace, "name": name, "phase": phase})
+        restart_count = _pod_restart_count(status)
+        total_restart_count += restart_count
+        pod_summary = {
+            "namespace": namespace,
+            "name": name,
+            "phase": phase,
+            "restart_count": restart_count,
+            "node_name": spec.get("nodeName"),
+        }
+        if restart_count >= 5:
+            high_restart_pods.append(pod_summary)
+        if restart_count >= 5 and _is_cni_pod(metadata):
+            cni_high_restart_pods.append(pod_summary)
+    return {
+        "pod_count_on_node": len(pods),
+        "kube_system_pod_count_on_node": kube_system_pod_count,
+        "non_running_pods": non_running_pods[:30],
+        "pod_restart_count_total": total_restart_count,
+        "high_restart_pods": high_restart_pods[:30],
+        "cni_high_restart_pods": cni_high_restart_pods[:30],
+    }
+
+
+def _probe_control_plane_peers(
+    nodes: list[dict[str, Any]],
+    current_node_name: str,
+    timeout_seconds: float,
+) -> list[dict[str, Any]]:
+    ports = _probe_ports()
+    results = []
+    for node in nodes:
+        metadata = _dict_value(node.get("metadata"))
+        node_name = str(metadata.get("name") or "")
+        if not node_name or node_name == current_node_name or not _is_control_plane_node(metadata):
+            continue
+        address = _primary_node_address(_node_addresses(_dict_value(node.get("status")).get("addresses")))
+        if not address:
+            continue
+        for port in ports:
+            results.append({"node": node_name, "address": address, "port": port, **_probe_tcp(address, port, timeout_seconds)})
+    return results[:60]
+
+
+def _probe_ports() -> list[int]:
+    raw = os.getenv("CONTROL_PLANE_PROBE_PORTS", "6443,9345")
+    ports = []
+    for item in raw.split(","):
+        value = _safe_int(item)
+        if value is not None and 0 < value < 65536:
+            ports.append(value)
+    return ports or [6443, 9345]
+
+
+def _probe_tcp(host: str, port: int, timeout_seconds: float) -> dict[str, Any]:
+    started_at = time.monotonic()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout_seconds)
+    try:
+        sock.connect((host, port))
+        return {"ok": True, "latency_ms": round((time.monotonic() - started_at) * 1000, 2)}
+    except OSError as exc:
+        return {"ok": False, "error": _clean_text(str(exc), limit=300)}
+    finally:
+        sock.close()
+
+
+def _node_conditions(value: Any) -> dict[str, dict[str, Any]]:
+    conditions: dict[str, dict[str, Any]] = {}
+    if not isinstance(value, list):
+        return conditions
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        condition_type = str(item.get("type") or "")
+        if not condition_type:
+            continue
+        conditions[condition_type] = {
+            "status": item.get("status"),
+            "reason": item.get("reason"),
+            "message": _clean_text(str(item.get("message") or ""), limit=500),
+            "last_transition_time": item.get("lastTransitionTime"),
+            "last_heartbeat_time": item.get("lastHeartbeatTime"),
+        }
+    return conditions
+
+
+def _node_addresses(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    addresses = []
+    for item in value:
+        if isinstance(item, dict) and item.get("address"):
+            addresses.append({"type": str(item.get("type") or ""), "address": str(item.get("address"))})
+    return addresses
+
+
+def _primary_node_address(addresses: list[dict[str, str]]) -> str | None:
+    for address_type in ("InternalIP", "ExternalIP", "Hostname"):
+        for item in addresses:
+            if item.get("type") == address_type and item.get("address"):
+                return item["address"]
+    return None
+
+
+def _pod_restart_count(status: dict[str, Any]) -> int:
+    total = 0
+    for key in ("initContainerStatuses", "containerStatuses"):
+        values = status.get(key)
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if isinstance(item, dict):
+                total += _safe_int(item.get("restartCount")) or 0
+    return total
+
+
+def _is_cni_pod(metadata: dict[str, Any]) -> bool:
+    namespace = str(metadata.get("namespace") or "").lower()
+    name = str(metadata.get("name") or "").lower()
+    labels = _dict_value(metadata.get("labels"))
+    label_text = " ".join(str(value).lower() for value in labels.values())
+    return namespace == "kube-system" and any(
+        token in f"{name} {label_text}"
+        for token in ("cilium", "calico", "flannel", "weave", "antrea", "canal")
+    )
+
+
+def _is_control_plane_node(metadata: dict[str, Any]) -> bool:
+    labels = _dict_value(metadata.get("labels"))
+    return any(
+        key in labels
+        for key in (
+            "node-role.kubernetes.io/control-plane",
+            "node-role.kubernetes.io/master",
+            "node-role.kubernetes.io/etcd",
+        )
+    )
+
+
+def _certificate_expiration_warnings(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    warnings = []
+    for event in events:
+        if event.get("reason") != "CertificateExpirationWarning":
+            continue
+        warnings.append(
+            {
+                "reason": event.get("reason"),
+                "message": _clean_text(str(event.get("message") or ""), limit=1000),
+                "last_timestamp": event.get("lastTimestamp") or event.get("eventTime"),
+                "count": event.get("count"),
+            }
+        )
+    return warnings[:10]
+
+
+def _parse_readyz_failures(text: str) -> list[str]:
+    failures = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[-]"):
+            failures.append(_clean_text(stripped, limit=500))
+    return failures
+
+
+def _list_items(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict) and isinstance(value.get("items"), list):
+        return [item for item in value["items"] if isinstance(item, dict)]
+    return []
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_json_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _redact_mapping(value: dict[str, Any]) -> dict[str, Any]:
+    redacted = {}
+    for key, item in value.items():
+        text_key = str(key)
+        if any(pattern.search(text_key) for pattern in SENSITIVE_PATTERNS):
+            redacted[text_key] = "<redacted>"
+        else:
+            redacted[text_key] = item
+    return redacted
 
 
 def _safe_collect(collector: Collector) -> dict[str, Any]:
@@ -912,6 +1312,13 @@ def _safe_float(value: object) -> float | None:
         return float(str(value).strip())
     except ValueError:
         return None
+
+
+def _bounded_float(value: object, default: float, minimum: float, maximum: float) -> float:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return default
+    return min(max(parsed, minimum), maximum)
 
 
 def _dedupe(values: list[str]) -> list[str]:

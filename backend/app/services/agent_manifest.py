@@ -46,6 +46,8 @@ def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dic
                 "kind": "ServiceAccount",
                 "metadata": {"name": app_name, "namespace": options.namespace},
             },
+            _agent_cluster_role(app_name),
+            _agent_cluster_role_binding(app_name=app_name, namespace=options.namespace),
             {
                 "apiVersion": "v1",
                 "kind": "ConfigMap",
@@ -62,6 +64,8 @@ def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dic
                     "POLL_INTERVAL_SECONDS": str(options.poll_interval_seconds),
                     "HTTP_TIMEOUT_SECONDS": str(options.http_timeout_seconds),
                     "COMMAND_TIMEOUT_SECONDS": str(options.command_timeout_seconds),
+                    "KUBERNETES_API_TIMEOUT_SECONDS": str(options.command_timeout_seconds),
+                    "CONTROL_PLANE_PROBE_PORTS": "6443,9345",
                 },
             },
             _agent_daemonset(
@@ -120,6 +124,55 @@ def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOp
     )
 
 
+def _agent_cluster_role(app_name: str) -> dict[str, object]:
+    return {
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRole",
+        "metadata": {"name": app_name},
+        "rules": [
+            {
+                "apiGroups": [""],
+                "resources": ["nodes", "pods", "events"],
+                "verbs": ["get", "list"],
+            },
+            {
+                "apiGroups": ["coordination.k8s.io"],
+                "resources": ["leases"],
+                "verbs": ["get", "list"],
+            },
+            {
+                "apiGroups": ["metrics.k8s.io"],
+                "resources": ["nodes", "pods"],
+                "verbs": ["get", "list"],
+            },
+            {
+                "nonResourceURLs": ["/readyz", "/readyz/*", "/livez", "/livez/*"],
+                "verbs": ["get"],
+            },
+        ],
+    }
+
+
+def _agent_cluster_role_binding(app_name: str, namespace: str) -> dict[str, object]:
+    return {
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "ClusterRoleBinding",
+        "metadata": {"name": app_name},
+        "subjects": [
+            {
+                "kind": "ServiceAccount",
+                "name": app_name,
+                "namespace": namespace,
+            }
+        ],
+        "roleRef": {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "ClusterRole",
+            "name": app_name,
+        },
+    }
+
+
 def _agent_daemonset(
     app_name: str,
     namespace: str,
@@ -172,6 +225,8 @@ def _agent_env(config_map_name: str, secret_name: str) -> list[dict[str, object]
         "POLL_INTERVAL_SECONDS",
         "HTTP_TIMEOUT_SECONDS",
         "COMMAND_TIMEOUT_SECONDS",
+        "KUBERNETES_API_TIMEOUT_SECONDS",
+        "CONTROL_PLANE_PROBE_PORTS",
     ]
     env = [
         {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},

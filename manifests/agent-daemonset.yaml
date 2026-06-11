@@ -9,6 +9,36 @@ metadata:
   name: cluster-infra-rca-agent
   namespace: rca-system
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-infra-rca-agent
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "events"]
+    verbs: ["get", "list"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+  - nonResourceURLs: ["/readyz", "/readyz/*", "/livez", "/livez/*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-infra-rca-agent
+subjects:
+  - kind: ServiceAccount
+    name: cluster-infra-rca-agent
+    namespace: rca-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-infra-rca-agent
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,6 +49,8 @@ data:
   POLL_INTERVAL_SECONDS: "15"
   HTTP_TIMEOUT_SECONDS: "10"
   COMMAND_TIMEOUT_SECONDS: "5"
+  KUBERNETES_API_TIMEOUT_SECONDS: "5"
+  CONTROL_PLANE_PROBE_PORTS: "6443,9345"
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -85,6 +117,16 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: COMMAND_TIMEOUT_SECONDS
+            - name: KUBERNETES_API_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: CONTROL_PLANE_PROBE_PORTS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: CONTROL_PLANE_PROBE_PORTS
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

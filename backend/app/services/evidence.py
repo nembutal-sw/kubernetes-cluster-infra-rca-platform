@@ -17,6 +17,16 @@ class FakeEvidenceCollector:
                 "ready": alert_name != "NodeNotReady",
                 "kernel_version": "fake-6.8.0",
             },
+            "kubernetes": {
+                "api_available": True,
+                "metrics_available": True,
+                "node_ready": alert_name != "NodeNotReady",
+                "node_pressure": {},
+                "failed_peer_probe_count": 0,
+                "high_restart_pods": [],
+                "cni_high_restart_pods": [],
+                "certificate_expiration_warnings": [],
+            },
             "systemd": {
                 "kubelet_status": "active",
                 "kubelet_restart_count": 0,
@@ -50,6 +60,7 @@ class FakeEvidenceCollector:
         }
 
         if alert_name == "NodeNotReady":
+            collectors["kubernetes"]["node_ready"] = False
             collectors["systemd"]["kubelet_status"] = "restarting"
             collectors["systemd"]["kubelet_restart_count"] = 7
             collectors["runtime"]["containerd_socket_healthy"] = False
@@ -81,4 +92,3 @@ class FakeEvidenceCollector:
             alert_name=alert_name,
             collectors=collectors,
         )
-

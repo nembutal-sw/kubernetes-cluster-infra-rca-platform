@@ -178,7 +178,7 @@ class RcaService:
     def _collectors_for(self, alert: AlertmanagerAlert) -> list[str]:
         alert_name = self._alert_name_for(alert)
         if alert_name in {"NodeNotReady", "KubeletDown", "KubeletUnhealthy"}:
-            return ["node", "systemd", "runtime", "kernel", "network"]
+            return ["node", "kubernetes", "systemd", "runtime", "kernel", "network", "conntrack"]
         if alert_name == "DiskPressure":
             return ["node", "disk", "inode", "kernel", "systemd"]
         if alert_name == "MemoryPressure":
@@ -186,13 +186,13 @@ class RcaService:
         if alert_name == "PIDPressure":
             return ["node", "process", "systemd", "kernel"]
         if alert_name == "NetworkUnavailable":
-            return ["node", "network", "cni", "dns", "conntrack"]
+            return ["node", "kubernetes", "network", "cni", "dns", "conntrack", "kernel"]
         if alert_name in {"ContainerdDown", "ContainerRuntimeUnhealthy"}:
             return ["runtime", "systemd", "kernel", "disk"]
         if alert_name in {"CoreDNSUnhealthy", "CoreDNSLatencyHigh"}:
             return ["dns", "network", "cni", "conntrack"]
         if alert_name in {"EtcdLatencyHigh", "APIServerLatencyHigh"}:
-            return ["network", "dns", "systemd", "kernel"]
+            return ["node", "kubernetes", "network", "dns", "systemd", "kernel"]
         return ["node", "systemd", "runtime", "disk", "memory", "network", "kernel"]
 
     def _time_range_for(self, alert: AlertmanagerAlert) -> dict[str, str]:

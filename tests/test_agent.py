@@ -17,7 +17,12 @@ class FakeRunner:
     def run(self, command: list[str]) -> dict[str, Any]:
         if command[:2] == ["systemctl", "show"]:
             unit = command[2]
-            state = "active" if unit == "kubelet" else "failed"
+            state = {
+                "kubelet": "active",
+                "containerd": "failed",
+                "rke2-server": "active",
+                "rke2-agent": "inactive",
+            }.get(unit, "inactive")
             return {
                 "ok": True,
                 "exit_code": 0,
@@ -127,6 +132,7 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["systemd"]["kubelet_status"] == "active"
     assert evidence["systemd"]["kubelet_sub_state"] == "running"
     assert evidence["systemd"]["containerd_status"] == "failed"
+    assert evidence["systemd"]["rke2_server_status"] == "active"
     assert evidence["systemd"]["failed_units"][0]["unit"] == "containerd.service"
     assert evidence["kubelet"]["status"] == "ok"
     assert evidence["kubelet"]["kubelet_status"] == "active"
@@ -141,6 +147,21 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["dns"]["resolv_conf_exists"] is True
     assert evidence["dns"]["ndots"] == 5
     assert evidence["dns"]["dns_lookup_latency_ms"] is None
+
+
+def test_kubernetes_collector_reports_config_error_outside_cluster(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    monkeypatch.delenv("KUBERNETES_SERVICE_PORT", raising=False)
+
+    evidence = collect_evidence(["kubernetes"], paths=paths, runner=FakeRunner())
+
+    assert evidence["kubernetes"]["status"] == "ok"
+    assert evidence["kubernetes"]["api_available"] is False
+    assert "KUBERNETES_SERVICE_HOST" in evidence["kubernetes"]["api_error"]
 
 
 def test_collector_errors_are_returned_as_evidence(tmp_path: Path) -> None:
