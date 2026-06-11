@@ -87,6 +87,27 @@ def test_llm_analyzer_skips_when_configuration_is_incomplete() -> None:
     assert result["reason"] == "RCA_LLM_API_KEY is not configured"
 
 
+def test_llm_analyzer_redacts_sensitive_provider_errors() -> None:
+    class FailingClient:
+        def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError(
+                "provider rejected request: Authorization: Bearer secret-token api_key=secret-key key=gemini-key"
+            )
+
+    llm_analyzer = LlmAnalyzer(
+        LlmSettings(provider="self_hosted", model="local-rca", base_url="http://llm.local/v1"),
+        client=FailingClient(),
+    )
+
+    result = llm_analyzer.analyze({"alert": {}}, {"rule_candidates": []})
+
+    assert result["status"] == "failed"
+    assert "secret-token" not in result["error"]
+    assert "secret-key" not in result["error"]
+    assert "gemini-key" not in result["error"]
+    assert result["error"].count("<redacted>") >= 3
+
+
 def test_llm_analyzer_normalizes_untrusted_model_output() -> None:
     class UnsafeClient:
         def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:

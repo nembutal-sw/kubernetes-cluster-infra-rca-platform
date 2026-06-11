@@ -19,6 +19,7 @@ Backend MVP는 클러스터 등록부터 Alertmanager webhook 수신, Agent evid
 | Method | Path | 설명 |
 | --- | --- | --- |
 | `GET` | `/health` | backend health check |
+| `GET` | `/health/ready` | database 연결을 포함한 readiness check |
 | `GET` | `/` | 관리자 콘솔 Web UI |
 | `POST` | `/api/auth/signup` | 회원가입 승인 요청 생성 |
 | `POST` | `/api/auth/login` | 승인된 사용자 로그인 및 Bearer 세션 발급 |
@@ -61,7 +62,7 @@ Authorization: Bearer <access_token>
 - `operator`: 클러스터 등록, Agent 설치 명령어, evidence request 생성, 조회 API
 - `viewer`: 클러스터, agent, evidence, RCA job/report 조회 API
 
-초기 관리자 계정이 아직 없을 때를 위해 bootstrap admin token도 유지합니다. 아래 header는 `admin` 권한과 같은 fallback으로 처리합니다.
+초기 관리자 계정이 아직 없을 때를 위해 bootstrap admin token도 유지합니다. 아래 header는 `admin` 권한과 같은 fallback으로 처리합니다. 세션이 만료되었거나 권한이 부족해도 같은 요청에 올바른 bootstrap admin token이 있으면 admin token을 우선 신뢰합니다.
 
 ```text
 X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>

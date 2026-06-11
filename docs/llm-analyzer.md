@@ -25,8 +25,10 @@ Backend는 provider별 SDK에 직접 묶이지 않습니다. 공통 `LlmAnalyzer
 | `RCA_LLM_MODEL` | provider model name |
 | `RCA_LLM_API_KEY` | provider API key. self-hosted는 필요 없을 수 있음 |
 | `RCA_LLM_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint base URL |
-| `RCA_LLM_TIMEOUT_SECONDS` | 요청 timeout. 기본 `20` |
-| `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token. 기본 `1200` |
+| `RCA_LLM_TIMEOUT_SECONDS` | 요청 timeout. 기본 `20`, 적용 범위 `1`-`120` |
+| `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token. 기본 `1200`, 적용 범위 `128`-`8000` |
+
+Provider 호출이 실패해도 RCA report 생성은 계속됩니다. 실패 메시지는 `llm_analysis.status = "failed"`에 남기되 token, API key 계열 문자열은 마스킹합니다.
 
 ## 예시
 

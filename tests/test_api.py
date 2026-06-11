@@ -6,7 +6,7 @@ from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.schema import CreateTable
 
 import backend.app.db_models  # noqa: F401
-from backend.app.config import normalize_database_url
+from backend.app.config import load_settings, normalize_database_url
 from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
 
@@ -64,6 +64,8 @@ def test_web_console_static_assets_are_served(tmp_path) -> None:
     assert "loadPendingUsers" in script_response.text
     assert "sessionStorage" in script_response.text
     assert "X-Admin-Token" in script_response.text
+    assert "Backend is unreachable" in script_response.text
+    assert "parseResponseBody" in script_response.text
     assert "RCA_WEBHOOK_TOKEN" in index_response.text
     assert style_response.status_code == 200
     assert "auth-panel" in style_response.text
@@ -386,6 +388,13 @@ def test_login_session_and_role_based_access(tmp_path) -> None:
         headers=viewer_headers,
         json={"name": "viewer-blocked", "environment": "dev"},
     ).status_code == 403
+    fallback_admin_headers = {**viewer_headers, **ADMIN_HEADERS}
+    create_with_admin_fallback = client.post(
+        "/api/clusters",
+        headers=fallback_admin_headers,
+        json={"name": "admin-token-fallback", "environment": "dev"},
+    )
+    assert create_with_admin_fallback.status_code == 201
 
     logout_response = client.post("/api/auth/logout", headers=viewer_headers)
     assert logout_response.status_code == 200
@@ -949,6 +958,31 @@ def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json()["name"] == "prod-cluster"
+
+
+def test_readiness_endpoint_checks_database(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'ready.db'}", auto_create_tables=True))
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "database": "reachable",
+        "llm_provider": "disabled",
+    }
+
+
+def test_runtime_settings_are_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("RCA_SESSION_TTL_HOURS", "0")
+    monkeypatch.setenv("RCA_LLM_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("RCA_LLM_MAX_OUTPUT_TOKENS", "999999")
+
+    settings = load_settings()
+
+    assert settings.session_ttl_hours == 1
+    assert settings.llm.timeout_seconds == 1.0
+    assert settings.llm.max_output_tokens == 8000
 
 
 def test_database_url_normalization() -> None:

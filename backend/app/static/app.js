@@ -398,20 +398,33 @@ async function copyWebhookEndpoint() {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    cache: "no-store",
-    credentials: "same-origin",
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      cache: "no-store",
+      credentials: "same-origin",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error("Backend is unreachable. Check the server or network path.");
+  }
+
   const contentType = response.headers.get("content-type") || "";
-  const body = contentType.includes("application/json") ? await response.json() : await response.text();
+  const rawBody = await response.text();
+  const body = parseResponseBody(rawBody, contentType);
   if (!response.ok) {
-    const detail = typeof body === "object" && body !== null ? body.detail : body;
-    throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg).join(", ") : detail || response.statusText);
+    const message = errorMessage(body, response.statusText);
+    if (response.status === 401 && state.sessionToken && message.toLowerCase().includes("session")) {
+      state.sessionToken = "";
+      state.currentUser = null;
+      sessionStorage.removeItem("rca_session_token");
+      renderSession();
+    }
+    throw new Error(message);
   }
   return body;
 }
@@ -426,9 +439,10 @@ function renderSession() {
 }
 
 function authHeaders(options = {}) {
-  if (state.sessionToken) return { Authorization: `Bearer ${state.sessionToken}` };
-  if (options.allowAdminFallback && state.adminToken) return { "X-Admin-Token": state.adminToken };
-  return {};
+  const headers = {};
+  if (state.sessionToken) headers.Authorization = `Bearer ${state.sessionToken}`;
+  if (options.allowAdminFallback && state.adminToken) headers["X-Admin-Token"] = state.adminToken;
+  return headers;
 }
 
 function ensureAuth() {
@@ -451,6 +465,27 @@ function renderError(selector, message) {
   const target = $(selector);
   target.className = "list empty";
   target.textContent = message;
+}
+
+function parseResponseBody(rawBody, contentType) {
+  if (!rawBody) return null;
+  if (!contentType.includes("application/json")) return rawBody;
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return rawBody;
+  }
+}
+
+function errorMessage(body, fallback) {
+  const detail = typeof body === "object" && body !== null ? body.detail : body;
+  if (Array.isArray(detail)) {
+    return detail.map((item) => item.msg || String(item)).join(", ");
+  }
+  if (typeof detail === "object" && detail !== null) {
+    return JSON.stringify(detail);
+  }
+  return detail || fallback || "Request failed.";
 }
 
 function setActiveNav(activeLink) {

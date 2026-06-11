@@ -43,7 +43,7 @@ $env:RCA_ADMIN_APPROVAL_TOKEN = "replace-with-secure-token"
 ```
 
 콘솔은 로그인 세션을 우선 사용하고 `Authorization: Bearer <access_token>` header로 전송합니다.
-초기 관리자 계정이 없을 때만 bootstrap admin token을 fallback으로 사용하며, 이 값은 `X-Admin-Token` header로 전송합니다.
+bootstrap admin token이 입력되어 있으면 fallback이 필요한 요청에 `X-Admin-Token`도 함께 전송합니다. 세션이 만료되었거나 역할 권한이 부족해도 token 값이 맞으면 Backend가 bootstrap admin token으로 처리합니다.
 브라우저 저장은 영구 `localStorage`가 아니라 탭 단위 `sessionStorage`만 사용합니다.
 
 로그인 세션 또는 bootstrap admin token이 필요한 화면 동작:
@@ -70,5 +70,7 @@ Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-
 - `GET /api/clusters`
 - `GET /api/clusters/{cluster_id}/install-command`
 - `GET /api/rca/reports`
+
+네트워크 오류나 JSON이 아닌 에러 응답은 화면 toast와 목록 영역에 사람이 읽을 수 있는 메시지로 표시합니다.
 
 Alertmanager webhook URL은 현재 origin을 기준으로 화면에서 자동 표시합니다. 화면에는 `Authorization: Bearer ${RCA_WEBHOOK_TOKEN}` 예시도 같이 표시하지만 실제 token 값은 노출하지 않습니다.

@@ -5,8 +5,10 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
@@ -85,6 +87,17 @@ def create_app(
     app.state.engine = engine
     app.state.llm_provider = settings.llm.provider
 
+    @app.exception_handler(SQLAlchemyError)
+    async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
+        del request, exc
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": "database operation failed",
+                "error_code": "database_error",
+            },
+        )
+
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):
         response = await call_next(request)
@@ -110,6 +123,20 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/health/ready")
+    def readiness() -> dict[str, str]:
+        if engine is None:
+            return {"status": "ok", "database": "external_store", "llm_provider": settings.llm.provider}
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except SQLAlchemyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="database unavailable",
+            ) from exc
+        return {"status": "ok", "database": "reachable", "llm_provider": settings.llm.provider}
 
     @app.post("/api/clusters", response_model=Cluster, status_code=status.HTTP_201_CREATED)
     def create_cluster(
@@ -537,7 +564,13 @@ def _authorize_access(
     allowed_roles: set[UserRole],
 ) -> UserAccount | None:
     if authorization:
-        return _require_user(store, authorization, allowed_roles)
+        try:
+            return _require_user(store, authorization, allowed_roles)
+        except HTTPException:
+            if supplied_admin_token:
+                _verify_admin_token(configured_admin_token, supplied_admin_token)
+                return None
+            raise
     if supplied_admin_token:
         _verify_admin_token(configured_admin_token, supplied_admin_token)
         return None

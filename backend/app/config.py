@@ -38,7 +38,7 @@ def load_settings(database_url: str | None = None, auto_create_tables: bool | No
         auto_create_tables=auto_create_value,
         admin_approval_token=os.getenv("RCA_ADMIN_APPROVAL_TOKEN", "dev-admin-approval-token"),
         webhook_token=_empty_to_none(os.getenv("RCA_WEBHOOK_TOKEN")) or "dev-webhook-token",
-        session_ttl_hours=_int_env("RCA_SESSION_TTL_HOURS", 12),
+        session_ttl_hours=_bounded_int_env("RCA_SESSION_TTL_HOURS", 12, minimum=1, maximum=168),
         llm=_load_llm_settings(),
     )
 
@@ -61,8 +61,8 @@ def _load_llm_settings() -> LlmSettings:
         model=_empty_to_none(os.getenv("RCA_LLM_MODEL")),
         api_key=_empty_to_none(os.getenv("RCA_LLM_API_KEY")),
         base_url=_empty_to_none(os.getenv("RCA_LLM_BASE_URL")),
-        timeout_seconds=_float_env("RCA_LLM_TIMEOUT_SECONDS", 20.0),
-        max_output_tokens=_int_env("RCA_LLM_MAX_OUTPUT_TOKENS", 1200),
+        timeout_seconds=_bounded_float_env("RCA_LLM_TIMEOUT_SECONDS", 20.0, minimum=1.0, maximum=120.0),
+        max_output_tokens=_bounded_int_env("RCA_LLM_MAX_OUTPUT_TOKENS", 1200, minimum=128, maximum=8000),
     )
 
 
@@ -91,3 +91,13 @@ def _int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+def _bounded_float_env(name: str, default: float, minimum: float, maximum: float) -> float:
+    value = _float_env(name, default)
+    return min(max(value, minimum), maximum)
+
+
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    value = _int_env(name, default)
+    return min(max(value, minimum), maximum)

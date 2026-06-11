@@ -21,6 +21,7 @@
 - Policy Engine MVP 완료
 - PostgreSQL/MariaDB 호환 SQLAlchemy 저장소 완료
 - Alembic migration 도입 완료
+- DB readiness check 완료
 
 ## Phase 3: Node Agent MVP
 
@@ -54,6 +55,7 @@
 - 추가 확인 명령어 제안 완료
 - 직접 실행 금지 guardrail 적용 완료
 - LLM 출력 정규화 및 unsafe diagnostic command 제거 완료
+- LLM provider 오류 메시지 민감정보 마스킹 완료
 - staging provider 실 API 검증 예정
 
 ## Phase 5: Policy Engine
@@ -72,6 +74,7 @@
 - 관리자 콘솔 정적 SPA 완료
 - Web UI 보안 header/CSP 적용 완료
 - 관리자 token query string 제거 및 header 전송 완료
+- 세션 만료 시 bootstrap admin token fallback 처리 완료
 - 승인 사용자 로그인/로그아웃 완료
 - Bearer 세션 기반 API 인증 완료
 - admin/operator/viewer 역할별 접근 제어 완료

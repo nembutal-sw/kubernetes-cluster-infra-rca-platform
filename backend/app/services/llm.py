@@ -49,6 +49,13 @@ UNSAFE_COMMAND_PATTERNS = [
     r"\btee\s+",
 ]
 SHELL_CONTROL_TOKENS = [";", "&&", "||", "`", "$(", ">", "<"]
+SENSITIVE_ERROR_PATTERNS = [
+    re.compile(r"(?i)(authorization:\s*bearer\s+)[^\s,;]+"),
+    re.compile(r"(?i)(api[-_]?key[\"'\s:=]+)[^\"'\s,;]+"),
+    re.compile(r"(?i)(access[-_]?token[\"'\s:=]+)[^\"'\s,;]+"),
+    re.compile(r"(?i)(token[\"'\s:=]+)[^\"'\s,;]+"),
+    re.compile(r"(?i)(key=)[^&\s]+"),
+]
 
 
 class LlmClient(Protocol):
@@ -94,7 +101,7 @@ class LlmAnalyzer:
             return {
                 **base,
                 "status": "failed",
-                "error": str(exc),
+                "error": _safe_error_message(exc),
             }
 
         return {
@@ -403,10 +410,13 @@ def _post_json(endpoint: str, headers: dict[str, str], body: dict[str, Any], tim
             payload = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"LLM provider HTTP {exc.code}: {error_body[:500]}") from exc
+        raise RuntimeError(f"LLM provider HTTP {exc.code}: {_redact_sensitive_text(error_body[:500])}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"LLM provider request failed: {exc.reason}") from exc
-    return json.loads(payload)
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("LLM provider returned invalid JSON") from exc
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
@@ -443,3 +453,14 @@ def _required(value: str | None, name: str) -> str:
     if value is None:
         raise ValueError(f"{name} is required")
     return value
+
+
+def _safe_error_message(exc: Exception) -> str:
+    return _redact_sensitive_text(_safe_text(str(exc), 500)) or exc.__class__.__name__
+
+
+def _redact_sensitive_text(text: str) -> str:
+    redacted = text
+    for pattern in SENSITIVE_ERROR_PATTERNS:
+        redacted = pattern.sub(r"\1<redacted>", redacted)
+    return redacted
