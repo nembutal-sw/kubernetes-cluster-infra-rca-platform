@@ -73,6 +73,34 @@ def test_analyzer_ignores_virtual_interface_noise_and_cumulative_tcp_counters() 
     assert "tcp_error_counters_high" not in signal_names
 
 
+def test_analyzer_separates_containerd_socket_permission_from_runtime_outage() -> None:
+    analyzer = RuleBasedRcaAnalyzer(PolicyEngine())
+
+    report = analyzer.analyze(
+        "report-runtime-permission",
+        EvidenceBundle(
+            cluster_id="cluster-1",
+            node_name="core-a",
+            alert_name="ContainerdDown",
+            collectors={
+                "runtime": {
+                    "containerd_socket_path": "/run/k3s/containerd/containerd.sock",
+                    "containerd_socket_exists": True,
+                    "containerd_socket_is_socket": True,
+                    "containerd_socket_healthy": False,
+                    "containerd_socket_error": "[Errno 13] Permission denied",
+                    "containerd_socket_permission_denied": True,
+                },
+            },
+        ),
+    )
+
+    signal_names = _signal_names(report.evidence)
+
+    assert "containerd_socket_permission_denied" in signal_names
+    assert "containerd_socket_unhealthy" not in signal_names
+
+
 def _signal_names(evidence_sections: list[dict]) -> set[str]:
     for section in evidence_sections:
         if section.get("type") == "derived_signals":

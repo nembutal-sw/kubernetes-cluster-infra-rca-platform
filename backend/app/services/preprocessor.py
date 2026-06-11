@@ -373,6 +373,7 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "containerd_socket_latency_ms": runtime.get("containerd_socket_latency_ms"),
                 "containerd_pid_running": runtime.get("containerd_pid_running"),
                 "containerd_socket_error": runtime.get("containerd_socket_error"),
+                "containerd_socket_permission_denied": runtime.get("containerd_socket_permission_denied"),
             }
         ),
         "disk": _drop_none(
@@ -442,6 +443,7 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "mtu": cni.get("mtu"),
                 "mtu_values": cni.get("mtu_values"),
                 "parse_errors": cni.get("parse_errors"),
+                "access_errors": cni.get("access_errors"),
             }
         ),
         "dns": _drop_none(
@@ -754,6 +756,7 @@ def _config_findings(collectors: dict[str, Any]) -> dict[str, Any]:
                 "plugin_types": cni.get("plugin_types"),
                 "mtu_values": cni.get("mtu_values"),
                 "parse_errors": cni.get("parse_errors"),
+                "access_errors": cni.get("access_errors"),
             }
         ),
         "dns": _drop_none(
@@ -894,7 +897,8 @@ def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, 
     )
     _append_mode_if(
         modes,
-        runtime.get("containerd_socket_healthy") is False,
+        runtime.get("containerd_socket_healthy") is False
+        and runtime.get("containerd_socket_permission_denied") is not True,
         "containerd_socket_unhealthy",
         "containerd",
         runtime,

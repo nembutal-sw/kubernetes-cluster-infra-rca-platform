@@ -518,11 +518,8 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     except OSError as exc:
         socket_is_socket = False
         socket_stat_error = _clean_text(str(exc), limit=500)
-    socket_probe = (
-        _probe_unix_socket(socket_path)
-        if socket_is_socket
-        else {"ok": False, "error": "socket not available"}
-    )
+    socket_probe = _probe_unix_socket(socket_path) if socket_is_socket else {"ok": False, "error": "socket not available"}
+    socket_error = socket_stat_error or socket_probe.get("error")
     result = {
         "containerd_socket_path": str(socket_path),
         "containerd_socket_candidates": [str(path) for path in socket_candidates],
@@ -530,7 +527,8 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
         "containerd_socket_is_socket": socket_is_socket,
         "containerd_socket_healthy": socket_probe["ok"],
         "containerd_socket_latency_ms": socket_probe.get("latency_ms"),
-        "containerd_socket_error": socket_stat_error or socket_probe.get("error"),
+        "containerd_socket_error": socket_error,
+        "containerd_socket_permission_denied": _permission_denied(socket_error),
         "containerd_pid_file": str(pid_file),
         "containerd_pid": containerd_pid,
         "containerd_pid_running": (paths.proc_root() / str(containerd_pid)).exists()
@@ -561,22 +559,19 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
     plugin_types: list[str] = []
     mtu_values: list[int] = []
     parse_errors: list[dict[str, str]] = []
+    access_errors: list[dict[str, str]] = []
     directory_results = []
     for cni_dir in cni_dirs:
         dir_configs: list[dict[str, Any]] = []
-        exists = cni_dir.exists()
+        exists, exists_error = _safe_exists(cni_dir)
+        if exists_error:
+            access_errors.append({"dir": str(cni_dir), "error": exists_error})
         config_paths = []
         if exists:
             try:
                 config_paths = sorted(cni_dir.iterdir())
             except OSError as exc:
-                parse_errors.append(
-                    {
-                        "dir": str(cni_dir),
-                        "name": "<directory>",
-                        "error": _clean_text(str(exc), limit=500),
-                    }
-                )
+                access_errors.append({"dir": str(cni_dir), "error": _clean_text(str(exc), limit=500)})
         for path in config_paths:
             if not path.is_file():
                 continue
@@ -604,10 +599,14 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
             {
                 "path": str(cni_dir),
                 "exists": exists,
+                "access_error": exists_error,
                 "config_count": len(dir_configs),
             }
         )
-    primary_dir = next((item for item in cni_dirs if item.exists()), cni_dirs[0])
+    primary_dir = next(
+        (cni_dirs[index] for index, item in enumerate(directory_results) if item["exists"]),
+        cni_dirs[0],
+    )
     return {
         "config_dir": str(primary_dir),
         "config_dirs": [str(path) for path in cni_dirs],
@@ -618,6 +617,7 @@ def collect_cni(paths: AgentPaths) -> dict[str, Any]:
         "mtu": mtu_values[0] if mtu_values else None,
         "mtu_values": mtu_values,
         "parse_errors": parse_errors,
+        "access_errors": access_errors,
         "plugin_errors_detected": None,
         "configs": configs,
     }
@@ -997,6 +997,13 @@ def _systemctl_failed_units(runner: CommandRunner) -> dict[str, Any]:
 
 
 def _matching_processes(runner: CommandRunner, keywords: list[str]) -> list[dict[str, str]]:
+    targeted_pattern = "rke2 server|containerd -c|kubelet --"
+    targeted = runner.run(["pgrep", "-af", targeted_pattern])
+    if targeted.get("ok") and targeted.get("stdout"):
+        matches = _parse_pgrep_processes(str(targeted.get("stdout") or ""))
+        if matches:
+            return matches
+
     result = runner.run(["ps", "-eo", "pid=,comm=,args="])
     if not result.get("ok"):
         return []
@@ -1019,6 +1026,21 @@ def _matching_processes(runner: CommandRunner, keywords: list[str]) -> list[dict
                 "args": _clean_text(fields[2] if len(fields) > 2 else fields[1], limit=500),
             }
         )
+    return matches
+
+
+def _parse_pgrep_processes(output: str) -> list[dict[str, str]]:
+    matches = []
+    for line in output.splitlines():
+        cleaned = line.strip()
+        if not cleaned or "pgrep -af" in cleaned:
+            continue
+        fields = cleaned.split(None, 1)
+        if len(fields) != 2:
+            continue
+        args = fields[1]
+        command = Path(args.split()[0]).name if args.split() else ""
+        matches.append({"pid": fields[0], "command": command, "args": _clean_text(args, limit=500)})
     return matches
 
 
@@ -1521,6 +1543,17 @@ def _clean_text(text: str | bytes, limit: int = 4000) -> str:
 def _contains_any(text: str, keywords: list[str]) -> bool:
     lowered = text.lower()
     return any(keyword.lower() in lowered for keyword in keywords)
+
+
+def _permission_denied(value: object) -> bool:
+    return "permission denied" in str(value or "").lower() or "errno 13" in str(value or "").lower()
+
+
+def _safe_exists(path: Path) -> tuple[bool, str | None]:
+    try:
+        return path.exists(), None
+    except OSError as exc:
+        return False, _clean_text(str(exc), limit=500)
 
 
 def _safe_int(value: object) -> int | None:

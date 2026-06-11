@@ -493,7 +493,22 @@ def _kubernetes_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
 def _runtime_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
     runtime = _collector(collectors, "runtime")
     signals = []
-    if runtime.get("containerd_socket_healthy") is False:
+    if runtime.get("containerd_socket_healthy") is False and runtime.get("containerd_socket_permission_denied") is True:
+        signals.append(
+            DiagnosticSignal(
+                signal="containerd_socket_permission_denied",
+                component="containerd",
+                severity="warning",
+                observed={
+                    "socket": runtime.get("containerd_socket_path"),
+                    "error": runtime.get("containerd_socket_error"),
+                },
+                interpretation="containerd socket exists but the agent could not probe it because of local permissions.",
+                next_step="Run the node agent with sufficient host privileges or grant access to the runtime socket before treating this as a containerd outage.",
+                supporting_evidence=["runtime"],
+            )
+        )
+    elif runtime.get("containerd_socket_healthy") is False:
         signals.append(
             DiagnosticSignal(
                 signal="containerd_socket_unhealthy",
