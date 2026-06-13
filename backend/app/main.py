@@ -44,7 +44,9 @@ from backend.app.services.agent_manifest import (
     DEFAULT_AGENT_IMAGE,
     DEFAULT_AGENT_NAMESPACE,
     DEFAULT_COMMAND_TIMEOUT_SECONDS,
+    DEFAULT_CONTROL_PLANE_PROBE_PORTS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
+    DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS,
     DEFAULT_POLL_INTERVAL_SECONDS,
     AgentManifestOptions,
 )
@@ -280,6 +282,9 @@ def create_app(
         poll_interval_seconds: int = Query(default=DEFAULT_POLL_INTERVAL_SECONDS),
         http_timeout_seconds: int = Query(default=DEFAULT_HTTP_TIMEOUT_SECONDS),
         command_timeout_seconds: int = Query(default=DEFAULT_COMMAND_TIMEOUT_SECONDS),
+        kubernetes_api_timeout_seconds: int = Query(default=DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS),
+        control_plane_probe_ports: str = Query(default=DEFAULT_CONTROL_PLANE_PROBE_PORTS),
+        runtime_socket_paths: str = Query(default=""),
     ) -> dict[str, object]:
         try:
             manifest = rca_service.build_agent_manifest(
@@ -291,6 +296,9 @@ def create_app(
                     poll_interval_seconds=poll_interval_seconds,
                     http_timeout_seconds=http_timeout_seconds,
                     command_timeout_seconds=command_timeout_seconds,
+                    kubernetes_api_timeout_seconds=kubernetes_api_timeout_seconds,
+                    control_plane_probe_ports=control_plane_probe_ports,
+                    runtime_socket_paths=runtime_socket_paths,
                 ),
             )
         except ValueError as exc:

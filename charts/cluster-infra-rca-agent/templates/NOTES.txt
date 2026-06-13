@@ -1,0 +1,13 @@
+Cluster Infra RCA agent chart was rendered.
+
+Before installing in production, create or verify the agent secret:
+
+  kubectl -n {{ include "cluster-infra-rca-agent.namespace" . }} get secret {{ include "cluster-infra-rca-agent.secretName" . }}
+
+Check rollout:
+
+  kubectl -n {{ include "cluster-infra-rca-agent.namespace" . }} rollout status daemonset/{{ include "cluster-infra-rca-agent.fullname" . }}
+
+Check recent logs:
+
+  kubectl -n {{ include "cluster-infra-rca-agent.namespace" . }} logs -l app.kubernetes.io/instance={{ .Release.Name }} --tail=100

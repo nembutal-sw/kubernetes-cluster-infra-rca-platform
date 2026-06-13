@@ -122,6 +122,9 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
             "poll_interval_seconds": 30,
             "http_timeout_seconds": 20,
             "command_timeout_seconds": 7,
+            "kubernetes_api_timeout_seconds": 9,
+            "control_plane_probe_ports": "6443, 9345, 6443",
+            "runtime_socket_paths": "crio=/run/crio/crio.sock;/run/containerd/containerd.sock",
         },
     )
 
@@ -141,8 +144,9 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
         "POLL_INTERVAL_SECONDS": "30",
         "HTTP_TIMEOUT_SECONDS": "20",
         "COMMAND_TIMEOUT_SECONDS": "7",
-        "KUBERNETES_API_TIMEOUT_SECONDS": "7",
+        "KUBERNETES_API_TIMEOUT_SECONDS": "9",
         "CONTROL_PLANE_PROBE_PORTS": "6443,9345",
+        "CONTAINER_RUNTIME_SOCKET_PATHS": "crio=/run/crio/crio.sock,/run/containerd/containerd.sock",
     }
     cluster_role = items["ClusterRole"]
     assert cluster_role["rules"][0]["resources"] == ["nodes", "pods", "events"]
@@ -166,6 +170,9 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     assert env["AGENT_TOKEN"]["valueFrom"]["secretKeyRef"]["key"] == "agent-token"
     assert env["KUBERNETES_API_TIMEOUT_SECONDS"]["valueFrom"]["configMapKeyRef"]["key"] == "KUBERNETES_API_TIMEOUT_SECONDS"
     assert env["CONTROL_PLANE_PROBE_PORTS"]["valueFrom"]["configMapKeyRef"]["key"] == "CONTROL_PLANE_PROBE_PORTS"
+    assert env["CONTAINER_RUNTIME_SOCKET_PATHS"]["valueFrom"]["configMapKeyRef"]["key"] == "CONTAINER_RUNTIME_SOCKET_PATHS"
+    assert daemonset["spec"]["template"]["spec"]["dnsPolicy"] == "ClusterFirstWithHostNet"
+    assert daemonset["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] == 20
     assert cluster["bootstrap_token"] not in str(manifest)
 
     assert client.get(
@@ -183,6 +190,14 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
         params={"backend_url": "https://rca.example.com", "poll_interval_seconds": 1},
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "control_plane_probe_ports": "6443,bad"},
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "runtime_socket_paths": "crio=relative.sock"},
     ).status_code == 422
     assert client.get(
         "/api/clusters/cluster-does-not-exist/agent-manifest",

@@ -51,6 +51,7 @@ data:
   COMMAND_TIMEOUT_SECONDS: "5"
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
   CONTROL_PLANE_PROBE_PORTS: "6443,9345"
+  CONTAINER_RUNTIME_SOCKET_PATHS: ""
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -59,6 +60,7 @@ metadata:
   namespace: rca-system
   labels:
     app.kubernetes.io/name: cluster-infra-rca-agent
+    app.kubernetes.io/part-of: cluster-infra-rca
 spec:
   selector:
     matchLabels:
@@ -67,10 +69,13 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: cluster-infra-rca-agent
+        app.kubernetes.io/part-of: cluster-infra-rca
     spec:
       serviceAccountName: cluster-infra-rca-agent
       hostNetwork: true
       hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 20
       tolerations:
         - operator: Exists
       containers:
@@ -127,6 +132,11 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: CONTROL_PLANE_PROBE_PORTS
+            - name: CONTAINER_RUNTIME_SOCKET_PATHS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: CONTAINER_RUNTIME_SOCKET_PATHS
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

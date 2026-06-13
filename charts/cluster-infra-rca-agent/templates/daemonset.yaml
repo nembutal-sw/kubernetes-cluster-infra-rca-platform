@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "cluster-infra-rca-agent.fullname" . }}
+  namespace: {{ include "cluster-infra-rca-agent.namespace" . }}
+  labels:
+    {{- include "cluster-infra-rca-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cluster-infra-rca-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cluster-infra-rca-agent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cluster-infra-rca-agent.serviceAccountName" . }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      hostPID: {{ .Values.hostPID }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "node_agent.main"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: BACKEND_URL
+            - name: CLUSTER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.secretName" . }}
+                  key: {{ .Values.secret.existingSecret.clusterIdKey | quote }}
+            - name: AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.secretName" . }}
+                  key: {{ .Values.secret.existingSecret.agentTokenKey | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POLL_INTERVAL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: POLL_INTERVAL_SECONDS
+            - name: HTTP_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: HTTP_TIMEOUT_SECONDS
+            - name: COMMAND_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: COMMAND_TIMEOUT_SECONDS
+            - name: KUBERNETES_API_TIMEOUT_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: CONTROL_PLANE_PROBE_PORTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: CONTROL_PLANE_PROBE_PORTS
+            - name: CONTAINER_RUNTIME_SOCKET_PATHS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: CONTAINER_RUNTIME_SOCKET_PATHS
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: host-root
+              mountPath: /host/root
+              readOnly: true
+            - name: host-var-log
+              mountPath: /host/var/log
+              readOnly: true
+            - name: host-run
+              mountPath: /host/run
+              readOnly: true
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: host-root
+          hostPath:
+            path: {{ .Values.hostPaths.root | quote }}
+        - name: host-var-log
+          hostPath:
+            path: {{ .Values.hostPaths.varLog | quote }}
+        - name: host-run
+          hostPath:
+            path: {{ .Values.hostPaths.run | quote }}
+        - name: host-etc
+          hostPath:
+            path: {{ .Values.hostPaths.etc | quote }}
+        - name: host-proc
+          hostPath:
+            path: {{ .Values.hostPaths.proc | quote }}
+        - name: host-sys
+          hostPath:
+            path: {{ .Values.hostPaths.sys | quote }}

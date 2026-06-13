@@ -12,6 +12,8 @@ DEFAULT_AGENT_NAMESPACE = "rca-system"
 DEFAULT_POLL_INTERVAL_SECONDS = 15
 DEFAULT_HTTP_TIMEOUT_SECONDS = 10
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 5
+DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS = 5
+DEFAULT_CONTROL_PLANE_PROBE_PORTS = "6443,9345"
 
 _K8S_NAME_PATTERN = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 
@@ -24,6 +26,9 @@ class AgentManifestOptions:
     poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS
     http_timeout_seconds: int = DEFAULT_HTTP_TIMEOUT_SECONDS
     command_timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS
+    kubernetes_api_timeout_seconds: int = DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS
+    control_plane_probe_ports: str = DEFAULT_CONTROL_PLANE_PROBE_PORTS
+    runtime_socket_paths: str = ""
 
 
 def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dict[str, object]:
@@ -64,8 +69,9 @@ def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dic
                     "POLL_INTERVAL_SECONDS": str(options.poll_interval_seconds),
                     "HTTP_TIMEOUT_SECONDS": str(options.http_timeout_seconds),
                     "COMMAND_TIMEOUT_SECONDS": str(options.command_timeout_seconds),
-                    "KUBERNETES_API_TIMEOUT_SECONDS": str(options.command_timeout_seconds),
-                    "CONTROL_PLANE_PROBE_PORTS": "6443,9345",
+                    "KUBERNETES_API_TIMEOUT_SECONDS": str(options.kubernetes_api_timeout_seconds),
+                    "CONTROL_PLANE_PROBE_PORTS": options.control_plane_probe_ports,
+                    "CONTAINER_RUNTIME_SOCKET_PATHS": options.runtime_socket_paths,
                 },
             },
             _agent_daemonset(
@@ -107,6 +113,57 @@ def validate_timeout(value: int, field_name: str, minimum: int = 1, maximum: int
     return value
 
 
+def validate_comma_separated_ports(value: str, field_name: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    ports = []
+    for raw_port in normalized.split(","):
+        port = raw_port.strip()
+        if not port.isdigit():
+            raise ValueError(f"{field_name} must be a comma-separated list of TCP ports")
+        port_number = int(port)
+        if port_number < 1 or port_number > 65535:
+            raise ValueError(f"{field_name} must contain TCP ports between 1 and 65535")
+        ports.append(str(port_number))
+    return ",".join(dict.fromkeys(ports))
+
+
+def validate_runtime_socket_paths(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    if len(normalized) > 2000 or any(character in normalized for character in "\r\n"):
+        raise ValueError("runtime_socket_paths must be a short comma-separated value without newlines")
+    entries = []
+    for raw_entry in re.split(r"[,;]", normalized):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        raw_kind, raw_path = _split_runtime_socket_entry(entry)
+        if raw_kind:
+            raw_kind = raw_kind.strip()
+            if raw_kind not in {"containerd", "crio", "cri-dockerd", "docker", "unknown"}:
+                raise ValueError("runtime_socket_paths contains an unsupported runtime kind")
+        path = raw_path.strip()
+        if not path.startswith("/"):
+            raise ValueError("runtime_socket_paths entries must use absolute host paths")
+        if any(character.isspace() for character in path):
+            raise ValueError("runtime_socket_paths entries must not contain whitespace")
+        entries.append(f"{raw_kind}={path}" if raw_kind else path)
+    return ",".join(dict.fromkeys(entries))
+
+
+def _split_runtime_socket_entry(entry: str) -> tuple[str | None, str]:
+    if "=" in entry:
+        raw_kind, raw_path = entry.split("=", 1)
+        return raw_kind, raw_path
+    if ":" in entry and not entry.startswith("/"):
+        raw_kind, raw_path = entry.split(":", 1)
+        return raw_kind, raw_path
+    return None, entry
+
+
 def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOptions:
     backend_url = validate_backend_url(options.backend_url)
     image = validate_image(options.image)
@@ -114,6 +171,12 @@ def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOp
     validate_timeout(options.poll_interval_seconds, "poll_interval_seconds", minimum=5)
     validate_timeout(options.http_timeout_seconds, "http_timeout_seconds")
     validate_timeout(options.command_timeout_seconds, "command_timeout_seconds")
+    validate_timeout(options.kubernetes_api_timeout_seconds, "kubernetes_api_timeout_seconds")
+    control_plane_probe_ports = validate_comma_separated_ports(
+        options.control_plane_probe_ports,
+        "control_plane_probe_ports",
+    )
+    runtime_socket_paths = validate_runtime_socket_paths(options.runtime_socket_paths)
     return AgentManifestOptions(
         backend_url=backend_url,
         image=image,
@@ -121,6 +184,9 @@ def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOp
         poll_interval_seconds=options.poll_interval_seconds,
         http_timeout_seconds=options.http_timeout_seconds,
         command_timeout_seconds=options.command_timeout_seconds,
+        kubernetes_api_timeout_seconds=options.kubernetes_api_timeout_seconds,
+        control_plane_probe_ports=control_plane_probe_ports,
+        runtime_socket_paths=runtime_socket_paths,
     )
 
 
@@ -180,19 +246,22 @@ def _agent_daemonset(
     secret_name: str,
     image: str,
 ) -> dict[str, object]:
-    labels = {"app.kubernetes.io/name": app_name}
+    selector_labels = {"app.kubernetes.io/name": app_name}
+    labels = {**selector_labels, "app.kubernetes.io/part-of": "cluster-infra-rca"}
     return {
         "apiVersion": "apps/v1",
         "kind": "DaemonSet",
         "metadata": {"name": app_name, "namespace": namespace, "labels": labels},
         "spec": {
-            "selector": {"matchLabels": labels},
+            "selector": {"matchLabels": selector_labels},
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
                     "serviceAccountName": app_name,
                     "hostNetwork": True,
                     "hostPID": True,
+                    "dnsPolicy": "ClusterFirstWithHostNet",
+                    "terminationGracePeriodSeconds": 20,
                     "tolerations": [{"operator": "Exists"}],
                     "containers": [
                         {
@@ -227,6 +296,7 @@ def _agent_env(config_map_name: str, secret_name: str) -> list[dict[str, object]
         "COMMAND_TIMEOUT_SECONDS",
         "KUBERNETES_API_TIMEOUT_SECONDS",
         "CONTROL_PLANE_PROBE_PORTS",
+        "CONTAINER_RUNTIME_SOCKET_PATHS",
     ]
     env = [
         {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: cluster-infra-rca-agent
+description: Node-level collector agent for Kubernetes Cluster Infra RCA Platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - rca
+  - node
+  - infrastructure
+  - observability

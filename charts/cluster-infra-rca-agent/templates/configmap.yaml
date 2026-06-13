@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+  namespace: {{ include "cluster-infra-rca-agent.namespace" . }}
+  labels:
+    {{- include "cluster-infra-rca-agent.labels" . | nindent 4 }}
+data:
+  BACKEND_URL: {{ required "backendUrl is required" .Values.backendUrl | trimSuffix "/" | quote }}
+  POLL_INTERVAL_SECONDS: {{ .Values.pollIntervalSeconds | quote }}
+  HTTP_TIMEOUT_SECONDS: {{ .Values.httpTimeoutSeconds | quote }}
+  COMMAND_TIMEOUT_SECONDS: {{ .Values.commandTimeoutSeconds | quote }}
+  KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
+  CONTROL_PLANE_PROBE_PORTS: {{ .Values.controlPlaneProbePorts | quote }}
+  CONTAINER_RUNTIME_SOCKET_PATHS: {{ .Values.runtimeSocketPaths | quote }}

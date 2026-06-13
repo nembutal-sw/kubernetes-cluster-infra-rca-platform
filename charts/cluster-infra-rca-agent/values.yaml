@@ -1,0 +1,72 @@
+nameOverride: ""
+fullnameOverride: ""
+
+namespace:
+  create: true
+  name: rca-system
+
+image:
+  repository: ghcr.io/example/cluster-infra-rca-agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+backendUrl: ""
+
+secret:
+  create: false
+  clusterId: ""
+  agentToken: ""
+  existingSecret:
+    name: cluster-infra-rca-agent
+    clusterIdKey: cluster-id
+    agentTokenKey: agent-token
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+
+pollIntervalSeconds: 15
+httpTimeoutSeconds: 10
+commandTimeoutSeconds: 5
+kubernetesApiTimeoutSeconds: 5
+controlPlaneProbePorts: "6443,9345"
+runtimeSocketPaths: ""
+
+hostNetwork: true
+hostPID: true
+dnsPolicy: ClusterFirstWithHostNet
+terminationGracePeriodSeconds: 20
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+priorityClassName: ""
+
+tolerations:
+  - operator: Exists
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+hostPaths:
+  root: /
+  varLog: /var/log
+  run: /run
+  etc: /etc
+  proc: /proc
+  sys: /sys
