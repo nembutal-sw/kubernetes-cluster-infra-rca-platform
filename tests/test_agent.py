@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from node_agent.client import AgentClient, AgentClientError
+import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 import node_agent.main as agent_main
 
@@ -45,6 +46,13 @@ class FakeRunner:
                     "101 containerd containerd -c /var/lib/rancher/rke2/agent/etc/containerd/config.toml\n"
                     "102 kubelet kubelet --container-runtime-endpoint=unix:///run/k3s/containerd/containerd.sock\n"
                 ),
+                "stderr": "",
+            }
+        if command[:1] == ["crictl"]:
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "stdout": '{"status":{"runtimeName":"cri-o"}}',
                 "stderr": "",
             }
         return {
@@ -147,6 +155,9 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["systemd"]["kubelet_sub_state"] == "running"
     assert evidence["systemd"]["containerd_status"] == "failed"
     assert evidence["systemd"]["rke2_server_status"] == "active"
+    assert evidence["systemd"]["embedded_kubelet_running"] is True
+    assert evidence["systemd"]["embedded_runtime_running"] is True
+    assert "containerd" in evidence["systemd"]["runtime_units"][0]["name"]
     assert evidence["systemd"]["rke2_embedded_kubelet_running"] is True
     assert evidence["systemd"]["rke2_embedded_containerd_running"] is True
     assert evidence["systemd"]["failed_units"][0]["unit"] == "containerd.service"
@@ -178,6 +189,28 @@ def test_kubernetes_collector_reports_config_error_outside_cluster(
     assert evidence["kubernetes"]["status"] == "ok"
     assert evidence["kubernetes"]["api_available"] is False
     assert "KUBERNETES_SERVICE_HOST" in evidence["kubernetes"]["api_error"]
+
+
+def test_runtime_collector_uses_generic_cri_socket_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    crio_socket = paths.run / "crio/crio.sock"
+    crio_socket.parent.mkdir(parents=True, exist_ok=True)
+    crio_socket.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("CONTAINER_RUNTIME_SOCKET_PATHS", "crio=/run/crio/crio.sock")
+    monkeypatch.setattr(collectors.stat, "S_ISSOCK", lambda mode: True)
+    monkeypatch.setattr(collectors, "_probe_unix_socket", lambda path: {"ok": True, "latency_ms": 1.5})
+
+    runtime = collectors.collect_runtime(paths, FakeRunner())  # type: ignore[arg-type]
+
+    assert runtime["runtime_kind"] == "crio"
+    assert runtime["runtime_socket_path"] == str(crio_socket)
+    assert runtime["runtime_socket_healthy"] is True
+    assert runtime["containerd_socket_healthy"] is None
+    assert runtime["crictl_info"]["ok"] is True
 
 
 def test_collector_errors_are_returned_as_evidence(tmp_path: Path) -> None:

@@ -338,6 +338,10 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
                 "rke2_agent_restart_count": systemd.get("rke2_agent_restart_count"),
                 "rke2_embedded_kubelet_running": systemd.get("rke2_embedded_kubelet_running"),
                 "rke2_embedded_containerd_running": systemd.get("rke2_embedded_containerd_running"),
+                "active_runtime_units": systemd.get("active_runtime_units"),
+                "active_distribution_units": systemd.get("active_distribution_units"),
+                "embedded_kubelet_running": systemd.get("embedded_kubelet_running"),
+                "embedded_runtime_running": systemd.get("embedded_runtime_running"),
                 "failed_unit_count": len(systemd.get("failed_units", []))
                 if isinstance(systemd.get("failed_units"), list)
                 else None,
@@ -367,6 +371,15 @@ def _key_metrics(collectors: dict[str, Any]) -> dict[str, Any]:
         ),
         "runtime": _drop_none(
             {
+                "runtime_kind": runtime.get("runtime_kind"),
+                "runtime_name": runtime.get("runtime_name"),
+                "runtime_socket_healthy": runtime.get("runtime_socket_healthy"),
+                "runtime_socket_path": runtime.get("runtime_socket_path"),
+                "runtime_socket_candidates": runtime.get("runtime_socket_candidates"),
+                "runtime_socket_latency_ms": runtime.get("runtime_socket_latency_ms"),
+                "runtime_pid_running": runtime.get("runtime_pid_running"),
+                "runtime_socket_error": runtime.get("runtime_socket_error"),
+                "runtime_socket_permission_denied": runtime.get("runtime_socket_permission_denied"),
                 "containerd_socket_healthy": runtime.get("containerd_socket_healthy"),
                 "containerd_socket_path": runtime.get("containerd_socket_path"),
                 "containerd_socket_candidates": runtime.get("containerd_socket_candidates"),
@@ -879,11 +892,23 @@ def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, 
     cni = _dict_value(key_metrics.get("cni"))
     dns = _dict_value(key_metrics.get("dns"))
     kernel = _dict_value(key_metrics.get("kernel"))
-    rke2_embedded_kubelet_active = systemd.get("rke2_embedded_kubelet_running") is True
+    embedded_kubelet_active = (
+        systemd.get("embedded_kubelet_running") is True
+        or systemd.get("rke2_embedded_kubelet_running") is True
+    )
+    runtime_socket_healthy = _first_present(
+        runtime.get("runtime_socket_healthy"),
+        runtime.get("containerd_socket_healthy"),
+    )
+    runtime_socket_permission_denied = _first_present(
+        runtime.get("runtime_socket_permission_denied"),
+        runtime.get("containerd_socket_permission_denied"),
+    )
+    runtime_kind = runtime.get("runtime_kind") or "containerd"
 
     _append_mode_if(
         modes,
-        _bad_unit_value(systemd.get("kubelet_status")) and not rke2_embedded_kubelet_active,
+        _bad_unit_value(systemd.get("kubelet_status")) and not embedded_kubelet_active,
         "kubelet_unit_unhealthy",
         "kubelet",
         systemd,
@@ -897,10 +922,9 @@ def _observed_failure_modes(key_metrics: dict[str, Any], log_summary: dict[str, 
     )
     _append_mode_if(
         modes,
-        runtime.get("containerd_socket_healthy") is False
-        and runtime.get("containerd_socket_permission_denied") is not True,
-        "containerd_socket_unhealthy",
-        "containerd",
+        runtime_socket_healthy is False and runtime_socket_permission_denied is not True,
+        "container_runtime_socket_unhealthy" if runtime_kind != "containerd" else "containerd_socket_unhealthy",
+        str(runtime_kind),
         runtime,
     )
     _append_mode_if(
@@ -1049,6 +1073,13 @@ def _number_at_least(value: Any, threshold: float) -> bool:
 
 def _non_empty_list(value: Any) -> bool:
     return isinstance(value, list) and len(value) > 0
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def _top_counts(counts: dict[str, int], limit: int) -> list[dict[str, Any]]:

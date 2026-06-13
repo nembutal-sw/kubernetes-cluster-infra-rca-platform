@@ -101,6 +101,46 @@ def test_analyzer_separates_containerd_socket_permission_from_runtime_outage() -
     assert "containerd_socket_unhealthy" not in signal_names
 
 
+def test_analyzer_uses_generic_runtime_signals_for_crio() -> None:
+    analyzer = RuleBasedRcaAnalyzer(PolicyEngine())
+
+    report = analyzer.analyze(
+        "report-crio-runtime",
+        EvidenceBundle(
+            cluster_id="cluster-1",
+            node_name="worker-crio",
+            alert_name="ContainerRuntimeUnhealthy",
+            collectors={
+                "runtime": {
+                    "runtime_kind": "crio",
+                    "runtime_socket_path": "/run/crio/crio.sock",
+                    "runtime_socket_exists": True,
+                    "runtime_socket_is_socket": True,
+                    "runtime_socket_healthy": False,
+                    "runtime_socket_error": "connection refused",
+                    "runtime_socket_permission_denied": False,
+                },
+                "systemd": {
+                    "runtime_units": [
+                        {
+                            "name": "crio",
+                            "status": "failed",
+                            "sub_state": "failed",
+                            "restart_count": 4,
+                        }
+                    ]
+                },
+            },
+        ),
+    )
+
+    signal_names = _signal_names(report.evidence)
+
+    assert "container_runtime_socket_unhealthy" in signal_names
+    assert "container_runtime_unit_unhealthy" in signal_names
+    assert "containerd_socket_unhealthy" not in signal_names
+
+
 def _signal_names(evidence_sections: list[dict]) -> set[str]:
     for section in evidence_sections:
         if section.get("type") == "derived_signals":

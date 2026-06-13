@@ -107,6 +107,15 @@ class RuleBasedRcaAnalyzer:
         signal_names = {signal.signal for signal in signals}
         components = {signal.component for signal in signals}
 
+        if signal_names & {"container_runtime_socket_unhealthy", "container_runtime_unit_unhealthy"}:
+            actions.append(
+                self._policy_engine.classify(
+                    "restart_containerd",
+                    "Container runtime socket or unit remains unhealthy; operator-approved runtime restart may be required.",
+                    "Runtime restart can disrupt running workloads and must never be executed automatically.",
+                )
+            )
+
         if signal_names & {"containerd_socket_unhealthy", "containerd_unit_unhealthy"}:
             actions.append(
                 self._policy_engine.classify(
@@ -253,6 +262,7 @@ def _derive_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
 def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
     systemd = _collector(collectors, "systemd")
     kubelet = _collector(collectors, "kubelet")
+    runtime = _collector(collectors, "runtime")
     signals = []
 
     kubelet_status = _first_present(systemd.get("kubelet_status"), kubelet.get("kubelet_status"))
@@ -266,8 +276,13 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
         rke2_agent_status,
         rke2_agent_sub_state,
     )
-    embedded_kubelet_active = rke2_active and systemd.get("rke2_embedded_kubelet_running") is True
-    embedded_containerd_active = rke2_active and systemd.get("rke2_embedded_containerd_running") is True
+    embedded_kubelet_active = systemd.get("embedded_kubelet_running") is True or (
+        rke2_active and systemd.get("rke2_embedded_kubelet_running") is True
+    )
+    embedded_runtime_active = systemd.get("embedded_runtime_running") is True or (
+        rke2_active and systemd.get("rke2_embedded_containerd_running") is True
+    )
+    runtime_kind = str(runtime.get("runtime_kind") or "containerd").lower()
 
     if _bad_unit_state(kubelet_status, kubelet_sub_state) and not embedded_kubelet_active:
         signals.append(
@@ -296,7 +311,11 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
 
     containerd_status = systemd.get("containerd_status")
     containerd_sub_state = systemd.get("containerd_sub_state")
-    if _bad_unit_state(containerd_status, containerd_sub_state) and not embedded_containerd_active:
+    if (
+        _bad_unit_state(containerd_status, containerd_sub_state)
+        and not embedded_runtime_active
+        and runtime_kind in {"containerd", "unknown", ""}
+    ):
         signals.append(
             DiagnosticSignal(
                 signal="containerd_unit_unhealthy",
@@ -308,6 +327,24 @@ def _systemd_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
                 supporting_evidence=["systemd"],
             )
         )
+
+    for unit in systemd.get("runtime_units", []) if isinstance(systemd.get("runtime_units"), list) else []:
+        unit_name = str(unit.get("name") or "")
+        unit_kind = _runtime_kind_for_unit(unit_name)
+        if unit_kind == "containerd":
+            continue
+        if _optional_bad_unit_state(unit.get("status"), unit.get("sub_state")):
+            signals.append(
+                DiagnosticSignal(
+                    signal="container_runtime_unit_unhealthy",
+                    component=unit_kind,
+                    severity="critical",
+                    observed=unit,
+                    interpretation="Container runtime systemd unit is failed or restarting.",
+                    next_step="Check the runtime unit status and journal before restarting it with operator approval.",
+                    supporting_evidence=["systemd", "runtime"],
+                )
+            )
 
     if _bad_unit_state(rke2_server_status, rke2_server_sub_state):
         signals.append(
@@ -493,6 +530,77 @@ def _kubernetes_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
 def _runtime_signals(collectors: dict[str, Any]) -> list[DiagnosticSignal]:
     runtime = _collector(collectors, "runtime")
     signals = []
+    runtime_kind = str(runtime.get("runtime_kind") or "containerd").lower()
+    component = "containerd" if runtime_kind in {"", "containerd"} else runtime_kind
+    socket_healthy = _first_present(runtime.get("runtime_socket_healthy"), runtime.get("containerd_socket_healthy"))
+    socket_permission_denied = _first_present(
+        runtime.get("runtime_socket_permission_denied"),
+        runtime.get("containerd_socket_permission_denied"),
+    )
+    socket_path = _first_present(runtime.get("runtime_socket_path"), runtime.get("containerd_socket_path"))
+    socket_error = _first_present(runtime.get("runtime_socket_error"), runtime.get("containerd_socket_error"))
+    socket_latency_ms = _first_present(
+        runtime.get("runtime_socket_latency_ms"),
+        runtime.get("containerd_socket_latency_ms"),
+    )
+    pid_running = _first_present(runtime.get("runtime_pid_running"), runtime.get("containerd_pid_running"))
+    pid_value = _first_present(runtime.get("runtime_pid"), runtime.get("containerd_pid"))
+    signal_prefix = "containerd" if component == "containerd" else "container_runtime"
+
+    if socket_healthy is False and socket_permission_denied is True:
+        signals.append(
+            DiagnosticSignal(
+                signal=f"{signal_prefix}_socket_permission_denied",
+                component=component,
+                severity="warning",
+                observed={"runtime_kind": runtime_kind, "socket": socket_path, "error": socket_error},
+                interpretation="Container runtime socket exists but the agent could not probe it because of local permissions.",
+                next_step="Run the node agent with sufficient host privileges or grant access to the runtime socket before treating this as a runtime outage.",
+                supporting_evidence=["runtime"],
+            )
+        )
+    elif socket_healthy is False:
+        signals.append(
+            DiagnosticSignal(
+                signal=f"{signal_prefix}_socket_unhealthy",
+                component=component,
+                severity="critical",
+                observed={"runtime_kind": runtime_kind, "socket": socket_path, "error": socket_error},
+                interpretation="Container runtime Unix socket is not responding, so kubelet may fail pod sandbox/container operations.",
+                next_step="Check the runtime socket, pid, unit, and journal for the detected runtime kind.",
+                supporting_evidence=["runtime"],
+            )
+        )
+
+    latency_ms = _number(socket_latency_ms)
+    if latency_ms is not None and latency_ms >= 1000:
+        signals.append(
+            DiagnosticSignal(
+                signal=f"{signal_prefix}_socket_latency_high",
+                component=component,
+                severity="warning",
+                observed={"runtime_kind": runtime_kind, "latency_ms": latency_ms},
+                interpretation="Container runtime socket latency is high; runtime hang or I/O pressure may be involved.",
+                next_step="Check runtime journal and disk I/O pressure together.",
+                supporting_evidence=["runtime", "disk"],
+            )
+        )
+
+    if pid_running is False:
+        signals.append(
+            DiagnosticSignal(
+                signal=f"{signal_prefix}_pid_not_running",
+                component=component,
+                severity="critical",
+                observed={"runtime_kind": runtime_kind, "pid": pid_value},
+                interpretation="Runtime pid file points to a process that is not running.",
+                next_step="Check systemd state and runtime crash loop history.",
+                supporting_evidence=["runtime", "systemd"],
+            )
+        )
+
+    return signals
+
     if runtime.get("containerd_socket_healthy") is False and runtime.get("containerd_socket_permission_denied") is True:
         signals.append(
             DiagnosticSignal(
@@ -992,6 +1100,26 @@ def _build_candidates(
     candidates: list[RootCauseCandidate] = []
     names = {signal.signal for signal in signals}
 
+    if names & {
+        "container_runtime_socket_unhealthy",
+        "container_runtime_unit_unhealthy",
+        "container_runtime_pid_not_running",
+    }:
+        candidates.append(
+            _candidate(
+                "Container runtime hang, crash loop, or socket failure is disrupting kubelet runtime integration.",
+                _confidence_for(
+                    names,
+                    {"container_runtime_socket_unhealthy", "container_runtime_unit_unhealthy"},
+                ),
+                signals,
+                {
+                    "container_runtime_socket_unhealthy",
+                    "container_runtime_unit_unhealthy",
+                    "container_runtime_pid_not_running",
+                },
+            )
+        )
     if names & {"containerd_socket_unhealthy", "containerd_unit_unhealthy", "containerd_pid_not_running"}:
         candidates.append(
             _candidate(
@@ -1247,6 +1375,19 @@ def _resolution_checklist(signals: list[DiagnosticSignal], alert_name: str) -> l
     names = {signal.signal for signal in signals}
     items: list[dict[str, str]] = []
 
+    if names & {
+        "container_runtime_socket_unhealthy",
+        "container_runtime_unit_unhealthy",
+        "container_runtime_pid_not_running",
+    }:
+        items.append(
+            {
+                "component": "container-runtime",
+                "check": "detected runtime socket, pid, unit, and journal status",
+                "command": "systemctl status containerd crio cri-docker docker --no-pager || true",
+            }
+        )
+
     if names & {"kubelet_unit_unhealthy", "kubelet_restarting"} or alert_name in {"NodeNotReady", "KubeletDown"}:
         items.append(
             {
@@ -1459,6 +1600,25 @@ def _bad_unit_state(active_state: Any, sub_state: Any) -> bool:
         "auto-restart",
         "dead",
     }
+
+
+def _optional_bad_unit_state(active_state: Any, sub_state: Any) -> bool:
+    active = str(active_state or "").lower()
+    sub = str(sub_state or "").lower()
+    return active in {"failed", "restarting", "deactivating"} or sub in {"failed", "auto-restart"}
+
+
+def _runtime_kind_for_unit(unit_name: str) -> str:
+    lowered = unit_name.lower()
+    if "crio" in lowered:
+        return "crio"
+    if "cri-docker" in lowered:
+        return "cri-dockerd"
+    if "docker" in lowered:
+        return "docker"
+    if "containerd" in lowered:
+        return "containerd"
+    return "container-runtime"
 
 
 def _healthy_unit_state(active_state: Any, sub_state: Any) -> bool:

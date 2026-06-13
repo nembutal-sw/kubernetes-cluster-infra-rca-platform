@@ -187,15 +187,35 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
     units = {
         "kubelet": _systemctl_show(runner, "kubelet"),
         "containerd": _systemctl_show(runner, "containerd"),
+        "crio": _systemctl_show(runner, "crio"),
+        "docker": _systemctl_show(runner, "docker"),
+        "cri-docker": _systemctl_show(runner, "cri-docker"),
         "rke2-server": _systemctl_show(runner, "rke2-server"),
         "rke2-agent": _systemctl_show(runner, "rke2-agent"),
+        "k3s": _systemctl_show(runner, "k3s"),
+        "k3s-agent": _systemctl_show(runner, "k3s-agent"),
+        "k0scontroller": _systemctl_show(runner, "k0scontroller"),
+        "k0sworker": _systemctl_show(runner, "k0sworker"),
+        "microk8s.daemon-kubelet": _systemctl_show(runner, "snap.microk8s.daemon-kubelet"),
+        "microk8s.daemon-containerd": _systemctl_show(runner, "snap.microk8s.daemon-containerd"),
     }
     kubelet = units["kubelet"]
     containerd = units["containerd"]
     rke2_server = units["rke2-server"]
     rke2_agent = units["rke2-agent"]
     failed_units = _systemctl_failed_units(runner)
-    rke2_processes = _matching_processes(runner, ["rke2", "containerd", "kubelet"])
+    runtime_processes = _matching_processes(
+        runner,
+        ["rke2", "k3s", "k0s", "microk8s", "containerd", "crio", "cri-dockerd", "dockerd", "kubelet"],
+    )
+    runtime_units = _unit_summaries(
+        units,
+        ["containerd", "crio", "docker", "cri-docker", "microk8s.daemon-containerd"],
+    )
+    distribution_units = _unit_summaries(
+        units,
+        ["rke2-server", "rke2-agent", "k3s", "k3s-agent", "k0scontroller", "k0sworker", "microk8s.daemon-kubelet"],
+    )
     return {
         "kubelet_status": kubelet.get("ActiveState"),
         "kubelet_sub_state": kubelet.get("SubState"),
@@ -213,9 +233,31 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
         "rke2_agent_sub_state": rke2_agent.get("SubState"),
         "rke2_agent_result": rke2_agent.get("Result"),
         "rke2_agent_restart_count": _safe_int(rke2_agent.get("NRestarts")),
-        "rke2_embedded_kubelet_running": _process_sample_contains(rke2_processes, "kubelet"),
-        "rke2_embedded_containerd_running": _process_sample_contains(rke2_processes, "containerd"),
-        "rke2_process_sample": rke2_processes[:20],
+        "k3s_status": units["k3s"].get("ActiveState"),
+        "k3s_sub_state": units["k3s"].get("SubState"),
+        "k3s_restart_count": _safe_int(units["k3s"].get("NRestarts")),
+        "k3s_agent_status": units["k3s-agent"].get("ActiveState"),
+        "k3s_agent_sub_state": units["k3s-agent"].get("SubState"),
+        "k3s_agent_restart_count": _safe_int(units["k3s-agent"].get("NRestarts")),
+        "crio_status": units["crio"].get("ActiveState"),
+        "crio_sub_state": units["crio"].get("SubState"),
+        "crio_restart_count": _safe_int(units["crio"].get("NRestarts")),
+        "docker_status": units["docker"].get("ActiveState"),
+        "docker_sub_state": units["docker"].get("SubState"),
+        "docker_restart_count": _safe_int(units["docker"].get("NRestarts")),
+        "runtime_units": runtime_units,
+        "distribution_units": distribution_units,
+        "active_runtime_units": [unit["name"] for unit in runtime_units if _unit_summary_healthy(unit)],
+        "active_distribution_units": [unit["name"] for unit in distribution_units if _unit_summary_healthy(unit)],
+        "embedded_kubelet_running": _process_sample_contains(runtime_processes, "kubelet"),
+        "embedded_runtime_running": _process_sample_contains_any(
+            runtime_processes,
+            ["containerd", "crio", "cri-dockerd", "dockerd"],
+        ),
+        "runtime_process_sample": runtime_processes[:20],
+        "rke2_embedded_kubelet_running": _process_sample_contains(runtime_processes, "kubelet"),
+        "rke2_embedded_containerd_running": _process_sample_contains(runtime_processes, "containerd"),
+        "rke2_process_sample": runtime_processes[:20],
         "failed_units": failed_units["units"],
         "failed_units_command": failed_units["command"],
         "units": units,
@@ -507,11 +549,13 @@ def collect_conntrack(paths: AgentPaths) -> dict[str, Any]:
 
 
 def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
-    socket_candidates = _containerd_socket_candidates(paths)
-    socket_path = _first_existing_socket(socket_candidates) or socket_candidates[0]
-    pid_file = socket_path.with_name("containerd.pid")
-    containerd_pid = _safe_int(_read_first_line(pid_file))
-    socket_exists = socket_path.exists()
+    socket_candidates = _runtime_socket_candidates(paths)
+    selected_candidate = _first_existing_runtime_socket(socket_candidates) or socket_candidates[0]
+    socket_path = selected_candidate["path"]
+    runtime_kind = selected_candidate["kind"]
+    pid_file = _runtime_pid_file(socket_path, runtime_kind)
+    runtime_pid = _safe_int(_read_first_line(pid_file))
+    socket_exists, socket_exists_error = _safe_exists(socket_path)
     socket_stat_error = None
     try:
         socket_is_socket = socket_exists and stat.S_ISSOCK(socket_path.stat().st_mode)
@@ -519,24 +563,43 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
         socket_is_socket = False
         socket_stat_error = _clean_text(str(exc), limit=500)
     socket_probe = _probe_unix_socket(socket_path) if socket_is_socket else {"ok": False, "error": "socket not available"}
-    socket_error = socket_stat_error or socket_probe.get("error")
+    socket_error = socket_exists_error or socket_stat_error or socket_probe.get("error")
+    runtime_pid_running = (paths.proc_root() / str(runtime_pid)).exists() if runtime_pid is not None else None
+    candidate_summaries = _runtime_socket_candidate_summaries(socket_candidates)
     result = {
-        "containerd_socket_path": str(socket_path),
-        "containerd_socket_candidates": [str(path) for path in socket_candidates],
-        "containerd_socket_exists": socket_exists,
-        "containerd_socket_is_socket": socket_is_socket,
-        "containerd_socket_healthy": socket_probe["ok"],
-        "containerd_socket_latency_ms": socket_probe.get("latency_ms"),
-        "containerd_socket_error": socket_error,
-        "containerd_socket_permission_denied": _permission_denied(socket_error),
-        "containerd_pid_file": str(pid_file),
-        "containerd_pid": containerd_pid,
-        "containerd_pid_running": (paths.proc_root() / str(containerd_pid)).exists()
-        if containerd_pid is not None
-        else None,
+        "runtime_kind": runtime_kind,
+        "runtime_name": selected_candidate["name"],
+        "runtime_socket_path": str(socket_path),
+        "runtime_socket_candidates": candidate_summaries,
+        "runtime_socket_exists": socket_exists,
+        "runtime_socket_is_socket": socket_is_socket,
+        "runtime_socket_healthy": socket_probe["ok"],
+        "runtime_socket_latency_ms": socket_probe.get("latency_ms"),
+        "runtime_socket_error": socket_error,
+        "runtime_socket_permission_denied": _permission_denied(socket_error),
+        "runtime_pid_file": str(pid_file),
+        "runtime_pid": runtime_pid,
+        "runtime_pid_running": runtime_pid_running,
+        "containerd_socket_path": str(socket_path) if runtime_kind == "containerd" else None,
+        "containerd_socket_candidates": [
+            item["path"]
+            for item in candidate_summaries
+            if item.get("kind") == "containerd"
+        ],
+        "containerd_socket_exists": socket_exists if runtime_kind == "containerd" else None,
+        "containerd_socket_is_socket": socket_is_socket if runtime_kind == "containerd" else None,
+        "containerd_socket_healthy": socket_probe["ok"] if runtime_kind == "containerd" else None,
+        "containerd_socket_latency_ms": socket_probe.get("latency_ms") if runtime_kind == "containerd" else None,
+        "containerd_socket_error": socket_error if runtime_kind == "containerd" else None,
+        "containerd_socket_permission_denied": _permission_denied(socket_error) if runtime_kind == "containerd" else None,
+        "containerd_pid_file": str(pid_file) if runtime_kind == "containerd" else None,
+        "containerd_pid": runtime_pid if runtime_kind == "containerd" else None,
+        "containerd_pid_running": runtime_pid_running if runtime_kind == "containerd" else None,
     }
-    if socket_is_socket:
+    if socket_is_socket and runtime_kind == "containerd":
         result["ctr_version"] = runner.run(["ctr", "--address", str(socket_path), "version"])
+    if socket_is_socket and runtime_kind in {"containerd", "crio", "cri-dockerd"}:
+        result["crictl_info"] = runner.run(["crictl", "--runtime-endpoint", f"unix://{socket_path}", "info"])
     return result
 
 
@@ -997,7 +1060,7 @@ def _systemctl_failed_units(runner: CommandRunner) -> dict[str, Any]:
 
 
 def _matching_processes(runner: CommandRunner, keywords: list[str]) -> list[dict[str, str]]:
-    targeted_pattern = "rke2 server|containerd -c|kubelet --"
+    targeted_pattern = "rke2 server|k3s server|k3s agent|k0s|microk8s|containerd|crio|cri-dockerd|dockerd|kubelet"
     targeted = runner.run(["pgrep", "-af", targeted_pattern])
     if targeted.get("ok") and targeted.get("stdout"):
         matches = _parse_pgrep_processes(str(targeted.get("stdout") or ""))
@@ -1047,6 +1110,32 @@ def _parse_pgrep_processes(output: str) -> list[dict[str, str]]:
 def _process_sample_contains(processes: list[dict[str, str]], keyword: str) -> bool:
     lowered_keyword = keyword.lower()
     return any(lowered_keyword in str(item.get("args") or item.get("command") or "").lower() for item in processes)
+
+
+def _process_sample_contains_any(processes: list[dict[str, str]], keywords: list[str]) -> bool:
+    return any(_process_sample_contains(processes, keyword) for keyword in keywords)
+
+
+def _unit_summaries(units: dict[str, dict[str, Any]], names: list[str]) -> list[dict[str, Any]]:
+    summaries = []
+    for name in names:
+        unit = units.get(name, {})
+        summaries.append(
+            {
+                "name": name,
+                "status": unit.get("ActiveState"),
+                "sub_state": unit.get("SubState"),
+                "result": unit.get("Result"),
+                "restart_count": _safe_int(unit.get("NRestarts")),
+            }
+        )
+    return summaries
+
+
+def _unit_summary_healthy(unit: dict[str, Any]) -> bool:
+    status = str(unit.get("status") or "").lower()
+    sub_state = str(unit.get("sub_state") or "").lower()
+    return status == "active" and sub_state in {"running", "exited", ""}
 
 
 def _parse_systemctl_show(output: str) -> dict[str, str]:
@@ -1251,35 +1340,132 @@ def _probe_unix_socket(path: Path, timeout_seconds: float = 1) -> dict[str, Any]
         sock.close()
 
 
-def _containerd_socket_candidates(paths: AgentPaths) -> list[Path]:
+def _runtime_socket_candidates(paths: AgentPaths) -> list[dict[str, Any]]:
+    env_candidates = _runtime_socket_env_candidates(paths)
+    if env_candidates:
+        return env_candidates
+
     raw_candidates = [
-        os.getenv("CONTAINERD_SOCKET_PATH"),
-        "containerd/containerd.sock",
-        "k3s/containerd/containerd.sock",
-        "rke2/containerd/containerd.sock",
+        ("containerd", "containerd", "/run/containerd/containerd.sock"),
+        ("containerd", "containerd-rke2-k3s", "/run/k3s/containerd/containerd.sock"),
+        ("containerd", "containerd-rke2", "/run/rke2/containerd/containerd.sock"),
+        ("containerd", "containerd-k0s", "/run/k0s/containerd.sock"),
+        ("containerd", "containerd-k0s-var", "/var/lib/k0s/run/containerd.sock"),
+        ("containerd", "containerd-microk8s", "/var/snap/microk8s/common/run/containerd.sock"),
+        ("crio", "crio", "/run/crio/crio.sock"),
+        ("crio", "crio-var-run", "/var/run/crio/crio.sock"),
+        ("cri-dockerd", "cri-dockerd", "/run/cri-dockerd.sock"),
+        ("cri-dockerd", "cri-dockerd-var-run", "/var/run/cri-dockerd.sock"),
+        ("docker", "docker", "/run/docker.sock"),
+        ("docker", "docker-var-run", "/var/run/docker.sock"),
     ]
-    candidates: list[Path] = []
-    for raw_candidate in raw_candidates:
-        if not raw_candidate:
+    return _dedupe_runtime_candidates(
+        [
+            {"kind": kind, "name": name, "path": _resolve_host_path(paths, raw_path)}
+            for kind, name, raw_path in raw_candidates
+        ]
+    )
+
+
+def _runtime_socket_env_candidates(paths: AgentPaths) -> list[dict[str, Any]]:
+    raw_value = (
+        os.getenv("CONTAINER_RUNTIME_SOCKET_PATHS")
+        or os.getenv("RUNTIME_SOCKET_PATHS")
+        or os.getenv("CONTAINERD_SOCKET_PATH")
+    )
+    if not raw_value:
+        return []
+    candidates = []
+    for raw_entry in re.split(r"[,;]", raw_value):
+        entry = raw_entry.strip()
+        if not entry:
             continue
-        candidate = Path(raw_candidate)
-        if candidate.is_absolute():
-            try:
-                candidate = paths.run / candidate.relative_to("/run")
-            except ValueError:
-                pass
-        else:
-            candidate = paths.run / candidate
-        candidates.append(candidate)
-    deduped: list[Path] = []
+        raw_kind = None
+        raw_path = entry
+        if "=" in entry:
+            raw_kind, raw_path = entry.split("=", 1)
+        elif ":" in entry and not Path(entry).is_absolute():
+            raw_kind, raw_path = entry.split(":", 1)
+        kind = _normalize_runtime_kind(raw_kind or _infer_runtime_kind(raw_path))
+        candidates.append(
+            {
+                "kind": kind,
+                "name": kind,
+                "path": _resolve_host_path(paths, raw_path.strip()),
+            }
+        )
+    return _dedupe_runtime_candidates(candidates)
+
+
+def _dedupe_runtime_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped = []
     seen = set()
     for candidate in candidates:
-        key = str(candidate)
+        key = (candidate.get("kind"), str(candidate.get("path")))
         if key in seen:
             continue
         seen.add(key)
         deduped.append(candidate)
     return deduped
+
+
+def _infer_runtime_kind(path: str) -> str:
+    lowered = path.lower()
+    if "crio" in lowered:
+        return "crio"
+    if "cri-dockerd" in lowered or "cri_dockerd" in lowered:
+        return "cri-dockerd"
+    if "docker.sock" in lowered:
+        return "docker"
+    if "containerd" in lowered:
+        return "containerd"
+    return "unknown"
+
+
+def _normalize_runtime_kind(value: str) -> str:
+    lowered = value.strip().lower()
+    if lowered in {"containerd", "crio", "cri-dockerd", "docker"}:
+        return lowered
+    if lowered in {"cri-o", "cri_o"}:
+        return "crio"
+    if lowered in {"cri-docker", "cridockerd"}:
+        return "cri-dockerd"
+    return "unknown"
+
+
+def _runtime_pid_file(socket_path: Path, runtime_kind: str) -> Path:
+    pid_names = {
+        "containerd": "containerd.pid",
+        "crio": "crio.pid",
+        "cri-dockerd": "cri-dockerd.pid",
+        "docker": "docker.pid",
+    }
+    return socket_path.with_name(pid_names.get(runtime_kind, f"{socket_path.stem}.pid"))
+
+
+def _runtime_socket_candidate_summaries(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = []
+    for candidate in candidates:
+        path = candidate["path"]
+        exists, exists_error = _safe_exists(path)
+        is_socket = False
+        stat_error = None
+        if exists:
+            try:
+                is_socket = stat.S_ISSOCK(path.stat().st_mode)
+            except OSError as exc:
+                stat_error = _clean_text(str(exc), limit=500)
+        summaries.append(
+            {
+                "kind": candidate.get("kind"),
+                "name": candidate.get("name"),
+                "path": str(path),
+                "exists": exists,
+                "is_socket": is_socket,
+                "error": exists_error or stat_error,
+            }
+        )
+    return summaries
 
 
 def _cni_config_dirs(paths: AgentPaths) -> list[Path]:
@@ -1302,6 +1488,10 @@ def _cni_config_dirs(paths: AgentPaths) -> list[Path]:
             [
                 host_root / "var/lib/rancher/rke2/agent/etc/cni/net.d",
                 host_root / "var/lib/rancher/k3s/agent/etc/cni/net.d",
+                host_root / "var/lib/k0s/etc/cni/net.d",
+                host_root / "var/lib/k0s/kubelet-plugins/net.d",
+                host_root / "var/snap/microk8s/current/args/cni-network",
+                host_root / "var/snap/microk8s/common/etc/cni/net.d",
             ]
         )
     else:
@@ -1309,15 +1499,36 @@ def _cni_config_dirs(paths: AgentPaths) -> list[Path]:
             [
                 paths.root / "var/lib/rancher/rke2/agent/etc/cni/net.d",
                 paths.root / "var/lib/rancher/k3s/agent/etc/cni/net.d",
+                paths.root / "var/lib/k0s/etc/cni/net.d",
+                paths.root / "var/lib/k0s/kubelet-plugins/net.d",
+                paths.root / "var/snap/microk8s/current/args/cni-network",
+                paths.root / "var/snap/microk8s/common/etc/cni/net.d",
             ]
         )
     return _dedupe_paths(candidates)
 
 
 def _resolve_host_path(paths: AgentPaths, raw_path: str) -> Path:
+    normalized = raw_path.strip()
+    if normalized.startswith("/var/run/"):
+        return paths.run / normalized.removeprefix("/var/run/")
+    if normalized == "/var/run":
+        return paths.run
+    if normalized.startswith("/run/"):
+        return paths.run / normalized.removeprefix("/run/")
+    if normalized == "/run":
+        return paths.run
+    if normalized.startswith("/etc/"):
+        return paths.etc_root() / normalized.removeprefix("/etc/")
+    if normalized == "/etc":
+        return paths.etc_root()
     path = Path(raw_path)
     if not path.is_absolute():
         return path
+    try:
+        return paths.run / path.relative_to("/var/run")
+    except ValueError:
+        pass
     try:
         return paths.etc_root() / path.relative_to("/etc")
     except ValueError:
@@ -1342,11 +1553,12 @@ def _dedupe_paths(paths: list[Path]) -> list[Path]:
     return deduped
 
 
-def _first_existing_socket(paths: list[Path]) -> Path | None:
-    for path in paths:
+def _first_existing_runtime_socket(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for candidate in candidates:
+        path = candidate["path"]
         try:
             if path.exists() and stat.S_ISSOCK(path.stat().st_mode):
-                return path
+                return candidate
         except OSError:
             continue
     return None
