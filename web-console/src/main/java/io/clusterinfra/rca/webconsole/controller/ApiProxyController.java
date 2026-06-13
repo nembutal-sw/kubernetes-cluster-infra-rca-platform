@@ -49,6 +49,7 @@ public class ApiProxyController {
     ) throws IOException, InterruptedException {
         URI targetUri = buildTargetUri(servletRequest);
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(targetUri)
+            .version(HttpClient.Version.HTTP_1_1)
             .timeout(Duration.ofSeconds(properties.getProxyTimeoutSeconds()));
 
         copyRequestHeaders(servletRequest, requestBuilder);

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:---check}"
 TOOLS_DIR="${RCA_DEV_TOOLS_DIR:-$HOME/.local/cluster-infra-rca-tools}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+UV_DOWNLOAD_URL="${UV_DOWNLOAD_URL:-https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz}"
 
 log() {
   printf '[linux-dev] %s\n' "$*"
@@ -57,6 +58,12 @@ activate_user_tools() {
   fi
 }
 
+activate_user_python() {
+  if [ -x "${TOOLS_DIR}/python-3.11/bin/python" ] && [ "${PYTHON_BIN}" = "python3" ]; then
+    PYTHON_BIN="${TOOLS_DIR}/python-3.11/bin/python"
+  fi
+}
+
 java_major_version() {
   activate_user_tools
   if ! has_cmd java; then
@@ -69,6 +76,7 @@ java_major_version() {
 }
 
 python_minor_version() {
+  activate_user_python
   if ! has_cmd "${PYTHON_BIN}"; then
     printf '0.0'
     return
@@ -99,8 +107,42 @@ bootstrap_user_tools() {
   activate_user_tools
 }
 
+bootstrap_uv() {
+  ensure_tools_dir_safe
+
+  if [ -x "${TOOLS_DIR}/uv/uv" ]; then
+    return
+  fi
+
+  log "Installing user-local uv under ${TOOLS_DIR}"
+  rm -rf "${TOOLS_DIR}/uv" "${TOOLS_DIR}/uv.tar.gz" "${TOOLS_DIR}/uv-extract"
+  mkdir -p "${TOOLS_DIR}/uv" "${TOOLS_DIR}/uv-extract"
+  download "${UV_DOWNLOAD_URL}" "${TOOLS_DIR}/uv.tar.gz"
+  tar -xzf "${TOOLS_DIR}/uv.tar.gz" -C "${TOOLS_DIR}/uv-extract"
+  find "${TOOLS_DIR}/uv-extract" -type f -name uv -exec cp {} "${TOOLS_DIR}/uv/uv" \;
+  find "${TOOLS_DIR}/uv-extract" -type f -name uvx -exec cp {} "${TOOLS_DIR}/uv/uvx" \; || true
+  chmod +x "${TOOLS_DIR}/uv/uv" "${TOOLS_DIR}/uv/uvx" 2>/dev/null || chmod +x "${TOOLS_DIR}/uv/uv"
+  rm -rf "${TOOLS_DIR}/uv-extract"
+}
+
+bootstrap_user_python() {
+  ensure_tools_dir_safe
+  bootstrap_uv
+
+  if [ -x "${TOOLS_DIR}/python-3.11/bin/python" ]; then
+    activate_user_python
+    return
+  fi
+
+  log "Installing user-local Python 3.11 under ${TOOLS_DIR}"
+  "${TOOLS_DIR}/uv/uv" python install 3.11
+  "${TOOLS_DIR}/uv/uv" venv --python 3.11 "${TOOLS_DIR}/python-3.11"
+  activate_user_python
+}
+
 check_tooling() {
   activate_user_tools
+  activate_user_python
 
   local failed=0
   local java_major
@@ -144,19 +186,31 @@ check_tooling() {
 
 bootstrap_python_env() {
   activate_user_tools
+  activate_user_python
 
   if [ ! -d "${ROOT_DIR}/.venv" ]; then
     log "Creating Python virtual environment"
-    "${PYTHON_BIN}" -m venv "${ROOT_DIR}/.venv"
+    if [ -x "${TOOLS_DIR}/uv/uv" ]; then
+      "${TOOLS_DIR}/uv/uv" venv --python "${PYTHON_BIN}" "${ROOT_DIR}/.venv"
+    else
+      "${PYTHON_BIN}" -m venv "${ROOT_DIR}/.venv"
+    fi
   fi
 
   log "Installing Python dependencies"
-  "${ROOT_DIR}/.venv/bin/python" -m pip install --upgrade pip
-  "${ROOT_DIR}/.venv/bin/python" -m pip install -r "${ROOT_DIR}/requirements.txt" -r "${ROOT_DIR}/requirements-dev.txt"
+  if [ -x "${TOOLS_DIR}/uv/uv" ]; then
+    "${TOOLS_DIR}/uv/uv" pip install --python "${ROOT_DIR}/.venv/bin/python" \
+      -r "${ROOT_DIR}/requirements.txt" \
+      -r "${ROOT_DIR}/requirements-dev.txt"
+  else
+    "${ROOT_DIR}/.venv/bin/python" -m pip install --upgrade pip
+    "${ROOT_DIR}/.venv/bin/python" -m pip install -r "${ROOT_DIR}/requirements.txt" -r "${ROOT_DIR}/requirements-dev.txt"
+  fi
 }
 
 run_validation() {
   activate_user_tools
+  activate_user_python
 
   log "Running backend Python tests"
   "${ROOT_DIR}/.venv/bin/python" -m pytest
@@ -183,6 +237,10 @@ case "${MODE}" in
     bootstrap_user_tools
     check_tooling
     ;;
+  --bootstrap-python)
+    bootstrap_user_python
+    check_tooling
+    ;;
   --bootstrap)
     check_tooling
     bootstrap_python_env
@@ -198,16 +256,18 @@ case "${MODE}" in
     ;;
   --full)
     bootstrap_user_tools
+    bootstrap_user_python
     check_tooling
     bootstrap_python_env
     run_validation
     ;;
   *)
     cat <<'USAGE'
-Usage: scripts/linux-dev-check.sh [--check|--bootstrap-tools|--bootstrap|--validate|--validate-web|--full]
+Usage: scripts/linux-dev-check.sh [--check|--bootstrap-tools|--bootstrap-python|--bootstrap|--validate|--validate-web|--full]
 
   --check            Check Java, Maven, Python, and Node.js. No system changes.
   --bootstrap-tools  Install user-local JDK 17 and Maven under $HOME/.local.
+  --bootstrap-python Install user-local uv and managed Python 3.11 under $HOME/.local.
   --bootstrap        Create .venv and install Python dependencies.
   --validate         Run Python, JavaScript, and Spring Boot checks.
   --validate-web     Bootstrap user-local Java tools and run Spring Boot tests only.

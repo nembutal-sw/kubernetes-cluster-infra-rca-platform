@@ -90,6 +90,27 @@ class WebConsoleHttpTests {
             .contains("\"adminToken\":true");
     }
 
+    @Test
+    void proxyForwardsJsonPostBody() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Admin-Token", "admin-token");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+            URI.create("/console-api/echo"),
+            HttpMethod.POST,
+            new HttpEntity<>("{\"name\":\"smoke-cluster\"}", headers),
+            String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody())
+            .contains("\"method\":\"POST\"")
+            .contains("\"body\":\"{\\\"name\\\":\\\"smoke-cluster\\\"}\"")
+            .contains("\"contentType\":\"application/json\"")
+            .contains("\"adminToken\":true");
+    }
+
     private static HttpServer startApiServer() {
         HttpServer existing = API_SERVER.get();
         if (existing != null) {
@@ -104,6 +125,20 @@ class WebConsoleHttpTests {
                     + "\"method\":\"" + exchange.getRequestMethod() + "\","
                     + "\"path\":\"" + exchange.getRequestURI() + "\","
                     + "\"authorization\":" + exchange.getRequestHeaders().containsKey("Authorization") + ","
+                    + "\"adminToken\":" + exchange.getRequestHeaders().containsKey("X-Admin-Token")
+                    + "}";
+                byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", MediaType.APPLICATION_JSON_VALUE);
+                exchange.sendResponseHeaders(HttpStatus.OK.value(), payload.length);
+                exchange.getResponseBody().write(payload);
+                exchange.close();
+            });
+            server.createContext("/echo", exchange -> {
+                byte[] requestBody = exchange.getRequestBody().readAllBytes();
+                String responseBody = "{"
+                    + "\"method\":\"" + exchange.getRequestMethod() + "\","
+                    + "\"body\":\"" + new String(requestBody, StandardCharsets.UTF_8).replace("\"", "\\\"") + "\","
+                    + "\"contentType\":\"" + exchange.getRequestHeaders().getFirst("Content-Type") + "\","
                     + "\"adminToken\":" + exchange.getRequestHeaders().containsKey("X-Admin-Token")
                     + "}";
                 byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
