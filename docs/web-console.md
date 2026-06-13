@@ -1,77 +1,112 @@
 # Web Console
 
-관리자 콘솔은 FastAPI가 정적 파일로 제공합니다. 서버가 실행 중이면 `/`에서 접근합니다.
+이 콘솔은 Spring Boot MVC가 JSP로 화면의 기본 shell을 렌더링하고, 데이터 변경이 잦은 영역은 React가 갱신하는 구조로 만든다. 레이아웃과 기본 UI 컴포넌트는 Bootstrap 5를 사용한다.
+
+현재 RCA 수집, 분석, DB, LLM, Policy Engine은 Python FastAPI backend가 담당한다. Spring Boot 콘솔은 `/console-api/**` 프록시를 통해 같은 API를 호출한다. 이렇게 두면 브라우저 CORS 문제를 줄이면서, 나중에 backend 일부를 Spring Boot로 옮기더라도 화면 구조를 크게 바꾸지 않아도 된다.
+
+## Structure
 
 ```text
-http://127.0.0.1:8000/
+web-console/
+|-- pom.xml
+`-- src/
+    |-- main/java/io/clusterinfra/rca/webconsole/
+    |   |-- WebConsoleApplication.java
+    |   |-- config/
+    |   `-- controller/
+    |-- main/resources/
+    |   |-- application.yml
+    |   `-- static/assets/
+    `-- main/webapp/WEB-INF/jsp/console.jsp
 ```
 
-## 화면 구성
+## Runtime Baseline
 
-- `Overview`: 클러스터, RCA report, 승인 대기 사용자, webhook endpoint 요약
-- `Access`: 회원가입 요청과 관리자 승인/거절 대기열
-- `Clusters`: 클러스터 등록, 등록된 클러스터 목록, Agent 설치 명령어, manifest 링크
-- `Webhooks`: Alertmanager webhook endpoint와 receiver 예시
-- `RCA Reports`: RCA report 목록, 정책 분류 요약, 원인 후보/조치/신호/체크리스트 상세 drill-down
-- `Settings`: 주요 환경변수 참조
+The web console targets Java 17+. Spring Boot 3.3 supports Java 17 as its baseline, and Java 17 is easier to find on enterprise Linux servers than Java 21.
 
-디자인은 운영 관리자 페이지에 맞춰 저채도 배경, 좌측 메뉴, 고밀도 테이블형 리스트, 상태 badge 중심으로 구성했습니다. 화면 폭이 좁아지면 좌측 메뉴는 상단 가로 메뉴로 바뀌고, 2열 영역은 1열로 내려갑니다.
+Linux server setup details should stay in a private runbook, not in a committed repository document.
 
-## 회원가입 승인 흐름
+## Run
 
-1. 사용자가 `Access` 화면에서 email, 이름, password, 요청 role, 사유를 입력합니다.
-2. Backend는 사용자를 `pending_approval` 상태로 저장합니다.
-3. 관리자는 `Admin token`에 `RCA_ADMIN_APPROVAL_TOKEN` 값을 입력합니다.
-4. `Approval Queue`에서 승인 또는 거절합니다.
-5. 승인된 사용자는 `active` 상태와 확정 role을 받습니다.
-6. 승인된 사용자는 상단 로그인 폼에서 email/password로 로그인하고 Bearer 세션을 받습니다.
-
-현재 MVP는 승인 기반 가입, 로그인 세션, 역할별 API 접근 제어까지 제공합니다.
-
-## 관리자 토큰
-
-개발 기본값:
-
-```text
-dev-admin-approval-token
-```
-
-운영 또는 공유 환경에서는 반드시 환경변수로 바꿉니다.
+먼저 Python backend를 실행한다.
 
 ```powershell
-$env:RCA_ADMIN_APPROVAL_TOKEN = "replace-with-secure-token"
+.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
 ```
 
-콘솔은 로그인 세션을 우선 사용하고 `Authorization: Bearer <access_token>` header로 전송합니다.
-bootstrap admin token이 입력되어 있으면 fallback이 필요한 요청에 `X-Admin-Token`도 함께 전송합니다. 세션이 만료되었거나 역할 권한이 부족해도 token 값이 맞으면 Backend가 bootstrap admin token으로 처리합니다.
-브라우저 저장은 영구 `localStorage`가 아니라 탭 단위 `sessionStorage`만 사용합니다.
+그 다음 Spring Boot 콘솔을 실행한다.
 
-로그인 세션 또는 bootstrap admin token이 필요한 화면 동작:
+```powershell
+cd web-console
+mvn spring-boot:run
+```
 
-- 승인 대기 사용자 조회
-- 회원가입 승인/거절
-- 클러스터 등록
-- Agent 설치 명령어 조회
-- 클러스터, RCA report, evidence 조회
+기본 접속 주소는 다음과 같다.
 
-Backend는 Web Console과 정적 자산 응답에 `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` header를 붙입니다.
+```text
+http://127.0.0.1:8080/
+```
 
-## API 연결
+WAR로 패키징한 뒤 실행할 수도 있다.
 
-콘솔은 같은 origin의 Backend API를 호출합니다.
+```powershell
+cd web-console
+mvn package
+java -jar target\cluster-infra-rca-web-console-0.1.0.war
+```
 
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-- `GET /api/admin/users?status=pending_approval`
-- `POST /api/admin/users/{user_id}/approval`
-- `POST /api/clusters`
-- `GET /api/clusters`
-- `GET /api/clusters/{cluster_id}/install-command`
-- `GET /api/rca/reports`
-- `GET /api/rca/reports/{report_id}`
+## Configuration
 
-네트워크 오류나 JSON이 아닌 에러 응답은 화면 toast와 목록 영역에 사람이 읽을 수 있는 메시지로 표시합니다.
+기본 backend API 주소는 `http://127.0.0.1:8000`이다.
 
-Alertmanager webhook URL은 현재 origin을 기준으로 화면에서 자동 표시합니다. 화면에는 `Authorization: Bearer ${RCA_WEBHOOK_TOKEN}` 예시도 같이 표시하지만 실제 token 값은 노출하지 않습니다.
+```powershell
+$env:RCA_API_BASE_URL = "https://rca-api.example.com"
+$env:RCA_PUBLIC_API_BASE_URL = "https://rca-api.example.com"
+```
+
+`RCA_API_BASE_URL`은 Spring Boot 서버가 실제로 호출할 backend 주소다. `RCA_PUBLIC_API_BASE_URL`은 agent 설치 명령과 webhook 화면에 보여줄 외부 접근용 API 주소다.
+
+## Pages
+
+- `Overview`: cluster, report, approval, webhook 상태 요약
+- `Access`: 회원가입 요청과 최종 관리자 승인/거절
+- `Clusters`: 클러스터 등록, agent 설치 명령, manifest 링크, node agent 상태
+- `Webhooks`: Alertmanager endpoint와 receiver 예시
+- `Reports`: RCA report 목록, root cause, policy, signal, checklist
+- `Settings`: proxy, API, runtime 설정 확인
+
+## Security
+
+React 콘솔은 bearer token과 admin token을 브라우저 `sessionStorage`에만 저장한다. 운영 배포에서는 HTTPS와 짧은 토큰 수명, 감사 로그, 서버 측 권한 검증이 같이 필요하다.
+
+Spring Boot 콘솔은 기본적으로 다음 보안 헤더를 붙인다.
+
+- `Content-Security-Policy`
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `Permissions-Policy`
+
+정적 자산은 WebJars와 `/assets` 경로에서 로컬로 제공한다. Bootstrap, Bootstrap Icons, React, ReactDOM은 외부 CDN을 사용하지 않는다.
+
+## Validation
+
+현재 검증한 항목은 다음과 같다.
+
+- JavaScript syntax check: `node --check web-console/src/main/resources/static/assets/console-app.js`
+- Spring Boot tests: `mvn test`
+- JSP shell rendering with embedded Tomcat
+- `/console-api/**` proxy forwarding
+- `Authorization` and `X-Admin-Token` forwarding
+- query string preservation
+- response `Cache-Control: no-store`
+- console security headers
+- WAR packaging: `mvn package -DskipTests`
+- Linux runtime smoke check on a private validation server:
+  - user-local JDK 17 and Maven 3.9.9
+  - WAR execution on a non-privileged port
+  - JSP page response
+  - `/console-api/health` proxy response
+  - security header presence
+
+Codex Windows shell에서는 장시간 background process를 안정적으로 유지하기 어려워 브라우저 화면 검증은 제한적이었다. 이후 Java/Spring Boot 검증은 Linux 서버에서 진행한다. 현재는 embedded Tomcat 기반 HTTP 테스트와 Linux runtime smoke check로 JSP, proxy, 보안 헤더 동작을 확인했다.

@@ -154,9 +154,9 @@ kubectl delete -f manifests/agent-daemonset.yaml
 
 Secret과 namespace는 다른 리소스가 같이 쓰고 있을 수 있으므로 바로 삭제하지 않는다.
 
-## suse 서버 현재 상태
+## Linux 검증 서버 상태
 
-`ssh sw6725_admin@suse`에서 읽기 전용으로 확인한 결과는 다음과 같다.
+비공개 Linux 검증 서버에서 읽기 전용으로 확인한 결과는 다음과 같다. 서버 주소, 계정명, 내부 네트워크 식별자는 저장소 문서에 남기지 않는다.
 
 - OS: Linux 6.12.8-1-default, SUSE 계열
 - `kubectl`: `/usr/local/bin/kubectl`, client v1.30.0
@@ -169,7 +169,7 @@ Secret과 namespace는 다른 리소스가 같이 쓰고 있을 수 있으므로
 
 ## 2026-06-13 kind 검증 결과
 
-`suse` 서버에서 기존 Docker 컨테이너는 수정하지 않고, `kind` 테스트 클러스터 `rca-agent-validation`을 새로 만들어 DaemonSet manifest를 검증했다. 검증 후 테스트 클러스터와 임시 agent 이미지는 삭제했다.
+비공개 Linux 검증 서버에서 기존 Docker 컨테이너는 수정하지 않고, `kind` 테스트 클러스터 `rca-agent-validation`을 새로 만들어 DaemonSet manifest를 검증했다. 검증 후 테스트 클러스터와 임시 agent 이미지는 삭제했다.
 
 검증 결과:
 

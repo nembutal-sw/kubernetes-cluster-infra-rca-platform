@@ -1,0 +1,26 @@
+server:
+  port: 8080
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: strict
+
+spring:
+  application:
+    name: cluster-infra-rca-web-console
+  mvc:
+    view:
+      prefix: /WEB-INF/jsp/
+      suffix: .jsp
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-store: true
+
+rca:
+  api-base-url: ${RCA_API_BASE_URL:http://127.0.0.1:8000}
+  public-api-base-url: ${RCA_PUBLIC_API_BASE_URL:}
+  proxy-path: /console-api
+  proxy-timeout-seconds: ${RCA_PROXY_TIMEOUT_SECONDS:20}

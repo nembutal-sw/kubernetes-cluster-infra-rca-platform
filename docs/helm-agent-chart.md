@@ -93,7 +93,7 @@ kubectl -n rca-system rollout status daemonset/rca-agent-cluster-infra-rca-agent
 kubectl -n rca-system logs -l app.kubernetes.io/instance=rca-agent --tail=100
 ```
 
-2026-06-13 기준으로 `suse` 서버에서 임시 Helm v3.15.4 바이너리로 다음 검증을 통과했다.
+2026-06-13 기준으로 비공개 Linux 검증 서버에서 임시 Helm v3.15.4 바이너리로 다음 검증을 통과했다.
 
 - `helm template`
 - `helm lint`
