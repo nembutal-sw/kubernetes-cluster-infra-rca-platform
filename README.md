@@ -99,7 +99,11 @@ Agent manifest는 `GET /api/clusters/{cluster_id}/agent-manifest`에서 생성�
 - Swagger: `http://127.0.0.1:8000/docs`
 - Health check: `http://127.0.0.1:8000/health`
 
-자세한 API 흐름은 [docs/backend-api.md](docs/backend-api.md)에 정리해두었습니다. Web UI 구성은 [docs/web-console.md](docs/web-console.md), Evidence preprocessing 기준은 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md), LLM 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md), RCA 분석 기준은 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)에 따로 정리했습니다.
+자세한 API 흐름 [docs/backend-api.md](docs/backend-api.md)
+Web UI 구성 [docs/web-console.md](docs/web-console.md)
+Evidence preprocessing 기준 [docs/evidence-preprocessing.md](docs/evidence-preprocessing.md)
+LLM 설정 [docs/llm-analyzer.md](docs/llm-analyzer.md)
+RCA 분석 기준 [docs/rca-analysis-rules.md](docs/rca-analysis-rules.md)
 
 ## DB 선택
 
