@@ -233,6 +233,7 @@ def _system_prompt() -> str:
         "Use only the provided preprocessed evidence. Do not invent missing facts. "
         "Do not execute or imply automatic remediation. "
         "Return valid JSON only. "
+        "Write all user-facing RCA text in English. "
         "Classify confidence as low, medium, or high. "
         "Action suggestions must be diagnostic or operator-reviewed proposals."
         " Evidence paths must start with preprocessed_evidence."
@@ -264,7 +265,7 @@ def _output_schema() -> dict[str, Any]:
         ],
         "action_suggestions": [
             {
-                "action_key": "collect_more_evidence|collect_linux_low_level_evidence|inspect_kernel_state|inspect_network_state|inspect_storage_state|restart_kubelet|restart_containerd|cleanup_disk|cordon_node|open_gitops_pr|reboot_node|manual_hardware_check",
+                "action_key": "collect_more_evidence|collect_linux_low_level_evidence|inspect_kernel_state|inspect_network_state|inspect_storage_state|restart_kubelet|restart_containerd|restart_container_runtime|cleanup_disk|cordon_node|open_gitops_pr|reboot_node|manual_hardware_check|manual_investigation",
                 "action": "string",
                 "reason": "string",
             }

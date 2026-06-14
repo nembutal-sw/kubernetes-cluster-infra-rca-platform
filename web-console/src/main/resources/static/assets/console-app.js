@@ -3,6 +3,7 @@
   const h = React.createElement;
   const apiBase = rootElement.dataset.apiBase || "/console-api";
   const publicApiBase = rootElement.dataset.publicApiBase || window.location.origin;
+  const LANGUAGE_STORAGE_KEY = "rca_console_language";
   const views = [
     { id: "overview", label: "Overview", icon: "speedometer2" },
     { id: "clusters", label: "Clusters", icon: "hdd-network" },
@@ -10,9 +11,540 @@
     { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
     { id: "settings", label: "Settings", icon: "sliders" },
   ];
+  let activeLocale = normalizeLocale(localStorage.getItem(LANGUAGE_STORAGE_KEY));
+
+  const translations = {
+    ko: {
+      "Overview": "개요",
+      "Clusters": "클러스터",
+      "Webhooks": "웹훅",
+      "Reports": "보고서",
+      "Settings": "설정",
+      "Operations Console": "운영 콘솔",
+      "Cluster Infrastructure RCA": "클러스터 인프라 RCA",
+      "Checking session": "세션 확인 중",
+      "Please wait.": "잠시만 기다려주세요.",
+      "Sign in with the administrator account. The initial account is admin / admin.": "관리자 계정으로 로그인하세요. 초기 계정은 admin / admin 입니다.",
+      "Account": "계정",
+      "Password": "비밀번호",
+      "Login": "로그인",
+      "Logout": "로그아웃",
+      "Refresh": "새로고침",
+      "Reload": "다시 불러오기",
+      "Auto": "자동",
+      "Manual": "수동",
+      "Not refreshed": "아직 새로고침 안 됨",
+      "Language": "언어",
+      "English": "영어",
+      "Korean": "한국어",
+      "RCA Reports": "RCA 보고서",
+      "Root Cause Candidates": "원인 후보",
+      "Evidence Signals": "근거 신호",
+      "Additional Checks": "추가 확인 명령",
+      "Recommended Actions": "권장 조치",
+      "Policy Engine": "정책 엔진",
+      "Rule gate before any action request": "조치 요청 전 Rule 기반 정책 검증",
+      "Rule-based candidates first, LLM candidates only as supporting context": "Rule 기반 후보를 우선 표시하고 LLM 후보는 보조 근거로만 사용",
+      "Read-only commands to verify the candidate cause": "원인 후보를 검증하기 위한 읽기 전용 명령",
+      "Policy Engine decides whether an action can be automated": "정책 엔진이 조치 자동화 가능 여부를 판단합니다",
+      "Policy keeps automation_allowed=false for every LLM-origin action.": "LLM 출처 조치는 항상 automation_allowed=false로 유지됩니다.",
+      "LLM suggestion only. automation_allowed=false until a rule or operator explicitly approves it.": "LLM 제안은 참고용입니다. Rule 또는 운영자 승인 전까지 automation_allowed=false 입니다.",
+      "Risk reasons": "위험 사유",
+      "Guardrails": "가드레일",
+      "No policy risk factors.": "정책 위험 사유 없음",
+      "No guardrails triggered.": "트리거된 가드레일 없음",
+      "Read-only rule-based collection or verification.": "읽기 전용 Rule 기반 수집 또는 검증",
+      "Node or service state may change. Operator approval is required.": "노드 또는 서비스 상태 변경 가능성이 있어 운영자 승인이 필요합니다.",
+      "Configuration change. Propose through a reviewable PR only.": "설정 변경은 리뷰 가능한 PR로만 제안합니다.",
+      "Prohibited for automation. Human decision only.": "자동화 금지 대상이며 사람의 판단만 허용됩니다.",
+      "Needs manual investigation or external validation.": "수동 조사 또는 외부 검증이 필요합니다.",
+      "Unclassified policy decision.": "분류되지 않은 정책 결정입니다.",
+      "Read-only rule-based action requests": "읽기 전용 Rule 기반 조치 요청",
+      "Needs review, approval, PR, or manual handling": "리뷰, 승인, PR 또는 수동 처리가 필요합니다",
+      "Console Settings": "콘솔 설정",
+      "Runtime references": "런타임 참조",
+      "Change Password": "비밀번호 변경",
+      "Change the current administrator password": "현재 관리자 계정의 비밀번호를 변경합니다",
+      "Current password": "현재 비밀번호",
+      "New password": "새 비밀번호",
+      "Confirm password": "비밀번호 확인",
+      "Update password": "비밀번호 변경",
+      "Language preference is saved in this browser.": "언어 설정은 이 브라우저에 저장됩니다.",
+      "Language changed.": "언어가 변경되었습니다.",
+      "Name": "이름",
+      "Agents": "에이전트",
+      "Access": "접근",
+      "Session": "세션",
+      "Webhook": "웹훅",
+      "Console proxy": "콘솔 프록시",
+      "Public API": "Public API",
+      "Signed in": "로그인 계정",
+      "Role": "역할",
+      "Refresh mode": "새로고침 모드",
+      "Webhook token env": "웹훅 토큰 환경 변수",
+      "LLM provider env": "LLM provider 환경 변수",
+      "Database env": "데이터베이스 환경 변수",
+      "Webhook endpoint copied.": "웹훅 엔드포인트를 복사했습니다.",
+      "Receiver sample copied.": "Receiver 예시를 복사했습니다.",
+      "Install command copied.": "설치 명령을 복사했습니다.",
+      "Last refresh": "마지막 새로고침",
+      "Loading": "불러오는 중",
+      "Registered targets": "등록된 대상",
+      "high confidence": "높은 신뢰도",
+      "Bearer protected": "Bearer 인증 보호",
+      "Cluster Snapshot": "클러스터 스냅샷",
+      "Latest registered clusters": "최근 등록된 클러스터",
+      "Open": "열기",
+      "Recent Reports": "최근 보고서",
+      "Root cause candidates": "원인 후보",
+      "No reports loaded.": "불러온 보고서가 없습니다.",
+      "Cluster Onboarding": "클러스터 온보딩",
+      "Register once, then install the node agent": "한 번 등록한 뒤 노드 에이전트를 설치합니다",
+      "Register": "등록",
+      "Create a cluster id and bootstrap token.": "cluster id와 bootstrap token을 생성합니다.",
+      "Install": "설치",
+      "Run the generated kubectl command.": "생성된 kubectl 명령을 실행합니다.",
+      "Verify": "검증",
+      "Check node agents after DaemonSet rollout.": "DaemonSet 배포 후 노드 에이전트를 확인합니다.",
+      "Cluster name": "클러스터 이름",
+      "Backend API URL for agents": "에이전트용 Backend API URL",
+      "Agents and kubectl will use this backend API URL.": "에이전트와 kubectl이 이 Backend API URL을 사용합니다.",
+      "Enter the backend API URL reachable from your kubectl workstation and cluster nodes.": "kubectl 작업 PC와 클러스터 노드에서 접근 가능한 Backend API URL을 입력하세요.",
+      "Description": "설명",
+      "Optional note for operators": "운영자용 선택 메모",
+      "Register and show install command": "등록 후 설치 명령 표시",
+      "Registered Clusters": "등록된 클러스터",
+      "clusters": "개 클러스터",
+      "Cluster": "클러스터",
+      "Environment": "환경",
+      "Status": "상태",
+      "Actions": "작업",
+      "Data": "데이터",
+      "Collect": "수집",
+      "Agent install command": "에이전트 설치 명령",
+      "Run this from a workstation with kubectl access to the target cluster.": "대상 클러스터에 kubectl 접근이 가능한 작업 PC에서 실행하세요.",
+      "Copy": "복사",
+      "Namespace and secret are created first.": "Namespace와 Secret을 먼저 생성합니다.",
+      "DaemonSet is applied from the generated manifest URL.": "생성된 manifest URL에서 DaemonSet을 적용합니다.",
+      "Click Agents after rollout to confirm node registration.": "배포 후 Agents를 눌러 노드 등록을 확인합니다.",
+      "Webhook Endpoint": "웹훅 엔드포인트",
+      "Alertmanager integration": "Alertmanager 연동",
+      "Endpoint": "엔드포인트",
+      "Authorization": "인증",
+      "Alertmanager Receiver": "Alertmanager Receiver",
+      "YAML sample": "YAML 예시",
+      "Symptom": "증상",
+      "Policy": "정책",
+      "Hide": "숨기기",
+      "Detail": "상세",
+      "Report summary copied.": "보고서 요약을 복사했습니다.",
+      "No registered clusters loaded.": "불러온 등록 클러스터가 없습니다.",
+      "No clusters loaded.": "불러온 클러스터가 없습니다.",
+      "Loading agents.": "에이전트를 불러오는 중입니다.",
+      "No agents registered.": "등록된 에이전트가 없습니다.",
+      "Node": "노드",
+      "Version": "버전",
+      "Last seen": "마지막 확인",
+      "Loading cluster data.": "클러스터 데이터를 불러오는 중입니다.",
+      "Evidence requests": "근거 수집 요청",
+      "Node Agents": "노드 에이전트",
+      "Evidence Requests": "근거 수집 요청",
+      "Collected Evidence": "수집된 근거",
+      "Evidence bundle copied.": "근거 번들을 복사했습니다.",
+      "Recent RCA": "최근 RCA",
+      "Cluster RCA reports copied.": "클러스터 RCA 보고서를 복사했습니다.",
+      "Close": "닫기",
+      "Evidence": "근거",
+      "Alert": "알림",
+      "Collectors": "수집기",
+      "No evidence requests.": "근거 수집 요청이 없습니다.",
+      "Request": "요청",
+      "Created": "생성 시간",
+      "View": "보기",
+      "Loading evidence bundle.": "근거 번들을 불러오는 중입니다.",
+      "Select a completed evidence request.": "완료된 근거 수집 요청을 선택하세요.",
+      "No RCA reports for this cluster.": "이 클러스터의 RCA 보고서가 없습니다.",
+      "Confirm Action": "조치 확인",
+      "No reason": "사유 없음",
+      "This will request read-only follow-up evidence from the node agent.": "노드 에이전트에 읽기 전용 추가 근거 수집을 요청합니다.",
+      "The policy gate will record the request status without direct node mutation.": "정책 게이트는 직접 노드 변경 없이 요청 상태만 기록합니다.",
+      "Cancel": "취소",
+      "Processing": "처리 중",
+      "Confirm": "확인",
+      "Confirm Collection": "수집 확인",
+      "Cluster collection": "클러스터 수집",
+      "Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline.": "백엔드는 등록된 온라인 노드 에이전트에 읽기 전용 근거 수집 요청을 생성합니다. 제출된 근거는 기존 RCA 파이프라인으로 분석됩니다.",
+      "No Prometheus or Alertmanager trigger is required.": "Prometheus 또는 Alertmanager 트리거가 없어도 됩니다.",
+      "Requesting": "요청 중",
+      "Loading report detail.": "보고서 상세를 불러오는 중입니다.",
+      "No policy decisions.": "정책 결정이 없습니다.",
+      "No items.": "항목이 없습니다.",
+      "No actions.": "조치가 없습니다.",
+      "No signals.": "신호가 없습니다.",
+      "Next:": "다음:",
+      "No checklist.": "체크리스트가 없습니다.",
+      "Command copied.": "명령을 복사했습니다.",
+      "Read-only verification": "읽기 전용 검증",
+      "Report": "보고서",
+      "Nodes": "노드",
+      "Automation": "자동화",
+      "Components": "구성 요소",
+      "Policies": "정책",
+      "Provider": "제공자",
+      "allowed": "허용",
+      "gated": "차단",
+      "action": "조치",
+      "derived signals": "파생 신호",
+      "mode": "모드",
+      "approval": "승인",
+      "review": "리뷰",
+      "key": "키",
+      "required": "필요",
+      "not required": "불필요",
+      "Execute": "실행",
+      "PR Gate": "PR 게이트",
+      "Blocked": "차단",
+      "Review": "검토",
+      "Unknown cause": "알 수 없는 원인",
+      "Unknown symptom": "알 수 없는 증상",
+      "n/a": "없음",
+      "unknown": "알 수 없음",
+      "manual": "수동",
+      "read_only": "읽기 전용",
+      "operator_approval": "운영자 승인",
+      "gitops_pr": "GitOps PR",
+      "prohibited": "금지",
+      "completed": "완료",
+      "skipped": "건너뜀",
+      "failed": "실패",
+      "active": "활성",
+      "registered": "등록됨",
+      "agent_pending": "에이전트 대기",
+      "healthy": "정상",
+      "offline": "오프라인",
+      "degraded": "저하",
+      "high": "높음",
+      "medium": "중간",
+      "low": "낮음",
+      "critical": "심각",
+      "warning": "경고",
+      "rule_based": "Rule 기반",
+      "llm_suggestion": "LLM 제안",
+      "automation_allowed": "자동화 허용",
+      "automation_blocked": "자동화 차단",
+      "llm_auto_blocked": "LLM 자동화 차단",
+      "Current evidence is insufficient to isolate a single root cause; additional logs and time-correlated metrics are required.": "현재 근거만으로 단일 원인을 분리하기 어렵습니다. 추가 로그와 시간 기준으로 맞춘 메트릭이 필요합니다.",
+      "Container runtime hang, crash loop, or socket failure is disrupting kubelet runtime integration.": "컨테이너 런타임 hang, crash loop 또는 socket 장애가 kubelet 런타임 연동을 방해하고 있습니다.",
+      "containerd hang, crash loop, or socket failure is disrupting kubelet runtime integration.": "containerd hang, crash loop 또는 socket 장애가 kubelet 런타임 연동을 방해하고 있습니다.",
+      "kubelet unit failure or repeated restarts are making node status updates and pod lifecycle handling unstable.": "kubelet unit 장애 또는 반복 재시작으로 노드 상태 갱신과 Pod lifecycle 처리가 불안정합니다.",
+      "Storage or filesystem errors may be causing root filesystem write failures and kubelet/containerd disruption.": "스토리지 또는 파일시스템 오류로 root filesystem 쓰기 실패와 kubelet/containerd 장애가 발생했을 수 있습니다.",
+      "Disk capacity, inode exhaustion, or I/O pressure is likely causing kubelet eviction and runtime latency.": "디스크 용량, inode 고갈 또는 I/O pressure가 kubelet eviction과 런타임 지연을 유발했을 가능성이 높습니다.",
+      "Node memory pressure or OOM activity may be preventing system daemons or workloads from running normally.": "노드 메모리 pressure 또는 OOM 활동으로 시스템 데몬이나 workload가 정상 동작하지 못했을 수 있습니다.",
+      "PID exhaustion or zombie process buildup may be preventing kubelet or runtime from spawning required processes.": "PID 고갈 또는 zombie process 누적으로 kubelet이나 런타임이 필요한 프로세스를 생성하지 못했을 수 있습니다.",
+      "Node network path, NIC link instability, TCP errors, or conntrack exhaustion is making API Server, CNI, or DNS communication unstable.": "노드 네트워크 경로, NIC link 불안정, TCP 오류 또는 conntrack 고갈로 API Server, CNI, DNS 통신이 불안정합니다.",
+      "CNI configuration, plugin errors, or MTU mismatch may be breaking pod network attachment or node networking.": "CNI 설정, plugin 오류 또는 MTU 불일치로 Pod 네트워크 연결이나 노드 네트워킹이 깨졌을 수 있습니다.",
+      "Node resolver, CoreDNS, or upstream DNS trouble may be delaying service discovery and control-plane communication.": "노드 resolver, CoreDNS 또는 upstream DNS 문제로 서비스 디스커버리와 control-plane 통신이 지연될 수 있습니다.",
+      "Kubernetes API readiness or metrics path is unhealthy, so controllers and operators may see stale or missing node state.": "Kubernetes API readiness 또는 metrics 경로가 비정상이라 controller와 operator가 오래되거나 누락된 노드 상태를 볼 수 있습니다.",
+      "Failed systemd units may be contributing to node-level service degradation.": "실패한 systemd unit이 노드 레벨 서비스 저하에 영향을 주고 있을 수 있습니다.",
+      "Check failed units and dependency failures": "실패한 unit과 의존성 장애를 확인",
+      "Check kubelet unit state, restart history, and node condition messages": "kubelet unit 상태, 재시작 이력, 노드 condition 메시지 확인",
+      "Check runtime sockets, unit state, pids, and recent journal lines": "런타임 socket, unit 상태, pid, 최근 journal 확인",
+      "Check containerd socket, unit, pid, and recent journal lines": "containerd socket, unit, pid, 최근 journal 확인",
+      "Confirm disk and inode pressure by mountpoint": "mountpoint별 disk와 inode pressure 확인",
+      "Find large runtime, kubelet, and log directories without crossing filesystems": "파일시스템 경계를 넘지 않고 큰 runtime/kubelet/log 디렉터리 확인",
+      "Find directories with unusually high file counts": "파일 개수가 비정상적으로 많은 디렉터리 확인",
+      "Check block device, filesystem, blocked task, taint, and read-only remount errors": "block device, filesystem, blocked task, taint, read-only remount 오류 확인",
+      "Check memory pressure, swap pressure, PSI, and recent OOM victims": "memory pressure, swap pressure, PSI, 최근 OOM victim 확인",
+      "Check PID pressure, process fan-out, and zombie parents": "PID pressure, process fan-out, zombie parent 확인",
+      "Check NIC, route, socket, TCP, and conntrack state": "NIC, route, socket, TCP, conntrack 상태 확인",
+      "Check CNI config, MTU settings, plugin logs, and kube-system pods": "CNI config, MTU 설정, plugin 로그, kube-system pod 확인",
+      "Check Kubernetes API readiness, metrics path, certificate warnings, and node events": "Kubernetes API readiness, metrics 경로, certificate 경고, node event 확인",
+      "Check node resolver path, timeout budget, and CoreDNS pods": "노드 resolver 경로, timeout budget, CoreDNS pod 확인",
+      "Evidence is insufficient; check failed units and kernel errors first": "근거가 부족합니다. 실패한 unit과 kernel error부터 확인하세요.",
+    },
+  };
+
+  const actionTranslations = {
+    ko: {
+      collect_more_evidence: {
+        action: "장애 시간대의 kubelet, runtime, kernel, systemd, network, disk 근거를 추가 수집합니다.",
+        reason: "읽기 전용 근거 수집이며 노드나 workload 상태를 변경하지 않습니다.",
+      },
+      collect_linux_low_level_evidence: {
+        action: "systemd unit, kernel log, process state, runtime socket, host namespace의 Linux low-level 상태를 수집합니다.",
+        reason: "Linux low-level 점검은 읽기 전용이며 restart나 노드 변경을 검토하기 전에 필요합니다.",
+      },
+      inspect_storage_state: {
+        action: "filesystem, inode, mount, block device, kernel I/O 상태를 점검합니다.",
+        reason: "스토리지 점검은 읽기 전용이며 capacity pressure와 filesystem/device 오류를 분리하는 데 필요합니다.",
+      },
+      inspect_network_state: {
+        action: "영향받은 노드에서 NIC, route, socket, conntrack, resolver, CNI 상태를 점검합니다.",
+        reason: "네트워크 점검은 읽기 전용이며 CNI, sysctl, routing 변경 전 선행되어야 합니다.",
+      },
+      restart_container_runtime: {
+        action: "컨테이너 런타임 socket 또는 unit이 계속 비정상이면 운영자 승인 후 런타임 재시작을 검토합니다.",
+        reason: "런타임 재시작은 실행 중인 workload에 영향을 줄 수 있으므로 자동 실행하면 안 됩니다.",
+      },
+      restart_containerd: {
+        action: "containerd socket 또는 unit이 계속 비정상이면 운영자 승인 후 containerd 재시작을 검토합니다.",
+        reason: "런타임 재시작은 실행 중인 workload에 영향을 줄 수 있으므로 자동 실행하면 안 됩니다.",
+      },
+      restart_kubelet: {
+        action: "kubelet이 failed 상태이거나 반복 재시작 중이면 운영자 승인 후 kubelet 재시작을 검토합니다.",
+        reason: "kubelet 재시작은 노드 상태 갱신을 회복할 수 있지만 workload lifecycle 처리에 영향을 줄 수 있어 승인이 필요합니다.",
+      },
+      cleanup_disk: {
+        action: "운영자 승인 후 사용하지 않는 image, log, temporary file을 정리하거나 디스크 용량을 확장합니다.",
+        reason: "잘못된 경로를 정리하면 데이터 손실이 발생할 수 있으므로 경로 검토와 승인이 필요합니다.",
+      },
+      cordon_node: {
+        action: "memory pressure 또는 OOM이 계속되면 운영자 승인 후 node cordon 또는 drain을 검토합니다.",
+        reason: "cordon 또는 drain은 workload 재스케줄링을 유발하므로 자동 실행하면 안 됩니다.",
+      },
+      manual_investigation: {
+        action: "조치 전에 PID pressure, process fan-out, zombie parent, runtime shim 상태를 조사합니다.",
+        reason: "PID 고갈은 workload 동작이나 host process leak이 원인일 수 있어 사람의 판단이 필요합니다.",
+      },
+      open_gitops_pr: {
+        action: "conntrack, CNI, DNS/CoreDNS, MTU 또는 sysctl 변경은 GitOps PR로만 제안합니다.",
+        reason: "클러스터 설정 변경은 RCA에서 직접 적용하면 안 되며 리뷰 가능한 PR 흐름이 필요합니다.",
+      },
+      manual_hardware_check: {
+        action: "NIC link flap, kernel I/O error, read-only filesystem, storage 또는 network path 상태를 조사합니다.",
+        reason: "하드웨어, kernel, storage, network path 검증은 수동 조사가 필요합니다.",
+      },
+      reboot_node: {
+        action: "blocked task 또는 read-only filesystem 오류가 지속되면 node reboot는 최후 수단으로만 검토합니다.",
+        reason: "node reboot는 영향 범위가 크므로 절대 자동 실행하면 안 됩니다.",
+      },
+    },
+  };
+
+  const signalTranslations = {
+    ko: {
+      kubelet_unit_unhealthy: {
+        interpretation: "kubelet systemd unit이 active/running 상태가 아닙니다.",
+        next_step: "장애 직전의 systemctl status kubelet과 journalctl -u kubelet 실패 로그를 확인하세요.",
+      },
+      kubelet_restarting: {
+        interpretation: "kubelet 재시작 횟수가 높습니다. deadlock, 설정 오류, API server 연결 문제가 가능성이 있습니다.",
+        next_step: "각 재시작 시점의 journalctl -u kubelet 로그를 API server 연결 오류와 함께 대조하세요.",
+      },
+      containerd_unit_unhealthy: {
+        interpretation: "containerd systemd unit이 비정상이라 kubelet runtime 작업이 실패할 수 있습니다.",
+        next_step: "systemctl status containerd와 journalctl -u containerd에서 crash, hang, 설정 오류를 확인하세요.",
+      },
+      container_runtime_unit_unhealthy: {
+        interpretation: "컨테이너 런타임 systemd unit이 failed 또는 restarting 상태입니다.",
+        next_step: "운영자 승인으로 재시작하기 전에 runtime unit 상태와 journal을 확인하세요.",
+      },
+      rke2_server_unit_unhealthy: {
+        interpretation: "rke2-server unit이 정상 상태가 아니어서 embedded kubelet/containerd/control-plane이 불안정할 수 있습니다.",
+        next_step: "장애 시간대의 systemctl status rke2-server와 journalctl -u rke2-server를 확인하세요.",
+      },
+      rke2_server_restarting: {
+        interpretation: "rke2-server 재시작 횟수가 높습니다. control-plane 또는 embedded runtime 불안정이 있었을 수 있습니다.",
+        next_step: "rke2-server 재시작 시점을 node Ready 변화, CNI 재시작, API timeout 로그와 대조하세요.",
+      },
+      systemd_failed_units: {
+        interpretation: "노드에 failed systemd unit이 남아 있어 의존 서비스 장애를 나타낼 수 있습니다.",
+        next_step: "systemctl --failed를 실행하고 각 failed unit journal이 Kubernetes 구성 요소로 전파됐는지 확인하세요.",
+      },
+      kubernetes_api_unavailable: {
+        interpretation: "노드 에이전트가 Kubernetes API를 읽지 못했습니다. local API path, service account, control-plane 연결 문제가 가능성이 있습니다.",
+        next_step: "노드에서 in-cluster API service reachability, ServiceAccount RBAC, kube-apiserver 상태를 확인하세요.",
+      },
+      node_not_ready_condition: {
+        interpretation: "Kubernetes가 해당 노드의 Ready condition을 false로 보고합니다.",
+        next_step: "node condition transition time을 kubelet, runtime, kernel, network 근거와 비교하세요.",
+      },
+      node_pressure_condition_active: {
+        interpretation: "Kubernetes node pressure condition이 활성화되어 있습니다.",
+        next_step: "disk, memory, process, kernel collector로 pressure source를 식별하세요.",
+      },
+      control_plane_peer_unreachable: {
+        interpretation: "이 노드에서 control-plane peer TCP probe가 실패했습니다. API server, CNI watch, etcd/client 경로가 깨질 수 있습니다.",
+        next_step: "실패한 peer port의 firewall, routing, ACL, listener 상태를 확인하세요.",
+      },
+      cni_pod_restarting: {
+        interpretation: "노드의 CNI pod 재시작 횟수가 높습니다. API watch timeout, CNI agent crash, node network 불안정이 가능성이 있습니다.",
+        next_step: "CNI pod previous log와 API server 또는 node network 오류 시간을 대조하세요.",
+      },
+      system_pod_restarts_high: {
+        interpretation: "노드의 pod 재시작 횟수가 높습니다. node/runtime/network 불안정의 2차 증상일 수 있습니다.",
+        next_step: "원인으로 확정하기 전에 application restart와 kube-system/runtime restart를 분리하세요.",
+      },
+      node_metrics_unavailable: {
+        interpretation: "metrics.k8s.io를 통한 node metrics가 불가하여 scheduler/autoscaler/operator 가시성이 부족할 수 있습니다.",
+        next_step: "metrics-server 로그와 영향을 받은 노드의 kubelet summary API 접근성을 확인하세요.",
+      },
+      apiserver_readyz_failed: {
+        interpretation: "API server readiness check가 실패했습니다.",
+        next_step: "실패한 readyz check를 etcd/API server 로그와 대조하세요.",
+      },
+      node_certificate_expiring: {
+        interpretation: "Kubernetes가 node certificate 만료 경고를 발생시켰습니다. 즉시 장애 원인은 아닐 수 있지만 운영상 중요합니다.",
+        next_step: "만료 전 통제된 RKE2 certificate rotation을 계획하고, 승인된 maintenance plan 없이 control-plane node를 재시작하지 마세요.",
+      },
+      container_runtime_socket_permission_denied: {
+        interpretation: "컨테이너 런타임 socket은 있지만 로컬 권한 때문에 agent가 probe하지 못했습니다.",
+        next_step: "런타임 장애로 보기 전에 노드 에이전트 권한 또는 runtime socket 접근 권한을 확인하세요.",
+      },
+      container_runtime_socket_unhealthy: {
+        interpretation: "컨테이너 런타임 Unix socket이 응답하지 않아 kubelet의 pod sandbox/container 작업이 실패할 수 있습니다.",
+        next_step: "감지된 runtime 종류의 socket, pid, unit, journal을 확인하세요.",
+      },
+      container_runtime_socket_latency_high: {
+        interpretation: "컨테이너 런타임 socket latency가 높습니다. runtime hang 또는 I/O pressure가 관련될 수 있습니다.",
+        next_step: "runtime journal과 disk I/O pressure를 함께 확인하세요.",
+      },
+      container_runtime_pid_not_running: {
+        interpretation: "runtime pid file이 가리키는 프로세스가 실행 중이 아닙니다.",
+        next_step: "systemd 상태와 runtime crash loop 이력을 확인하세요.",
+      },
+      containerd_socket_permission_denied: {
+        interpretation: "containerd socket은 있지만 로컬 권한 때문에 agent가 probe하지 못했습니다.",
+        next_step: "containerd 장애로 보기 전에 노드 에이전트 권한 또는 socket 접근 권한을 확인하세요.",
+      },
+      containerd_socket_unhealthy: {
+        interpretation: "containerd Unix socket이 응답하지 않아 kubelet의 pod sandbox/container 작업이 실패할 수 있습니다.",
+        next_step: "containerd socket, pid, unit, journal을 확인하세요.",
+      },
+      containerd_socket_latency_high: {
+        interpretation: "containerd socket latency가 높습니다. runtime hang 또는 I/O pressure가 관련될 수 있습니다.",
+        next_step: "containerd journal과 disk I/O pressure를 함께 확인하세요.",
+      },
+      containerd_pid_not_running: {
+        interpretation: "containerd pid file이 가리키는 프로세스가 실행 중이 아닙니다.",
+        next_step: "systemd 상태와 containerd crash loop 이력을 확인하세요.",
+      },
+      disk_usage_critical: {
+        interpretation: "root filesystem 사용률이 높아 kubelet eviction, log write, image pull 실패가 발생할 수 있습니다.",
+        next_step: "df, du, container image usage, log size를 확인해 안전한 정리 또는 용량 확장 대상을 검증하세요.",
+      },
+      disk_usage_high: {
+        interpretation: "root filesystem 사용률이 높아 kubelet eviction, log write, image pull 실패가 발생할 수 있습니다.",
+        next_step: "df, du, container image usage, log size를 확인해 안전한 정리 또는 용량 확장 대상을 검증하세요.",
+      },
+      inode_usage_critical: {
+        interpretation: "inode 사용률이 높아 새 파일 생성 실패와 kubelet DiskPressure가 발생할 수 있습니다.",
+        next_step: "df -i와 file count가 높은 디렉터리 점검으로 정리 후보를 식별하세요.",
+      },
+      inode_usage_high: {
+        interpretation: "inode 사용률이 높아 새 파일 생성 실패와 kubelet DiskPressure가 발생할 수 있습니다.",
+        next_step: "df -i와 file count가 높은 디렉터리 점검으로 정리 후보를 식별하세요.",
+      },
+      root_filesystem_read_only: {
+        interpretation: "root filesystem이 read-only로 mount되어 kubelet/containerd write 작업이 실패할 수 있습니다.",
+        next_step: "kernel I/O error, filesystem error, block device health, storage path event를 우선 확인하세요.",
+      },
+      kernel_io_error: {
+        interpretation: "kernel 또는 disk collector에서 I/O error가 감지되었습니다.",
+        next_step: "dmesg, journalctl -k, block device health, filesystem 상태를 확인하세요.",
+      },
+      io_pressure_high: {
+        interpretation: "I/O pressure가 높아 kubelet, containerd, etcd 또는 log 작업이 지연될 수 있습니다.",
+        next_step: "/proc/pressure/io, iostat, diskstats, runtime journal timestamp를 대조해 병목 device를 식별하세요.",
+      },
+      blocked_task_detected: {
+        interpretation: "kernel blocked task가 감지되었습니다. I/O hang, driver hang, filesystem lock contention 가능성이 있습니다.",
+        next_step: "dmesg blocked task stack trace를 보고 disruptive 조치 전에 blocked subsystem을 식별하세요.",
+      },
+      read_only_filesystem_detected: {
+        interpretation: "kernel log에 filesystem read-only 전환 근거가 있습니다.",
+        next_step: "remount 직전의 block device 또는 filesystem error를 찾아 storage event와 대조하세요.",
+      },
+      kernel_nic_error: {
+        interpretation: "kernel log에 NIC link 또는 driver error가 있습니다.",
+        next_step: "NIC driver log, carrier change, ethtool counter, switch port event를 함께 확인하세요.",
+      },
+      kernel_oom_detected: {
+        interpretation: "kernel OOM 활동이 감지되어 host process 또는 workload가 종료됐을 수 있습니다.",
+        next_step: "OOM victim, cgroup, memory pressure, kubelet eviction event를 장애 시간대와 함께 확인하세요.",
+      },
+      kernel_tainted: {
+        interpretation: "kernel taint가 설정되어 third-party module, forced load, kernel warning에 대한 추가 해석이 필요할 수 있습니다.",
+        next_step: "/proc/sys/kernel/tainted를 decode하고 최근 dmesg warning을 확인한 뒤 원인을 확정하세요.",
+      },
+      memory_pressure_critical: {
+        interpretation: "노드 memory 사용률이 높아 kubelet eviction, OOM kill, system daemon latency가 발생할 수 있습니다.",
+        next_step: "MemAvailable, swap usage, top memory consumer, kubelet eviction event를 확인하세요.",
+      },
+      memory_pressure_high: {
+        interpretation: "노드 memory 사용률이 높아 kubelet eviction, OOM kill, system daemon latency가 발생할 수 있습니다.",
+        next_step: "MemAvailable, swap usage, top memory consumer, kubelet eviction event를 확인하세요.",
+      },
+      oom_kill_detected: {
+        interpretation: "장애 시간대에 OOM kill 근거가 있습니다.",
+        next_step: "kernel log에서 OOM victim, cgroup, memory pressure context를 확인하세요.",
+      },
+      swap_usage_high: {
+        interpretation: "swap 사용률이 높아 system daemon latency가 증가할 수 있습니다.",
+        next_step: "swap in/out 활동과 상위 memory-consuming process를 확인하세요.",
+      },
+      memory_psi_high: {
+        interpretation: "Memory PSI가 높아 runnable task가 memory reclaim 또는 allocation에서 지연될 수 있습니다.",
+        next_step: "/proc/pressure/memory를 kubelet eviction과 OOM event와 대조하세요.",
+      },
+      pid_usage_high: {
+        interpretation: "PID 사용률이 높아 process creation 실패 또는 PIDPressure가 발생할 수 있습니다.",
+        next_step: "조치 전에 process fan-out, service별 process count, zombie process를 식별하세요.",
+      },
+      zombie_process_detected: {
+        interpretation: "Zombie process가 존재합니다. parent reaping 문제 또는 runtime shim 문제가 가능성이 있습니다.",
+        next_step: "zombie parent process와 runtime shim 상태를 확인하세요.",
+      },
+      interface_down: {
+        interpretation: "하나 이상의 NIC가 down 상태이며 노드 연결성이 손상됐을 수 있습니다.",
+        next_step: "ip link, ethtool, driver log, switch port event를 확인하세요.",
+      },
+      nic_link_flap: {
+        interpretation: "NIC carrier change가 감지되어 API server, etcd, CNI 통신이 불안정할 수 있습니다.",
+        next_step: "carrier change, kernel NIC log, switch event, control-plane connection failure를 시간 기준으로 대조하세요.",
+      },
+      conntrack_near_limit: {
+        interpretation: "conntrack table이 한도에 가까워 DNS, Service, API server 연결이 간헐적으로 실패할 수 있습니다.",
+        next_step: "nf_conntrack_count/max, conntrack drop, connection spike를 유발하는 workload를 확인하세요.",
+      },
+      interface_packet_errors: {
+        interpretation: "NIC error 또는 drop이 감지되어 packet loss나 driver/link 문제가 있을 수 있습니다.",
+        next_step: "/proc/net/dev, ethtool -S, CNI overlay interface error를 확인하세요.",
+      },
+      tcp_error_counters_high: {
+        interpretation: "TCP retransmit 또는 listen overflow counter가 높아 connection latency 또는 backlog exhaustion이 의심됩니다.",
+        next_step: "/proc/net/snmp, /proc/net/netstat, service backlog 설정, upstream packet loss를 확인하세요.",
+      },
+      dns_latency_high: {
+        interpretation: "DNS lookup latency가 높아 pod scheduling, image pull, service discovery가 지연될 수 있습니다.",
+        next_step: "CoreDNS latency, node resolver 설정, upstream DNS 상태를 확인하세요.",
+      },
+      cni_config_invalid: {
+        interpretation: "CNI configuration JSON parse error가 감지되어 kubelet pod sandbox 생성이 실패할 수 있습니다.",
+        next_step: "/etc/cni/net.d 파일을 검증하고 최근 CNI 설정 변경을 확인하세요.",
+      },
+      cni_plugin_error: {
+        interpretation: "CNI plugin error가 감지되어 pod network attachment가 실패할 수 있습니다.",
+        next_step: "CNI plugin log와 kubelet pod sandbox event를 확인하세요.",
+      },
+      cni_mtu_values_inconsistent: {
+        interpretation: "CNI 설정에 여러 MTU 값이 있어 overlay path MTU mismatch가 가능성이 있습니다.",
+        next_step: "node NIC MTU, CNI MTU, pod path MTU, overlay interface MTU를 함께 비교하세요.",
+      },
+      dns_unconfigured: {
+        interpretation: "노드 resolver에 사용 가능한 nameserver가 없어 DNS lookup이 실패할 수 있습니다.",
+        next_step: "/etc/resolv.conf, node-local-dns, CoreDNS, upstream DNS 설정을 확인하세요.",
+      },
+      dns_resolver_timeout_budget_high: {
+        interpretation: "resolver timeout budget이 높아 DNS 실패가 긴 요청 지연을 만들 수 있습니다.",
+        next_step: "resolv.conf option과 CoreDNS timeout/retry policy를 검토하세요.",
+      },
+    },
+  };
 
   function App() {
     const [activeView, setActiveView] = React.useState("overview");
+    const [locale, setLocale] = React.useState(activeLocale);
     const [clusters, setClusters] = React.useState([]);
     const [reports, setReports] = React.useState([]);
     const [reportDetails, setReportDetails] = React.useState({});
@@ -28,12 +560,22 @@
     const [clusterData, setClusterData] = React.useState(null);
     const [actionDialog, setActionDialog] = React.useState(null);
     const [collectionDialog, setCollectionDialog] = React.useState(null);
+    activeLocale = locale;
+    document.documentElement.lang = locale;
 
     const notify = React.useCallback((message) => {
       setToast(message);
       window.clearTimeout(notify.timer);
       notify.timer = window.setTimeout(() => setToast(""), 3200);
     }, []);
+
+    const changeLanguage = React.useCallback((value) => {
+      const nextLocale = normalizeLocale(value);
+      activeLocale = nextLocale;
+      setLocale(nextLocale);
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
+      notify(tr("Language changed."));
+    }, [notify]);
 
     const authHeaders = React.useCallback(() => {
       const headers = {};
@@ -364,15 +906,15 @@
       return h("div", { className: "login-shell" },
         h("div", { className: "login-card" },
           h("div", { className: "console-brand-mark mb-3" }, "RCA"),
-          h("h1", { className: "h5 mb-2" }, "Checking session"),
-          h("p", { className: "text-muted mb-0" }, "잠시만 기다려주세요.")
+          h("h1", { className: "h5 mb-2" }, tr("Checking session")),
+          h("p", { className: "text-muted mb-0" }, tr("Please wait."))
         )
       );
     }
 
     if (!currentUser) {
       return h(React.Fragment, null,
-        h(LoginPage, { onLogin: login }),
+        h(LoginPage, { onLogin: login, locale, onChangeLanguage: changeLanguage }),
         toast && h(Toast, { message: toast, onClose: () => setToast("") })
       );
     }
@@ -387,6 +929,8 @@
           onLogout: logout,
           onRefresh: () => refreshAll(false),
           onToggleAutoRefresh: () => setAutoRefresh((value) => !value),
+          locale,
+          onChangeLanguage: changeLanguage,
         }),
         activeView === "overview" && h(OverviewView, {
           clusters,
@@ -428,6 +972,8 @@
           autoRefresh,
           currentUser,
           onChangePassword: changePassword,
+          locale,
+          onChangeLanguage: changeLanguage,
         }),
         clusterData?.open && h(ClusterDataModal, {
           state: clusterData,
@@ -458,7 +1004,7 @@
         h("div", { className: "console-brand-mark" }, "RCA"),
         h("div", null,
           h("div", { className: "fw-bold" }, "Infra RCA"),
-          h("div", { className: "small text-white-50" }, "Operations Console")
+          h("div", { className: "small text-white-50" }, tr("Operations Console"))
         )
       ),
       h("nav", { className: "console-nav", "aria-label": "Console navigation" },
@@ -467,7 +1013,7 @@
           type: "button",
           className: activeView === view.id ? "active" : "",
           onClick: () => setActiveView(view.id),
-        }, h(Icon, { name: view.icon }), h("span", null, view.label)))
+        }, h(Icon, { name: view.icon }), h("span", null, tr(view.label))))
       )
     );
   }
@@ -480,36 +1026,38 @@
             h("span", { className: "status-dot online" }),
             h("span", { className: "small text-muted fw-semibold" }, `${props.currentUser.email} / ${props.currentUser.role}`)
           ),
-          h("h1", { className: "h4 mb-0" }, "Cluster Infrastructure RCA")
+          h("h1", { className: "h4 mb-0" }, tr("Cluster Infrastructure RCA"))
         ),
         h("div", { className: "col-12 col-xl-8" },
           h("div", { className: "d-flex gap-2 flex-wrap justify-content-xl-end" },
-            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), "Refresh"),
-            h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? "Auto" : "Manual"),
-            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onLogout }, h(Icon, { name: "box-arrow-right" }), "Logout")
+            h(LanguageSelect, { locale: props.locale, onChangeLanguage: props.onChangeLanguage, compact: true }),
+            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), tr("Refresh")),
+            h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? tr("Auto") : tr("Manual")),
+            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onLogout }, h(Icon, { name: "box-arrow-right" }), tr("Logout"))
           ),
-          h("div", { className: "small text-muted mt-1" }, props.lastRefresh ? `Last refresh ${formatDate(props.lastRefresh)}` : "Not refreshed")
+          h("div", { className: "small text-muted mt-1" }, props.lastRefresh ? `${tr("Last refresh")} ${formatDate(props.lastRefresh)}` : tr("Not refreshed"))
         )
       )
     );
   }
 
-  function LoginPage({ onLogin }) {
+  function LoginPage({ onLogin, locale, onChangeLanguage }) {
     return h("div", { className: "login-shell" },
       h("section", { className: "login-card" },
+        h("div", { className: "d-flex justify-content-end mb-2" }, h(LanguageSelect, { locale, onChangeLanguage, compact: true })),
         h("div", { className: "console-brand-mark mb-3" }, "RCA"),
-        h("h1", { className: "h4 mb-2" }, "Cluster Infrastructure RCA"),
-        h("p", { className: "text-muted mb-4" }, "관리자 계정으로 로그인하세요. 초기 계정은 admin / admin 입니다."),
+        h("h1", { className: "h4 mb-2" }, tr("Cluster Infrastructure RCA")),
+        h("p", { className: "text-muted mb-4" }, tr("Sign in with the administrator account. The initial account is admin / admin.")),
         h("form", { className: "d-grid gap-3", onSubmit: onLogin },
           h("div", null,
-            h("label", { className: "form-label", htmlFor: "login-username" }, "Account"),
+            h("label", { className: "form-label", htmlFor: "login-username" }, tr("Account")),
             h("input", { id: "login-username", className: "form-control", name: "username", autoComplete: "username", defaultValue: "admin", required: true })
           ),
           h("div", null,
-            h("label", { className: "form-label", htmlFor: "login-password" }, "Password"),
+            h("label", { className: "form-label", htmlFor: "login-password" }, tr("Password")),
             h("input", { id: "login-password", className: "form-control", name: "password", type: "password", autoComplete: "current-password", required: true })
           ),
-          h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "box-arrow-in-right" }), "Login")
+          h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "box-arrow-in-right" }), tr("Login"))
         )
       )
     );
@@ -526,19 +1074,19 @@
       ),
       h("div", { className: "row g-3" },
         h("div", { className: "col-12 col-xl-7" },
-          h(Panel, { title: "Cluster Snapshot", subtitle: "Latest registered clusters", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("clusters") }, "Open") },
+          h(Panel, { title: "Cluster Snapshot", subtitle: "Latest registered clusters", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("clusters") }, tr("Open")) },
             h(ClusterTable, { clusters: clusters.slice(0, 6) })
           )
         ),
         h("div", { className: "col-12 col-xl-5" },
-          h(Panel, { title: "Recent Reports", subtitle: "Root cause candidates", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("reports") }, "Open") },
+          h(Panel, { title: "Recent Reports", subtitle: "Root cause candidates", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("reports") }, tr("Open")) },
             reports.length ? h("div", { className: "list-group list-group-flush" },
               reports.slice(0, 5).map((report) => h("div", { key: report.report_id, className: "list-group-item px-0" },
                 h("div", { className: "d-flex justify-content-between gap-2" },
-                  h("strong", { className: "small" }, report.summary?.symptom || "Unknown symptom"),
+                  h("strong", { className: "small" }, displaySummary(report.summary?.symptom)),
                   h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
                 ),
-                h("div", { className: "small text-muted text-truncate" }, report.summary?.most_likely_cause || report.report_id)
+                h("div", { className: "small text-muted text-truncate" }, displayText(report.summary?.most_likely_cause || report.report_id))
               ))
             ) : h(EmptyState, { message: "No reports loaded." })
           )
@@ -556,14 +1104,14 @@
         h("div", { className: "col-12 col-xl-5" },
           h(Panel, { title: "Cluster Onboarding", subtitle: "Register once, then install the node agent" },
             h("ol", { className: "onboarding-steps mb-3" },
-              h("li", null, h("span", null, "1"), h("div", null, h("strong", null, "Register"), h("small", null, "Create a cluster id and bootstrap token."))),
-              h("li", null, h("span", null, "2"), h("div", null, h("strong", null, "Install"), h("small", null, "Run the generated kubectl command."))),
-              h("li", null, h("span", null, "3"), h("div", null, h("strong", null, "Verify"), h("small", null, "Check node agents after DaemonSet rollout.")))
+              h("li", null, h("span", null, "1"), h("div", null, h("strong", null, tr("Register")), h("small", null, tr("Create a cluster id and bootstrap token.")))),
+              h("li", null, h("span", null, "2"), h("div", null, h("strong", null, tr("Install")), h("small", null, tr("Run the generated kubectl command.")))),
+              h("li", null, h("span", null, "3"), h("div", null, h("strong", null, tr("Verify")), h("small", null, tr("Check node agents after DaemonSet rollout."))))
             ),
             h("form", { className: "row g-3", onSubmit: props.onCreateCluster },
               h(InputField, { label: "Cluster name", name: "name", required: true, placeholder: "prod-cluster" }),
               h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-environment" }, "Environment"),
+                h("label", { className: "form-label", htmlFor: "cluster-environment" }, tr("Environment")),
                 h("select", { id: "cluster-environment", className: "form-select", name: "environment", defaultValue: "prod" },
                   h("option", { value: "prod" }, "prod"),
                   h("option", { value: "stage" }, "stage"),
@@ -571,7 +1119,7 @@
                 )
               ),
               h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-backend-url" }, "Backend API URL for agents"),
+                h("label", { className: "form-label", htmlFor: "cluster-backend-url" }, tr("Backend API URL for agents")),
                 h("input", {
                   id: "cluster-backend-url",
                   className: "form-control font-monospace",
@@ -581,14 +1129,14 @@
                   placeholder: "https://rca-api.example.com",
                   required: true,
                 }),
-                h("div", { className: "form-text" }, backendUrlHelp)
+                h("div", { className: "form-text" }, tr(backendUrlHelp))
               ),
               h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-description" }, "Description"),
-                h("textarea", { id: "cluster-description", className: "form-control", name: "description", rows: 2, placeholder: "Optional note for operators" })
+                h("label", { className: "form-label", htmlFor: "cluster-description" }, tr("Description")),
+                h("textarea", { id: "cluster-description", className: "form-control", name: "description", rows: 2, placeholder: tr("Optional note for operators") })
               ),
               h("div", { className: "col-12 d-grid" },
-                h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "plus-lg" }), "Register and show install command")
+                h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "plus-lg" }), tr("Register and show install command"))
               )
             )
           )
@@ -601,10 +1149,10 @@
           }, props.clusters.length ? h("div", { className: "table-responsive" },
             h("table", { className: "table table-hover mb-0" },
               h("thead", null, h("tr", null,
-                h("th", null, "Cluster"),
-                h("th", null, "Environment"),
-                h("th", null, "Status"),
-                h("th", { className: "text-end" }, "Actions")
+                h("th", null, tr("Cluster")),
+                h("th", null, tr("Environment")),
+                h("th", null, tr("Status")),
+                h("th", { className: "text-end" }, tr("Actions"))
               )),
               h("tbody", null, props.clusters.map((cluster) => h(React.Fragment, { key: cluster.cluster_id },
                 h("tr", null,
@@ -620,10 +1168,10 @@
                   h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })),
                   h("td", { className: "text-end" },
                     h("div", { className: "btn-group btn-group-sm" },
-                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), "Data"),
-                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), "Collect"),
-                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), "Install"),
-                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), "Agents")
+                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), tr("Data")),
+                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
+                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
+                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents"))
                     )
                   )
                 ),
@@ -650,21 +1198,21 @@
     return h("div", { className: "install-command-panel mb-3" },
       h("div", { className: "install-command-header" },
         h("div", null,
-          h("div", { className: "fw-semibold" }, "Agent install command"),
-          h("div", { className: "small text-muted" }, "Run this from a workstation with kubectl access to the target cluster.")
+          h("div", { className: "fw-semibold" }, tr("Agent install command")),
+          h("div", { className: "small text-muted" }, tr("Run this from a workstation with kubectl access to the target cluster."))
         ),
         h("button", {
           type: "button",
           className: "btn btn-sm btn-outline-secondary btn-icon",
           disabled: !canCopy,
           onClick: () => onCopy(command, "Install command copied."),
-        }, h(Icon, { name: "clipboard" }), "Copy")
+        }, h(Icon, { name: "clipboard" }), tr("Copy"))
       ),
       h("pre", { className: "code-block" }, command),
       h("div", { className: "install-checklist" },
-        h("span", null, h(Icon, { name: "1-circle" }), "Namespace and secret are created first."),
-        h("span", null, h(Icon, { name: "2-circle" }), "DaemonSet is applied from the generated manifest URL."),
-        h("span", null, h(Icon, { name: "3-circle" }), "Click Agents after rollout to confirm node registration.")
+        h("span", null, h(Icon, { name: "1-circle" }), tr("Namespace and secret are created first.")),
+        h("span", null, h(Icon, { name: "2-circle" }), tr("DaemonSet is applied from the generated manifest URL.")),
+        h("span", null, h(Icon, { name: "3-circle" }), tr("Click Agents after rollout to confirm node registration."))
       )
     );
   }
@@ -676,21 +1224,21 @@
         h(Panel, { title: "Webhook Endpoint", subtitle: "Alertmanager integration" },
           h("div", { className: "d-grid gap-3" },
             h("div", null,
-              h("label", { className: "form-label" }, "Endpoint"),
+              h("label", { className: "form-label" }, tr("Endpoint")),
               h("div", { className: "input-group" },
                 h("input", { className: "form-control font-monospace", readOnly: true, value: endpoint }),
                 h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(endpoint, "Webhook endpoint copied.") }, h(Icon, { name: "clipboard" }))
               )
             ),
             h("div", null,
-              h("label", { className: "form-label" }, "Authorization"),
+              h("label", { className: "form-label" }, tr("Authorization")),
               h("code", { className: "d-block p-3 bg-light rounded-2" }, "Authorization: Bearer ${RCA_WEBHOOK_TOKEN}")
             )
           )
         )
       ),
       h("div", { className: "col-12 col-xl-7" },
-        h(Panel, { title: "Alertmanager Receiver", subtitle: "YAML sample", action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onCopy(sample, "Receiver sample copied.") }, h(Icon, { name: "clipboard" }), "Copy") },
+        h(Panel, { title: "Alertmanager Receiver", subtitle: "YAML sample", action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onCopy(sample, "Receiver sample copied.") }, h(Icon, { name: "clipboard" }), tr("Copy")) },
           h("pre", { className: "code-block" }, sample)
         )
       )
@@ -701,42 +1249,42 @@
     return h(Panel, {
       title: "RCA Reports",
       subtitle: loading.reports ? "Loading" : `${reports.length} reports`,
-      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), "Reload"),
+      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
     }, reports.length ? h("div", { className: "table-responsive" },
       h("table", { className: "table table-hover mb-0" },
         h("thead", null, h("tr", null,
-          h("th", null, "Symptom"),
-          h("th", null, "Cluster"),
-          h("th", null, "Confidence"),
-          h("th", null, "Policy"),
-          h("th", { className: "text-end" }, "Actions")
+          h("th", null, tr("Symptom")),
+          h("th", null, tr("Cluster")),
+          h("th", null, tr("Confidence")),
+          h("th", null, tr("Policy")),
+          h("th", { className: "text-end" }, tr("Actions"))
         )),
         h("tbody", null, reports.map((report) => {
           const detail = reportDetails[report.report_id];
           return h(React.Fragment, { key: report.report_id },
             h("tr", null,
               h("td", null,
-                h("div", { className: "fw-semibold" }, report.summary?.symptom || "Unknown symptom"),
-                h("div", { className: "small text-muted text-truncate-cell" }, report.summary?.most_likely_cause || report.report_id)
+                h("div", { className: "fw-semibold" }, displaySummary(report.summary?.symptom)),
+                h("div", { className: "small text-muted text-truncate-cell" }, displayText(report.summary?.most_likely_cause || report.report_id))
               ),
               h("td", { className: "font-monospace small" }, report.cluster_id),
               h("td", null, h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })),
               h("td", null, uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))),
               h("td", { className: "text-end" },
                 h("div", { className: "btn-group btn-group-sm" },
-                  h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? "Hide" : "Detail"),
-                  h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, "Copy")
+                  h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
+                  h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
                 )
               )
             ),
-            detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction })))
+            detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onCopy })))
           );
         }))
       )
     ) : h(EmptyState, { message: "No reports loaded." }));
   }
 
-  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword }) {
+  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage }) {
     const rows = [
       ["Console proxy", apiBase],
       ["Public API", publicApiBase],
@@ -749,25 +1297,32 @@
     ];
     return h("div", { className: "row g-3" },
       h("div", { className: "col-12 col-xl-8" },
-        h(Panel, { title: "Console Settings", subtitle: "Runtime references" },
+        h(Panel, { title: tr("Console Settings"), subtitle: tr("Runtime references") },
           h("div", { className: "row g-3" },
             rows.map(([label, value]) => h("div", { className: "col-12 col-md-6 col-xl-3", key: label },
               h("div", { className: "border rounded-2 p-3 bg-light h-100" },
-                h("div", { className: "small text-muted fw-semibold mb-2" }, label),
+                h("div", { className: "small text-muted fw-semibold mb-2" }, tr(label)),
                 h("code", { className: "small text-break" }, value)
               )
-            ))
+            )),
+            h("div", { className: "col-12 col-md-6 col-xl-3" },
+              h("div", { className: "border rounded-2 p-3 bg-light h-100" },
+                h("div", { className: "small text-muted fw-semibold mb-2" }, tr("Language")),
+                h(LanguageSelect, { locale, onChangeLanguage }),
+                h("div", { className: "small text-muted mt-2" }, tr("Language preference is saved in this browser."))
+              )
+            )
           )
         )
       ),
       h("div", { className: "col-12 col-xl-4" },
-        h(Panel, { title: "Change Password", subtitle: "현재 로그인 계정의 비밀번호 변경" },
+        h(Panel, { title: tr("Change Password"), subtitle: tr("Change the current administrator password") },
           h("form", { className: "row g-3", onSubmit: onChangePassword },
-            h(InputField, { label: "Current password", name: "current_password", type: "password", required: true, autoComplete: "current-password" }),
-            h(InputField, { label: "New password", name: "new_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
-            h(InputField, { label: "Confirm password", name: "confirm_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
+            h(InputField, { label: tr("Current password"), name: "current_password", type: "password", required: true, autoComplete: "current-password" }),
+            h(InputField, { label: tr("New password"), name: "new_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
+            h(InputField, { label: tr("Confirm password"), name: "confirm_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
             h("div", { className: "col-12 d-grid" },
-              h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "key" }), "Update password")
+              h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "key" }), tr("Update password"))
             )
           )
         )
@@ -779,11 +1334,11 @@
     return h("div", { className: "col-12 col-md-6 col-xl-3" },
       h("div", { className: "metric-tile" },
         h("div", { className: "d-flex justify-content-between gap-2" },
-          h("span", { className: "label" }, label),
+          h("span", { className: "label" }, tr(label)),
           h(Icon, { name: icon })
         ),
-        h("span", { className: compact ? "value h5" : "value" }, value),
-        h("div", { className: "hint text-truncate" }, hint)
+        h("span", { className: compact ? "value h5" : "value" }, typeof value === "string" ? displayText(value) : value),
+        h("div", { className: "hint text-truncate" }, displayText(hint))
       )
     );
   }
@@ -791,7 +1346,7 @@
   function Panel({ title, subtitle, action, children }) {
     return h("section", { className: "console-panel" },
       h("div", { className: "console-panel-header" },
-        h("div", null, h("h2", { className: "console-panel-title" }, title), subtitle && h("p", { className: "console-panel-subtitle" }, subtitle)),
+        h("div", null, h("h2", { className: "console-panel-title" }, tr(title)), subtitle && h("p", { className: "console-panel-subtitle" }, displayText(subtitle))),
         action && h("div", null, action)
       ),
       h("div", { className: "console-panel-body" }, children)
@@ -802,7 +1357,7 @@
     if (!clusters.length) return h(EmptyState, { message: "No clusters loaded." });
     return h("div", { className: "table-responsive" },
       h("table", { className: "table table-hover mb-0" },
-        h("thead", null, h("tr", null, h("th", null, "Name"), h("th", null, "Environment"), h("th", null, "Status"))),
+        h("thead", null, h("tr", null, h("th", null, tr("Name")), h("th", null, tr("Environment")), h("th", null, tr("Status")))),
         h("tbody", null, clusters.map((cluster) => h("tr", { key: cluster.cluster_id },
           h("td", null, h("div", { className: "fw-semibold" }, cluster.name), h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)),
           h("td", null, cluster.environment),
@@ -818,7 +1373,7 @@
     if (!state.items.length) return h(EmptyState, { message: "No agents registered." });
     return h("div", { className: "table-responsive" },
       h("table", { className: "table table-sm mb-0" },
-        h("thead", null, h("tr", null, h("th", null, "Node"), h("th", null, "Status"), h("th", null, "Version"), h("th", null, "Last seen"))),
+        h("thead", null, h("tr", null, h("th", null, tr("Node")), h("th", null, tr("Status")), h("th", null, tr("Version")), h("th", null, tr("Last seen")))),
         h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
           h("td", { className: "font-monospace small" }, agent.node_name),
           h("td", null, h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })),
@@ -846,32 +1401,32 @@
             h(SummaryBox, { label: "Evidence requests", value: evidenceRequests.length })
           ),
           h("div", null,
-            h("h3", { className: "h6 mb-2" }, "Node Agents"),
+            h("h3", { className: "h6 mb-2" }, tr("Node Agents")),
             h(AgentsTable, { state: { loading: false, items: agents } })
           ),
           h("div", null,
-            h("h3", { className: "h6 mb-2" }, "Evidence Requests"),
+            h("h3", { className: "h6 mb-2" }, tr("Evidence Requests")),
             h(EvidenceRequestTable, { items: evidenceRequests, onLoadEvidence })
           ),
           h("div", null,
             h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
-              h("h3", { className: "h6 mb-0" }, "Collected Evidence"),
+              h("h3", { className: "h6 mb-0" }, tr("Collected Evidence")),
               state.selectedEvidence && h("button", {
                 type: "button",
                 className: "btn btn-sm btn-outline-secondary btn-icon",
                 onClick: () => onCopy(JSON.stringify(state.selectedEvidence, null, 2), "Evidence bundle copied."),
-              }, h(Icon, { name: "clipboard" }), "Copy")
+              }, h(Icon, { name: "clipboard" }), tr("Copy"))
             ),
             h(EvidenceBundlePreview, { state })
           ),
           h("div", null,
             h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
-              h("h3", { className: "h6 mb-0" }, "Recent RCA"),
+              h("h3", { className: "h6 mb-0" }, tr("Recent RCA")),
               reports.length ? h("button", {
                 type: "button",
                 className: "btn btn-sm btn-outline-secondary btn-icon",
                 onClick: () => onCopy(JSON.stringify(reports, null, 2), "Cluster RCA reports copied."),
-              }, h(Icon, { name: "clipboard" }), "Copy") : null
+              }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
             ),
             h(ClusterReportList, { items: reports })
           )
@@ -885,9 +1440,9 @@
           h("div", { className: "small text-muted font-monospace" }, state.clusterId)
           ),
           h("div", { className: "d-flex gap-2" },
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", disabled: !state.cluster, onClick: () => onCollectCluster(state.cluster) }, h(Icon, { name: "radar" }), "Collect"),
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onRefresh }, h(Icon, { name: "arrow-clockwise" }), "Reload"),
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: onClose }, "Close")
+            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", disabled: !state.cluster, onClick: () => onCollectCluster(state.cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
+            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onRefresh }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: onClose }, tr("Close"))
           )
         ),
         h("div", { className: "console-modal-body" }, body)
@@ -897,7 +1452,7 @@
 
   function SummaryBox({ label, value }) {
     return h("div", { className: "summary-box" },
-      h("div", { className: "small text-muted fw-semibold" }, label),
+      h("div", { className: "small text-muted fw-semibold" }, tr(label)),
       h("div", { className: "summary-value" }, value)
     );
   }
@@ -907,12 +1462,12 @@
     return h("div", { className: "table-responsive" },
       h("table", { className: "table table-sm mb-0" },
         h("thead", null, h("tr", null,
-          h("th", null, "Request"),
-          h("th", null, "Node"),
-          h("th", null, "Alert"),
-          h("th", null, "Status"),
-          h("th", null, "Created"),
-          h("th", { className: "text-end" }, "Data")
+          h("th", null, tr("Request")),
+          h("th", null, tr("Node")),
+          h("th", null, tr("Alert")),
+          h("th", null, tr("Status")),
+          h("th", null, tr("Created")),
+          h("th", { className: "text-end" }, tr("Data"))
         )),
         h("tbody", null, items.slice(0, 8).map((item) => h("tr", { key: item.request_id },
           h("td", { className: "font-monospace small" }, item.request_id),
@@ -926,7 +1481,7 @@
               className: "btn btn-sm btn-outline-secondary",
               disabled: !item.evidence_id,
               onClick: () => onLoadEvidence(item.evidence_id),
-            }, "View")
+            }, tr("View"))
           )
         )))
       )
@@ -959,10 +1514,10 @@
     return h("div", { className: "list-group list-group-flush" },
       items.slice(0, 5).map((report) => h("div", { key: report.report_id, className: "list-group-item px-0" },
         h("div", { className: "d-flex justify-content-between gap-2" },
-          h("strong", { className: "small" }, report.summary?.symptom || report.report_id),
+          h("strong", { className: "small" }, displaySummary(report.summary?.symptom || report.report_id)),
           h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
         ),
-        h("div", { className: "small text-muted text-truncate" }, report.summary?.most_likely_cause || "n/a")
+        h("div", { className: "small text-muted text-truncate" }, displayText(report.summary?.most_likely_cause || "n/a"))
       ))
     );
   }
@@ -974,27 +1529,27 @@
       h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
         h("div", { className: "console-modal-header" },
           h("div", null,
-            h("h2", { className: "h5 mb-1" }, "Confirm Action"),
+            h("h2", { className: "h5 mb-1" }, tr("Confirm Action")),
             h("div", { className: "small text-muted font-monospace" }, report.report_id)
           ),
           h(StatusBadge, { value: action.policy, tone: policyTone(action.policy) })
         ),
         h("div", { className: "console-modal-body d-grid gap-3" },
           h("div", { className: "action-card" },
-            h("div", { className: "fw-semibold" }, action.action),
-            h("div", { className: "small text-muted mt-1" }, action.reason || "No reason"),
+            h("div", { className: "fw-semibold" }, displayActionText(action)),
+            h("div", { className: "small text-muted mt-1" }, displayReasonText(action)),
             h("div", { className: "small text-muted mt-1" }, action.automation_allowed
-              ? "This will request read-only follow-up evidence from the node agent."
-              : "The policy gate will record the request status without direct node mutation.")
+              ? tr("This will request read-only follow-up evidence from the node agent.")
+              : tr("The policy gate will record the request status without direct node mutation."))
           ),
-          Boolean(action.guardrails?.length) && h("div", { className: "alert alert-warning mb-0 py-2" }, `Guardrails: ${action.guardrails.join(", ")}`),
+          Boolean(action.guardrails?.length) && h("div", { className: "alert alert-warning mb-0 py-2" }, `${tr("Guardrails")}: ${action.guardrails.join(", ")}`),
           state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
         ),
         h("div", { className: "console-modal-footer" },
-          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, "Cancel"),
+          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
           h("button", { type: "button", className: "btn btn-primary btn-icon", onClick: onConfirm, disabled: state.loading },
             state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "check2" }),
-            state.loading ? "Processing" : "Confirm"
+            state.loading ? tr("Processing") : tr("Confirm")
           )
         )
       )
@@ -1007,77 +1562,157 @@
       h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
         h("div", { className: "console-modal-header" },
           h("div", null,
-            h("h2", { className: "h5 mb-1" }, "Confirm Collection"),
+            h("h2", { className: "h5 mb-1" }, tr("Confirm Collection")),
             h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id || "n/a")
           ),
           h(StatusBadge, { value: "read-only", tone: "green" })
         ),
         h("div", { className: "console-modal-body d-grid gap-3" },
           h("div", { className: "action-card" },
-            h("div", { className: "fw-semibold" }, cluster.name || "Cluster collection"),
+            h("div", { className: "fw-semibold" }, cluster.name || tr("Cluster collection")),
             h("div", { className: "small text-muted mt-1" },
-              "Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline."
+              tr("Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline.")
             ),
-            h("div", { className: "small text-muted mt-1" }, "No Prometheus or Alertmanager trigger is required.")
+            h("div", { className: "small text-muted mt-1" }, tr("No Prometheus or Alertmanager trigger is required."))
           ),
           state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
         ),
         h("div", { className: "console-modal-footer" },
-          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, "Cancel"),
+          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
           h("button", { type: "button", className: "btn btn-primary btn-icon", onClick: onConfirm, disabled: state.loading },
             state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "radar" }),
-            state.loading ? "Requesting" : "Collect"
+            state.loading ? tr("Requesting") : tr("Collect")
           )
         )
       )
     );
   }
 
-  function ReportDetail({ detail, onPrepareAction }) {
+  function ReportDetail({ detail, onPrepareAction, onCopy }) {
     if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
     if (detail.error) return h(EmptyState, { message: detail.error });
     const report = detail.report;
     const signals = section(report, "derived_signals")?.signals || [];
     const checklist = section(report, "resolution_checklist")?.items || [];
     const llm = section(report, "llm_analysis")?.analysis || {};
+    const actions = report.recommended_actions || [];
     return h("div", { className: "d-grid gap-3" },
-      h("div", { className: "detail-grid" },
-        h("dl", { className: "detail-list mb-0" },
-          h(DetailRow, { label: "Report", value: report.report_id }),
-          h(DetailRow, { label: "Nodes", value: listValue(report.scope?.nodes) }),
-          h(DetailRow, { label: "Components", value: listValue(report.scope?.components) })
+      h(ReportSummaryStrip, { report, llm, actions }),
+      h(PolicyOverview, { actions }),
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Root Cause Candidates")),
+          h("span", { className: "small text-muted" }, tr("Rule-based candidates first, LLM candidates only as supporting context"))
         ),
-        h("dl", { className: "detail-list mb-0" },
-          h(DetailRow, { label: "LLM status", value: llm.status || "unknown" }),
-          h(DetailRow, { label: "Provider", value: llm.provider || "n/a" }),
-          h(DetailRow, { label: "Reason", value: llm.reason || llm.error || "n/a" })
+        h(OrderedFacts, { items: report.root_cause_candidates || [], titleKey: "cause", metaKey: "confidence", textKey: "supporting_evidence" })
+      ),
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Evidence Signals")),
+          h("span", { className: "small text-muted" }, activeLocale === "ko" ? `파생 신호 ${signals.length}개` : `${signals.length} ${tr("derived signals")}`)
+        ),
+        h(SignalFacts, { items: signals })
+      ),
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Additional Checks")),
+          h("span", { className: "small text-muted" }, tr("Read-only commands to verify the candidate cause"))
+        ),
+        h(ChecklistFacts, { items: checklist, onCopy })
+      ),
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Recommended Actions")),
+          h("span", { className: "small text-muted" }, tr("Policy Engine decides whether an action can be automated"))
+        ),
+        h(ActionFacts, { items: actions, report, onPrepareAction })
+      )
+    );
+  }
+
+  function ReportSummaryStrip({ report, llm, actions }) {
+    const allowed = actions.filter((action) => action.automation_allowed).length;
+    const blocked = actions.length - allowed;
+    const llmCount = actions.filter((action) => action.source === "llm").length;
+    return h("div", { className: "report-summary-grid" },
+      h(SummaryBox, { label: "Report", value: h("span", { className: "font-monospace small text-break" }, report.report_id) }),
+      h(SummaryBox, { label: "Nodes", value: listValue(report.scope?.nodes) }),
+      h(SummaryBox, { label: "Confidence", value: h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) }) }),
+      h(SummaryBox, { label: "Automation", value: activeLocale === "ko" ? `${allowed}개 ${tr("allowed")} / ${blocked}개 ${tr("gated")}` : `${allowed} allowed / ${blocked} gated` }),
+      h(SummaryBox, { label: "Components", value: listValue(report.scope?.components) }),
+      h(SummaryBox, { label: "Policies", value: uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) })) }),
+      h(SummaryBox, { label: "LLM", value: h("span", null, h(StatusBadge, { value: llm.status || "unknown", tone: llm.status === "completed" ? "green" : "amber" }), llmCount ? h("span", { className: "small text-muted ms-2" }, `${llmCount} ${tr("action")}`) : null) }),
+      h(SummaryBox, { label: "Provider", value: llm.provider || llm.reason || llm.error || "n/a" })
+    );
+  }
+
+  function PolicyOverview({ actions }) {
+    if (!actions.length) return h(EmptyState, { message: "No policy decisions." });
+    const counts = policyCounts(actions);
+    const llmActions = actions.filter((action) => action.source === "llm").length;
+    const blocked = actions.filter((action) => !action.automation_allowed).length;
+    const allowed = actions.length - blocked;
+    return h("section", { className: "policy-overview" },
+      h("div", { className: "report-section-title" },
+        h("h3", { className: "h6 mb-0" }, tr("Policy Engine")),
+        h("span", { className: "small text-muted" }, tr("Rule gate before any action request"))
+      ),
+      h("div", { className: "policy-overview-grid" },
+        policyOrder().map((policy) => counts[policy] ? h("div", { key: policy, className: "policy-overview-item" },
+          h(StatusBadge, { value: policy, tone: policyTone(policy) }),
+          h("strong", null, counts[policy]),
+          h("span", null, policyDescription(policy))
+        ) : null),
+        h("div", { className: "policy-overview-item" },
+          h(StatusBadge, { value: "automation_allowed", tone: "green" }),
+          h("strong", null, allowed),
+          h("span", null, tr("Read-only rule-based action requests"))
+        ),
+        h("div", { className: "policy-overview-item policy-overview-warning" },
+          h(StatusBadge, { value: "automation_blocked", tone: blocked ? "red" : "green" }),
+          h("strong", null, blocked),
+          h("span", null, tr("Needs review, approval, PR, or manual handling"))
         )
       ),
-      h("div", null, h("h3", { className: "h6" }, "Root Cause Candidates"), h(OrderedFacts, { items: report.root_cause_candidates || [], titleKey: "cause", metaKey: "confidence", textKey: "supporting_evidence" })),
-      h("div", null, h("h3", { className: "h6" }, "Recommended Actions"), h(ActionFacts, { items: report.recommended_actions || [], report, onPrepareAction })),
-      h("div", null, h("h3", { className: "h6" }, "Derived Signals"), h(SignalFacts, { items: signals })),
-      h("div", null, h("h3", { className: "h6" }, "Resolution Checklist"), h(ChecklistFacts, { items: checklist }))
+      llmActions ? h("div", { className: "llm-action-warning mt-2" },
+        h(Icon, { name: "exclamation-triangle" }),
+        h("span", null, activeLocale === "ko"
+          ? `LLM 조치 ${llmActions}개. ${tr("Policy keeps automation_allowed=false for every LLM-origin action.")}`
+          : `${llmActions} LLM action(s). ${tr("Policy keeps automation_allowed=false for every LLM-origin action.")}`)
+      ) : null
     );
   }
 
   function OrderedFacts({ items, titleKey, metaKey, textKey }) {
-    if (!items.length) return h("div", { className: "empty-state" }, "No items.");
-    return h("ol", { className: "d-grid gap-2 ps-3 mb-0" }, items.map((item, index) => h("li", { key: index },
-      h("div", { className: "d-flex justify-content-between gap-2" },
-        h("strong", null, item[titleKey]),
+    if (!items.length) return h("div", { className: "empty-state" }, tr("No items."));
+    return h("div", { className: "candidate-list" }, items.map((item, index) => h("article", { key: index, className: "candidate-card" },
+      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
+        h("strong", null, `${index + 1}. ${displayText(item[titleKey] || "Unknown cause")}`),
         h(StatusBadge, { value: item[metaKey], tone: confidenceTone(item[metaKey]) })
       ),
-      h("div", { className: "small text-muted" }, listValue(item[textKey]))
+      h("div", { className: "small text-muted mt-1" }, displayText(listValue(item[textKey]))),
+      h(ChipList, { items: item.evidence_paths || [], tone: "blue", empty: null })
     )));
   }
 
   function ActionFacts({ items, report, onPrepareAction }) {
-    if (!items.length) return h("div", { className: "empty-state" }, "No actions.");
-    return h("div", { className: "d-grid gap-2" }, items.map((item, index) => h("div", { key: index, className: "action-card" },
+    if (!items.length) return h("div", { className: "empty-state" }, tr("No actions."));
+    return h("div", { className: "d-grid gap-2" }, items.map((item, index) => {
+      const llmSourced = item.source === "llm";
+      const automationAllowed = item.automation_allowed === true;
+      return h("article", {
+        key: index,
+        className: `action-card action-card-rca ${automationAllowed ? "automation-allowed" : "automation-blocked"} ${llmSourced ? "llm-sourced" : ""}`,
+      },
       h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-        h("strong", null, item.action),
+        h("div", null,
+          h("strong", null, displayActionText(item)),
+          h("div", { className: "small text-muted mt-1" }, displayReasonText(item))
+        ),
         h("div", { className: "d-flex gap-2 flex-wrap justify-content-end" },
           h(StatusBadge, { value: item.policy, tone: policyTone(item.policy) }),
+          h(StatusBadge, { value: sourceLabel(item.source), tone: sourceTone(item.source) }),
+          h(StatusBadge, { value: automationLabel(item), tone: automationTone(item) }),
           h("button", {
             type: "button",
             className: `btn btn-sm ${item.automation_allowed ? "btn-primary" : "btn-outline-secondary"} btn-icon`,
@@ -1086,55 +1721,115 @@
           }, h(Icon, { name: actionIcon(item) }), actionButtonLabel(item))
         )
       ),
-      h("div", { className: "small text-muted mt-1" }, item.reason || "No reason"),
-      h("div", { className: "small text-muted mt-1" }, `${item.automation_mode || "manual"} / automation allowed: ${item.automation_allowed}`),
-      Boolean(item.guardrails?.length) && h("div", { className: "small text-muted mt-1" }, `Guardrails: ${item.guardrails.join(", ")}`)
-    )));
+      h("div", { className: "policy-description mt-2" }, policyDescription(item.policy)),
+      llmSourced ? h("div", { className: "llm-action-warning mt-2" },
+        h(Icon, { name: "exclamation-triangle" }),
+        h("span", null, tr("LLM suggestion only. automation_allowed=false until a rule or operator explicitly approves it."))
+      ) : null,
+      h("div", { className: "action-meta-grid mt-2" },
+        h(MetaPill, { label: "mode", value: item.automation_mode || "manual" }),
+        h(MetaPill, { label: "approval", value: item.requires_approval ? "required" : "not required", tone: item.requires_approval ? "amber" : "green" }),
+        h(MetaPill, { label: "review", value: item.review_required ? "required" : "not required", tone: item.review_required ? "amber" : "green" }),
+        h(MetaPill, { label: "key", value: item.action_key || "n/a" })
+      ),
+      h("div", { className: "mt-2" },
+        h(ChipList, { label: tr("Risk reasons"), items: item.risk_factors || [], tone: "red", empty: tr("No policy risk factors.") })
+      ),
+      h("div", { className: "mt-2" },
+        h(ChipList, { label: tr("Guardrails"), items: item.guardrails || [], tone: "amber", empty: tr("No guardrails triggered.") })
+      )
+    ); }));
   }
 
   function SignalFacts({ items }) {
-    if (!items.length) return h("div", { className: "empty-state" }, "No signals.");
-    return h("div", { className: "d-grid gap-2" }, items.map((item, index) => h("div", { key: index, className: "border rounded-2 p-2" },
-      h("div", { className: "d-flex justify-content-between gap-2" }, h("strong", null, item.signal), h(StatusBadge, { value: item.severity, tone: item.severity === "critical" ? "red" : "amber" })),
-      h("div", { className: "small text-muted mt-1" }, `${item.component}: ${item.interpretation}`),
-      h("div", { className: "small text-muted mt-1" }, item.next_step)
+    if (!items.length) return h("div", { className: "empty-state" }, tr("No signals."));
+    return h("div", { className: "signal-grid" }, items.map((item, index) => h("article", { key: index, className: "signal-card" },
+      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
+        h("strong", null, item.signal || "unknown_signal"),
+        h(StatusBadge, { value: item.severity, tone: severityTone(item.severity) })
+      ),
+      h("div", { className: "small text-muted mt-1" }, `${item.component || "node"}: ${signalFieldText(item, "interpretation")}`),
+      h("div", { className: "small mt-2" }, h("span", { className: "text-muted fw-semibold" }, `${tr("Next:")} `), signalFieldText(item, "next_step"))
     )));
   }
 
-  function ChecklistFacts({ items }) {
-    if (!items.length) return h("div", { className: "empty-state" }, "No checklist.");
-    return h("div", { className: "d-grid gap-2" }, items.map((item, index) => h("div", { key: index, className: "border rounded-2 p-2" },
-      h("div", { className: "fw-semibold" }, item.component),
-      h("div", { className: "small text-muted" }, item.check),
-      h("code", { className: "small d-block text-break mt-1" }, item.command)
+  function ChecklistFacts({ items, onCopy }) {
+    if (!items.length) return h("div", { className: "empty-state" }, tr("No checklist."));
+    return h("div", { className: "checklist-grid" }, items.map((item, index) => h("article", { key: index, className: "check-card" },
+      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
+        h("div", null,
+          h("div", { className: "fw-semibold" }, item.component || "node"),
+          h("div", { className: "small text-muted" }, displayText(item.check || "Read-only verification"))
+        ),
+        onCopy ? h("button", {
+          type: "button",
+          className: "btn btn-sm btn-outline-secondary btn-icon",
+          onClick: () => onCopy(item.command || "", "Command copied."),
+        }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
+      ),
+      h("code", { className: "small d-block text-break mt-2" }, item.command || "n/a")
     )));
+  }
+
+  function MetaPill({ label, value, tone }) {
+    return h("div", { className: `meta-pill ${tone || ""}` },
+      h("span", null, tr(label)),
+      h("strong", null, displayText(value))
+    );
+  }
+
+  function ChipList({ label, items, tone, empty }) {
+    const values = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!values.length && empty === null) return null;
+    return h("div", { className: "chip-list-wrap" },
+      label ? h("div", { className: "chip-label" }, tr(label)) : null,
+      values.length
+        ? h("div", { className: "chip-list" }, values.map((value) => h("span", { key: value, className: `chip ${tone || ""}` }, value)))
+        : h("div", { className: "small text-muted" }, displayText(empty || "n/a"))
+    );
+  }
+
+  function LanguageSelect({ locale, onChangeLanguage, compact }) {
+    return h("label", { className: compact ? "language-select compact" : "language-select" },
+      !compact && h("span", null, tr("Language")),
+      h("select", {
+        className: "form-select form-select-sm",
+        value: locale || "en",
+        onChange: (event) => onChangeLanguage(event.target.value),
+        "aria-label": tr("Language"),
+      },
+        h("option", { value: "en" }, tr("English")),
+        h("option", { value: "ko" }, tr("Korean"))
+      )
+    );
   }
 
   function InputField({ label, ...props }) {
     const inputId = props.id || `field-${props.name || label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     return h("div", { className: "col-12 col-md-6" },
-      h("label", { className: "form-label", htmlFor: inputId }, label),
+      h("label", { className: "form-label", htmlFor: inputId }, tr(label)),
       h("input", { className: "form-control", ...props, id: inputId })
     );
   }
 
   function DetailRow({ label, value }) {
-    return h("div", { className: "detail-row" }, h("dt", null, label), h("dd", null, value));
+    return h("div", { className: "detail-row" }, h("dt", null, tr(label)), h("dd", null, value));
   }
 
   function StatusBadge({ value, tone }) {
-    return h("span", { className: `badge badge-soft ${tone || ""}` }, value || "n/a");
+    const label = value === null || value === undefined || value === "" ? "n/a" : String(value);
+    return h("span", { className: `badge badge-soft ${tone || ""}` }, tr(label));
   }
 
   function EmptyState({ message }) {
-    return h("div", { className: "empty-state" }, message);
+    return h("div", { className: "empty-state" }, displayText(message));
   }
 
   function Toast({ message, onClose }) {
     return h("div", { className: "toast-area" },
       h("div", { className: "toast show align-items-center text-bg-dark border-0", role: "status" },
         h("div", { className: "d-flex" },
-          h("div", { className: "toast-body" }, message),
+          h("div", { className: "toast-body" }, displayText(message)),
           h("button", { type: "button", className: "btn-close btn-close-white me-2 m-auto", onClick: onClose })
         )
       )
@@ -1159,9 +1854,66 @@
     return detail || fallback || "Request failed.";
   }
 
+  function normalizeLocale(value) {
+    return value === "ko" ? "ko" : "en";
+  }
+
+  function tr(key) {
+    if (key === null || key === undefined) return key;
+    const text = String(key);
+    return translations[activeLocale]?.[text] || text;
+  }
+
+  function displayText(value) {
+    if (Array.isArray(value)) return value.map(displayText).join(", ");
+    if (value === null || value === undefined || value === "") return tr("n/a");
+    const text = String(value);
+    if (activeLocale === "ko") {
+      if (text.startsWith("LLM analysis: ")) {
+        return `LLM 분석: ${text.slice("LLM analysis: ".length)}`;
+      }
+      const highConfidence = text.match(/^(\d+) high confidence$/);
+      if (highConfidence) return `높은 신뢰도 ${highConfidence[1]}개`;
+      const clusters = text.match(/^(\d+) clusters$/);
+      if (clusters) return `클러스터 ${clusters[1]}개`;
+      const reports = text.match(/^(\d+) reports$/);
+      if (reports) return `보고서 ${reports[1]}개`;
+    }
+    return tr(text);
+  }
+
+  function displaySummary(value) {
+    if (!value) return tr("Unknown symptom");
+    const text = String(value);
+    if (activeLocale === "ko") {
+      const detailed = text.match(/^(.+) was reported on node (.+)\. Rule analysis found (\d+) critical signal\(s\) and (\d+) warning signal\(s\)\.$/);
+      if (detailed) {
+        return `${detailed[1]} 알림이 ${detailed[2]} 노드에서 보고되었습니다. Rule 분석 결과 critical 신호 ${detailed[3]}개, warning 신호 ${detailed[4]}개가 확인되었습니다.`;
+      }
+      const simple = text.match(/^(.+) was reported on node (.+)\.$/);
+      if (simple) return `${simple[1]} 알림이 ${simple[2]} 노드에서 보고되었습니다.`;
+    }
+    return displayText(text);
+  }
+
+  function displayActionText(action) {
+    const translated = actionTranslations[activeLocale]?.[action.action_key]?.action;
+    return translated || displayText(action.action || "n/a");
+  }
+
+  function displayReasonText(action) {
+    const translated = actionTranslations[activeLocale]?.[action.action_key]?.reason;
+    return translated || displayText(action.reason || "No reason");
+  }
+
+  function signalFieldText(item, field) {
+    const translated = signalTranslations[activeLocale]?.[item.signal]?.[field];
+    return translated || displayText(item[field] || "n/a");
+  }
+
   function formatDate(value) {
     if (!value) return "n/a";
-    return new Intl.DateTimeFormat("ko-KR", {
+    return new Intl.DateTimeFormat(activeLocale === "ko" ? "ko-KR" : "en-US", {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -1203,6 +1955,18 @@
     return "blue";
   }
 
+  function policyOrder() {
+    return ["AUTO_SAFE", "MANUAL_INVESTIGATION", "APPROVAL_REQUIRED", "GITOPS_PR_ONLY", "NEVER_AUTO_EXECUTE"];
+  }
+
+  function policyCounts(actions) {
+    return actions.reduce((acc, action) => {
+      const key = action.policy || "UNKNOWN";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
   function policyTone(value) {
     if (value === "AUTO_SAFE") return "green";
     if (value === "NEVER_AUTO_EXECUTE") return "red";
@@ -1210,12 +1974,52 @@
     return "blue";
   }
 
+  function policyDescription(value) {
+    if (value === "AUTO_SAFE") return tr("Read-only rule-based collection or verification.");
+    if (value === "APPROVAL_REQUIRED") return tr("Node or service state may change. Operator approval is required.");
+    if (value === "GITOPS_PR_ONLY") return tr("Configuration change. Propose through a reviewable PR only.");
+    if (value === "NEVER_AUTO_EXECUTE") return tr("Prohibited for automation. Human decision only.");
+    if (value === "MANUAL_INVESTIGATION") return tr("Needs manual investigation or external validation.");
+    return tr("Unclassified policy decision.");
+  }
+
+  function severityTone(value) {
+    if (value === "critical") return "red";
+    if (value === "warning" || value === "high") return "amber";
+    return "blue";
+  }
+
+  function sourceTone(value) {
+    if (value === "rule_based") return "green";
+    if (value === "llm") return "amber";
+    return "blue";
+  }
+
+  function sourceLabel(value) {
+    if (value === "rule_based") return "rule_based";
+    if (value === "llm") return "llm_suggestion";
+    return value || "unknown_source";
+  }
+
+  function automationTone(action) {
+    if (action.automation_allowed) return "green";
+    if (action.source === "llm") return "amber";
+    if (action.policy === "NEVER_AUTO_EXECUTE") return "red";
+    return "amber";
+  }
+
+  function automationLabel(action) {
+    if (action.automation_allowed) return "automation_allowed";
+    if (action.source === "llm") return "llm_auto_blocked";
+    return "automation_blocked";
+  }
+
   function actionButtonLabel(action) {
-    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return "Execute";
-    if (action.policy === "APPROVAL_REQUIRED") return "Request";
-    if (action.policy === "GITOPS_PR_ONLY") return "PR Gate";
-    if (action.policy === "NEVER_AUTO_EXECUTE") return "Blocked";
-    return "Review";
+    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return tr("Execute");
+    if (action.policy === "APPROVAL_REQUIRED") return tr("Request");
+    if (action.policy === "GITOPS_PR_ONLY") return tr("PR Gate");
+    if (action.policy === "NEVER_AUTO_EXECUTE") return tr("Blocked");
+    return tr("Review");
   }
 
   function actionIcon(action) {

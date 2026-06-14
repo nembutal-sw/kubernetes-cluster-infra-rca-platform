@@ -53,6 +53,12 @@ ACTION_RULES: dict[str, ActionPolicyRule] = {
         description="Restart container runtime after operator approval.",
         base_risks=("container_runtime_disruption", "workload_impact"),
     ),
+    "restart_container_runtime": ActionPolicyRule(
+        policy=PolicyLevel.APPROVAL_REQUIRED,
+        automation_mode="operator_approval",
+        description="Restart the detected container runtime after operator approval.",
+        base_risks=("container_runtime_disruption", "workload_impact"),
+    ),
     "cordon_node": ActionPolicyRule(
         policy=PolicyLevel.APPROVAL_REQUIRED,
         automation_mode="operator_approval",

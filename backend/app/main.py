@@ -51,6 +51,7 @@ from backend.app.services.agent_manifest import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS,
     DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_SYSTEMD_COLLECTOR_MODE,
     AgentManifestOptions,
 )
 from backend.app.services.evidence import FakeEvidenceCollector
@@ -256,7 +257,11 @@ def create_app(
         kubernetes_api_timeout_seconds: int = Query(default=DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS),
         control_plane_probe_ports: str = Query(default=DEFAULT_CONTROL_PLANE_PROBE_PORTS),
         runtime_socket_paths: str = Query(default=""),
+        systemd_collector_mode: str = Query(default=DEFAULT_SYSTEMD_COLLECTOR_MODE),
+        agent_token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> dict[str, object]:
+        _authorize_agent_manifest_access(store, cluster_id, authorization, agent_token)
         try:
             manifest = rca_service.build_agent_manifest(
                 cluster_id,
@@ -270,6 +275,7 @@ def create_app(
                     kubernetes_api_timeout_seconds=kubernetes_api_timeout_seconds,
                     control_plane_probe_ports=control_plane_probe_ports,
                     runtime_socket_paths=runtime_socket_paths,
+                    systemd_collector_mode=systemd_collector_mode,
                 ),
             )
         except ValueError as exc:
@@ -706,7 +712,8 @@ def _collectors_for_action(action_key: str | None) -> list[str]:
         "collect_linux_low_level_evidence": [
             "node",
             "systemd",
-            "journal",
+            "kubelet",
+            "runtime",
             "kernel",
             "disk",
             "inode",
@@ -715,7 +722,7 @@ def _collectors_for_action(action_key: str | None) -> list[str]:
             "conntrack",
             "process",
         ],
-        "inspect_kernel_state": ["kernel", "journal", "systemd"],
+        "inspect_kernel_state": ["kernel", "systemd", "kubelet"],
         "inspect_network_state": ["network", "cni", "dns", "conntrack", "kernel"],
         "inspect_storage_state": ["disk", "inode", "kernel", "systemd"],
     }
@@ -783,6 +790,36 @@ def _authorize_access(
     allowed_roles: set[UserRole],
 ) -> UserAccount | None:
     return _require_user(store, authorization, allowed_roles)
+
+
+def _authorize_agent_manifest_access(
+    store: StoreProtocol,
+    cluster_id: str,
+    authorization: str | None,
+    agent_token: str | None,
+) -> None:
+    cluster = store.get_cluster(cluster_id)
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="cluster not found")
+
+    session_token = _extract_optional_bearer_token(authorization)
+    if session_token:
+        user = store.get_user_by_session_token(session_token)
+        if user is not None:
+            if user.status != UserStatus.ACTIVE or user.role is None:
+                raise HTTPException(status_code=403, detail="user is not active")
+            if user.role not in {UserRole.ADMIN, UserRole.OPERATOR}:
+                raise HTTPException(status_code=403, detail="insufficient role")
+            return
+
+    if agent_token:
+        if secrets.compare_digest(cluster.bootstrap_token, agent_token):
+            return
+        raise HTTPException(status_code=401, detail="invalid agent token")
+
+    if authorization:
+        raise HTTPException(status_code=401, detail="invalid or expired session")
+    raise HTTPException(status_code=401, detail="agent manifest authentication required")
 
 
 def _require_user(

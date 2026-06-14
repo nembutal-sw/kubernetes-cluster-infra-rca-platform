@@ -150,7 +150,7 @@ def build_registry(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collec
     return {
         "node": lambda: collect_node(paths),
         "kubernetes": lambda: collect_kubernetes(),
-        "systemd": lambda: collect_systemd(runner),
+        "systemd": lambda: collect_systemd(paths, runner),
         "kernel": lambda: collect_kernel(paths, runner),
         "disk": lambda: collect_disk(paths),
         "inode": lambda: collect_inode(paths),
@@ -159,7 +159,7 @@ def build_registry(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collec
         "network": lambda: collect_network(paths),
         "conntrack": lambda: collect_conntrack(paths),
         "runtime": lambda: collect_runtime(paths, runner),
-        "kubelet": lambda: collect_kubelet(runner),
+        "kubelet": lambda: collect_kubelet(paths, runner),
         "cni": lambda: collect_cni(paths),
         "dns": lambda: collect_dns(paths),
     }
@@ -183,7 +183,11 @@ def collect_node(paths: AgentPaths) -> dict[str, Any]:
     }
 
 
-def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
+def collect_systemd(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
+    mode = _systemd_collector_mode()
+    if mode == "file":
+        return _collect_systemd_from_host_files(paths)
+
     units = {
         "kubelet": _systemctl_show(runner, "kubelet"),
         "containerd": _systemctl_show(runner, "containerd"),
@@ -216,7 +220,8 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
         units,
         ["rke2-server", "rke2-agent", "k3s", "k3s-agent", "k0scontroller", "k0sworker", "microk8s.daemon-kubelet"],
     )
-    return {
+    result = {
+        "collection_mode": "command",
         "kubelet_status": kubelet.get("ActiveState"),
         "kubelet_sub_state": kubelet.get("SubState"),
         "kubelet_result": kubelet.get("Result"),
@@ -261,7 +266,9 @@ def collect_systemd(runner: CommandRunner) -> dict[str, Any]:
         "failed_units": failed_units["units"],
         "failed_units_command": failed_units["command"],
         "units": units,
+        "host_log_files": _host_service_log_excerpts(paths),
     }
+    return result
 
 
 def collect_kubernetes() -> dict[str, Any]:
@@ -603,16 +610,27 @@ def collect_runtime(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     return result
 
 
-def collect_kubelet(runner: CommandRunner) -> dict[str, Any]:
-    status = _systemctl_show(runner, "kubelet")
-    journal = runner.run(["journalctl", "-u", "kubelet", "-n", "80", "--no-pager"])
+def collect_kubelet(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
+    mode = _systemd_collector_mode()
+    if mode == "file":
+        status = {}
+        journal = _skipped_command_result(
+            "journalctl disabled in file mode; DaemonSet reads host log files under /host/var/log"
+        )
+    else:
+        status = _systemctl_show(runner, "kubelet")
+        journal = runner.run(["journalctl", "-u", "kubelet", "-n", "80", "--no-pager"])
+    host_logs = _host_service_log_excerpts(paths, service_names=["kubelet"])
     return {
+        "collection_mode": "file" if mode == "file" else "command",
         "kubelet_status": status.get("ActiveState"),
         "kubelet_sub_state": status.get("SubState"),
         "kubelet_result": status.get("Result"),
         "kubelet_restart_count": _safe_int(status.get("NRestarts")),
         "systemd": status,
         "journal": journal,
+        "host_log_files": host_logs,
+        "host_log_excerpt": _service_log_excerpt(host_logs, ["kubelet"]),
     }
 
 
@@ -1034,6 +1052,224 @@ def _safe_collect(collector: Collector) -> dict[str, Any]:
             "status": "error",
             "error": _clean_text(str(exc), limit=1000),
         }
+
+
+def _systemd_collector_mode() -> str:
+    mode = os.getenv("SYSTEMD_COLLECTOR_MODE", "auto").strip().lower()
+    return mode if mode in {"auto", "command", "file"} else "auto"
+
+
+def _collect_systemd_from_host_files(paths: AgentPaths) -> dict[str, Any]:
+    unit_files = _systemd_unit_file_summaries(paths)
+    units = {item["name"]: item for item in unit_files}
+    runtime_unit_names = {"containerd", "crio", "docker", "cri-docker", "microk8s.daemon-containerd"}
+    distribution_unit_names = {
+        "rke2-server",
+        "rke2-agent",
+        "k3s",
+        "k3s-agent",
+        "k0scontroller",
+        "k0sworker",
+        "microk8s.daemon-kubelet",
+    }
+    host_logs = _host_service_log_excerpts(paths)
+    return {
+        "collection_mode": "file",
+        "systemctl_skipped": True,
+        "systemctl_skip_reason": "SYSTEMD_COLLECTOR_MODE=file; DaemonSet cannot reliably query host systemd over DBus.",
+        "kubelet_status": None,
+        "kubelet_sub_state": None,
+        "kubelet_result": None,
+        "kubelet_restart_count": None,
+        "containerd_status": None,
+        "containerd_sub_state": None,
+        "containerd_result": None,
+        "containerd_restart_count": None,
+        "rke2_server_status": None,
+        "rke2_server_sub_state": None,
+        "rke2_server_result": None,
+        "rke2_server_restart_count": None,
+        "rke2_agent_status": None,
+        "rke2_agent_sub_state": None,
+        "rke2_agent_result": None,
+        "rke2_agent_restart_count": None,
+        "runtime_units": [item for item in unit_files if item["name"] in runtime_unit_names],
+        "distribution_units": [item for item in unit_files if item["name"] in distribution_unit_names],
+        "active_runtime_units": [],
+        "active_distribution_units": [],
+        "embedded_kubelet_running": None,
+        "embedded_runtime_running": None,
+        "runtime_process_sample": [],
+        "rke2_embedded_kubelet_running": None,
+        "rke2_embedded_containerd_running": None,
+        "rke2_process_sample": [],
+        "failed_units": [],
+        "failed_units_command": _skipped_command_result("systemctl disabled in file mode"),
+        "units": units,
+        "unit_files": unit_files,
+        "host_log_files": host_logs,
+        "kubelet_log_excerpt": _service_log_excerpt(host_logs, ["kubelet"]),
+        "runtime_log_excerpt": _service_log_excerpt(
+            host_logs,
+            ["containerd", "crio", "cri-o", "cri-dockerd", "dockerd"],
+        ),
+    }
+
+
+def _systemd_unit_file_summaries(paths: AgentPaths) -> list[dict[str, Any]]:
+    unit_names = [
+        "kubelet",
+        "containerd",
+        "crio",
+        "docker",
+        "cri-docker",
+        "rke2-server",
+        "rke2-agent",
+        "k3s",
+        "k3s-agent",
+        "k0scontroller",
+        "k0sworker",
+        "microk8s.daemon-kubelet",
+        "microk8s.daemon-containerd",
+    ]
+    roots = _systemd_unit_file_roots(paths)
+    summaries: list[dict[str, Any]] = []
+    for unit_name in unit_names:
+        file_name = unit_name if unit_name.endswith(".service") else f"{unit_name}.service"
+        matches: list[str] = []
+        for root in roots:
+            candidate = root / file_name
+            exists, _error = _safe_exists(candidate)
+            if exists:
+                matches.append(str(candidate))
+        summaries.append(
+            {
+                "name": unit_name,
+                "unit": file_name,
+                "unit_file_present": bool(matches),
+                "paths": matches[:5],
+                "status": None,
+                "sub_state": None,
+            }
+        )
+    return summaries
+
+
+def _systemd_unit_file_roots(paths: AgentPaths) -> list[Path]:
+    roots = [
+        paths.etc_root() / "systemd/system",
+    ]
+    host_root = paths.host_root()
+    if host_root is not None:
+        roots.extend(
+            [
+                host_root / "etc/systemd/system",
+                host_root / "usr/lib/systemd/system",
+                host_root / "lib/systemd/system",
+            ]
+        )
+    return _dedupe_paths(roots)
+
+
+def _host_service_log_excerpts(paths: AgentPaths, service_names: list[str] | None = None) -> list[dict[str, Any]]:
+    var_log = paths.var_log_root()
+    candidates = _host_log_candidate_paths(var_log, service_names)
+    excerpts: list[dict[str, Any]] = []
+    filters = [item.lower() for item in (service_names or [
+        "kubelet",
+        "containerd",
+        "crio",
+        "cri-o",
+        "cri-dockerd",
+        "dockerd",
+        "rke2",
+        "k3s",
+        "k0s",
+        "microk8s",
+        "kernel",
+        "oom",
+        "blocked",
+        "error",
+        "failed",
+    ])]
+    for path in candidates[:12]:
+        exists, exists_error = _safe_exists(path)
+        if not exists:
+            if exists_error:
+                excerpts.append({"path": str(path), "status": "error", "error": exists_error})
+            continue
+        text = _read_text(path, max_bytes=262144)
+        if not text:
+            continue
+        lines = text.splitlines()
+        matching = [
+            _clean_text(line, limit=1000)
+            for line in lines
+            if any(token in line.lower() for token in filters)
+        ]
+        selected_lines = matching[-80:] if matching else [_clean_text(line, limit=1000) for line in lines[-40:]]
+        excerpts.append(
+            {
+                "path": str(path),
+                "status": "ok",
+                "line_count_sampled": len(lines),
+                "matched_line_count": len(matching),
+                "excerpt": selected_lines,
+            }
+        )
+    return excerpts
+
+
+def _host_log_candidate_paths(var_log: Path, service_names: list[str] | None) -> list[Path]:
+    common_names = [
+        "syslog",
+        "messages",
+        "daemon.log",
+        "kern.log",
+        "kubelet.log",
+        "containerd.log",
+        "crio.log",
+        "docker.log",
+        "rke2/rke2.log",
+        "pods",
+    ]
+    if service_names:
+        common_names.extend(f"{service_name}.log" for service_name in service_names)
+    candidates = [var_log / name for name in common_names]
+    try:
+        candidates.extend(
+            path
+            for path in var_log.iterdir()
+            if path.is_file()
+            and any(token in path.name.lower() for token in ["syslog", "message", "daemon", "kern", "kubelet", "container", "crio", "docker", "rke2", "k3s"])
+        )
+    except OSError:
+        pass
+    return _dedupe_paths(candidates)
+
+
+def _service_log_excerpt(logs: list[dict[str, Any]], keywords: list[str]) -> list[str]:
+    normalized_keywords = [keyword.lower() for keyword in keywords]
+    lines: list[str] = []
+    for item in logs:
+        excerpt = item.get("excerpt")
+        if not isinstance(excerpt, list):
+            continue
+        for line in excerpt:
+            text = str(line)
+            if any(keyword in text.lower() for keyword in normalized_keywords):
+                lines.append(text)
+    return lines[-80:]
+
+
+def _skipped_command_result(reason: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "skipped": True,
+        "exit_code": None,
+        "stdout": "",
+        "stderr": reason,
+    }
 
 
 def _systemctl_show(runner: CommandRunner, unit: str) -> dict[str, Any]:

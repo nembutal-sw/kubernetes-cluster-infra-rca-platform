@@ -3,6 +3,42 @@ fullnameOverride: ""
 
 imagePullSecrets: []
 
+database:
+  enabled: true
+  type: postgresql
+  image:
+    postgresql:
+      repository: postgres
+      tag: "16-alpine"
+      pullPolicy: IfNotPresent
+    mariadb:
+      repository: mariadb
+      tag: "11.4"
+      pullPolicy: IfNotPresent
+  auth:
+    database: rca
+    username: rca
+    password: change-me
+    rootPassword: change-me-root
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 backend:
   replicaCount: 1
   image:
@@ -27,10 +63,11 @@ backend:
   secret:
     create: true
     existingSecret: ""
-    databaseUrl: "postgresql+psycopg://rca:change-me@postgresql:5432/rca"
+    databaseUrl: ""
     defaultAdminUsername: admin
     defaultAdminPassword: admin
     webhookToken: dev-webhook-token
+    llmApiKey: ""
     openaiApiKey: ""
     anthropicApiKey: ""
     geminiApiKey: ""

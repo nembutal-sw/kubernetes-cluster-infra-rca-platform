@@ -18,6 +18,7 @@ from backend.app.models import (
 from backend.app.services.agent_manifest import (
     DEFAULT_AGENT_IMAGE,
     DEFAULT_AGENT_NAMESPACE,
+    DEFAULT_SYSTEMD_COLLECTOR_MODE,
     AgentManifestOptions,
     build_agent_manifest,
     validate_backend_url,
@@ -54,8 +55,8 @@ class RcaService:
         namespace = validate_kubernetes_name(namespace, "namespace")
         manifest_command = "kubectl apply -f manifests/agent-daemonset.yaml"
         notes = [
-            "backend_url을 제공하면 클러스터별 manifest URL을 사용합니다.",
-            "backend_url을 생략하면 repo의 로컬 manifest를 적용합니다.",
+            "Provide backend_url to use a cluster-specific manifest URL.",
+            "Omit backend_url to apply the local manifest from the repository.",
         ]
         if backend_url is not None:
             backend_url = validate_backend_url(backend_url)
@@ -64,13 +65,15 @@ class RcaService:
                     "backend_url": backend_url,
                     "image": image,
                     "namespace": namespace,
+                    "systemd_collector_mode": DEFAULT_SYSTEMD_COLLECTOR_MODE,
+                    "agent_token": cluster.bootstrap_token,
                 }
             )
             manifest_url = f"{backend_url}/api/clusters/{cluster.cluster_id}/agent-manifest?{manifest_query}"
             manifest_command = f'kubectl apply -f "{manifest_url}"'
             notes = [
-                "Secret에는 cluster_id와 agent token이 들어갑니다. 출력된 명령어를 안전하게 취급해야 합니다.",
-                "manifest URL은 backend URL, image, namespace 값을 포함해 클러스터별 DaemonSet을 생성합니다.",
+                "The Secret and generated manifest URL contain cluster_id and the agent token. Treat the generated command as sensitive.",
+                "The manifest URL includes backend URL, image, namespace, and collector mode values to generate a cluster-specific DaemonSet.",
             ]
 
         return InstallCommandResponse(

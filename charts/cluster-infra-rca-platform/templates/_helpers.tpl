@@ -23,6 +23,50 @@
 {{- printf "%s-web-console" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "cluster-infra-rca-platform.databaseType" -}}
+{{- $type := lower (default "postgresql" .Values.database.type) -}}
+{{- if not (or (eq $type "postgresql") (eq $type "mariadb")) -}}
+{{- fail "database.type must be either postgresql or mariadb" -}}
+{{- end -}}
+{{- $type -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseName" -}}
+{{- printf "%s-db" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseServiceName" -}}
+{{- include "cluster-infra-rca-platform.databaseName" . -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseSecretName" -}}
+{{- printf "%s-secret" (include "cluster-infra-rca-platform.databaseName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databasePort" -}}
+{{- if eq (include "cluster-infra-rca-platform.databaseType" .) "mariadb" -}}3306{{- else -}}5432{{- end -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseUrl" -}}
+{{- if .Values.backend.secret.databaseUrl -}}
+{{- .Values.backend.secret.databaseUrl -}}
+{{- else if .Values.database.enabled -}}
+{{- $type := include "cluster-infra-rca-platform.databaseType" . -}}
+{{- $username := .Values.database.auth.username | toString | urlquery -}}
+{{- $password := .Values.database.auth.password | toString | urlquery -}}
+{{- $database := .Values.database.auth.database | toString | urlquery -}}
+{{- $service := include "cluster-infra-rca-platform.databaseServiceName" . -}}
+{{- $port := include "cluster-infra-rca-platform.databasePort" . -}}
+{{- if eq $type "mariadb" -}}
+{{- printf "mysql+pymysql://%s:%s@%s:%s/%s" $username $password $service $port $database -}}
+{{- else -}}
+{{- printf "postgresql+psycopg://%s:%s@%s:%s/%s" $username $password $service $port $database -}}
+{{- end -}}
+{{- else -}}
+{{- required "backend.secret.databaseUrl is required when database.enabled=false" .Values.backend.secret.databaseUrl -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "cluster-infra-rca-platform.secretName" -}}
 {{- if .Values.backend.secret.create -}}
 {{- printf "%s-secret" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
@@ -55,4 +99,9 @@ app.kubernetes.io/component: backend
 {{- define "cluster-infra-rca-platform.webConsoleSelectorLabels" -}}
 {{ include "cluster-infra-rca-platform.selectorLabels" . }}
 app.kubernetes.io/component: web-console
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseSelectorLabels" -}}
+{{ include "cluster-infra-rca-platform.selectorLabels" . }}
+app.kubernetes.io/component: database
 {{- end -}}

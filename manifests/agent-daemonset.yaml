@@ -52,6 +52,7 @@ data:
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
   CONTROL_PLANE_PROBE_PORTS: "6443,9345"
   CONTAINER_RUNTIME_SOCKET_PATHS: ""
+  SYSTEMD_COLLECTOR_MODE: "file"
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -137,6 +138,11 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: CONTAINER_RUNTIME_SOCKET_PATHS
+            - name: SYSTEMD_COLLECTOR_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: SYSTEMD_COLLECTOR_MODE
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

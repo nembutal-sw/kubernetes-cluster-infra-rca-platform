@@ -39,8 +39,8 @@ class FakeLlmClient:
             "action_suggestions": [
                 {
                     "action_key": "reboot_node",
-                    "action": "노드 재부팅은 blocked task가 확인될 때만 최후 수단으로 검토합니다.",
-                    "reason": "재부팅은 workload 영향이 커서 자동 실행하면 안 됩니다.",
+                    "action": "Review node reboot only as a last resort after blocked tasks are confirmed.",
+                    "reason": "Node reboot has broad workload impact and must never be executed automatically.",
                 }
             ],
             "risk_notes": ["Do not execute remediation automatically."],
@@ -74,8 +74,8 @@ def test_llm_analyzer_is_provider_neutral_and_report_safe() -> None:
     assert fake_client.requests[0]["user_payload"]["preprocessed_evidence"]["llm_input_policy"][
         "use_this_payload_only"
     ] is True
-    assert any(candidate.cause.startswith("LLM 분석:") for candidate in report.root_cause_candidates)
-    reboot_actions = [action for action in report.recommended_actions if "재부팅" in action.action]
+    assert any(candidate.cause.startswith("LLM analysis:") for candidate in report.root_cause_candidates)
+    reboot_actions = [action for action in report.recommended_actions if action.action_key == "reboot_node"]
     assert reboot_actions[0].policy == "NEVER_AUTO_EXECUTE"
 
 

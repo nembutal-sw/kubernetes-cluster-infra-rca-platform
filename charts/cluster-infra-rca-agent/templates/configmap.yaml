@@ -13,3 +13,4 @@ data:
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
   CONTROL_PLANE_PROBE_PORTS: {{ .Values.controlPlaneProbePorts | quote }}
   CONTAINER_RUNTIME_SOCKET_PATHS: {{ .Values.runtimeSocketPaths | quote }}
+  SYSTEMD_COLLECTOR_MODE: {{ .Values.systemdCollectorMode | quote }}

@@ -14,6 +14,7 @@ DEFAULT_HTTP_TIMEOUT_SECONDS = 10
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 5
 DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS = 5
 DEFAULT_CONTROL_PLANE_PROBE_PORTS = "6443,9345"
+DEFAULT_SYSTEMD_COLLECTOR_MODE = "file"
 
 _K8S_NAME_PATTERN = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 
@@ -29,6 +30,7 @@ class AgentManifestOptions:
     kubernetes_api_timeout_seconds: int = DEFAULT_KUBERNETES_API_TIMEOUT_SECONDS
     control_plane_probe_ports: str = DEFAULT_CONTROL_PLANE_PROBE_PORTS
     runtime_socket_paths: str = ""
+    systemd_collector_mode: str = DEFAULT_SYSTEMD_COLLECTOR_MODE
 
 
 def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dict[str, object]:
@@ -72,6 +74,7 @@ def build_agent_manifest(cluster: Cluster, options: AgentManifestOptions) -> dic
                     "KUBERNETES_API_TIMEOUT_SECONDS": str(options.kubernetes_api_timeout_seconds),
                     "CONTROL_PLANE_PROBE_PORTS": options.control_plane_probe_ports,
                     "CONTAINER_RUNTIME_SOCKET_PATHS": options.runtime_socket_paths,
+                    "SYSTEMD_COLLECTOR_MODE": options.systemd_collector_mode,
                 },
             },
             _agent_daemonset(
@@ -154,6 +157,13 @@ def validate_runtime_socket_paths(value: str) -> str:
     return ",".join(dict.fromkeys(entries))
 
 
+def validate_systemd_collector_mode(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in {"auto", "command", "file"}:
+        raise ValueError("systemd_collector_mode must be one of: auto, command, file")
+    return normalized
+
+
 def _split_runtime_socket_entry(entry: str) -> tuple[str | None, str]:
     if "=" in entry:
         raw_kind, raw_path = entry.split("=", 1)
@@ -177,6 +187,7 @@ def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOp
         "control_plane_probe_ports",
     )
     runtime_socket_paths = validate_runtime_socket_paths(options.runtime_socket_paths)
+    systemd_collector_mode = validate_systemd_collector_mode(options.systemd_collector_mode)
     return AgentManifestOptions(
         backend_url=backend_url,
         image=image,
@@ -187,6 +198,7 @@ def normalize_manifest_options(options: AgentManifestOptions) -> AgentManifestOp
         kubernetes_api_timeout_seconds=options.kubernetes_api_timeout_seconds,
         control_plane_probe_ports=control_plane_probe_ports,
         runtime_socket_paths=runtime_socket_paths,
+        systemd_collector_mode=systemd_collector_mode,
     )
 
 
@@ -297,6 +309,7 @@ def _agent_env(config_map_name: str, secret_name: str) -> list[dict[str, object]
         "KUBERNETES_API_TIMEOUT_SECONDS",
         "CONTROL_PLANE_PROBE_PORTS",
         "CONTAINER_RUNTIME_SOCKET_PATHS",
+        "SYSTEMD_COLLECTOR_MODE",
     ]
     env = [
         {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"},

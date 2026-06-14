@@ -12,6 +12,9 @@ import backend.app.main as main_module
 from backend.app.config import load_settings, normalize_database_url
 from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
+from backend.app.models import EvidenceBundle
+from backend.app.services.analyzer import RuleBasedRcaAnalyzer
+from backend.app.services.policy import PolicyEngine
 
 
 WEBHOOK_HEADERS = {"X-Webhook-Token": "dev-webhook-token"}
@@ -109,6 +112,8 @@ def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> Non
     assert "backend_url=https%3A%2F%2Frca.example.com" in install["commands"][2]
     assert "image=ghcr.io%2Facme%2Fcluster-infra-rca-agent%3Av1" in install["commands"][2]
     assert "namespace=custom-rca" in install["commands"][2]
+    assert "systemd_collector_mode=file" in install["commands"][2]
+    assert "agent_token=" + cluster["bootstrap_token"] in install["commands"][2]
     assert any("cluster_id" in note for note in install["notes"])
 
 
@@ -119,6 +124,15 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
         headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
+
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com"},
+    ).status_code == 401
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={"backend_url": "https://rca.example.com", "agent_token": "wrong-token"},
+    ).status_code == 401
 
     manifest_response = client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
@@ -132,6 +146,8 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
             "kubernetes_api_timeout_seconds": 9,
             "control_plane_probe_ports": "6443, 9345, 6443",
             "runtime_socket_paths": "crio=/run/crio/crio.sock;/run/containerd/containerd.sock",
+            "systemd_collector_mode": "file",
+            "agent_token": cluster["bootstrap_token"],
         },
     )
 
@@ -154,6 +170,7 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
         "KUBERNETES_API_TIMEOUT_SECONDS": "9",
         "CONTROL_PLANE_PROBE_PORTS": "6443,9345",
         "CONTAINER_RUNTIME_SOCKET_PATHS": "crio=/run/crio/crio.sock,/run/containerd/containerd.sock",
+        "SYSTEMD_COLLECTOR_MODE": "file",
     }
     cluster_role = items["ClusterRole"]
     assert cluster_role["rules"][0]["resources"] == ["nodes", "pods", "events"]
@@ -178,38 +195,74 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     assert env["KUBERNETES_API_TIMEOUT_SECONDS"]["valueFrom"]["configMapKeyRef"]["key"] == "KUBERNETES_API_TIMEOUT_SECONDS"
     assert env["CONTROL_PLANE_PROBE_PORTS"]["valueFrom"]["configMapKeyRef"]["key"] == "CONTROL_PLANE_PROBE_PORTS"
     assert env["CONTAINER_RUNTIME_SOCKET_PATHS"]["valueFrom"]["configMapKeyRef"]["key"] == "CONTAINER_RUNTIME_SOCKET_PATHS"
+    assert env["SYSTEMD_COLLECTOR_MODE"]["valueFrom"]["configMapKeyRef"]["key"] == "SYSTEMD_COLLECTOR_MODE"
     assert daemonset["spec"]["template"]["spec"]["dnsPolicy"] == "ClusterFirstWithHostNet"
     assert daemonset["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] == 20
     assert cluster["bootstrap_token"] not in str(manifest)
 
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "not-a-url"},
+        params={"backend_url": "not-a-url", "agent_token": cluster["bootstrap_token"]},
     ).status_code == 422
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "https://rca.example.com", "namespace": "Bad_Namespace"},
+        params={
+            "backend_url": "https://rca.example.com",
+            "namespace": "Bad_Namespace",
+            "agent_token": cluster["bootstrap_token"],
+        },
     ).status_code == 422
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "https://rca.example.com", "image": "bad image"},
+        params={"backend_url": "https://rca.example.com", "image": "bad image", "agent_token": cluster["bootstrap_token"]},
     ).status_code == 422
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "https://rca.example.com", "poll_interval_seconds": 1},
+        params={
+            "backend_url": "https://rca.example.com",
+            "poll_interval_seconds": 1,
+            "agent_token": cluster["bootstrap_token"],
+        },
     ).status_code == 422
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "https://rca.example.com", "control_plane_probe_ports": "6443,bad"},
+        params={
+            "backend_url": "https://rca.example.com",
+            "control_plane_probe_ports": "6443,bad",
+            "agent_token": cluster["bootstrap_token"],
+        },
     ).status_code == 422
     assert client.get(
         f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
-        params={"backend_url": "https://rca.example.com", "runtime_socket_paths": "crio=relative.sock"},
+        params={
+            "backend_url": "https://rca.example.com",
+            "runtime_socket_paths": "crio=relative.sock",
+            "agent_token": cluster["bootstrap_token"],
+        },
+    ).status_code == 422
+    assert client.get(
+        f"/api/clusters/{cluster['cluster_id']}/agent-manifest",
+        params={
+            "backend_url": "https://rca.example.com",
+            "systemd_collector_mode": "journal",
+            "agent_token": cluster["bootstrap_token"],
+        },
     ).status_code == 422
     assert client.get(
         "/api/clusters/cluster-does-not-exist/agent-manifest",
         params={"backend_url": "https://rca.example.com"},
     ).status_code == 404
+
+
+def test_action_collectors_do_not_request_unsupported_journal_collector() -> None:
+    low_level_collectors = main_module._collectors_for_action("collect_linux_low_level_evidence")
+    kernel_collectors = main_module._collectors_for_action("inspect_kernel_state")
+
+    assert "journal" not in low_level_collectors
+    assert "journal" not in kernel_collectors
+    assert "kubelet" in low_level_collectors
+    assert "kubelet" in kernel_collectors
+    assert "inode" in low_level_collectors
 
 
 def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
@@ -596,7 +649,155 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
         "NEVER_AUTO_EXECUTE",
     }
     checklist = _report_section(report, "resolution_checklist")["items"]
-    assert {item["component"] for item in checklist} >= {"disk", "kernel"}
+    assert {item["component"] for item in checklist} >= {"disk", "runtime-storage", "inode", "kernel"}
+    assert any("df -hT" in item["command"] for item in checklist)
+    assert any("find /var" in item["command"] and "uniq -c" in item["command"] for item in checklist)
+
+
+def test_rule_based_rca_covers_planned_node_failure_categories() -> None:
+    analyzer = RuleBasedRcaAnalyzer(PolicyEngine())
+
+    report = analyzer.analyze(
+        "report-planned-categories",
+        EvidenceBundle(
+            cluster_id="cluster-1",
+            node_name="worker-7",
+            alert_name="NetworkUnavailable",
+            collectors={
+                "kubernetes": {
+                    "api_available": False,
+                    "node_ready": False,
+                    "node_pressure": {"MemoryPressure": "True", "PIDPressure": "True"},
+                    "failed_peer_probe_count": 1,
+                    "control_plane_peer_connectivity": [
+                        {"node": "cp-1", "address": "10.0.0.10", "port": 6443, "ok": False}
+                    ],
+                    "api_readyz_failed_checks": ["etcd", "poststarthook/start-kube-apiserver-admission-initializer"],
+                    "metrics_available": False,
+                    "metrics_error": "HTTP 503",
+                    "cni_high_restart_pods": [
+                        {"namespace": "kube-system", "name": "cni-agent-worker-7", "restart_count": 42}
+                    ],
+                },
+                "systemd": {
+                    "kubelet_status": "active",
+                    "kubelet_restart_count": 8,
+                    "failed_units": ["node-problem-detector.service"],
+                },
+                "runtime": {
+                    "runtime_kind": "crio",
+                    "runtime_socket_healthy": False,
+                    "runtime_socket_path": "/run/crio/crio.sock",
+                    "runtime_socket_latency_ms": 1500,
+                },
+                "kernel": {
+                    "blocked_task_detected": True,
+                    "nic_error_detected": True,
+                    "oom_detected": True,
+                    "kernel_tainted": True,
+                },
+                "memory": {
+                    "usage_percent": 96,
+                    "oom_kill_detected": True,
+                    "swap_usage_percent": 60,
+                    "pressure": {"full": {"avg10": 15}},
+                },
+                "process": {
+                    "pid_usage_percent": 91,
+                    "zombie_process_count": 5,
+                },
+                "network": {
+                    "interfaces_down": ["eth1"],
+                    "nic_link_flap_detected": True,
+                    "conntrack_usage_percent": 93,
+                    "physical_interface_rx_drop_total": 1500,
+                    "physical_interface_tx_drop_total": 100,
+                    "tcp_ext_listen_overflows": 3,
+                    "dns_lookup_latency_ms": 900,
+                },
+                "conntrack": {
+                    "count": 930000,
+                    "max": 1000000,
+                    "available": 70000,
+                },
+                "cni": {
+                    "parse_errors": ["invalid JSON in /etc/cni/net.d/10-cni.conf"],
+                    "plugin_errors_detected": True,
+                    "mtu_values": [1450, 1500],
+                },
+                "dns": {
+                    "dns_configured": False,
+                    "attempts": 5,
+                    "timeout_seconds": 5,
+                },
+            },
+        ),
+    )
+
+    signals = {item["signal"] for item in _report_section(report.model_dump(mode="json"), "derived_signals")["signals"]}
+    assert signals >= {
+        "kubernetes_api_unavailable",
+        "node_not_ready_condition",
+        "node_pressure_condition_active",
+        "control_plane_peer_unreachable",
+        "apiserver_readyz_failed",
+        "node_metrics_unavailable",
+        "cni_pod_restarting",
+        "kubelet_restarting",
+        "systemd_failed_units",
+        "container_runtime_socket_unhealthy",
+        "container_runtime_socket_latency_high",
+        "blocked_task_detected",
+        "kernel_nic_error",
+        "kernel_oom_detected",
+        "kernel_tainted",
+        "memory_pressure_critical",
+        "oom_kill_detected",
+        "swap_usage_high",
+        "memory_psi_high",
+        "pid_usage_high",
+        "zombie_process_detected",
+        "interface_down",
+        "nic_link_flap",
+        "conntrack_near_limit",
+        "interface_packet_errors",
+        "tcp_error_counters_high",
+        "dns_latency_high",
+        "cni_config_invalid",
+        "cni_plugin_error",
+        "cni_mtu_values_inconsistent",
+        "dns_unconfigured",
+        "dns_resolver_timeout_budget_high",
+    }
+
+    action_keys = {action.action_key for action in report.recommended_actions}
+    assert action_keys >= {
+        "collect_more_evidence",
+        "collect_linux_low_level_evidence",
+        "inspect_network_state",
+        "restart_container_runtime",
+        "cordon_node",
+        "manual_investigation",
+        "open_gitops_pr",
+        "manual_hardware_check",
+        "reboot_node",
+    }
+    assert any(action.policy == "NEVER_AUTO_EXECUTE" for action in report.recommended_actions)
+    assert any(action.policy == "GITOPS_PR_ONLY" for action in report.recommended_actions)
+
+    checklist = _report_section(report.model_dump(mode="json"), "resolution_checklist")["items"]
+    assert {item["component"] for item in checklist} >= {
+        "systemd",
+        "kubelet",
+        "container-runtime",
+        "kernel",
+        "memory",
+        "process",
+        "network",
+        "cni",
+        "kubernetes",
+        "dns",
+    }
 
 
 def test_webhook_skips_unknown_cluster(tmp_path) -> None:

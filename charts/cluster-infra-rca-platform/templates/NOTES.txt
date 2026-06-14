@@ -6,10 +6,18 @@ Backend service:
 Web console service:
   {{ include "cluster-infra-rca-platform.webConsoleName" . }}:{{ .Values.webConsole.service.port }}
 
+{{- if .Values.database.enabled }}
+Database:
+  {{ include "cluster-infra-rca-platform.databaseType" . }} at {{ include "cluster-infra-rca-platform.databaseServiceName" . }}:{{ include "cluster-infra-rca-platform.databasePort" . }}
+{{- else }}
+Database:
+  external database configured by backend.secret.databaseUrl
+{{- end }}
+
 Before production use, replace:
-  - backend.secret.databaseUrl
   - backend.secret.defaultAdminPassword
   - backend.secret.webhookToken
+  - database.auth.password and database.auth.rootPassword, or set database.enabled=false with backend.secret.databaseUrl
   - image repositories and tags
 
 If agents or Alertmanager call the backend through Ingress, set:

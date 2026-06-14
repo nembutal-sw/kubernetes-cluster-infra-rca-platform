@@ -36,6 +36,7 @@ commandTimeoutSeconds: 5
 kubernetesApiTimeoutSeconds: 5
 controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
+systemdCollectorMode: file
 
 hostNetwork: true
 hostPID: true

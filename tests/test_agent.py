@@ -176,6 +176,32 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["dns"]["dns_lookup_latency_ms"] is None
 
 
+def test_systemd_and_kubelet_collectors_support_daemonset_file_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    (paths.var_log / "syslog").write_text(
+        "kubelet: failed to update node status\n"
+        "containerd: shim disconnected after I/O timeout\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SYSTEMD_COLLECTOR_MODE", "file")
+
+    evidence = collect_evidence(["systemd", "kubelet"], paths=paths, runner=FakeRunner())
+
+    assert evidence["systemd"]["status"] == "ok"
+    assert evidence["systemd"]["collection_mode"] == "file"
+    assert evidence["systemd"]["systemctl_skipped"] is True
+    assert evidence["systemd"]["failed_units_command"]["skipped"] is True
+    assert evidence["systemd"]["host_log_files"]
+    assert evidence["kubelet"]["status"] == "ok"
+    assert evidence["kubelet"]["collection_mode"] == "file"
+    assert evidence["kubelet"]["journal"]["skipped"] is True
+    assert "journalctl disabled" in evidence["kubelet"]["journal"]["stderr"]
+    assert any("kubelet" in line for line in evidence["kubelet"]["host_log_excerpt"])
+
+
 def test_kubernetes_collector_reports_config_error_outside_cluster(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

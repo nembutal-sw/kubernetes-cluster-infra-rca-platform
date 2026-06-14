@@ -102,6 +102,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: CONTAINER_RUNTIME_SOCKET_PATHS
+            - name: SYSTEMD_COLLECTOR_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: SYSTEMD_COLLECTOR_MODE
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           volumeMounts:

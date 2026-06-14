@@ -1,0 +1,134 @@
+{{- if .Values.database.enabled }}
+{{- $type := include "cluster-infra-rca-platform.databaseType" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "cluster-infra-rca-platform.databaseName" . }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+spec:
+  serviceName: {{ include "cluster-infra-rca-platform.databaseServiceName" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "cluster-infra-rca-platform.databaseSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cluster-infra-rca-platform.databaseSelectorLabels" . | nindent 8 }}
+        {{- with .Values.database.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.database.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.database.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: database
+          {{- if eq $type "mariadb" }}
+          image: "{{ .Values.database.image.mariadb.repository }}:{{ .Values.database.image.mariadb.tag }}"
+          imagePullPolicy: {{ .Values.database.image.mariadb.pullPolicy }}
+          {{- else }}
+          image: "{{ .Values.database.image.postgresql.repository }}:{{ .Values.database.image.postgresql.tag }}"
+          imagePullPolicy: {{ .Values.database.image.postgresql.pullPolicy }}
+          {{- end }}
+          ports:
+            - name: db
+              containerPort: {{ include "cluster-infra-rca-platform.databasePort" . }}
+          env:
+            {{- if eq $type "mariadb" }}
+            - name: MARIADB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: database
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: username
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: password
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: root-password
+            {{- else }}
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            {{- end }}
+          {{- with .Values.database.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              {{- if eq $type "mariadb" }}
+              mountPath: /var/lib/mysql
+              {{- else }}
+              mountPath: /var/lib/postgresql/data
+              {{- end }}
+          {{- with .Values.database.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.database.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.database.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.database.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if not .Values.database.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.database.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "cluster-infra-rca-platform.labels" . | nindent 10 }}
+          app.kubernetes.io/component: database
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.database.persistence.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.persistence.size | quote }}
+  {{- end }}
+{{- end }}
