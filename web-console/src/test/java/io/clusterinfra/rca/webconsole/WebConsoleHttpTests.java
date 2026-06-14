@@ -52,6 +52,8 @@ class WebConsoleHttpTests {
         ResponseEntity<String> response = restTemplate.getForEntity("/", String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().getCharset()).isEqualTo(StandardCharsets.UTF_8);
         assertThat(response.getBody())
             .contains("id=\"rca-console-root\"")
             .contains("data-api-base=\"/console-api\"")
@@ -71,7 +73,6 @@ class WebConsoleHttpTests {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(MediaType.parseMediaTypes(MediaType.APPLICATION_JSON_VALUE));
         headers.setBearerAuth("agent-token");
-        headers.set("X-Admin-Token", "admin-token");
 
         ResponseEntity<String> response = restTemplate.exchange(
             URI.create("/console-api/health?scope=node"),
@@ -86,15 +87,27 @@ class WebConsoleHttpTests {
             .contains("\"status\":\"ok\"")
             .contains("\"method\":\"GET\"")
             .contains("\"path\":\"/health?scope=node\"")
-            .contains("\"authorization\":true")
-            .contains("\"adminToken\":true");
+            .contains("\"authorization\":true");
+    }
+
+    @Test
+    void proxyBlocksProtectedApiWithoutBearerSession() {
+        ResponseEntity<String> response = restTemplate.exchange(
+            URI.create("/console-api/api/clusters"),
+            HttpMethod.GET,
+            HttpEntity.EMPTY,
+            String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody()).contains("login required");
     }
 
     @Test
     void proxyForwardsJsonPostBody() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-Admin-Token", "admin-token");
+        headers.setBearerAuth("session-token");
 
         ResponseEntity<String> response = restTemplate.exchange(
             URI.create("/console-api/echo"),
@@ -108,7 +121,7 @@ class WebConsoleHttpTests {
             .contains("\"method\":\"POST\"")
             .contains("\"body\":\"{\\\"name\\\":\\\"smoke-cluster\\\"}\"")
             .contains("\"contentType\":\"application/json\"")
-            .contains("\"adminToken\":true");
+            .contains("\"authorization\":true");
     }
 
     private static HttpServer startApiServer() {
@@ -124,8 +137,7 @@ class WebConsoleHttpTests {
                     + "\"status\":\"ok\","
                     + "\"method\":\"" + exchange.getRequestMethod() + "\","
                     + "\"path\":\"" + exchange.getRequestURI() + "\","
-                    + "\"authorization\":" + exchange.getRequestHeaders().containsKey("Authorization") + ","
-                    + "\"adminToken\":" + exchange.getRequestHeaders().containsKey("X-Admin-Token")
+                    + "\"authorization\":" + exchange.getRequestHeaders().containsKey("Authorization")
                     + "}";
                 byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", MediaType.APPLICATION_JSON_VALUE);
@@ -139,7 +151,7 @@ class WebConsoleHttpTests {
                     + "\"method\":\"" + exchange.getRequestMethod() + "\","
                     + "\"body\":\"" + new String(requestBody, StandardCharsets.UTF_8).replace("\"", "\\\"") + "\","
                     + "\"contentType\":\"" + exchange.getRequestHeaders().getFirst("Content-Type") + "\","
-                    + "\"adminToken\":" + exchange.getRequestHeaders().containsKey("X-Admin-Token")
+                    + "\"authorization\":" + exchange.getRequestHeaders().containsKey("Authorization")
                     + "}";
                 byte[] payload = responseBody.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", MediaType.APPLICATION_JSON_VALUE);

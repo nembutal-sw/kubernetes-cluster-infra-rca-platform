@@ -72,15 +72,13 @@
 
 ## Phase 6: Web UI
 
-- 관리자 콘솔 정적 SPA 완료
+- Spring Boot Web Console 단일 UI 완료
 - Web UI 보안 header/CSP 적용 완료
-- 관리자 token query string 제거 및 header 전송 완료
-- 세션 만료 시 bootstrap admin token fallback 처리 완료
-- 승인 사용자 로그인/로그아웃 완료
+- 로그인 전 API proxy 차단 완료
+- 기본 admin 계정 로그인/로그아웃 완료
+- 관리자 비밀번호 변경 화면 완료
 - Bearer 세션 기반 API 인증 완료
 - admin/operator/viewer 역할별 접근 제어 완료
-- 회원가입 요청 화면 완료
-- 관리자 승인/거절 화면 완료
 - 클러스터 등록 화면 완료
 - Agent 설치 명령어 화면 완료
 - Alertmanager webhook 연동 안내 화면 완료

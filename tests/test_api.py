@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect
@@ -11,12 +11,18 @@ from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
 
 
-ADMIN_HEADERS = {"X-Admin-Token": "dev-admin-approval-token"}
 WEBHOOK_HEADERS = {"X-Webhook-Token": "dev-webhook-token"}
+
+
+def admin_headers(client: TestClient) -> dict[str, str]:
+    response = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def test_cluster_registration_and_install_command(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
 
     assert client.post(
         "/api/clusters",
@@ -25,7 +31,7 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
 
     create_response = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=headers,
         json={"name": "prod-cluster", "environment": "prod"},
     )
 
@@ -38,7 +44,7 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
 
     install_response = client.get(
         f"/api/clusters/{cluster['cluster_id']}/install-command",
-        headers=ADMIN_HEADERS,
+        headers=headers,
     )
 
     assert install_response.status_code == 200
@@ -46,46 +52,41 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert install["namespace"] == "rca-system"
     assert any("agent-token" in command for command in install["commands"])
 
-    list_response = client.get("/api/clusters", headers=ADMIN_HEADERS)
+    list_response = client.get("/api/clusters", headers=headers)
     assert list_response.status_code == 200
     assert "bootstrap_token" not in list_response.json()[0]
 
 
-def test_web_console_static_assets_are_served(tmp_path) -> None:
+def test_backend_root_is_api_only_metadata(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
-    index_response = client.get("/")
+    root_response = client.get("/")
     script_response = client.get("/static/app.js")
-    style_response = client.get("/static/styles.css")
 
-    assert index_response.status_code == 200
-    assert "Cluster Infrastructure Control Plane" in index_response.text
-    assert script_response.status_code == 200
-    assert "loadPendingUsers" in script_response.text
-    assert "sessionStorage" in script_response.text
-    assert "X-Admin-Token" in script_response.text
-    assert "Backend is unreachable" in script_response.text
-    assert "parseResponseBody" in script_response.text
-    assert "toggleReportDetail" in script_response.text
-    assert "Root Cause Candidates" in script_response.text
-    assert "RCA_WEBHOOK_TOKEN" in index_response.text
-    assert style_response.status_code == 200
-    assert "auth-panel" in style_response.text
-    assert index_response.headers["X-Frame-Options"] == "DENY"
-    assert "frame-ancestors 'none'" in index_response.headers["Content-Security-Policy"]
+    assert root_response.status_code == 200
+    assert root_response.json() == {
+        "service": "cluster-infra-rca-backend",
+        "status": "api_only",
+        "web_console": "spring-boot-web-console",
+        "docs": "/docs",
+        "health": "/health",
+    }
+    assert root_response.headers["X-Frame-Options"] == "DENY"
+    assert root_response.headers["X-Content-Type-Options"] == "nosniff"
+    assert script_response.status_code == 404
 
 
 def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
     install_response = client.get(
         f"/api/clusters/{cluster['cluster_id']}/install-command",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         params={
             "backend_url": "https://rca.example.com",
             "image": "ghcr.io/acme/cluster-infra-rca-agent:v1",
@@ -109,7 +110,7 @@ def test_agent_manifest_generation_and_validation(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -209,7 +210,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -247,7 +248,7 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     assert result["created_jobs"][0]["evidence_id"].startswith("evidence-")
     assert result["created_jobs"][0]["report_id"] == result["created_reports"][0]
 
-    report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}", headers=ADMIN_HEADERS)
+    report_response = client.get(f"/api/rca/reports/{result['created_reports'][0]}", headers=admin_headers(client))
 
     assert report_response.status_code == 200
     report = report_response.json()
@@ -266,8 +267,8 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
         "APPROVAL_REQUIRED",
         "GITOPS_PR_ONLY",
     }
-    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
-    reports_response = client.get("/api/rca/reports", headers=ADMIN_HEADERS)
+    jobs_response = client.get("/api/rca/jobs", headers=admin_headers(client))
+    reports_response = client.get("/api/rca/reports", headers=admin_headers(client))
     assert jobs_response.json()[0]["report_id"] == reports_response.json()[0]["report_id"]
 
 
@@ -296,177 +297,97 @@ def test_alertmanager_webhook_requires_webhook_token(tmp_path) -> None:
     assert bearer_response.json()["received_alerts"] == 0
 
 
-def test_signup_requires_admin_approval(tmp_path) -> None:
+def test_signup_and_approval_endpoints_are_removed(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
-    signup_response = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "Operator@Example.com",
-            "full_name": "Cluster Operator",
-            "password": "safe-password-123",
-            "requested_role": "operator",
-            "reason": "Need access to RCA reports",
-        },
-    )
-
-    assert signup_response.status_code == 201
-    signup = signup_response.json()
-    assert signup["user_id"].startswith("user-")
-    assert signup["email"] == "operator@example.com"
-    assert signup["status"] == "pending_approval"
-    assert signup["requested_role"] == "operator"
-    assert signup["role"] is None
-    assert "password" not in signup
-    assert "password_hash" not in signup
-
-    duplicate_response = client.post(
+    assert client.post(
         "/api/auth/signup",
         json={
             "email": "operator@example.com",
-            "full_name": "Duplicate Operator",
-            "password": "safe-password-456",
-        },
-    )
-    assert duplicate_response.status_code == 409
-
-    assert client.get(
-        "/api/admin/users",
-        headers={"X-Admin-Token": "wrong"},
-        params={"status": "pending_approval"},
-    ).status_code == 401
-
-    pending_response = client.get(
-        "/api/admin/users",
-        headers={"X-Admin-Token": "dev-admin-approval-token"},
-        params={"status": "pending_approval"},
-    )
-    assert pending_response.status_code == 200
-    assert [user["user_id"] for user in pending_response.json()] == [signup["user_id"]]
-
-    approval_response = client.post(
-        f"/api/admin/users/{signup['user_id']}/approval",
-        headers={"X-Admin-Token": "dev-admin-approval-token"},
-        json={
-            "decision": "approve",
-            "role": "operator",
-            "note": "approved for MVP validation",
-        },
-    )
-    assert approval_response.status_code == 200
-    approved = approval_response.json()
-    assert approved["status"] == "active"
-    assert approved["role"] == "operator"
-    assert approved["approved_by"] == "platform-admin"
-    assert approved["approved_at"] is not None
-
-    approve_again_response = client.post(
-        f"/api/admin/users/{signup['user_id']}/approval",
-        headers={"X-Admin-Token": "dev-admin-approval-token"},
-        json={"decision": "approve"},
-    )
-    assert approve_again_response.status_code == 409
-
-
-def test_login_session_and_role_based_access(tmp_path) -> None:
-    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
-
-    viewer_signup = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "viewer@example.com",
-            "full_name": "Report Viewer",
+            "full_name": "Cluster Operator",
             "password": "safe-password-123",
-            "requested_role": "viewer",
+            "requested_role": "operator",
         },
-    ).json()
+    ).status_code == 404
+    assert client.get("/api/admin/users", headers=admin_headers(client)).status_code == 404
+    assert client.post(
+        "/api/admin/users/user-123/approval",
+        headers=admin_headers(client),
+        json={"decision": "approve", "role": "operator"},
+    ).status_code == 404
 
-    pending_login = client.post(
-        "/api/auth/login",
-        json={"email": "viewer@example.com", "password": "safe-password-123"},
-    )
-    assert pending_login.status_code == 403
 
-    client.post(
-        f"/api/admin/users/{viewer_signup['user_id']}/approval",
-        headers=ADMIN_HEADERS,
-        json={"decision": "approve", "role": "viewer"},
-    )
+def test_default_admin_login_password_change_and_api_auth(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'test.db'}"
+    client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
 
-    wrong_password = client.post(
-        "/api/auth/login",
-        json={"email": "viewer@example.com", "password": "wrong-password"},
-    )
-    assert wrong_password.status_code == 401
-
-    viewer_login = client.post(
-        "/api/auth/login",
-        json={"email": "viewer@example.com", "password": "safe-password-123"},
-    )
-    assert viewer_login.status_code == 200
-    viewer_session = viewer_login.json()
-    assert viewer_session["token_type"] == "bearer"
-    assert viewer_session["access_token"]
-    assert viewer_session["user"]["role"] == "viewer"
-    assert "password" not in viewer_session["user"]
-    viewer_headers = {"Authorization": f"Bearer {viewer_session['access_token']}"}
-
-    me_response = client.get("/api/auth/me", headers=viewer_headers)
-    assert me_response.status_code == 200
-    assert me_response.json()["email"] == "viewer@example.com"
-
-    assert client.get("/api/clusters", headers=viewer_headers).status_code == 200
+    assert client.get("/api/clusters").status_code == 401
     assert client.post(
         "/api/clusters",
-        headers=viewer_headers,
-        json={"name": "viewer-blocked", "environment": "dev"},
-    ).status_code == 403
-    fallback_admin_headers = {**viewer_headers, **ADMIN_HEADERS}
-    create_with_admin_fallback = client.post(
-        "/api/clusters",
-        headers=fallback_admin_headers,
-        json={"name": "admin-token-fallback", "environment": "dev"},
-    )
-    assert create_with_admin_fallback.status_code == 201
+        headers={"X-Admin-Token": "dev-admin-approval-token"},
+        json={"name": "token-bypass-blocked", "environment": "dev"},
+    ).status_code == 401
 
-    logout_response = client.post("/api/auth/logout", headers=viewer_headers)
-    assert logout_response.status_code == 200
-    assert logout_response.json() == {"revoked": True}
-    assert client.get("/api/auth/me", headers=viewer_headers).status_code == 401
+    wrong_password = client.post("/api/auth/login", json={"username": "admin", "password": "wrong-password"})
+    assert wrong_password.status_code == 401
 
-    operator_signup = client.post(
-        "/api/auth/signup",
-        json={
-            "email": "operator@example.com",
-            "full_name": "Cluster Operator",
-            "password": "safe-password-456",
-            "requested_role": "operator",
-        },
-    ).json()
-    client.post(
-        f"/api/admin/users/{operator_signup['user_id']}/approval",
-        headers=ADMIN_HEADERS,
-        json={"decision": "approve", "role": "operator"},
-    )
-    operator_login = client.post(
-        "/api/auth/login",
-        json={"email": "operator@example.com", "password": "safe-password-456"},
-    ).json()
-    operator_headers = {"Authorization": f"Bearer {operator_login['access_token']}"}
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
+    assert login.status_code == 200
+    session = login.json()
+    assert session["token_type"] == "bearer"
+    assert session["access_token"]
+    assert session["user"]["email"] == "admin"
+    assert session["user"]["role"] == "admin"
+    assert session["user"]["status"] == "active"
+    assert "password" not in session["user"]
+    headers = {"Authorization": f"Bearer {session['access_token']}"}
+
+    me_response = client.get("/api/auth/me", headers=headers)
+    assert me_response.status_code == 200
+    assert me_response.json()["email"] == "admin"
+
     create_cluster = client.post(
         "/api/clusters",
-        headers=operator_headers,
-        json={"name": "operator-created", "environment": "stage"},
+        headers=headers,
+        json={"name": "admin-created", "environment": "stage"},
     )
     assert create_cluster.status_code == 201
     assert create_cluster.json()["bootstrap_token"]
+
+    wrong_change = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "wrong-password", "new_password": "new-admin-password"},
+    )
+    assert wrong_change.status_code == 401
+
+    change_response = client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "admin", "new_password": "new-admin-password"},
+    )
+    assert change_response.status_code == 200
+    assert change_response.json() == {"changed": True}
+
+    logout_response = client.post("/api/auth/logout", headers=headers)
+    assert logout_response.status_code == 200
+    assert logout_response.json() == {"revoked": True}
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+
+    second_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
+    assert second_client.post("/api/auth/login", json={"username": "admin", "password": "admin"}).status_code == 401
+    changed_login = second_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "new-admin-password"},
+    )
+    assert changed_login.status_code == 200
 
 
 def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
     register_response = client.post(
@@ -572,14 +493,14 @@ def test_alertmanager_webhook_creates_evidence_request_for_registered_agent(tmp_
     )
 
     assert submit_response.status_code == 200
-    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
+    jobs_response = client.get("/api/rca/jobs", headers=admin_headers(client))
     assert jobs_response.status_code == 200
     jobs = jobs_response.json()
     assert len(jobs) == 1
     assert jobs[0]["alert_name"] == "NodeNotReady"
     assert jobs[0]["evidence_id"] == submit_response.json()["evidence_id"]
 
-    report_response = client.get(f"/api/rca/reports/{jobs[0]['report_id']}", headers=ADMIN_HEADERS)
+    report_response = client.get(f"/api/rca/reports/{jobs[0]['report_id']}", headers=admin_headers(client))
     assert report_response.status_code == 200
     report = report_response.json()
     signals = _report_section(report, "derived_signals")["signals"]
@@ -599,7 +520,7 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
     register_response = client.post(
@@ -615,7 +536,7 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
     node_token = register_response.json()["node_token"]
     evidence_request = client.post(
         "/api/evidence/requests",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -650,8 +571,8 @@ def test_rca_report_identifies_disk_and_kernel_evidence_for_resolution(tmp_path)
     )
 
     assert submit_response.status_code == 200
-    job = client.get("/api/rca/jobs", headers=ADMIN_HEADERS).json()[0]
-    report = client.get(f"/api/rca/reports/{job['report_id']}", headers=ADMIN_HEADERS).json()
+    job = client.get("/api/rca/jobs", headers=admin_headers(client)).json()[0]
+    report = client.get(f"/api/rca/reports/{job['report_id']}", headers=admin_headers(client)).json()
 
     assert report["summary"]["confidence"] == "high"
     signals = _report_section(report, "derived_signals")["signals"]
@@ -704,7 +625,7 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -747,17 +668,17 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
     assert heartbeat["agent_version"] == "0.1.1"
     assert heartbeat["last_heartbeat_at"] is not None
 
-    list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=ADMIN_HEADERS)
+    list_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=admin_headers(client))
     assert list_response.status_code == 200
     assert [agent["node_name"] for agent in list_response.json()] == ["worker-3"]
     assert "node_token" not in list_response.json()[0]
 
-    get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3", headers=ADMIN_HEADERS)
+    get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3", headers=admin_headers(client))
     assert get_response.status_code == 200
     assert get_response.json()["health"] == {"kubelet": "active", "containerd": "active"}
     assert "node_token" not in get_response.json()
 
-    cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}", headers=ADMIN_HEADERS)
+    cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}", headers=admin_headers(client))
     assert cluster_response.status_code == 200
     cluster_after_agent = cluster_response.json()
     assert cluster_after_agent["status"] == "active"
@@ -768,7 +689,7 @@ def test_agent_auth_and_registration_errors(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
@@ -822,7 +743,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
     register_response = client.post(
@@ -839,7 +760,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
 
     create_response = client.post(
         "/api/evidence/requests",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -893,13 +814,13 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     assert completed_request["evidence_id"].startswith("evidence-")
     assert completed_request["completed_at"] is not None
 
-    evidence_response = client.get(f"/api/evidence/{completed_request['evidence_id']}", headers=ADMIN_HEADERS)
+    evidence_response = client.get(f"/api/evidence/{completed_request['evidence_id']}", headers=admin_headers(client))
     assert evidence_response.status_code == 200
     evidence = evidence_response.json()
     assert evidence["alert_name"] == "NodeNotReady"
     assert evidence["collectors"]["systemd"]["kubelet_status"] == "active"
 
-    jobs_response = client.get("/api/rca/jobs", headers=ADMIN_HEADERS)
+    jobs_response = client.get("/api/rca/jobs", headers=admin_headers(client))
     assert jobs_response.status_code == 200
     jobs = jobs_response.json()
     assert len(jobs) == 1
@@ -907,7 +828,7 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     assert job["status"] == "completed"
     assert job["evidence_id"] == completed_request["evidence_id"]
 
-    report_response = client.get(f"/api/rca/reports/{job['report_id']}", headers=ADMIN_HEADERS)
+    report_response = client.get(f"/api/rca/reports/{job['report_id']}", headers=admin_headers(client))
     assert report_response.status_code == 200
     report = report_response.json()
     assert report["trigger"]["alert_name"] == "NodeNotReady"
@@ -930,7 +851,7 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
     cluster = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
     node_tokens = {}
@@ -949,7 +870,7 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
 
     evidence_request = client.post(
         "/api/evidence/requests",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={
             "cluster_id": cluster["cluster_id"],
             "node_name": "worker-3",
@@ -990,8 +911,8 @@ def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:
     assert failed_request["error_message"] == "journalctl timed out"
     assert failed_request["evidence_id"] is None
 
-    assert client.get("/api/rca/jobs", headers=ADMIN_HEADERS).json() == []
-    assert client.get("/api/rca/reports", headers=ADMIN_HEADERS).json() == []
+    assert client.get("/api/rca/jobs", headers=admin_headers(client)).json() == []
+    assert client.get("/api/rca/reports", headers=admin_headers(client)).json() == []
 
 
 def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
@@ -1000,12 +921,12 @@ def test_sqlalchemy_store_persists_data_across_app_instances(tmp_path) -> None:
 
     cluster = first_client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(first_client),
         json={"name": "prod-cluster", "environment": "prod"},
     ).json()
 
     second_client = TestClient(create_app(database_url=database_url, auto_create_tables=True))
-    response = second_client.get(f"/api/clusters/{cluster['cluster_id']}", headers=ADMIN_HEADERS)
+    response = second_client.get(f"/api/clusters/{cluster['cluster_id']}", headers=admin_headers(second_client))
 
     assert response.status_code == 200
     assert response.json()["name"] == "prod-cluster"
@@ -1102,7 +1023,7 @@ def test_alembic_initial_migration_creates_schema(tmp_path, monkeypatch) -> None
     client = TestClient(create_app(database_url=database_url, auto_create_tables=False))
     response = client.post(
         "/api/clusters",
-        headers=ADMIN_HEADERS,
+        headers=admin_headers(client),
         json={"name": "prod-cluster", "environment": "prod"},
     )
 

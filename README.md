@@ -43,6 +43,8 @@ LLM은 진단과 설명만 담당한다. 조치 실행 여부는 Policy Engine�
 | Policy Engine | 권장 조치 위험도 분류 |
 | Web Console | 클러스터 등록, 웹훅 설정, 리포트 조회 |
 
+사용자 Web UI는 Spring Boot Web Console 하나만 사용한다. FastAPI는 API, Swagger, agent/webhook 연동만 담당한다.
+
 Node Agent는 노드를 수정하지 않는다. 수집 가능한 정보를 읽고, 권한 부족이나 명령어 부재로 실패한 항목은 evidence 안에 오류로 남긴다.
 
 Preprocessor는 로그를 그대로 LLM에 넘기지 않는다. 반복 로그, 낮은 가치의 필드, 형식이 다른 웹/시스템 로그를 정리해서 주요 항목 중심의 JSON으로 만든다.
@@ -59,8 +61,9 @@ Policy Engine은 LLM 결과를 그대로 신뢰하지 않는다. 권장 조치�
 
 ## Features
 
-- 관리자 승인 기반 회원가입
-- session token, role 기반 접근 제어
+- 기본 관리자 계정 `admin/admin`
+- session token 기반 로그인 및 API 접근 제어
+- 로그인 후 관리자 비밀번호 변경
 - cluster 등록 및 agent 설치 명령 조회
 - node token 기반 agent 인증
 - Alertmanager webhook 수신
@@ -113,7 +116,8 @@ Web Console:
 ```text
 RCA_API_BASE_URL
 RCA_PUBLIC_API_BASE_URL
-RCA_ADMIN_APPROVAL_TOKEN
+RCA_DEFAULT_ADMIN_USERNAME
+RCA_DEFAULT_ADMIN_PASSWORD
 ```
 
 ## Validation

@@ -37,6 +37,23 @@ pre,
   grid-template-columns: 260px minmax(0, 1fr);
 }
 
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--console-bg);
+}
+
+.login-card {
+  width: min(100%, 25rem);
+  border: 1px solid var(--console-line);
+  border-radius: .5rem;
+  background: var(--console-surface);
+  padding: 1.5rem;
+  box-shadow: 0 .75rem 2rem rgba(23, 32, 38, .08);
+}
+
 .console-sidebar {
   position: sticky;
   top: 0;

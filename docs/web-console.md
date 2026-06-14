@@ -1,8 +1,8 @@
 # Web Console
 
-이 콘솔은 Spring Boot MVC가 JSP로 화면의 기본 shell을 렌더링하고, 데이터 변경이 잦은 영역은 React가 갱신하는 구조로 만든다. 레이아웃과 기본 UI 컴포넌트는 Bootstrap 5를 사용한다.
+이 콘솔은 프로젝트의 단일 사용자 Web UI다. Spring Boot MVC가 JSP로 화면의 기본 shell을 렌더링하고, 데이터 변경이 잦은 영역은 React가 갱신한다. 레이아웃과 기본 UI 컴포넌트는 Bootstrap 5를 사용한다.
 
-현재 RCA 수집, 분석, DB, LLM, Policy Engine은 Python FastAPI backend가 담당한다. Spring Boot 콘솔은 `/console-api/**` 프록시를 통해 같은 API를 호출한다. 이렇게 두면 브라우저 CORS 문제를 줄이면서, 나중에 backend 일부를 Spring Boot로 옮기더라도 화면 구조를 크게 바꾸지 않아도 된다.
+RCA 수집, 분석, DB, LLM, Policy Engine은 Python FastAPI backend가 담당한다. FastAPI는 API 전용 서버로 두고, 브라우저는 Spring Boot 콘솔의 `/console-api/**` 프록시를 통해 backend API를 호출한다.
 
 ## Structure
 
@@ -68,16 +68,19 @@ $env:RCA_PUBLIC_API_BASE_URL = "https://rca-api.example.com"
 
 ## Pages
 
-- `Overview`: cluster, report, approval, webhook 상태 요약
-- `Access`: 회원가입 요청과 최종 관리자 승인/거절
+- `Overview`: cluster, report, access, webhook 상태 요약
 - `Clusters`: 클러스터 등록, agent 설치 명령, manifest 링크, node agent 상태
 - `Webhooks`: Alertmanager endpoint와 receiver 예시
 - `Reports`: RCA report 목록, root cause, policy, signal, checklist
-- `Settings`: proxy, API, runtime 설정 확인
+- `Settings`: proxy, API, runtime 설정 확인, 비밀번호 변경
 
 ## Security
 
-React 콘솔은 bearer token과 admin token을 브라우저 `sessionStorage`에만 저장한다. 운영 배포에서는 HTTPS와 짧은 토큰 수명, 감사 로그, 서버 측 권한 검증이 같이 필요하다.
+첫 화면은 로그인 페이지다. 기본 계정은 `admin/admin`이며, 운영 배포 후 Settings에서 비밀번호를 변경한다.
+
+React 콘솔은 bearer token을 브라우저 `sessionStorage`에만 저장한다. 운영 배포에서는 HTTPS와 짧은 토큰 수명, 감사 로그, 서버 측 권한 검증이 같이 필요하다.
+
+Spring Boot `/console-api/**` proxy는 `/api/auth/login`과 health check를 제외한 요청에 Bearer token이 없으면 backend로 전달하지 않고 `401`을 반환한다.
 
 Spring Boot 콘솔은 기본적으로 다음 보안 헤더를 붙인다.
 
@@ -97,7 +100,8 @@ Spring Boot 콘솔은 기본적으로 다음 보안 헤더를 붙인다.
 - Spring Boot tests: `mvn test`
 - JSP shell rendering with embedded Tomcat
 - `/console-api/**` proxy forwarding
-- `Authorization` and `X-Admin-Token` forwarding
+- unauthenticated proxy request blocking
+- `Authorization` forwarding
 - query string preservation
 - response `Cache-Control: no-store`
 - console security headers

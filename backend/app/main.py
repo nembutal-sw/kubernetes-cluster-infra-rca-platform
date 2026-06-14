@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import secrets
 from datetime import timedelta
-from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -31,10 +29,9 @@ from backend.app.models import (
     RcaJob,
     RcaReport,
     UserAccount,
-    UserApprovalRequest,
     UserLoginRequest,
+    UserPasswordChangeRequest,
     UserRole,
-    UserSignupRequest,
     UserStatus,
     WebhookIngestResponse,
     now_utc,
@@ -88,6 +85,11 @@ def create_app(
     app.state.database_url = settings.database_url
     app.state.engine = engine
     app.state.llm_provider = settings.llm.provider
+    try:
+        store.ensure_default_admin(settings.default_admin_username, settings.default_admin_password)
+    except SQLAlchemyError:
+        if settings.auto_create_tables:
+            raise
 
     @app.exception_handler(SQLAlchemyError)
     async def database_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
@@ -107,20 +109,17 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        if request.url.path == "/" or request.url.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
-                "script-src 'self'; "
-                "style-src 'self'; "
-                "img-src 'self' data:; "
-                "connect-src 'self'; "
-                "object-src 'none'; "
-                "base-uri 'self'; "
-                "form-action 'self'; "
-                "frame-ancestors 'none'"
-            )
         return response
+
+    @app.get("/", include_in_schema=False)
+    def api_root() -> dict[str, object]:
+        return {
+            "service": "cluster-infra-rca-backend",
+            "status": "api_only",
+            "web_console": "spring-boot-web-console",
+            "docs": "/docs",
+            "health": "/health",
+        }
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -144,29 +143,19 @@ def create_app(
     def create_cluster(
         request: ClusterCreateRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> Cluster:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR},
         )
         return store.create_cluster(request)
 
-    @app.post("/api/auth/signup", response_model=UserAccount, status_code=status.HTTP_201_CREATED)
-    def request_signup(request: UserSignupRequest) -> UserAccount:
-        try:
-            return store.create_user_registration(request)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
     @app.post("/api/auth/login", response_model=AuthSessionResponse)
     def login(request: UserLoginRequest) -> AuthSessionResponse:
-        user = store.authenticate_user(request.email, request.password)
+        user = store.authenticate_user(request.username, request.password)
         if user is None:
-            raise HTTPException(status_code=401, detail="invalid email or password")
+            raise HTTPException(status_code=401, detail="invalid username or password")
         if user.status != UserStatus.ACTIVE:
             raise HTTPException(status_code=403, detail="user is not active")
         if user.role is None:
@@ -187,41 +176,23 @@ def create_app(
         token = _extract_bearer_token(authorization)
         return {"revoked": store.revoke_user_session(token)}
 
-    @app.get("/api/admin/users", response_model=list[UserAccount])
-    def list_users(
+    @app.post("/api/auth/change-password")
+    def change_password(
+        request: UserPasswordChangeRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-        user_status: UserStatus | None = Query(default=None, alias="status"),
-    ) -> list[UserAccount]:
-        _authorize_access(store, settings.admin_approval_token, authorization, x_admin_token, {UserRole.ADMIN})
-        return store.list_users(status=user_status)
-
-    @app.post("/api/admin/users/{user_id}/approval", response_model=UserAccount)
-    def decide_user_registration(
-        user_id: str,
-        request: UserApprovalRequest,
-        authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
-    ) -> UserAccount:
-        _authorize_access(store, settings.admin_approval_token, authorization, x_admin_token, {UserRole.ADMIN})
-        try:
-            user = store.decide_user_registration(user_id, request, approved_by="platform-admin")
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        if user is None:
-            raise HTTPException(status_code=404, detail="user not found")
-        return user
+    ) -> dict[str, bool]:
+        user = _require_user(store, authorization, {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER})
+        if not store.change_user_password(user.user_id, request.current_password, request.new_password):
+            raise HTTPException(status_code=401, detail="current password is invalid")
+        return {"changed": True}
 
     @app.get("/api/clusters", response_model=list[ClusterView])
     def list_clusters(
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> list[Cluster]:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         return store.list_clusters()
@@ -230,13 +201,10 @@ def create_app(
     def get_cluster(
         cluster_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> Cluster:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         cluster = store.get_cluster(cluster_id)
@@ -248,16 +216,13 @@ def create_app(
     def get_install_command(
         cluster_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
         backend_url: str | None = Query(default=None),
         image: str = Query(default=DEFAULT_AGENT_IMAGE),
         namespace: str = Query(default=DEFAULT_AGENT_NAMESPACE),
     ):
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR},
         )
         try:
@@ -311,13 +276,10 @@ def create_app(
     def list_cluster_agents(
         cluster_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> list[NodeAgent]:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         if store.get_cluster(cluster_id) is None:
@@ -329,13 +291,10 @@ def create_app(
         cluster_id: str,
         node_name: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> NodeAgent:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         if store.get_cluster(cluster_id) is None:
@@ -362,13 +321,10 @@ def create_app(
     def create_evidence_request(
         request: EvidenceRequestCreateRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> EvidenceRequest:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR},
         )
         if store.get_cluster(request.cluster_id) is None:
@@ -381,13 +337,10 @@ def create_app(
     def list_cluster_evidence_requests(
         cluster_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> list[EvidenceRequest]:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         if store.get_cluster(cluster_id) is None:
@@ -398,13 +351,10 @@ def create_app(
     def get_evidence_request(
         request_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> EvidenceRequest:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         evidence_request = store.get_evidence_request(request_id)
@@ -416,13 +366,10 @@ def create_app(
     def get_evidence(
         evidence_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> EvidenceBundle:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         evidence = store.get_evidence(evidence_id)
@@ -473,13 +420,10 @@ def create_app(
     @app.get("/api/rca/jobs", response_model=list[RcaJob])
     def list_rca_jobs(
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> list[RcaJob]:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         return store.list_jobs()
@@ -488,13 +432,10 @@ def create_app(
     def get_rca_job(
         job_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> RcaJob:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         job = store.get_job(job_id)
@@ -505,13 +446,10 @@ def create_app(
     @app.get("/api/rca/reports", response_model=list[RcaReport])
     def list_rca_reports(
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> list[RcaReport]:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         return store.list_reports()
@@ -520,13 +458,10 @@ def create_app(
     def get_rca_report(
         report_id: str,
         authorization: str | None = Header(default=None, alias="Authorization"),
-        x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
     ) -> RcaReport:
         _authorize_access(
             store,
-            settings.admin_approval_token,
             authorization,
-            x_admin_token,
             {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
         )
         report = store.get_report(report_id)
@@ -534,20 +469,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="RCA report not found")
         return report
 
-    static_dir = Path(__file__).resolve().parent / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-        @app.get("/", include_in_schema=False)
-        def web_console() -> FileResponse:
-            return FileResponse(static_dir / "index.html")
-
     return app
-
-
-def _verify_admin_token(configured_token: str, supplied_token: str | None) -> None:
-    if not supplied_token or not secrets.compare_digest(configured_token, supplied_token):
-        raise HTTPException(status_code=401, detail="invalid admin token")
 
 
 def _verify_webhook_token(
@@ -566,23 +488,10 @@ def _verify_webhook_token(
 
 def _authorize_access(
     store: StoreProtocol,
-    configured_admin_token: str,
     authorization: str | None,
-    supplied_admin_token: str | None,
     allowed_roles: set[UserRole],
 ) -> UserAccount | None:
-    if authorization:
-        try:
-            return _require_user(store, authorization, allowed_roles)
-        except HTTPException:
-            if supplied_admin_token:
-                _verify_admin_token(configured_admin_token, supplied_admin_token)
-                return None
-            raise
-    if supplied_admin_token:
-        _verify_admin_token(configured_admin_token, supplied_admin_token)
-        return None
-    raise HTTPException(status_code=401, detail="authentication required")
+    return _require_user(store, authorization, allowed_roles)
 
 
 def _require_user(

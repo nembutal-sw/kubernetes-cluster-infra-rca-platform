@@ -13,7 +13,7 @@ Alertmanager webhook도 이 흐름에 연결되어 있습니다. 알림의 `clus
 Header:
 
 ```text
-X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
+Authorization: Bearer <access_token>
 ```
 
 요청:
@@ -37,7 +37,7 @@ X-Admin-Token: <RCA_ADMIN_APPROVAL_TOKEN>
 
 조건:
 
-- 관리자 token이 없거나 틀리면 `401`
+- Bearer token이 없거나 틀리면 `401`
 - cluster가 없으면 `404`
 - 대상 node agent가 등록되어 있지 않으면 `404`
 

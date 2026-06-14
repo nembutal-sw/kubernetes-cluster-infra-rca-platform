@@ -5,7 +5,6 @@
   const publicApiBase = rootElement.dataset.publicApiBase || window.location.origin;
   const views = [
     { id: "overview", label: "Overview", icon: "speedometer2" },
-    { id: "access", label: "Access", icon: "person-check" },
     { id: "clusters", label: "Clusters", icon: "hdd-network" },
     { id: "webhooks", label: "Webhooks", icon: "diagram-3" },
     { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
@@ -16,13 +15,12 @@
     const [activeView, setActiveView] = React.useState("overview");
     const [clusters, setClusters] = React.useState([]);
     const [reports, setReports] = React.useState([]);
-    const [pendingUsers, setPendingUsers] = React.useState([]);
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
     const [installCommands, setInstallCommands] = React.useState({});
     const [sessionToken, setSessionToken] = React.useState(sessionStorage.getItem("rca_session_token") || "");
-    const [adminToken, setAdminToken] = React.useState(sessionStorage.getItem("rca_admin_token") || "");
     const [currentUser, setCurrentUser] = React.useState(null);
+    const [authChecking, setAuthChecking] = React.useState(Boolean(sessionStorage.getItem("rca_session_token")));
     const [toast, setToast] = React.useState("");
     const [loading, setLoading] = React.useState({});
     const [autoRefresh, setAutoRefresh] = React.useState(true);
@@ -34,12 +32,11 @@
       notify.timer = window.setTimeout(() => setToast(""), 3200);
     }, []);
 
-    const authHeaders = React.useCallback((allowAdminFallback) => {
+    const authHeaders = React.useCallback(() => {
       const headers = {};
       if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
-      if (allowAdminFallback && adminToken) headers["X-Admin-Token"] = adminToken;
       return headers;
-    }, [sessionToken, adminToken]);
+    }, [sessionToken]);
 
     const callApi = React.useCallback(async (path, options = {}) => {
       let response;
@@ -69,23 +66,26 @@
     const loadCurrentUser = React.useCallback(async (silent) => {
       if (!sessionToken) {
         setCurrentUser(null);
+        setAuthChecking(false);
         return;
       }
       try {
-        const user = await callApi("/api/auth/me", { headers: authHeaders(false) });
+        const user = await callApi("/api/auth/me", { headers: authHeaders() });
         setCurrentUser(user);
       } catch (error) {
         setSessionToken("");
         setCurrentUser(null);
         sessionStorage.removeItem("rca_session_token");
         if (!silent) notify(error.message);
+      } finally {
+        setAuthChecking(false);
       }
     }, [sessionToken, authHeaders, callApi, notify]);
 
     const loadClusters = React.useCallback(async (silent) => {
       try {
         setLoading((value) => ({ ...value, clusters: true }));
-        const result = await callApi("/api/clusters", { headers: authHeaders(true) });
+        const result = await callApi("/api/clusters", { headers: authHeaders() });
         setClusters(Array.isArray(result) ? result : []);
       } catch (error) {
         setClusters([]);
@@ -98,7 +98,7 @@
     const loadReports = React.useCallback(async (silent) => {
       try {
         setLoading((value) => ({ ...value, reports: true }));
-        const result = await callApi("/api/rca/reports", { headers: authHeaders(true) });
+        const result = await callApi("/api/rca/reports", { headers: authHeaders() });
         setReports(Array.isArray(result) ? result : []);
       } catch (error) {
         setReports([]);
@@ -108,41 +108,27 @@
       }
     }, [authHeaders, callApi, notify]);
 
-    const loadPendingUsers = React.useCallback(async (silent) => {
-      if (!sessionToken && !adminToken) {
-        setPendingUsers([]);
-        return;
-      }
-      try {
-        setLoading((value) => ({ ...value, users: true }));
-        const result = await callApi("/api/admin/users?status=pending_approval", { headers: authHeaders(true) });
-        setPendingUsers(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setPendingUsers([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, users: false }));
-      }
-    }, [sessionToken, adminToken, authHeaders, callApi, notify]);
-
     const refreshAll = React.useCallback(async (silent) => {
       await Promise.allSettled([
         loadClusters(silent),
         loadReports(silent),
-        loadPendingUsers(true),
       ]);
       setLastRefresh(new Date());
-    }, [loadClusters, loadReports, loadPendingUsers]);
+    }, [loadClusters, loadReports]);
 
     React.useEffect(() => {
-      loadCurrentUser(true).finally(() => refreshAll(true));
-    }, [loadCurrentUser, refreshAll]);
+      loadCurrentUser(true);
+    }, [loadCurrentUser]);
 
     React.useEffect(() => {
-      if (!autoRefresh) return undefined;
+      if (currentUser) refreshAll(true);
+    }, [currentUser, refreshAll]);
+
+    React.useEffect(() => {
+      if (!autoRefresh || !currentUser) return undefined;
       const timer = window.setInterval(() => refreshAll(true), 30000);
       return () => window.clearInterval(timer);
-    }, [autoRefresh, refreshAll]);
+    }, [autoRefresh, currentUser, refreshAll]);
 
     async function login(event) {
       event.preventDefault();
@@ -158,7 +144,6 @@
         sessionStorage.setItem("rca_session_token", session.access_token);
         form.reset();
         notify(`Signed in: ${session.user.email}`);
-        await refreshAll(true);
       } catch (error) {
         notify(error.message);
       }
@@ -168,59 +153,36 @@
       if (sessionToken) {
         await callApi("/api/auth/logout", {
           method: "POST",
-          headers: authHeaders(false),
+          headers: authHeaders(),
         }).catch(() => null);
       }
       setSessionToken("");
       setCurrentUser(null);
       setClusters([]);
       setReports([]);
-      setPendingUsers([]);
       setReportDetails({});
       setAgentsByCluster({});
       sessionStorage.removeItem("rca_session_token");
       notify("Signed out.");
     }
 
-    function saveAdminToken(value) {
-      const normalized = value.trim();
-      setAdminToken(normalized);
-      if (normalized) {
-        sessionStorage.setItem("rca_admin_token", normalized);
-        notify("Admin token stored for this browser session.");
-      } else {
-        sessionStorage.removeItem("rca_admin_token");
-        notify("Admin token cleared.");
-      }
-    }
-
-    async function submitSignup(event) {
+    async function changePassword(event) {
       event.preventDefault();
       const form = event.currentTarget;
+      const payload = formPayload(form);
+      if (payload.new_password !== payload.confirm_password) {
+        notify("New passwords do not match.");
+        return;
+      }
+      delete payload.confirm_password;
       try {
-        const user = await callApi("/api/auth/signup", {
+        await callApi("/api/auth/change-password", {
           method: "POST",
-          body: JSON.stringify(formPayload(form)),
+          headers: authHeaders(),
+          body: JSON.stringify(payload),
         });
         form.reset();
-        notify(`Signup requested: ${user.email}`);
-        await loadPendingUsers(true);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function decideUser(userId, decision) {
-      const role = document.querySelector(`[data-role-for="${userId}"]`)?.value || "viewer";
-      const note = document.querySelector(`[data-note-for="${userId}"]`)?.value || null;
-      try {
-        await callApi(`/api/admin/users/${encodeURIComponent(userId)}/approval`, {
-          method: "POST",
-          headers: authHeaders(true),
-          body: JSON.stringify({ decision, role: decision === "approve" ? role : null, note }),
-        });
-        notify(decision === "approve" ? "User approved." : "User rejected.");
-        await loadPendingUsers(false);
+        notify("Password changed.");
       } catch (error) {
         notify(error.message);
       }
@@ -232,7 +194,7 @@
       try {
         const cluster = await callApi("/api/clusters", {
           method: "POST",
-          headers: authHeaders(true),
+          headers: authHeaders(),
           body: JSON.stringify(formPayload(form)),
         });
         form.reset();
@@ -248,7 +210,7 @@
         setInstallCommands((value) => ({ ...value, [clusterId]: "Loading..." }));
         const query = new URLSearchParams({ backend_url: publicApiBase });
         const response = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/install-command?${query}`, {
-          headers: authHeaders(true),
+          headers: authHeaders(),
         });
         setInstallCommands((value) => ({ ...value, [clusterId]: response.commands.join("\n") }));
       } catch (error) {
@@ -260,7 +222,7 @@
       try {
         setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: true, items: [] } }));
         const agents = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agents`, {
-          headers: authHeaders(true),
+          headers: authHeaders(),
         });
         setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: false, items: agents } }));
       } catch (error) {
@@ -276,7 +238,7 @@
       setReportDetails((value) => ({ ...value, [reportId]: { ...(value[reportId] || {}), open: true, loading: true } }));
       try {
         const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, {
-          headers: authHeaders(true),
+          headers: authHeaders(),
         });
         setReportDetails((value) => ({ ...value, [reportId]: { open: true, loading: false, report } }));
       } catch (error) {
@@ -293,40 +255,42 @@
       }
     }
 
-    const signedIn = Boolean(currentUser);
-    const canUsePrivilegedApi = Boolean(sessionToken || adminToken);
     const webhookEndpoint = `${publicApiBase.replace(/\/$/, "")}/api/webhooks/alertmanager`;
+
+    if (authChecking) {
+      return h("div", { className: "login-shell" },
+        h("div", { className: "login-card" },
+          h("div", { className: "console-brand-mark mb-3" }, "RCA"),
+          h("h1", { className: "h5 mb-2" }, "Checking session"),
+          h("p", { className: "text-muted mb-0" }, "잠시만 기다려주세요.")
+        )
+      );
+    }
+
+    if (!currentUser) {
+      return h(React.Fragment, null,
+        h(LoginPage, { onLogin: login }),
+        toast && h(Toast, { message: toast, onClose: () => setToast("") })
+      );
+    }
 
     return h("div", { className: "console-shell" },
       h(Sidebar, { activeView, setActiveView }),
       h("main", { className: "console-main" },
         h(Topbar, {
           currentUser,
-          signedIn,
-          adminToken,
           autoRefresh,
           lastRefresh,
-          onLogin: login,
           onLogout: logout,
-          onSaveAdminToken: saveAdminToken,
           onRefresh: () => refreshAll(false),
           onToggleAutoRefresh: () => setAutoRefresh((value) => !value),
         }),
         activeView === "overview" && h(OverviewView, {
           clusters,
           reports,
-          pendingUsers,
           loading,
           webhookEndpoint,
-          canUsePrivilegedApi,
           onNavigate: setActiveView,
-        }),
-        activeView === "access" && h(AccessView, {
-          pendingUsers,
-          loading,
-          onSubmitSignup: submitSignup,
-          onDecideUser: decideUser,
-          onLoadUsers: () => loadPendingUsers(false),
         }),
         activeView === "clusters" && h(ClustersView, {
           clusters,
@@ -354,17 +318,11 @@
         activeView === "settings" && h(SettingsView, {
           apiBase,
           publicApiBase,
-          canUsePrivilegedApi,
           autoRefresh,
+          currentUser,
+          onChangePassword: changePassword,
         }),
-        toast && h("div", { className: "toast-area" },
-          h("div", { className: "toast show align-items-center text-bg-dark border-0", role: "status" },
-            h("div", { className: "d-flex" },
-              h("div", { className: "toast-body" }, toast),
-              h("button", { type: "button", className: "btn-close btn-close-white me-2 m-auto", onClick: () => setToast("") })
-            )
-          )
-        )
+        toast && h(Toast, { message: toast, onClose: () => setToast("") })
       )
     );
   }
@@ -390,49 +348,20 @@
   }
 
   function Topbar(props) {
-    const [adminTokenInput, setAdminTokenInput] = React.useState(props.adminToken || "");
-    React.useEffect(() => setAdminTokenInput(props.adminToken || ""), [props.adminToken]);
     return h("section", { className: "console-topbar" },
       h("div", { className: "row g-3 align-items-end" },
         h("div", { className: "col-12 col-xl-4" },
           h("div", { className: "d-flex align-items-center gap-2 mb-1" },
-            h("span", { className: `status-dot ${props.signedIn ? "online" : props.adminToken ? "warn" : ""}` }),
-            h("span", { className: "small text-muted fw-semibold" }, props.currentUser ? `${props.currentUser.email} / ${props.currentUser.role}` : props.adminToken ? "Admin token mode" : "Signed out")
+            h("span", { className: "status-dot online" }),
+            h("span", { className: "small text-muted fw-semibold" }, `${props.currentUser.email} / ${props.currentUser.role}`)
           ),
           h("h1", { className: "h4 mb-0" }, "Cluster Infrastructure RCA")
         ),
-        h("div", { className: "col-12 col-xl-5" },
-          props.signedIn
-            ? h("div", { className: "d-flex gap-2 flex-wrap" },
-                h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onLogout }, h(Icon, { name: "box-arrow-right" }), "Logout"),
-                h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), "Refresh"),
-                h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? "Auto" : "Manual")
-              )
-            : h("form", { className: "row g-2", onSubmit: props.onLogin },
-                h("div", { className: "col-12 col-md-5" },
-                  h("label", { className: "form-label" }, "Email"),
-                  h("input", { className: "form-control", name: "email", type: "email", autoComplete: "email", required: true })
-                ),
-                h("div", { className: "col-12 col-md-5" },
-                  h("label", { className: "form-label" }, "Password"),
-                  h("input", { className: "form-control", name: "password", type: "password", autoComplete: "current-password", required: true })
-                ),
-                h("div", { className: "col-12 col-md-2 d-grid" },
-                  h("button", { className: "btn btn-primary btn-icon", type: "submit" }, h(Icon, { name: "box-arrow-in-right" }), "Login")
-                )
-              )
-        ),
-        h("div", { className: "col-12 col-xl-3" },
-          h("label", { className: "form-label" }, "Bootstrap admin token"),
-          h("div", { className: "input-group" },
-            h("input", {
-              className: "form-control",
-              type: "password",
-              value: adminTokenInput,
-              autoComplete: "off",
-              onChange: (event) => setAdminTokenInput(event.target.value),
-            }),
-            h("button", { className: "btn btn-outline-secondary", type: "button", onClick: () => props.onSaveAdminToken(adminTokenInput) }, "Use")
+        h("div", { className: "col-12 col-xl-8" },
+          h("div", { className: "d-flex gap-2 flex-wrap justify-content-xl-end" },
+            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), "Refresh"),
+            h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? "Auto" : "Manual"),
+            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onLogout }, h(Icon, { name: "box-arrow-right" }), "Logout")
           ),
           h("div", { className: "small text-muted mt-1" }, props.lastRefresh ? `Last refresh ${formatDate(props.lastRefresh)}` : "Not refreshed")
         )
@@ -440,13 +369,34 @@
     );
   }
 
-  function OverviewView({ clusters, reports, pendingUsers, loading, webhookEndpoint, canUsePrivilegedApi, onNavigate }) {
+  function LoginPage({ onLogin }) {
+    return h("div", { className: "login-shell" },
+      h("section", { className: "login-card" },
+        h("div", { className: "console-brand-mark mb-3" }, "RCA"),
+        h("h1", { className: "h4 mb-2" }, "Cluster Infrastructure RCA"),
+        h("p", { className: "text-muted mb-4" }, "관리자 계정으로 로그인하세요. 초기 계정은 admin / admin 입니다."),
+        h("form", { className: "d-grid gap-3", onSubmit: onLogin },
+          h("div", null,
+            h("label", { className: "form-label", htmlFor: "login-username" }, "Account"),
+            h("input", { id: "login-username", className: "form-control", name: "username", autoComplete: "username", defaultValue: "admin", required: true })
+          ),
+          h("div", null,
+            h("label", { className: "form-label", htmlFor: "login-password" }, "Password"),
+            h("input", { id: "login-password", className: "form-control", name: "password", type: "password", autoComplete: "current-password", required: true })
+          ),
+          h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "box-arrow-in-right" }), "Login")
+        )
+      )
+    );
+  }
+
+  function OverviewView({ clusters, reports, loading, webhookEndpoint, onNavigate }) {
     const highConfidence = reports.filter((report) => report.summary?.confidence === "high").length;
     return h("div", { className: "d-grid gap-3" },
       h("div", { className: "row g-3" },
         h(MetricTile, { label: "Clusters", value: clusters.length, hint: loading.clusters ? "Loading" : "Registered targets", icon: "hdd-network" }),
         h(MetricTile, { label: "RCA Reports", value: reports.length, hint: `${highConfidence} high confidence`, icon: "clipboard2-pulse" }),
-        h(MetricTile, { label: "Approvals", value: pendingUsers.length, hint: canUsePrivilegedApi ? "Pending users" : "Auth required", icon: "person-check" }),
+        h(MetricTile, { label: "Access", value: "Session", hint: "Bearer protected", icon: "shield-lock" }),
         h(MetricTile, { label: "Webhook", value: "Alertmanager", hint: webhookEndpoint, icon: "diagram-3", compact: true })
       ),
       h("div", { className: "row g-3" },
@@ -468,72 +418,6 @@
             ) : h(EmptyState, { message: "No reports loaded." })
           )
         )
-      )
-    );
-  }
-
-  function AccessView({ pendingUsers, loading, onSubmitSignup, onDecideUser, onLoadUsers }) {
-    return h("div", { className: "row g-3" },
-      h("div", { className: "col-12 col-xl-5" },
-        h(Panel, { title: "Signup Request", subtitle: "Final approval is required" },
-          h("form", { className: "row g-3", onSubmit: onSubmitSignup },
-            h(InputField, { label: "Email", name: "email", type: "email", required: true }),
-            h(InputField, { label: "Full name", name: "full_name", required: true }),
-            h(InputField, { label: "Password", name: "password", type: "password", minLength: 8, required: true }),
-            h("div", { className: "col-12 col-md-6" },
-              h("label", { className: "form-label" }, "Requested role"),
-              h("select", { className: "form-select", name: "requested_role", defaultValue: "viewer" },
-                h("option", { value: "viewer" }, "Viewer"),
-                h("option", { value: "operator" }, "Operator"),
-                h("option", { value: "admin" }, "Admin")
-              )
-            ),
-            h("div", { className: "col-12" },
-              h("label", { className: "form-label" }, "Reason"),
-              h("textarea", { className: "form-control", name: "reason", rows: 4 })
-            ),
-            h("div", { className: "col-12 d-grid" },
-              h("button", { className: "btn btn-primary btn-icon", type: "submit" }, h(Icon, { name: "send" }), "Request")
-            )
-          )
-        )
-      ),
-      h("div", { className: "col-12 col-xl-7" },
-        h(Panel, {
-          title: "Approval Queue",
-          subtitle: loading.users ? "Loading" : `${pendingUsers.length} pending`,
-          action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onLoadUsers }, h(Icon, { name: "arrow-clockwise" }), "Load"),
-        }, pendingUsers.length ? h("div", { className: "table-responsive" },
-          h("table", { className: "table table-hover mb-0" },
-            h("thead", null, h("tr", null,
-              h("th", null, "User"),
-              h("th", null, "Role"),
-              h("th", null, "Note"),
-              h("th", { className: "text-end" }, "Decision")
-            )),
-            h("tbody", null, pendingUsers.map((user) => h("tr", { key: user.user_id },
-              h("td", null,
-                h("div", { className: "fw-semibold" }, user.full_name),
-                h("div", { className: "small text-muted" }, user.email),
-                h("div", { className: "small text-muted text-truncate-cell" }, user.reason || "No reason")
-              ),
-              h("td", null,
-                h("select", { className: "form-select form-select-sm", "data-role-for": user.user_id, defaultValue: user.requested_role || "viewer" },
-                  h("option", { value: "viewer" }, "Viewer"),
-                  h("option", { value: "operator" }, "Operator"),
-                  h("option", { value: "admin" }, "Admin")
-                )
-              ),
-              h("td", null, h("input", { className: "form-control form-control-sm", "data-note-for": user.user_id })),
-              h("td", { className: "text-end" },
-                h("div", { className: "btn-group btn-group-sm" },
-                  h("button", { className: "btn btn-outline-success", onClick: () => onDecideUser(user.user_id, "approve") }, "Approve"),
-                  h("button", { className: "btn btn-outline-danger", onClick: () => onDecideUser(user.user_id, "reject") }, "Reject")
-                )
-              )
-            )))
-          )
-        ) : h(EmptyState, { message: "No pending users loaded." }))
       )
     );
   }
@@ -587,13 +471,7 @@
                   h("td", { className: "text-end" },
                     h("div", { className: "btn-group btn-group-sm" },
                       h("button", { className: "btn btn-outline-secondary", onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, "Install"),
-                      h("button", { className: "btn btn-outline-secondary", onClick: () => props.onLoadAgents(cluster.cluster_id) }, "Agents"),
-                      h("a", {
-                        className: "btn btn-outline-secondary",
-                        href: `${apiBase}/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-manifest?backend_url=${encodeURIComponent(props.publicApiBase)}`,
-                        target: "_blank",
-                        rel: "noreferrer",
-                      }, "Manifest")
+                      h("button", { className: "btn btn-outline-secondary", onClick: () => props.onLoadAgents(cluster.cluster_id) }, "Agents")
                     )
                   )
                 ),
@@ -678,25 +556,41 @@
     ) : h(EmptyState, { message: "No reports loaded." }));
   }
 
-  function SettingsView({ apiBase, publicApiBase, canUsePrivilegedApi, autoRefresh }) {
+  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword }) {
     const rows = [
       ["Console proxy", apiBase],
       ["Public API", publicApiBase],
-      ["Auth state", canUsePrivilegedApi ? "available" : "required"],
+      ["Signed in", currentUser.email],
+      ["Role", currentUser.role],
       ["Refresh mode", autoRefresh ? "auto / 30s" : "manual"],
-      ["Admin token env", "RCA_ADMIN_APPROVAL_TOKEN"],
       ["Webhook token env", "RCA_WEBHOOK_TOKEN"],
       ["LLM provider env", "RCA_LLM_PROVIDER"],
       ["Database env", "RCA_DATABASE_URL"],
     ];
-    return h(Panel, { title: "Console Settings", subtitle: "Runtime references" },
-      h("div", { className: "row g-3" },
-        rows.map(([label, value]) => h("div", { className: "col-12 col-md-6 col-xl-3", key: label },
-          h("div", { className: "border rounded-2 p-3 bg-light h-100" },
-            h("div", { className: "small text-muted fw-semibold mb-2" }, label),
-            h("code", { className: "small text-break" }, value)
+    return h("div", { className: "row g-3" },
+      h("div", { className: "col-12 col-xl-8" },
+        h(Panel, { title: "Console Settings", subtitle: "Runtime references" },
+          h("div", { className: "row g-3" },
+            rows.map(([label, value]) => h("div", { className: "col-12 col-md-6 col-xl-3", key: label },
+              h("div", { className: "border rounded-2 p-3 bg-light h-100" },
+                h("div", { className: "small text-muted fw-semibold mb-2" }, label),
+                h("code", { className: "small text-break" }, value)
+              )
+            ))
           )
-        ))
+        )
+      ),
+      h("div", { className: "col-12 col-xl-4" },
+        h(Panel, { title: "Change Password", subtitle: "현재 로그인 계정의 비밀번호 변경" },
+          h("form", { className: "row g-3", onSubmit: onChangePassword },
+            h(InputField, { label: "Current password", name: "current_password", type: "password", required: true, autoComplete: "current-password" }),
+            h(InputField, { label: "New password", name: "new_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
+            h(InputField, { label: "Confirm password", name: "confirm_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
+            h("div", { className: "col-12 d-grid" },
+              h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "key" }), "Update password")
+            )
+          )
+        )
       )
     );
   }
@@ -821,9 +715,10 @@
   }
 
   function InputField({ label, ...props }) {
+    const inputId = props.id || `field-${props.name || label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     return h("div", { className: "col-12 col-md-6" },
-      h("label", { className: "form-label" }, label),
-      h("input", { className: "form-control", ...props })
+      h("label", { className: "form-label", htmlFor: inputId }, label),
+      h("input", { className: "form-control", ...props, id: inputId })
     );
   }
 
@@ -837,6 +732,17 @@
 
   function EmptyState({ message }) {
     return h("div", { className: "empty-state" }, message);
+  }
+
+  function Toast({ message, onClose }) {
+    return h("div", { className: "toast-area" },
+      h("div", { className: "toast show align-items-center text-bg-dark border-0", role: "status" },
+        h("div", { className: "d-flex" },
+          h("div", { className: "toast-body" }, message),
+          h("button", { type: "button", className: "btn-close btn-close-white me-2 m-auto", onClick: onClose })
+        )
+      )
+    );
   }
 
   function Icon({ name }) {

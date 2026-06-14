@@ -118,10 +118,19 @@ try {
         throw "proxy readiness check failed"
     }
 
+    $Session = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$WebUrl/console-api/api/auth/login" `
+        -ContentType "application/json" `
+        -Body '{"username":"admin","password":"admin"}'
+    if (-not $Session.access_token) {
+        throw "login through web proxy failed"
+    }
+
     $Cluster = Invoke-RestMethod `
         -Method Post `
         -Uri "$WebUrl/console-api/api/clusters" `
-        -Headers @{ "X-Admin-Token" = "dev-admin-approval-token" } `
+        -Headers @{ "Authorization" = "Bearer $($Session.access_token)" } `
         -ContentType "application/json" `
         -Body '{"name":"smoke-cluster","environment":"dev"}'
     if ($Cluster.name -ne "smoke-cluster" -or -not $Cluster.cluster_id) {

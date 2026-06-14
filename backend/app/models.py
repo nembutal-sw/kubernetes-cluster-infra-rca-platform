@@ -225,16 +225,21 @@ class UserSignupRequest(BaseModel):
 
 
 class UserLoginRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=255, examples=["operator@example.com"])
+    username: str = Field(min_length=1, max_length=255, examples=["admin"])
     password: str = Field(min_length=1, max_length=256)
 
-    @field_validator("email")
+    @field_validator("username")
     @classmethod
-    def validate_email(cls, value: str) -> str:
+    def validate_username(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if "@" not in normalized or normalized.startswith("@") or normalized.endswith("@"):
-            raise ValueError("email must be a valid address")
+        if not normalized:
+            raise ValueError("username is required")
         return normalized
+
+
+class UserPasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class UserApprovalRequest(BaseModel):

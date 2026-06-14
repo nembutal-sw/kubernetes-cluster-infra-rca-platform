@@ -83,6 +83,8 @@ class StoreProtocol(Protocol):
     def get_user(self, user_id: str) -> UserAccount | None: ...
     def get_user_by_email(self, email: str) -> UserAccount | None: ...
     def authenticate_user(self, email: str, password: str) -> UserAccount | None: ...
+    def ensure_default_admin(self, username: str, password: str) -> UserAccount: ...
+    def change_user_password(self, user_id: str, current_password: str, new_password: str) -> bool: ...
     def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None: ...
     def get_user_by_session_token(self, token: str) -> UserAccount | None: ...
     def revoke_user_session(self, token: str) -> bool: ...
@@ -338,6 +340,52 @@ class InMemoryStore:
                 return None
             user, password_hash = item
             return user if verify_password(password, password_hash) else None
+
+    def ensure_default_admin(self, username: str, password: str) -> UserAccount:
+        with self._lock:
+            username = _normalize_email(username)
+            existing_id = self._user_ids_by_email.get(username)
+            if existing_id and existing_id in self._users:
+                user, password_hash = self._users[existing_id]
+                if user.status != UserStatus.ACTIVE or user.role != UserRole.ADMIN:
+                    user = user.model_copy(
+                        update={
+                            "requested_role": UserRole.ADMIN,
+                            "role": UserRole.ADMIN,
+                            "status": UserStatus.ACTIVE,
+                            "approved_by": "system",
+                            "approved_at": user.approved_at or now_utc(),
+                        }
+                    )
+                    self._users[existing_id] = (user, password_hash)
+                return user
+
+            user = UserAccount(
+                user_id="user-admin",
+                email=username,
+                full_name="Administrator",
+                requested_role=UserRole.ADMIN,
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+                approved_by="system",
+                approved_at=now_utc(),
+            )
+            if user.user_id in self._users:
+                user = user.model_copy(update={"user_id": f"user-{uuid.uuid4().hex[:8]}"})
+            self._users[user.user_id] = (user, hash_password(password))
+            self._user_ids_by_email[username] = user.user_id
+            return user
+
+    def change_user_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+        with self._lock:
+            item = self._users.get(user_id)
+            if item is None:
+                return False
+            user, password_hash = item
+            if not verify_password(current_password, password_hash):
+                return False
+            self._users[user_id] = (user, hash_password(new_password))
+            return True
 
     def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None:
         with self._lock:
@@ -706,6 +754,57 @@ class SqlAlchemyStore:
             if row is None or not verify_password(password, row.password_hash):
                 return None
             return _user_from_row(row)
+
+    def ensure_default_admin(self, username: str, password: str) -> UserAccount:
+        username = _normalize_email(username)
+        with self._session_factory() as session:
+            row = session.query(UserAccountRow).filter(UserAccountRow.email == username).one_or_none()
+            if row is not None:
+                changed = False
+                if row.status != UserStatus.ACTIVE.value:
+                    row.status = UserStatus.ACTIVE.value
+                    changed = True
+                if row.role != UserRole.ADMIN.value:
+                    row.role = UserRole.ADMIN.value
+                    changed = True
+                if row.requested_role != UserRole.ADMIN.value:
+                    row.requested_role = UserRole.ADMIN.value
+                    changed = True
+                if row.approved_by is None:
+                    row.approved_by = "system"
+                    changed = True
+                if row.approved_at is None:
+                    row.approved_at = now_utc()
+                    changed = True
+                if changed:
+                    session.commit()
+                    session.refresh(row)
+                return _user_from_row(row)
+
+            user = UserAccount(
+                user_id="user-admin",
+                email=username,
+                full_name="Administrator",
+                requested_role=UserRole.ADMIN,
+                role=UserRole.ADMIN,
+                status=UserStatus.ACTIVE,
+                approved_by="system",
+                approved_at=now_utc(),
+            )
+            if session.get(UserAccountRow, user.user_id) is not None:
+                user = user.model_copy(update={"user_id": f"user-{uuid.uuid4().hex[:8]}"})
+            session.add(_user_to_row(user, hash_password(password)))
+            session.commit()
+            return user
+
+    def change_user_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+        with self._session_factory() as session:
+            row = session.get(UserAccountRow, user_id)
+            if row is None or not verify_password(current_password, row.password_hash):
+                return False
+            row.password_hash = hash_password(new_password)
+            session.commit()
+            return True
 
     def create_user_session(self, user_id: str, expires_at) -> tuple[str, str] | None:
         token = generate_session_token()

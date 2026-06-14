@@ -98,7 +98,6 @@ DB_FILE="${TMP_DIR}/rca-smoke.db"
 export RCA_DATABASE_URL="sqlite:///${DB_FILE}"
 export RCA_AUTO_CREATE_TABLES="true"
 export RCA_LLM_PROVIDER="disabled"
-export RCA_ADMIN_APPROVAL_TOKEN="${RCA_ADMIN_APPROVAL_TOKEN:-dev-admin-approval-token}"
 
 log "Starting backend on ${BACKEND_URL}"
 (
@@ -122,7 +121,13 @@ curl -fsS -D "${TMP_DIR}/headers.txt" "${WEB_URL}/" -o "${TMP_DIR}/console.html"
 curl -fsS "${WEB_URL}/console-api/health" -o "${TMP_DIR}/proxy-health.json"
 curl -fsS "${WEB_URL}/console-api/health/ready" -o "${TMP_DIR}/proxy-ready.json"
 curl -fsS \
-  -H "X-Admin-Token: ${RCA_ADMIN_APPROVAL_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' \
+  "${WEB_URL}/console-api/api/auth/login" \
+  -o "${TMP_DIR}/login.json"
+SESSION_TOKEN="$("${ROOT_DIR}/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["access_token"])' "${TMP_DIR}/login.json")"
+curl -fsS \
+  -H "Authorization: Bearer ${SESSION_TOKEN}" \
   -H "Content-Type: application/json" \
   -d '{"name":"smoke-cluster","environment":"dev"}' \
   "${WEB_URL}/console-api/api/clusters" \
@@ -133,6 +138,7 @@ grep -iq 'Content-Security-Policy' "${TMP_DIR}/headers.txt"
 grep -iq 'X-Frame-Options: DENY' "${TMP_DIR}/headers.txt"
 grep -q '"status":"ok"' "${TMP_DIR}/proxy-health.json"
 grep -q '"database":"reachable"' "${TMP_DIR}/proxy-ready.json"
+grep -q '"token_type":"bearer"' "${TMP_DIR}/login.json"
 grep -q '"name":"smoke-cluster"' "${TMP_DIR}/cluster.json"
 grep -q '"cluster_id"' "${TMP_DIR}/cluster.json"
 
