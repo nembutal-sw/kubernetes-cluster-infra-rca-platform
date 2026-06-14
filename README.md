@@ -1,16 +1,10 @@
 # Kubernetes Cluster Infra RCA Platform
 
-AI-assisted RCA platform for Kubernetes node and Linux system failures.
+Kubernetes 애플리케이션 장애가 아니라, 클러스터 노드와 Linux 시스템 레벨 장애의 원인을 수집하고 분석하는 AI 기반 RCA 플랫폼입니다.
 
-This project focuses on infrastructure symptoms that often appear as Kubernetes issues:
-`NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`,
-kubelet/runtime failures, CNI/DNS problems, API server latency, disk I/O pressure,
-inode exhaustion, conntrack exhaustion, kernel errors, systemd failures, and node
-network instability.
+운영 중 처음 보이는 증상은 대부분 Kubernetes 문제처럼 보입니다. `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`, kubelet/runtime 장애, CNI/DNS 문제, API Server 지연, 디스크 I/O 병목, inode 고갈, conntrack 고갈, kernel error, systemd unit 장애, NIC link flap 같은 신호를 중심으로 노드 레벨 증거를 수집합니다.
 
-Application-level signals such as `CrashLoopBackOff`, `ImagePullBackOff`, pod
-`OOMKilled`, HTTP 5xx, missing Service endpoints, or Ingress mistakes are treated as
-supporting context unless they point back to node or system-level evidence.
+`CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`, HTTP 5xx, Service endpoint 없음, Ingress 설정 오류 같은 애플리케이션 레벨 신호는 보조 근거로 봅니다. 이 신호들은 원인이라기보다 노드나 네트워크 장애가 위쪽 레이어에서 드러난 증상일 수 있습니다.
 
 ## How It Works
 
@@ -25,78 +19,80 @@ alert or manual request
   -> RCA report
 ```
 
-The LLM only explains and diagnoses. It does not directly change the cluster.
-Recommended actions are classified by the Policy Engine before the UI exposes them.
+LLM은 진단과 설명만 담당합니다. 클러스터를 직접 수정하지 않습니다. 권장 조치는 Policy Engine이 먼저 분류하고, UI는 해당 정책 등급과 위험 사유를 함께 보여줍니다.
 
-Prometheus and Alertmanager are optional. The backend can also create evidence requests
-directly, then use node agents to collect host data and generate RCA reports.
+Prometheus와 Alertmanager는 선택 사항입니다. 모니터링 도구가 없는 환경에서도 backend가 등록된 node agent에 evidence request를 만들고, agent가 제출한 host evidence로 RCA report를 생성할 수 있습니다.
 
 ## Components
 
 | Component | Role |
 | --- | --- |
-| Backend API | FastAPI service for clusters, agents, evidence, RCA jobs, reports, auth, and webhooks |
-| Node Agent | Python DaemonSet/local collector for host Linux and Kubernetes node evidence |
-| Preprocessor | Converts raw evidence and logs into compact JSON for RCA analysis |
-| Rule Analyzer | Deterministic RCA signals for node pressure, runtime, kernel, network, CNI, DNS, inode, and conntrack issues |
-| LLM Analyzer | Optional provider adapter for GPT, Gemini, Claude, or OpenAI-compatible local models |
-| Policy Engine | Classifies recommended actions and blocks unsafe automation |
-| Web Console | Spring Boot JSP console with Bootstrap 5 and React-powered dynamic views |
-| Helm Charts | Agent chart and platform chart for Kubernetes deployment |
+| Backend API | 클러스터, agent, evidence, RCA job/report, auth, webhook을 관리하는 FastAPI 서비스 |
+| Node Agent | Linux host와 Kubernetes node evidence를 수집하는 Python DaemonSet/local collector |
+| Preprocessor | raw evidence와 log를 RCA 분석용 compact JSON으로 정리 |
+| Rule Analyzer | node pressure, runtime, kernel, network, CNI, DNS, inode, conntrack 문제를 rule 기반으로 분석 |
+| LLM Analyzer | GPT, Gemini, Claude, OpenAI-compatible local model을 붙일 수 있는 선택형 분석기 |
+| Policy Engine | 권장 조치를 정책 등급으로 분류하고 위험한 자동화를 차단 |
+| Web Console | Spring Boot JSP 기반 관리자 콘솔. Bootstrap 5와 React로 동적 화면 구성 |
+| Helm Charts | agent와 backend/web-console platform을 Kubernetes에 배포하기 위한 chart |
 
 ## Current Features
 
-- Default admin login: `admin/admin`
-- Session-token protected backend APIs
-- Password change flow for the default account
-- Cluster registration and install command generation
-- Authenticated `/api/clusters/{cluster_id}/agent-manifest`
-- Agent bootstrap token and per-node token validation
-- Node agent local collection and DaemonSet collection
-- File-mode systemd/journal collection for DaemonSet safety
-- Host evidence collection for kernel, disk, inode, memory, process, network, conntrack, runtime, kubelet, CNI, DNS, and Kubernetes node state
-- Alertmanager webhook ingestion
-- Backend-initiated evidence requests without Prometheus
-- Rule-based RCA report generation
-- Optional LLM RCA enrichment
-- Policy guardrails for safe, approval-required, PR-only, and never-auto-execute actions
-- Web UI for clusters, agents, webhooks, evidence, RCA reports, policy results, and language preference
-- PostgreSQL, MariaDB, and SQLite development support
-- Platform Helm chart with optional in-cluster PostgreSQL or MariaDB
+- 기본 관리자 계정: `admin/admin`
+- session token 기반 backend API 보호
+- 로그인 후 기본 계정 비밀번호 변경
+- 클러스터 등록과 agent 설치 명령 생성
+- 인증이 필요한 `/api/clusters/{cluster_id}/agent-manifest`
+- agent bootstrap token과 node token 검증
+- Node agent local collection과 DaemonSet collection
+- DaemonSet 환경을 고려한 file-mode systemd/journal collection
+- kernel, disk, inode, memory, process, network, conntrack, runtime, kubelet, CNI, DNS, Kubernetes node 상태 수집
+- Alertmanager webhook 수신
+- Prometheus 없이 backend 주도 evidence request 생성
+- rule-based RCA report 생성
+- 선택형 LLM RCA 보강
+- 안전 조치, 승인 필요 조치, PR 전용 조치, 자동 실행 금지 조치를 구분하는 Policy Engine
+- cluster, agent, webhook, evidence, RCA report, policy 결과, 언어 설정을 보는 Web UI
+- PostgreSQL, MariaDB, SQLite 개발 환경 지원
+- PostgreSQL 또는 MariaDB를 chart 내부에 함께 배포할 수 있는 platform Helm chart
 
 ## Stack
 
 - Backend: FastAPI, SQLAlchemy, Alembic
 - Agent: Python 3.11+
 - Web Console: Spring Boot, JSP, Bootstrap 5, React
-- Database: PostgreSQL, MariaDB, SQLite for local development
+- Database: PostgreSQL, MariaDB, SQLite 개발용 fallback
 - Deployment: Docker Compose, Kubernetes manifests, Helm
 - Tests: pytest, Maven test, smoke scripts
 
 ## Quick Start
 
-Docker Compose:
+Docker Compose로 실행합니다.
 
 ```powershell
 Copy-Item .env.example .env
 docker compose up --build -d
 ```
 
-Default local endpoints:
+기본 접속 주소입니다.
 
 ```text
 Web Console: http://localhost:8080
 Backend API: http://localhost:8000
 ```
 
-Login:
+기본 로그인 계정입니다.
 
 ```text
 username: admin
 password: admin
 ```
 
+처음 로그인한 뒤 운영 환경에서는 비밀번호를 변경해야 합니다.
+
 ## Backend Development
+
+Backend 개발 서버 실행 예시입니다.
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
@@ -106,12 +102,14 @@ password: admin
 
 ## Web Console Development
 
+Web Console은 Spring Boot 기반으로 실행합니다.
+
 ```powershell
 cd web-console
 mvn spring-boot:run
 ```
 
-The web console uses:
+Web Console에서 사용하는 주요 환경 변수입니다.
 
 ```text
 RCA_API_BASE_URL
@@ -120,45 +118,45 @@ RCA_PUBLIC_API_BASE_URL
 
 ## Database
 
-PostgreSQL:
+PostgreSQL 예시입니다.
 
 ```powershell
 $env:RCA_DATABASE_URL = "postgresql+psycopg://rca:rca_password@localhost:5432/rca"
 ```
 
-MariaDB:
+MariaDB 예시입니다.
 
 ```powershell
 $env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
 ```
 
-SQLite fallback:
+개발용 SQLite fallback 예시입니다.
 
 ```powershell
 $env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
 ```
 
+운영 환경에서는 Alembic migration을 기준으로 schema를 관리합니다.
+
 ## Node Agent
 
-Local collection:
+로컬에서 host evidence를 수집할 수 있습니다.
 
 ```powershell
 .venv\Scripts\python.exe -m node_agent.main --collect-local --output evidence.json
 ```
 
-DaemonSet mode defaults to file-based systemd/journal handling:
+DaemonSet 배포에서는 systemd/journal 접근을 기본적으로 file mode로 처리합니다.
 
 ```text
 SYSTEMD_COLLECTOR_MODE=file
 ```
 
-This avoids relying on host DBus or `journalctl` access from inside the DaemonSet.
-The collector reads host files and log excerpts from mounted paths such as
-`/host/var/log`, `/host/proc`, `/host/sys`, `/host/etc`, and `/host/run`.
+이 설정은 DaemonSet 내부에서 host DBus나 `journalctl` 접근이 안정적으로 되지 않는 환경을 고려한 기본값입니다. collector는 `/host/var/log`, `/host/proc`, `/host/sys`, `/host/etc`, `/host/run` 같은 mount path에서 읽을 수 있는 파일 기반 evidence를 우선 수집합니다.
 
 ## Kubernetes Deployment
 
-Agent chart:
+Agent chart 렌더링 예시입니다.
 
 ```bash
 helm template rca-agent charts/cluster-infra-rca-agent \
@@ -168,20 +166,20 @@ helm template rca-agent charts/cluster-infra-rca-agent \
   --set secret.agentToken=token-xxx
 ```
 
-Platform chart with default PostgreSQL:
+기본 platform chart는 PostgreSQL을 함께 렌더링합니다.
 
 ```bash
 helm template rca charts/cluster-infra-rca-platform
 ```
 
-Platform chart with MariaDB:
+MariaDB를 사용하려면 `database.type`을 변경합니다.
 
 ```bash
 helm template rca charts/cluster-infra-rca-platform \
   --set database.type=mariadb
 ```
 
-Platform chart with external DB:
+외부 DB를 사용할 수도 있습니다.
 
 ```bash
 helm template rca charts/cluster-infra-rca-platform \
@@ -189,36 +187,36 @@ helm template rca charts/cluster-infra-rca-platform \
   --set-string backend.secret.databaseUrl='postgresql+psycopg://rca:password@postgresql.example:5432/rca'
 ```
 
-LLM API key:
+LLM API key는 다음 값으로 전달합니다.
 
 ```bash
 --set-string backend.secret.llmApiKey='...'
 ```
 
-The chart exposes it to the backend as `RCA_LLM_API_KEY`.
+chart는 이 값을 backend가 읽는 `RCA_LLM_API_KEY`로 노출합니다.
 
 ## Validation
 
-Windows:
+Windows 검증 명령입니다.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows-dev-check.ps1 -Validate
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows-integration-smoke.ps1
 ```
 
-Linux:
+Linux 검증 명령입니다.
 
 ```bash
 scripts/linux-dev-check.sh --full
 scripts/linux-integration-smoke.sh
 ```
 
-Recent validation status:
+최근 확인한 상태입니다.
 
-- Windows full dev check: passed
-- suse Linux Python 3.11 full pytest: passed
-- suse Helm template checks: agent, PostgreSQL, MariaDB, external DB, LLM key passed
-- suse agent local collect with `SYSTEMD_COLLECTOR_MODE=file`: passed
+- Windows full dev check: 통과
+- suse Linux Python 3.11 full pytest: 통과
+- suse Helm template checks: agent, PostgreSQL, MariaDB, external DB, LLM key 통과
+- suse agent local collect with `SYSTEMD_COLLECTOR_MODE=file`: 통과
 
 ## Repository Layout
 
