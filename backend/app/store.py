@@ -54,6 +54,7 @@ class StoreProtocol(Protocol):
     def create_cluster(self, request: ClusterCreateRequest) -> Cluster: ...
     def list_clusters(self) -> list[Cluster]: ...
     def get_cluster(self, cluster_id: str) -> Cluster | None: ...
+    def delete_cluster(self, cluster_id: str) -> bool: ...
     def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse: ...
     def record_agent_heartbeat(self, request: NodeAgentHeartbeatRequest) -> NodeAgent | None: ...
     def list_agents(self, cluster_id: str | None = None) -> list[NodeAgent]: ...
@@ -129,6 +130,36 @@ class InMemoryStore:
     def get_cluster(self, cluster_id: str) -> Cluster | None:
         with self._lock:
             return self._clusters.get(cluster_id)
+
+    def delete_cluster(self, cluster_id: str) -> bool:
+        with self._lock:
+            if cluster_id not in self._clusters:
+                return False
+            self._clusters.pop(cluster_id, None)
+            for key in [key for key in self._agents if key[0] == cluster_id]:
+                self._agents.pop(key, None)
+                self._agent_node_token_hashes.pop(key, None)
+            for request_id in [
+                request_id
+                for request_id, evidence_request in self._evidence_requests.items()
+                if evidence_request.cluster_id == cluster_id
+            ]:
+                self._evidence_requests.pop(request_id, None)
+            for evidence_id in [
+                evidence_id
+                for evidence_id, evidence in self._evidence.items()
+                if evidence.cluster_id == cluster_id
+            ]:
+                self._evidence.pop(evidence_id, None)
+            for job_id in [job_id for job_id, job in self._jobs.items() if job.cluster_id == cluster_id]:
+                self._jobs.pop(job_id, None)
+            for report_id in [
+                report_id
+                for report_id, report in self._reports.items()
+                if report.cluster_id == cluster_id
+            ]:
+                self._reports.pop(report_id, None)
+            return True
 
     def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
         with self._lock:
@@ -503,6 +534,24 @@ class SqlAlchemyStore:
         with self._session_factory() as session:
             row = session.get(ClusterRow, cluster_id)
             return _cluster_from_row(row) if row else None
+
+    def delete_cluster(self, cluster_id: str) -> bool:
+        with self._session_factory() as session:
+            cluster_row = session.get(ClusterRow, cluster_id)
+            if cluster_row is None:
+                return False
+            session.query(RcaJobRow).filter(RcaJobRow.cluster_id == cluster_id).delete(synchronize_session=False)
+            session.query(EvidenceRequestRow).filter(EvidenceRequestRow.cluster_id == cluster_id).delete(
+                synchronize_session=False
+            )
+            session.query(RcaReportRow).filter(RcaReportRow.cluster_id == cluster_id).delete(synchronize_session=False)
+            session.query(EvidenceBundleRow).filter(EvidenceBundleRow.cluster_id == cluster_id).delete(
+                synchronize_session=False
+            )
+            session.query(NodeAgentRow).filter(NodeAgentRow.cluster_id == cluster_id).delete(synchronize_session=False)
+            session.delete(cluster_row)
+            session.commit()
+            return True
 
     def register_agent(self, request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
         with self._session_factory() as session:

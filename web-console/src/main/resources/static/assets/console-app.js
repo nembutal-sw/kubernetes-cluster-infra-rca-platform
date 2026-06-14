@@ -137,7 +137,12 @@
       "Policy": "정책",
       "Hide": "숨기기",
       "Detail": "상세",
+      "Export": "내보내기",
+      "Export all": "전체 내보내기",
       "Report summary copied.": "보고서 요약을 복사했습니다.",
+      "Report export downloaded.": "보고서 export 파일을 다운로드했습니다.",
+      "Reports export downloaded.": "보고서 export 파일을 다운로드했습니다.",
+      "Cluster reports export downloaded.": "클러스터 보고서 export 파일을 다운로드했습니다.",
       "No registered clusters loaded.": "불러온 등록 클러스터가 없습니다.",
       "No clusters loaded.": "불러온 클러스터가 없습니다.",
       "Loading agents.": "에이전트를 불러오는 중입니다.",
@@ -175,6 +180,15 @@
       "Cluster collection": "클러스터 수집",
       "Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline.": "백엔드는 등록된 온라인 노드 에이전트에 읽기 전용 근거 수집 요청을 생성합니다. 제출된 근거는 기존 RCA 파이프라인으로 분석됩니다.",
       "No Prometheus or Alertmanager trigger is required.": "Prometheus 또는 Alertmanager 트리거가 없어도 됩니다.",
+      "Delete": "삭제",
+      "Deleting": "삭제 중",
+      "Confirm Delete": "삭제 확인",
+      "Delete cluster": "클러스터 삭제",
+      "Type the cluster name to confirm deletion.": "삭제하려면 클러스터 이름을 입력하세요.",
+      "This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the backend.": "backend에서 클러스터 등록 정보와 저장된 agent, evidence request, evidence bundle, RCA job, report를 모두 삭제합니다.",
+      "Agent DaemonSets in target clusters are not removed automatically.": "대상 클러스터에 배포된 agent DaemonSet은 자동으로 제거되지 않습니다.",
+      "Confirmation does not match the cluster name.": "확인 값이 클러스터 이름과 일치하지 않습니다.",
+      "Cluster deleted.": "클러스터를 삭제했습니다.",
       "Requesting": "요청 중",
       "Loading report detail.": "보고서 상세를 불러오는 중입니다.",
       "No policy decisions.": "정책 결정이 없습니다.",
@@ -560,6 +574,7 @@
     const [clusterData, setClusterData] = React.useState(null);
     const [actionDialog, setActionDialog] = React.useState(null);
     const [collectionDialog, setCollectionDialog] = React.useState(null);
+    const [deleteDialog, setDeleteDialog] = React.useState(null);
     activeLocale = locale;
     document.documentElement.lang = locale;
 
@@ -710,6 +725,7 @@
       setClusterData(null);
       setActionDialog(null);
       setCollectionDialog(null);
+      setDeleteDialog(null);
       sessionStorage.removeItem("rca_session_token");
       notify("Signed out.");
     }
@@ -845,6 +861,47 @@
       setCollectionDialog({ cluster, loading: false });
     }
 
+    function prepareClusterDelete(cluster) {
+      setDeleteDialog({ cluster, confirmName: "", loading: false });
+    }
+
+    async function executeClusterDelete(event) {
+      event.preventDefault();
+      if (!deleteDialog?.cluster) return;
+      const cluster = deleteDialog.cluster;
+      const confirmName = (deleteDialog.confirmName || "").trim();
+      if (confirmName !== cluster.name) {
+        setDeleteDialog((value) => ({ ...value, error: tr("Confirmation does not match the cluster name.") }));
+        return;
+      }
+      setDeleteDialog((value) => ({ ...value, loading: true, error: null }));
+      try {
+        const query = new URLSearchParams({ confirm_name: confirmName });
+        await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}?${query}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        setDeleteDialog(null);
+        setInstallCommands((value) => {
+          const next = { ...value };
+          delete next[cluster.cluster_id];
+          return next;
+        });
+        setAgentsByCluster((value) => {
+          const next = { ...value };
+          delete next[cluster.cluster_id];
+          return next;
+        });
+        if (clusterData?.clusterId === cluster.cluster_id) {
+          setClusterData(null);
+        }
+        notify(tr("Cluster deleted."));
+        await Promise.all([loadClusters(false), loadReports(false)]);
+      } catch (error) {
+        setDeleteDialog((value) => ({ ...value, loading: false, error: error.message }));
+      }
+    }
+
     async function executeClusterCollection() {
       if (!collectionDialog?.cluster) return;
       const cluster = collectionDialog.cluster;
@@ -889,6 +946,58 @@
       } catch (error) {
         setActionDialog((value) => ({ ...value, loading: false, error: error.message }));
       }
+    }
+
+    async function downloadReportsExport(clusterId) {
+      const query = new URLSearchParams();
+      if (clusterId) query.set("cluster_id", clusterId);
+      const suffix = query.toString() ? `?${query}` : "";
+      await downloadApiFile(
+        `/api/rca/reports/export${suffix}`,
+        clusterId ? `rca-reports-${clusterId}.json` : "rca-reports.json",
+        clusterId ? "Cluster reports export downloaded." : "Reports export downloaded."
+      );
+    }
+
+    async function downloadReportExport(reportId) {
+      if (!reportId) return;
+      await downloadApiFile(
+        `/api/rca/reports/${encodeURIComponent(reportId)}/export`,
+        `rca-report-${reportId}.json`,
+        "Report export downloaded."
+      );
+    }
+
+    async function downloadApiFile(path, fallbackFilename, message) {
+      let response;
+      try {
+        response = await fetch(`${apiBase}${path}`, {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: authHeaders(),
+        });
+      } catch (error) {
+        notify("Backend API is unreachable.");
+        return;
+      }
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        const text = await response.text();
+        let body = text;
+        if (contentType.includes("application/json") && text) {
+          try {
+            body = JSON.parse(text);
+          } catch (error) {
+            body = text;
+          }
+        }
+        notify(readError(body, response.statusText));
+        return;
+      }
+      const blob = await response.blob();
+      const filename = filenameFromContentDisposition(response.headers.get("content-disposition")) || fallbackFilename;
+      triggerDownload(blob, filename);
+      notify(message);
     }
 
     async function copyText(value, message) {
@@ -950,6 +1059,7 @@
           onLoadAgents: loadAgents,
           onOpenClusterData: loadClusterData,
           onCollectCluster: prepareClusterCollection,
+          onDeleteCluster: prepareClusterDelete,
           onCopy: copyText,
           publicApiBase,
         }),
@@ -964,6 +1074,8 @@
           onLoadReports: () => loadReports(false),
           onToggleReport: toggleReport,
           onPrepareAction: prepareRecommendedAction,
+          onExportReports: () => downloadReportsExport(),
+          onExportReport: downloadReportExport,
           onCopy: copyText,
         }),
         activeView === "settings" && h(SettingsView, {
@@ -981,6 +1093,7 @@
           onRefresh: () => loadClusterData(clusterData.clusterId),
           onLoadEvidence: loadEvidenceBundle,
           onCollectCluster: prepareClusterCollection,
+          onExportReports: () => downloadReportsExport(clusterData.clusterId),
           onCopy: copyText,
         }),
         actionDialog && h(ActionConfirmDialog, {
@@ -992,6 +1105,12 @@
           state: collectionDialog,
           onCancel: () => setCollectionDialog(null),
           onConfirm: executeClusterCollection,
+        }),
+        deleteDialog && h(DeleteClusterDialog, {
+          state: deleteDialog,
+          onCancel: () => setDeleteDialog(null),
+          onChangeConfirm: (confirmName) => setDeleteDialog((value) => ({ ...value, confirmName, error: null })),
+          onConfirm: executeClusterDelete,
         }),
         toast && h(Toast, { message: toast, onClose: () => setToast("") })
       )
@@ -1171,7 +1290,8 @@
                       h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), tr("Data")),
                       h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
                       h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
-                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents"))
+                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents")),
+                      h("button", { className: "btn btn-outline-danger btn-icon", onClick: () => props.onDeleteCluster(cluster) }, h(Icon, { name: "trash3" }), tr("Delete"))
                     )
                   )
                 ),
@@ -1245,11 +1365,14 @@
     );
   }
 
-  function ReportsView({ reports, loading, reportDetails, onLoadReports, onToggleReport, onPrepareAction, onCopy }) {
+  function ReportsView({ reports, loading, reportDetails, onLoadReports, onToggleReport, onPrepareAction, onExportReports, onExportReport, onCopy }) {
     return h(Panel, {
       title: "RCA Reports",
       subtitle: loading.reports ? "Loading" : `${reports.length} reports`,
-      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+      action: h("div", { className: "btn-group btn-group-sm" },
+        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onExportReports }, h(Icon, { name: "download" }), tr("Export all")),
+        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload"))
+      ),
     }, reports.length ? h("div", { className: "table-responsive" },
       h("table", { className: "table table-hover mb-0" },
         h("thead", null, h("tr", null,
@@ -1273,11 +1396,12 @@
               h("td", { className: "text-end" },
                 h("div", { className: "btn-group btn-group-sm" },
                   h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
+                  h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
                   h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
                 )
               )
             ),
-            detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onCopy })))
+            detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })))
           );
         }))
       )
@@ -1384,7 +1508,7 @@
     );
   }
 
-  function ClusterDataModal({ state, onClose, onRefresh, onLoadEvidence, onCollectCluster, onCopy }) {
+  function ClusterDataModal({ state, onClose, onRefresh, onLoadEvidence, onCollectCluster, onExportReports, onCopy }) {
     const cluster = state.cluster || {};
     const agents = state.agents || [];
     const evidenceRequests = state.evidenceRequests || [];
@@ -1422,11 +1546,18 @@
           h("div", null,
             h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
               h("h3", { className: "h6 mb-0" }, tr("Recent RCA")),
-              reports.length ? h("button", {
-                type: "button",
-                className: "btn btn-sm btn-outline-secondary btn-icon",
-                onClick: () => onCopy(JSON.stringify(reports, null, 2), "Cluster RCA reports copied."),
-              }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
+              reports.length ? h("div", { className: "btn-group btn-group-sm" },
+                h("button", {
+                  type: "button",
+                  className: "btn btn-outline-secondary btn-icon",
+                  onClick: onExportReports,
+                }, h(Icon, { name: "download" }), tr("Export")),
+                h("button", {
+                  type: "button",
+                  className: "btn btn-outline-secondary btn-icon",
+                  onClick: () => onCopy(JSON.stringify(reports, null, 2), "Cluster RCA reports copied."),
+                }, h(Icon, { name: "clipboard" }), tr("Copy"))
+              ) : null
             ),
             h(ClusterReportList, { items: reports })
           )
@@ -1588,7 +1719,55 @@
     );
   }
 
-  function ReportDetail({ detail, onPrepareAction, onCopy }) {
+  function DeleteClusterDialog({ state, onCancel, onChangeConfirm, onConfirm }) {
+    const cluster = state.cluster || {};
+    const confirmName = state.confirmName || "";
+    const canDelete = confirmName.trim() === cluster.name;
+    return h("div", { className: "console-modal-backdrop", role: "presentation", onMouseDown: (event) => event.target === event.currentTarget && onCancel() },
+      h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
+        h("form", { onSubmit: onConfirm },
+          h("div", { className: "console-modal-header" },
+            h("div", null,
+              h("h2", { className: "h5 mb-1" }, tr("Confirm Delete")),
+              h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id || "n/a")
+            ),
+            h(StatusBadge, { value: "prohibited", tone: "red" })
+          ),
+          h("div", { className: "console-modal-body d-grid gap-3" },
+            h("div", { className: "action-card" },
+              h("div", { className: "fw-semibold" }, `${tr("Delete cluster")}: ${cluster.name || "n/a"}`),
+              h("div", { className: "small text-muted mt-1" },
+                tr("This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the backend.")
+              ),
+              h("div", { className: "small text-muted mt-1" }, tr("Agent DaemonSets in target clusters are not removed automatically."))
+            ),
+            h("div", null,
+              h("label", { className: "form-label", htmlFor: "delete-cluster-confirm-name" }, tr("Type the cluster name to confirm deletion.")),
+              h("input", {
+                id: "delete-cluster-confirm-name",
+                className: "form-control font-monospace",
+                value: confirmName,
+                autoFocus: true,
+                disabled: state.loading,
+                onChange: (event) => onChangeConfirm(event.target.value),
+                placeholder: cluster.name || "",
+              })
+            ),
+            state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
+          ),
+          h("div", { className: "console-modal-footer" },
+            h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
+            h("button", { type: "submit", className: "btn btn-danger btn-icon", disabled: state.loading || !canDelete },
+              state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "trash3" }),
+              state.loading ? tr("Deleting") : tr("Delete")
+            )
+          )
+        )
+      )
+    );
+  }
+
+  function ReportDetail({ detail, onPrepareAction, onExportReport, onCopy }) {
     if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
     if (detail.error) return h(EmptyState, { message: detail.error });
     const report = detail.report;
@@ -1597,6 +1776,13 @@
     const llm = section(report, "llm_analysis")?.analysis || {};
     const actions = report.recommended_actions || [];
     return h("div", { className: "d-grid gap-3" },
+      h("div", { className: "d-flex justify-content-end" },
+        h("button", {
+          type: "button",
+          className: "btn btn-sm btn-outline-secondary btn-icon",
+          onClick: () => onExportReport(report.report_id),
+        }, h(Icon, { name: "download" }), tr("Export"))
+      ),
       h(ReportSummaryStrip, { report, llm, actions }),
       h(PolicyOverview, { actions }),
       h("section", { className: "report-section" },
@@ -1852,6 +2038,25 @@
     if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join(", ");
     if (detail && typeof detail === "object") return JSON.stringify(detail);
     return detail || fallback || "Request failed.";
+  }
+
+  function filenameFromContentDisposition(value) {
+    if (!value) return null;
+    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match) return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+    return asciiMatch ? asciiMatch[1] : null;
+  }
+
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename || "rca-export.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function normalizeLocale(value) {

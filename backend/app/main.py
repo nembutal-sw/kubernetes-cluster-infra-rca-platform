@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -218,6 +219,26 @@ def create_app(
         if cluster is None:
             raise HTTPException(status_code=404, detail="cluster not found")
         return cluster
+
+    @app.delete("/api/clusters/{cluster_id}")
+    def delete_cluster(
+        cluster_id: str,
+        confirm_name: str = Query(..., min_length=1),
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> dict[str, object]:
+        _authorize_access(
+            store,
+            authorization,
+            {UserRole.ADMIN},
+        )
+        cluster = store.get_cluster(cluster_id)
+        if cluster is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        if confirm_name != cluster.name:
+            raise HTTPException(status_code=400, detail="confirm_name must match the cluster name")
+        if not store.delete_cluster(cluster_id):
+            raise HTTPException(status_code=404, detail="cluster not found")
+        return {"deleted": True, "cluster_id": cluster_id, "name": cluster.name}
 
     @app.get("/api/clusters/{cluster_id}/install-command")
     def get_install_command(
@@ -531,6 +552,24 @@ def create_app(
         )
         return store.list_reports()
 
+    @app.get("/api/rca/reports/export")
+    def export_rca_reports(
+        cluster_id: str | None = Query(default=None, min_length=1),
+        export_format: str = Query(default="json", alias="format", pattern="^json$"),
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> Response:
+        del export_format
+        _authorize_access(
+            store,
+            authorization,
+            {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
+        )
+        reports = store.list_reports()
+        if cluster_id is not None:
+            reports = [report for report in reports if report.cluster_id == cluster_id]
+        payload = _report_export_payload(reports, {"cluster_id": cluster_id})
+        return _json_attachment_response(payload, _report_export_filename(cluster_id))
+
     @app.get("/api/rca/reports/{report_id}", response_model=RcaReport)
     def get_rca_report(
         report_id: str,
@@ -545,6 +584,24 @@ def create_app(
         if report is None:
             raise HTTPException(status_code=404, detail="RCA report not found")
         return report
+
+    @app.get("/api/rca/reports/{report_id}/export")
+    def export_rca_report(
+        report_id: str,
+        export_format: str = Query(default="json", alias="format", pattern="^json$"),
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> Response:
+        del export_format
+        _authorize_access(
+            store,
+            authorization,
+            {UserRole.ADMIN, UserRole.OPERATOR, UserRole.VIEWER},
+        )
+        report = store.get_report(report_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="RCA report not found")
+        payload = _report_export_payload([report], {"report_id": report_id})
+        return _json_attachment_response(payload, _report_export_filename(report_id))
 
     @app.post("/api/rca/reports/{report_id}/actions/{action_index}/execute", response_model=ActionExecutionResponse)
     def execute_rca_action(
@@ -677,6 +734,39 @@ def _blocked_action_response(
         requires_approval=action.requires_approval or action.review_required or action.source == "llm",
         guardrails=action.guardrails,
     )
+
+
+def _report_export_payload(reports: list[RcaReport], filters: dict[str, str | None]) -> dict[str, object]:
+    return {
+        "format_version": "rca-report-export-v1",
+        "exported_at": now_utc().isoformat(),
+        "report_count": len(reports),
+        "filters": {key: value for key, value in filters.items() if value},
+        "reports": [report.model_dump(mode="json") for report in reports],
+    }
+
+
+def _json_attachment_response(payload: dict[str, object], filename: str) -> Response:
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, indent=2),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _report_export_filename(identifier: str | None = None) -> str:
+    timestamp = now_utc().strftime("%Y%m%dT%H%M%SZ")
+    safe_identifier = _safe_export_filename_part(identifier)
+    if safe_identifier:
+        return f"rca-reports-{safe_identifier}-{timestamp}.json"
+    return f"rca-reports-{timestamp}.json"
+
+
+def _safe_export_filename_part(value: str | None) -> str:
+    if not value:
+        return ""
+    safe = "".join(char if char.isalnum() or char in ("-", "_", ".") else "-" for char in value.strip())
+    return safe.strip(".-_")[:80]
 
 
 def _target_node_for_report(report: RcaReport) -> str | None:

@@ -65,6 +65,85 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     assert "bootstrap_token" not in list_response.json()[0]
 
 
+def test_cluster_delete_requires_admin_confirmation_and_removes_related_data(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "delete-me-cluster", "environment": "dev"},
+    ).json()
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-delete",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["node", "disk"],
+        },
+    )
+    node_token = register_response.json()["node_token"]
+    create_response = client.post(
+        "/api/evidence/requests",
+        headers=headers,
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-delete",
+            "alert_name": "DiskPressure",
+            "requested_collectors": ["node", "disk"],
+        },
+    )
+    evidence_request = create_response.json()
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-delete",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
+            "status": "completed",
+            "collectors": {
+                "node": {"host_name": "worker-delete"},
+                "disk": {"root_usage_percent": 97, "inode_usage_percent": 96},
+            },
+        },
+    )
+    completed_request = submit_response.json()
+    reports = client.get("/api/rca/reports", headers=headers).json()
+    report_id = reports[0]["report_id"]
+
+    assert client.delete(
+        f"/api/clusters/{cluster['cluster_id']}",
+        params={"confirm_name": cluster["name"]},
+    ).status_code == 401
+    assert client.delete(
+        f"/api/clusters/{cluster['cluster_id']}",
+        headers=headers,
+        params={"confirm_name": "wrong-name"},
+    ).status_code == 400
+
+    delete_response = client.delete(
+        f"/api/clusters/{cluster['cluster_id']}",
+        headers=headers,
+        params={"confirm_name": cluster["name"]},
+    )
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {
+        "deleted": True,
+        "cluster_id": cluster["cluster_id"],
+        "name": cluster["name"],
+    }
+    assert client.get(f"/api/clusters/{cluster['cluster_id']}", headers=headers).status_code == 404
+    assert client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=headers).status_code == 404
+    assert client.get(f"/api/evidence/requests/{evidence_request['request_id']}", headers=headers).status_code == 404
+    assert client.get(f"/api/evidence/{completed_request['evidence_id']}", headers=headers).status_code == 404
+    assert client.get(f"/api/rca/reports/{report_id}", headers=headers).status_code == 404
+    assert cluster["cluster_id"] not in [item["cluster_id"] for item in client.get("/api/clusters", headers=headers).json()]
+
+
 def test_backend_root_is_api_only_metadata(tmp_path) -> None:
     client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
 
@@ -329,6 +408,83 @@ def test_alertmanager_webhook_creates_rca_report(tmp_path) -> None:
     jobs_response = client.get("/api/rca/jobs", headers=admin_headers(client))
     reports_response = client.get("/api/rca/reports", headers=admin_headers(client))
     assert jobs_response.json()[0]["report_id"] == reports_response.json()[0]["report_id"]
+
+
+def test_rca_report_export_downloads_json_payload(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster_a = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster-a", "environment": "prod"},
+    ).json()
+    cluster_b = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster-b", "environment": "stage"},
+    ).json()
+
+    def create_report(cluster_id: str, node_name: str) -> str:
+        response = client.post(
+            "/api/webhooks/alertmanager",
+            headers=WEBHOOK_HEADERS,
+            json={
+                "receiver": "cluster-infra-rca",
+                "status": "firing",
+                "alerts": [
+                    {
+                        "status": "firing",
+                        "labels": {
+                            "alertname": "NodeNotReady",
+                            "severity": "critical",
+                            "cluster_id": cluster_id,
+                            "node": node_name,
+                        },
+                        "annotations": {"summary": f"{node_name} node is NotReady"},
+                        "startsAt": "2026-06-10T09:15:00+09:00",
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 200
+        created_reports = response.json()["created_reports"]
+        assert len(created_reports) == 1
+        return created_reports[0]
+
+    report_a = create_report(cluster_a["cluster_id"], "worker-a")
+    report_b = create_report(cluster_b["cluster_id"], "worker-b")
+
+    assert client.get("/api/rca/reports/export").status_code == 401
+
+    all_response = client.get("/api/rca/reports/export", headers=headers)
+    assert all_response.status_code == 200
+    assert all_response.headers["content-disposition"].startswith('attachment; filename="rca-reports-')
+    assert all_response.headers["content-type"].startswith("application/json")
+    all_payload = all_response.json()
+    assert all_payload["format_version"] == "rca-report-export-v1"
+    assert all_payload["report_count"] == 2
+    assert {report["report_id"] for report in all_payload["reports"]} == {report_a, report_b}
+
+    cluster_response = client.get(
+        "/api/rca/reports/export",
+        headers=headers,
+        params={"cluster_id": cluster_a["cluster_id"]},
+    )
+    assert cluster_response.status_code == 200
+    cluster_payload = cluster_response.json()
+    assert cluster_payload["filters"] == {"cluster_id": cluster_a["cluster_id"]}
+    assert cluster_payload["report_count"] == 1
+    assert cluster_payload["reports"][0]["cluster_id"] == cluster_a["cluster_id"]
+
+    single_response = client.get(f"/api/rca/reports/{report_a}/export", headers=headers)
+    assert single_response.status_code == 200
+    single_payload = single_response.json()
+    assert single_payload["filters"] == {"report_id": report_a}
+    assert single_payload["report_count"] == 1
+    assert single_payload["reports"][0]["report_id"] == report_a
+
+    assert client.get("/api/rca/reports/missing-report/export", headers=headers).status_code == 404
+    assert client.get("/api/rca/reports/export", headers=headers, params={"format": "csv"}).status_code == 422
 
 
 def test_alertmanager_webhook_requires_webhook_token(tmp_path) -> None:
