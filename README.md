@@ -2,6 +2,10 @@
 
 Kubernetes 장애처럼 보이는 노드/Linux 시스템 장애를 수집하고 분석하는 RCA 플랫폼.
 
+운영 중 처음 보이는 증상은 대부분 비슷하다. `NodeNotReady`, `Pod Pending`, CoreDNS 불안정, API Server 지연처럼 보이지만 실제 원인은 disk I/O, containerd hang, kubelet 문제, conntrack 고갈, NIC flap 같은 노드 레벨에 있을 수 있다.
+
+이 프로젝트는 운영자가 노드에 접속해서 확인하던 초기 RCA 절차를 자동화한다. Alertmanager 알림을 기준으로 관련 노드와 시간대의 증거를 모으고, LLM이 읽기 쉬운 JSON으로 정리한 뒤 RCA report로 남긴다.
+
 목표:
 
 ```text
@@ -26,6 +30,8 @@ LLM은 진단과 설명만 담당한다. 조치 실행 여부는 Policy Engine�
 - `CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`
 - HTTP 5xx, Service endpoint 없음, Ingress 설정 오류
 
+보조 신호는 애플리케이션 장애로 단정하지 않는다. 노드나 네트워크 장애가 위쪽 레이어에서 위 증상으로 보일 수 있기 때문에 RCA 근거로 함께 본다.
+
 ## Components
 
 | Component | Role |
@@ -36,6 +42,12 @@ LLM은 진단과 설명만 담당한다. 조치 실행 여부는 Policy Engine�
 | LLM Analyzer | 원인 후보, 근거, 추가 확인 명령 정리 |
 | Policy Engine | 권장 조치 위험도 분류 |
 | Web Console | 클러스터 등록, 웹훅 설정, 리포트 조회 |
+
+Node Agent는 노드를 수정하지 않는다. 수집 가능한 정보를 읽고, 권한 부족이나 명령어 부재로 실패한 항목은 evidence 안에 오류로 남긴다.
+
+Preprocessor는 로그를 그대로 LLM에 넘기지 않는다. 반복 로그, 낮은 가치의 필드, 형식이 다른 웹/시스템 로그를 정리해서 주요 항목 중심의 JSON으로 만든다.
+
+Policy Engine은 LLM 결과를 그대로 신뢰하지 않는다. 권장 조치를 안전한 조치, 승인 필요 조치, PR 제안 수준, 자동 실행 금지 항목으로 분류한다.
 
 ## Stack
 
