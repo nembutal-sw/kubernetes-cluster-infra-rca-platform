@@ -1,0 +1,17 @@
+Cluster Infra RCA platform has been installed.
+
+Backend service:
+  {{ include "cluster-infra-rca-platform.backendName" . }}:{{ .Values.backend.service.port }}
+
+Web console service:
+  {{ include "cluster-infra-rca-platform.webConsoleName" . }}:{{ .Values.webConsole.service.port }}
+
+Before production use, replace:
+  - backend.secret.databaseUrl
+  - backend.secret.defaultAdminPassword
+  - backend.secret.webhookToken
+  - image repositories and tags
+
+If agents or Alertmanager call the backend through Ingress, set:
+  webConsole.config.publicApiBaseUrl
+  ingress.backend.enabled=true

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cluster-infra-rca-platform.backendName" . }}-config
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+data:
+  RCA_RUN_MIGRATIONS: {{ .Values.backend.config.runMigrations | quote }}
+  RCA_AUTO_CREATE_TABLES: {{ .Values.backend.config.autoCreateTables | quote }}
+  RCA_SESSION_TTL_HOURS: {{ .Values.backend.config.sessionTtlHours | quote }}
+  RCA_AGENT_OFFLINE_AFTER_SECONDS: {{ .Values.backend.config.agentOfflineAfterSeconds | quote }}
+  RCA_LLM_PROVIDER: {{ .Values.backend.config.llmProvider | quote }}
+  RCA_LLM_MODEL: {{ .Values.backend.config.llmModel | quote }}
+  RCA_LLM_BASE_URL: {{ .Values.backend.config.llmBaseUrl | quote }}
+  RCA_LLM_TIMEOUT_SECONDS: {{ .Values.backend.config.llmTimeoutSeconds | quote }}
+  {{- range $key, $value := .Values.backend.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

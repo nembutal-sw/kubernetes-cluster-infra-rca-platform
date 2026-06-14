@@ -1,30 +1,100 @@
+name: cluster-infra-rca
+
 services:
   postgres:
     image: postgres:16
     container_name: rca-postgres
     environment:
-      POSTGRES_DB: rca
-      POSTGRES_USER: rca
-      POSTGRES_PASSWORD: rca_password
+      POSTGRES_DB: ${POSTGRES_DB:-rca}
+      POSTGRES_USER: ${POSTGRES_USER:-rca}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rca_password}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: cluster-infra-rca-backend:local
+    container_name: rca-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RCA_DATABASE_URL: ${RCA_DATABASE_URL:-postgresql+psycopg://rca:rca_password@postgres:5432/rca}
+      RCA_AUTO_CREATE_TABLES: "false"
+      RCA_RUN_MIGRATIONS: ${RCA_RUN_MIGRATIONS:-true}
+      RCA_DEFAULT_ADMIN_USERNAME: ${RCA_DEFAULT_ADMIN_USERNAME:-admin}
+      RCA_DEFAULT_ADMIN_PASSWORD: ${RCA_DEFAULT_ADMIN_PASSWORD:-admin}
+      RCA_WEBHOOK_TOKEN: ${RCA_WEBHOOK_TOKEN:-dev-webhook-token}
+      RCA_SESSION_TTL_HOURS: ${RCA_SESSION_TTL_HOURS:-12}
+      RCA_AGENT_OFFLINE_AFTER_SECONDS: ${RCA_AGENT_OFFLINE_AFTER_SECONDS:-180}
+      RCA_LLM_PROVIDER: ${RCA_LLM_PROVIDER:-disabled}
+      RCA_LLM_MODEL: ${RCA_LLM_MODEL:-}
+      RCA_LLM_API_KEY: ${RCA_LLM_API_KEY:-}
+      RCA_LLM_BASE_URL: ${RCA_LLM_BASE_URL:-}
+      RCA_LLM_TIMEOUT_SECONDS: ${RCA_LLM_TIMEOUT_SECONDS:-20}
+      RCA_LLM_MAX_OUTPUT_TOKENS: ${RCA_LLM_MAX_OUTPUT_TOKENS:-1200}
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 6s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  web-console:
+    build:
+      context: .
+      dockerfile: Dockerfile.web-console
+    image: cluster-infra-rca-web-console:local
+    container_name: rca-web-console
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      RCA_API_BASE_URL: http://backend:8000
+      RCA_PUBLIC_API_BASE_URL: ${RCA_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      RCA_PROXY_TIMEOUT_SECONDS: ${RCA_PROXY_TIMEOUT_SECONDS:-20}
+      SERVER_PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
 
   mariadb:
     image: mariadb:11
     container_name: rca-mariadb
+    profiles: ["mariadb"]
     environment:
-      MARIADB_DATABASE: rca
-      MARIADB_USER: rca
-      MARIADB_PASSWORD: rca_password
-      MARIADB_ROOT_PASSWORD: root_password
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-rca}
+      MARIADB_USER: ${MARIADB_USER:-rca}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-rca_password}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root_password}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -uroot -p$${MARIADB_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres-data:
   mariadb-data:
-

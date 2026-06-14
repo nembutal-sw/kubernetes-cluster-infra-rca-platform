@@ -37,6 +37,7 @@ Backend는 API 전용 서버입니다. 사용자 Web UI는 `web-console/`의 Spr
 | `POST` | `/api/agents/register` | Node Agent 등록 |
 | `POST` | `/api/agents/heartbeat` | Node Agent heartbeat |
 | `POST` | `/api/evidence/requests` | Backend evidence 수집 요청 생성 |
+| `POST` | `/api/clusters/{cluster_id}/collection-runs` | Prometheus 없이 backend가 등록된 node agent에 read-only evidence collection 요청 |
 | `GET` | `/api/clusters/{cluster_id}/evidence-requests` | 클러스터 evidence request 목록 |
 | `GET` | `/api/evidence/requests/{request_id}` | evidence request 상세 |
 | `GET` | `/api/evidence/{evidence_id}` | 저장된 evidence bundle 조회 |
@@ -47,6 +48,7 @@ Backend는 API 전용 서버입니다. 사용자 Web UI는 `web-console/`의 Spr
 | `GET` | `/api/rca/jobs/{job_id}` | RCA job 상세 |
 | `GET` | `/api/rca/reports` | RCA report 목록 |
 | `GET` | `/api/rca/reports/{report_id}` | RCA report 상세 |
+| `POST` | `/api/rca/reports/{report_id}/actions/{action_index}/execute` | Policy-gated RCA action request. Only read-only `AUTO_SAFE` actions create follow-up evidence requests. |
 
 ## 인증 요약
 
@@ -87,6 +89,9 @@ Agent API는 두 단계 token을 사용합니다.
 2. 등록 성공 시 node별 `node_token`을 발급합니다.
 3. Heartbeat, evidence poll, evidence submit은 `agent_token + node_token + node_name`이 모두 맞아야 합니다.
 
+Agent 조회 응답은 `last_heartbeat_at` 또는 `registered_at` 기준으로 freshness를 계산합니다.
+`RCA_AGENT_OFFLINE_AFTER_SECONDS` 동안 heartbeat가 없으면 조회 응답의 `status`가 `offline`으로 표시되고, `health.freshness`에 나이와 기준값을 포함합니다. 기본값은 180초입니다.
+
 Alertmanager webhook은 사용자 세션을 쓰지 않고 별도 webhook token을 검증합니다.
 
 ```text
@@ -119,6 +124,8 @@ X-Webhook-Token: <RCA_WEBHOOK_TOKEN>
 16. evidence submit이 `completed`이면 Backend가 RCA job과 report를 생성합니다.
 17. 아직 Agent가 없는 노드는 기존 MVP 흐름대로 fake evidence 기반 RCA job과 report를 생성합니다.
 18. `/api/rca/reports/{report_id}`에서 결과를 조회합니다.
+
+Prometheus나 Alertmanager를 사용하지 않는 환경에서는 `POST /api/clusters/{cluster_id}/collection-runs`를 사용할 수 있습니다. Backend가 등록된 online node agent별 pending evidence request를 만들고, agent가 poll/submit하면 동일한 RCA 분석 파이프라인이 실행됩니다.
 
 ## Agent manifest 생성
 
@@ -168,5 +175,5 @@ Web UI 구성은 [docs/web-console.md](web-console.md)를 참고합니다.
 - LLM 분석이 활성화되면 provider 응답은 RCA report의 `llm_analysis` section에 들어가며, action suggestion은 다시 `PolicyEngine`을 통과합니다.
 - `RuleBasedRcaAnalyzer`가 evidence field에서 derived signal을 추출하고 원인 후보, confidence, resolution checklist를 생성합니다.
 - `PolicyEngine`이 권장 조치를 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 분류하고 `automation_allowed`, `automation_mode`, `guardrails`, `risk_factors`를 함께 제공합니다.
-- 조치 실행 API는 아직 제공하지 않습니다.
+- RCA recommended action request API is available. It requires a logged-in `admin` or `operator`, explicit confirmation, and Policy Engine approval. The current implementation only starts read-only follow-up evidence collection for rule-based `AUTO_SAFE` actions; approval, GitOps, manual, LLM-originated, and prohibited actions do not mutate the cluster.
 - DB schema 변경은 Alembic migration으로 관리합니다.

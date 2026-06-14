@@ -69,10 +69,27 @@ $env:RCA_PUBLIC_API_BASE_URL = "https://rca-api.example.com"
 ## Pages
 
 - `Overview`: cluster, report, access, webhook 상태 요약
-- `Clusters`: 클러스터 등록, agent 설치 명령, manifest 링크, node agent 상태
+- `Clusters`: 클러스터 온보딩, agent 설치 명령, node agent 상태, backend-initiated collection
 - `Webhooks`: Alertmanager endpoint와 receiver 예시
-- `Reports`: RCA report 목록, root cause, policy, signal, checklist
+- `Reports`: RCA report 목록, root cause, policy, signal, checklist, policy-gated action request
 - `Settings`: proxy, API, runtime 설정 확인, 비밀번호 변경
+
+## Cluster Onboarding
+
+Clusters 화면은 등록과 설치를 한 흐름으로 처리한다.
+
+1. 클러스터 이름, 환경, Agent가 접근할 Backend API URL을 입력한다.
+2. 등록이 성공하면 설치 명령을 자동으로 조회한다.
+3. 운영자는 명령을 복사해 `kubectl` 접근 권한이 있는 위치에서 실행한다.
+4. DaemonSet 배포 후 Agents 버튼으로 노드 등록 상태를 확인한다.
+
+`RCA_PUBLIC_API_BASE_URL`을 설정해두면 Backend API URL 입력값이 자동으로 채워진다.
+Agents 목록은 heartbeat freshness를 반영한다. `RCA_AGENT_OFFLINE_AFTER_SECONDS` 기준을 넘긴 노드는 `offline`으로 표시된다.
+
+Cluster row의 `Data` 버튼은 별도 모달에서 agent 상태, evidence request, completed evidence payload, 최근 RCA report를 요약해서 보여준다.
+Cluster row와 cluster data modal의 `Collect` 버튼은 Prometheus/Alertmanager 없이 backend가 직접 read-only evidence request를 만들도록 요청한다. 등록된 online node agent가 poll/submit하면 기존 RCA report 생성 파이프라인이 그대로 실행된다.
+
+Reports 상세의 recommended action 버튼은 2차 확인 모달을 거친 뒤 backend action request API를 호출한다. 현재 자동으로 시작되는 작업은 rule-based `AUTO_SAFE` 읽기 전용 evidence collection뿐이다. 승인 필요, GitOps PR, LLM-originated, 금지 action은 policy gate 응답만 표시하고 클러스터를 변경하지 않는다.
 
 ## Security
 

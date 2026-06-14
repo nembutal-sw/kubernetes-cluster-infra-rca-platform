@@ -13,6 +13,7 @@ alert -> evidence request -> node agent collect -> preprocess -> LLM diagnosis -
 ```
 
 LLM은 진단과 설명만 담당한다. 조치 실행 여부는 Policy Engine과 운영자 승인 흐름에서 판단한다.
+Prometheus/Alertmanager는 선택 사항이다. 모니터링 도구가 없는 환경에서는 backend가 등록된 node agent에 read-only collection을 요청하고, agent가 제출한 evidence로 동일한 RCA 분석을 수행한다.
 
 ## Scope
 
@@ -67,6 +68,7 @@ Policy Engine은 LLM 결과를 그대로 신뢰하지 않는다. 권장 조치�
 - cluster 등록 및 agent 설치 명령 조회
 - node token 기반 agent 인증
 - Alertmanager webhook 수신
+- Prometheus 없이 backend-initiated evidence collection
 - evidence request/response API
 - RCA job/report 생성
 - LLM provider adapter
@@ -74,6 +76,22 @@ Policy Engine은 LLM 결과를 그대로 신뢰하지 않는다. 권장 조치�
 - Helm chart / DaemonSet manifest 초안
 
 ## Quick Start
+
+Docker Compose:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+```
+
+접속:
+
+```text
+Web Console: http://localhost:8080
+Backend API: http://localhost:8000
+```
+
+개발 모드:
 
 Backend:
 
@@ -94,7 +112,7 @@ Local DB:
 
 ```powershell
 docker compose up -d postgres
-docker compose up -d mariadb
+docker compose --profile mariadb up -d mariadb
 ```
 
 ## Environment
@@ -118,6 +136,7 @@ RCA_API_BASE_URL
 RCA_PUBLIC_API_BASE_URL
 RCA_DEFAULT_ADMIN_USERNAME
 RCA_DEFAULT_ADMIN_PASSWORD
+RCA_AGENT_OFFLINE_AFTER_SECONDS
 ```
 
 ## Validation
@@ -154,6 +173,7 @@ Helm chart:
 
 ```text
 charts/cluster-infra-rca-agent
+charts/cluster-infra-rca-platform
 ```
 
 ## Layout
@@ -181,4 +201,6 @@ examples/       sample payloads
 - [LLM Analyzer](docs/llm-analyzer.md)
 - [Policy Engine](docs/policy-engine.md)
 - [Database](docs/database.md)
+- [Deployment](docs/deployment.md)
+- [Platform Helm Chart](docs/helm-platform-chart.md)
 - [Web Console](docs/web-console.md)

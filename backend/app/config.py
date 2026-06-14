@@ -25,6 +25,7 @@ class Settings:
     default_admin_password: str = "admin"
     webhook_token: str = "dev-webhook-token"
     session_ttl_hours: int = 12
+    agent_offline_after_seconds: int = 180
     llm: LlmSettings = field(default_factory=LlmSettings)
 
 
@@ -41,6 +42,12 @@ def load_settings(database_url: str | None = None, auto_create_tables: bool | No
         default_admin_password=os.getenv("RCA_DEFAULT_ADMIN_PASSWORD", "admin"),
         webhook_token=_empty_to_none(os.getenv("RCA_WEBHOOK_TOKEN")) or "dev-webhook-token",
         session_ttl_hours=_bounded_int_env("RCA_SESSION_TTL_HOURS", 12, minimum=1, maximum=168),
+        agent_offline_after_seconds=_bounded_int_env(
+            "RCA_AGENT_OFFLINE_AFTER_SECONDS",
+            180,
+            minimum=30,
+            maximum=86400,
+        ),
         llm=_load_llm_settings(),
     )
 

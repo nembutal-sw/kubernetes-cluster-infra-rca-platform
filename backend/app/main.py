@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -11,11 +11,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app.config import load_settings
 from backend.app.database import create_db_engine, create_session_factory, create_tables
 from backend.app.models import (
+    ActionExecutionRequest,
+    ActionExecutionResponse,
     AgentEvidencePollRequest,
     AgentEvidenceSubmitRequest,
+    AgentStatus,
     AuthSessionResponse,
     AlertmanagerPayload,
     Cluster,
+    ClusterCollectionRequest,
+    ClusterCollectionResponse,
     ClusterCreateRequest,
     ClusterView,
     EvidenceBundle,
@@ -26,6 +31,7 @@ from backend.app.models import (
     NodeAgentHeartbeatRequest,
     NodeAgentRegistrationResponse,
     NodeAgentRegisterRequest,
+    PolicyLevel,
     RcaJob,
     RcaReport,
     UserAccount,
@@ -284,7 +290,10 @@ def create_app(
         )
         if store.get_cluster(cluster_id) is None:
             raise HTTPException(status_code=404, detail="cluster not found")
-        return store.list_agents(cluster_id)
+        return [
+            _agent_with_freshness(agent, settings.agent_offline_after_seconds)
+            for agent in store.list_agents(cluster_id)
+        ]
 
     @app.get("/api/clusters/{cluster_id}/agents/{node_name}", response_model=NodeAgent)
     def get_cluster_agent(
@@ -302,7 +311,7 @@ def create_app(
         agent = store.get_agent(cluster_id, node_name)
         if agent is None:
             raise HTTPException(status_code=404, detail="agent not found")
-        return agent
+        return _agent_with_freshness(agent, settings.agent_offline_after_seconds)
 
     @app.post("/api/agents/register", response_model=NodeAgentRegistrationResponse, status_code=status.HTTP_201_CREATED)
     def register_agent(request: NodeAgentRegisterRequest) -> NodeAgentRegistrationResponse:
@@ -332,6 +341,68 @@ def create_app(
         if store.get_agent(request.cluster_id, request.node_name) is None:
             raise HTTPException(status_code=404, detail="agent not found")
         return store.create_evidence_request(request)
+
+    @app.post(
+        "/api/clusters/{cluster_id}/collection-runs",
+        response_model=ClusterCollectionResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_cluster_collection_run(
+        cluster_id: str,
+        request: ClusterCollectionRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> ClusterCollectionResponse:
+        user = _require_user(store, authorization, {UserRole.ADMIN, UserRole.OPERATOR})
+        if not request.confirmed:
+            raise HTTPException(status_code=400, detail="collection confirmation is required")
+        cluster = store.get_cluster(cluster_id)
+        if cluster is None:
+            raise HTTPException(status_code=404, detail="cluster not found")
+
+        agents = {agent.node_name: agent for agent in store.list_agents(cluster_id)}
+        target_nodes = _collection_target_nodes(request.node_names, agents)
+        if not target_nodes:
+            raise HTTPException(status_code=409, detail="cluster has no registered agents")
+
+        requested_collectors = request.requested_collectors or _default_backend_collection_collectors()
+        requested_at = now_utc().isoformat()
+        created: list[EvidenceRequest] = []
+        skipped: list[str] = []
+
+        for node_name in target_nodes:
+            agent = agents.get(node_name)
+            if agent is None:
+                skipped.append(f"{node_name}: agent not registered")
+                continue
+            fresh_agent = _agent_with_freshness(agent, settings.agent_offline_after_seconds)
+            if fresh_agent.status == AgentStatus.OFFLINE:
+                skipped.append(f"{node_name}: agent offline")
+                continue
+            created.append(
+                store.create_evidence_request(
+                    EvidenceRequestCreateRequest(
+                        cluster_id=cluster.cluster_id,
+                        node_name=node_name,
+                        alert_name=request.alert_name,
+                        requested_collectors=requested_collectors,
+                        time_range={"source": "backend_collection", "requested_at": requested_at},
+                        reason=request.reason,
+                        context={
+                            **request.context,
+                            "trigger": "backend_collection",
+                            "requested_by": user.email,
+                            "requested_at": requested_at,
+                        },
+                    )
+                )
+            )
+
+        return ClusterCollectionResponse(
+            cluster_id=cluster.cluster_id,
+            requested_nodes=target_nodes,
+            created_evidence_requests=created,
+            skipped_nodes=skipped,
+        )
 
     @app.get("/api/clusters/{cluster_id}/evidence-requests", response_model=list[EvidenceRequest])
     def list_cluster_evidence_requests(
@@ -469,7 +540,227 @@ def create_app(
             raise HTTPException(status_code=404, detail="RCA report not found")
         return report
 
+    @app.post("/api/rca/reports/{report_id}/actions/{action_index}/execute", response_model=ActionExecutionResponse)
+    def execute_rca_action(
+        report_id: str,
+        action_index: int,
+        request: ActionExecutionRequest,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> ActionExecutionResponse:
+        user = _require_user(store, authorization, {UserRole.ADMIN, UserRole.OPERATOR})
+        if not request.confirmed:
+            raise HTTPException(status_code=400, detail="action confirmation is required")
+
+        report = store.get_report(report_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="RCA report not found")
+        if action_index < 0 or action_index >= len(report.recommended_actions):
+            raise HTTPException(status_code=404, detail="recommended action not found")
+
+        action = report.recommended_actions[action_index]
+        if not action.automation_allowed:
+            return _blocked_action_response(report, action_index, action)
+
+        node_name = _target_node_for_report(report)
+        if node_name is None:
+            return ActionExecutionResponse(
+                report_id=report.report_id,
+                action_index=action_index,
+                action_key=action.action_key,
+                policy=action.policy,
+                status="blocked",
+                message="No target node was found in the RCA report scope.",
+                guardrails=[*action.guardrails, "missing_target_node"],
+            )
+        if store.get_agent(report.cluster_id, node_name) is None:
+            return ActionExecutionResponse(
+                report_id=report.report_id,
+                action_index=action_index,
+                action_key=action.action_key,
+                policy=action.policy,
+                status="blocked",
+                message="Target node agent is not registered, so evidence collection cannot be requested.",
+                guardrails=[*action.guardrails, "agent_not_registered"],
+            )
+
+        evidence_request = store.create_evidence_request(
+            EvidenceRequestCreateRequest(
+                cluster_id=report.cluster_id,
+                node_name=node_name,
+                alert_name=str(report.trigger.get("alert_name") or report.summary.symptom or "RcaFollowUp"),
+                requested_collectors=_collectors_for_action(action.action_key),
+                time_range={"source": "rca_action", "report_created_at": report.created_at.isoformat()},
+                reason=f"RCA action confirmed: {action.action}",
+                context={
+                    "report_id": report.report_id,
+                    "action_index": action_index,
+                    "action_key": action.action_key,
+                    "action_source": action.source,
+                    "policy": action.policy.value,
+                    "requested_by": user.email,
+                    "note": request.note,
+                },
+            )
+        )
+        return ActionExecutionResponse(
+            report_id=report.report_id,
+            action_index=action_index,
+            action_key=action.action_key,
+            policy=action.policy,
+            status="accepted",
+            message="Read-only evidence collection was requested for the node agent.",
+            execution_started=True,
+            evidence_request=evidence_request,
+            guardrails=action.guardrails,
+        )
+
     return app
+
+
+def _collection_target_nodes(requested_nodes: list[str], agents: dict[str, NodeAgent]) -> list[str]:
+    if requested_nodes:
+        return _dedupe_strings(requested_nodes)
+    return sorted(agents)
+
+
+def _default_backend_collection_collectors() -> list[str]:
+    return [
+        "node",
+        "kubernetes",
+        "systemd",
+        "runtime",
+        "kernel",
+        "disk",
+        "inode",
+        "memory",
+        "network",
+        "cni",
+        "dns",
+        "conntrack",
+        "process",
+    ]
+
+
+def _blocked_action_response(
+    report: RcaReport,
+    action_index: int,
+    action,
+) -> ActionExecutionResponse:
+    if action.policy == PolicyLevel.APPROVAL_REQUIRED:
+        status_value = "approval_required"
+        message = "This action changes node or service state and requires an operator approval workflow."
+    elif action.policy == PolicyLevel.GITOPS_PR_ONLY:
+        status_value = "pr_required"
+        message = "This action must be proposed through a reviewable GitOps pull request."
+    elif action.policy == PolicyLevel.NEVER_AUTO_EXECUTE:
+        status_value = "blocked"
+        message = "Policy prohibits automatic execution for this action."
+    elif action.source == "llm":
+        status_value = "review_required"
+        message = "LLM-originated actions cannot trigger direct automation without rule-based review."
+    else:
+        status_value = "manual_required"
+        message = "This action is not eligible for automatic execution."
+    return ActionExecutionResponse(
+        report_id=report.report_id,
+        action_index=action_index,
+        action_key=action.action_key,
+        policy=action.policy,
+        status=status_value,
+        message=message,
+        requires_approval=action.requires_approval or action.review_required or action.source == "llm",
+        guardrails=action.guardrails,
+    )
+
+
+def _target_node_for_report(report: RcaReport) -> str | None:
+    nodes = report.scope.get("nodes")
+    if isinstance(nodes, list):
+        for node in nodes:
+            if isinstance(node, str) and node.strip():
+                return node.strip()
+    for key in ("node", "node_name", "instance"):
+        value = report.trigger.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _collectors_for_action(action_key: str | None) -> list[str]:
+    collector_map = {
+        "collect_more_evidence": [
+            "node",
+            "kubernetes",
+            "systemd",
+            "runtime",
+            "kernel",
+            "disk",
+            "inode",
+            "memory",
+            "network",
+            "cni",
+            "dns",
+            "conntrack",
+            "process",
+        ],
+        "collect_linux_low_level_evidence": [
+            "node",
+            "systemd",
+            "journal",
+            "kernel",
+            "disk",
+            "inode",
+            "memory",
+            "network",
+            "conntrack",
+            "process",
+        ],
+        "inspect_kernel_state": ["kernel", "journal", "systemd"],
+        "inspect_network_state": ["network", "cni", "dns", "conntrack", "kernel"],
+        "inspect_storage_state": ["disk", "inode", "kernel", "systemd"],
+    }
+    return collector_map.get(action_key or "", collector_map["collect_more_evidence"])
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def _agent_with_freshness(agent: NodeAgent, offline_after_seconds: int) -> NodeAgent:
+    last_seen_at = agent.last_heartbeat_at or agent.registered_at
+    age_seconds = _age_seconds(last_seen_at)
+    is_offline = age_seconds is not None and age_seconds > offline_after_seconds
+    health = {
+        **agent.health,
+        "freshness": {
+            "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
+            "age_seconds": age_seconds,
+            "offline_after_seconds": offline_after_seconds,
+            "offline": is_offline,
+        },
+    }
+    return agent.model_copy(
+        update={
+            "status": AgentStatus.OFFLINE if is_offline else agent.status,
+            "health": health,
+        }
+    )
+
+
+def _age_seconds(value: datetime | None) -> int | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0, int((now_utc() - value).total_seconds()))
 
 
 def _verify_webhook_token(

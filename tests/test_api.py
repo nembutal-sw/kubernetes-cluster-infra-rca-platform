@@ -1,4 +1,6 @@
 ﻿from fastapi.testclient import TestClient
+from datetime import datetime, timedelta, timezone
+
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect
@@ -6,6 +8,7 @@ from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.schema import CreateTable
 
 import backend.app.db_models  # noqa: F401
+import backend.app.main as main_module
 from backend.app.config import load_settings, normalize_database_url
 from backend.app.database import Base, create_db_engine
 from backend.app.main import create_app
@@ -51,6 +54,8 @@ def test_cluster_registration_and_install_command(tmp_path) -> None:
     install = install_response.json()
     assert install["namespace"] == "rca-system"
     assert any("agent-token" in command for command in install["commands"])
+    assert install["notes"]
+    assert all("\ufffd" not in note for note in install["notes"])
 
     list_response = client.get("/api/clusters", headers=headers)
     assert list_response.status_code == 200
@@ -104,6 +109,7 @@ def test_cluster_install_command_can_use_generated_manifest_url(tmp_path) -> Non
     assert "backend_url=https%3A%2F%2Frca.example.com" in install["commands"][2]
     assert "image=ghcr.io%2Facme%2Fcluster-infra-rca-agent%3Av1" in install["commands"][2]
     assert "namespace=custom-rca" in install["commands"][2]
+    assert any("cluster_id" in note for note in install["notes"])
 
 
 def test_agent_manifest_generation_and_validation(tmp_path) -> None:
@@ -675,14 +681,71 @@ def test_agent_register_heartbeat_and_lookup(tmp_path) -> None:
 
     get_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-3", headers=admin_headers(client))
     assert get_response.status_code == 200
-    assert get_response.json()["health"] == {"kubelet": "active", "containerd": "active"}
-    assert "node_token" not in get_response.json()
+    agent_detail = get_response.json()
+    assert agent_detail["health"]["kubelet"] == "active"
+    assert agent_detail["health"]["containerd"] == "active"
+    assert agent_detail["health"]["freshness"]["offline"] is False
+    assert agent_detail["health"]["freshness"]["offline_after_seconds"] == 180
+    assert "node_token" not in agent_detail
 
     cluster_response = client.get(f"/api/clusters/{cluster['cluster_id']}", headers=admin_headers(client))
     assert cluster_response.status_code == 200
     cluster_after_agent = cluster_response.json()
     assert cluster_after_agent["status"] == "active"
     assert cluster_after_agent["last_seen_at"] is not None
+
+
+def test_agent_lookup_marks_stale_agents_offline(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("RCA_AGENT_OFFLINE_AFTER_SECONDS", "30")
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-stale",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+        },
+    )
+
+    assert register_response.status_code == 201
+    registered = register_response.json()
+    registered_at = datetime.fromisoformat(registered["registered_at"])
+    if registered_at.tzinfo is None:
+        registered_at = registered_at.replace(tzinfo=timezone.utc)
+
+    fresh_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=headers)
+    assert fresh_response.status_code == 200
+    fresh_agent = fresh_response.json()[0]
+    assert fresh_agent["status"] == "registered"
+    assert fresh_agent["health"]["freshness"]["offline"] is False
+
+    monkeypatch.setattr(
+        main_module,
+        "now_utc",
+        lambda: registered_at + timedelta(seconds=31),
+    )
+
+    stale_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents", headers=headers)
+    assert stale_response.status_code == 200
+    stale_agent = stale_response.json()[0]
+    assert stale_agent["status"] == "offline"
+    freshness = stale_agent["health"]["freshness"]
+    assert freshness["last_seen_at"].startswith(registered["registered_at"].removesuffix("Z"))
+    assert freshness["age_seconds"] == 31
+    assert freshness["offline_after_seconds"] == 30
+    assert freshness["offline"] is True
+
+    single_response = client.get(f"/api/clusters/{cluster['cluster_id']}/agents/worker-stale", headers=headers)
+    assert single_response.status_code == 200
+    assert single_response.json()["status"] == "offline"
 
 
 def test_agent_auth_and_registration_errors(tmp_path) -> None:
@@ -845,6 +908,232 @@ def test_evidence_request_poll_and_submit(tmp_path) -> None:
     )
     assert poll_after_submit_response.status_code == 200
     assert poll_after_submit_response.json() == []
+
+
+def test_backend_initiated_collection_creates_evidence_request_and_report(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+
+    no_agent_response = client.post(
+        f"/api/clusters/{cluster['cluster_id']}/collection-runs",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert no_agent_response.status_code == 409
+
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["node", "systemd", "runtime", "kernel", "network", "conntrack"],
+        },
+    )
+    node_token = register_response.json()["node_token"]
+
+    unconfirmed = client.post(
+        f"/api/clusters/{cluster['cluster_id']}/collection-runs",
+        headers=headers,
+        json={"confirmed": False},
+    )
+    assert unconfirmed.status_code == 400
+
+    collection_response = client.post(
+        f"/api/clusters/{cluster['cluster_id']}/collection-runs",
+        headers=headers,
+        json={
+            "confirmed": True,
+            "reason": "manual scan without Prometheus",
+            "context": {"source": "web-console"},
+        },
+    )
+    assert collection_response.status_code == 201
+    collection = collection_response.json()
+    assert collection["requested_nodes"] == ["worker-3"]
+    assert collection["skipped_nodes"] == []
+    evidence_request = collection["created_evidence_requests"][0]
+    assert evidence_request["alert_name"] == "BackendManualCollection"
+    assert "conntrack" in evidence_request["requested_collectors"]
+    assert evidence_request["context"]["trigger"] == "backend_collection"
+
+    poll_response = client.post(
+        "/api/agents/evidence-requests",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
+        },
+    )
+    assert [item["request_id"] for item in poll_response.json()] == [evidence_request["request_id"]]
+
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": node_token,
+            "status": "completed",
+            "collectors": {
+                "systemd": {"kubelet_status": "active"},
+                "runtime": {"containerd_socket_healthy": True},
+                "kernel": {"recent_errors": []},
+            },
+        },
+    )
+    assert submit_response.status_code == 200
+
+    reports = client.get("/api/rca/reports", headers=headers).json()
+    assert len(reports) == 1
+    assert reports[0]["trigger"]["alert_name"] == "BackendManualCollection"
+    assert reports[0]["scope"]["nodes"] == ["worker-3"]
+
+
+def test_rca_action_execution_requests_read_only_evidence(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["node", "systemd", "runtime", "kernel", "network", "conntrack"],
+        },
+    )
+    evidence_request = client.post(
+        "/api/evidence/requests",
+        headers=headers,
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "alert_name": "NodeNotReady",
+            "requested_collectors": ["systemd", "runtime"],
+            "reason": "NodeNotReady fired",
+        },
+    ).json()
+    submit_response = client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": register_response.json()["node_token"],
+            "status": "completed",
+            "collectors": {
+                "systemd": {"kubelet_status": "active"},
+                "runtime": {"containerd_socket_healthy": False},
+            },
+        },
+    )
+    assert submit_response.status_code == 200
+
+    report = client.get("/api/rca/reports", headers=headers).json()[0]
+    action_index = next(
+        index
+        for index, action in enumerate(report["recommended_actions"])
+        if action["action_key"] == "collect_more_evidence"
+    )
+
+    unconfirmed = client.post(
+        f"/api/rca/reports/{report['report_id']}/actions/{action_index}/execute",
+        headers=headers,
+        json={"confirmed": False},
+    )
+    assert unconfirmed.status_code == 400
+
+    execute_response = client.post(
+        f"/api/rca/reports/{report['report_id']}/actions/{action_index}/execute",
+        headers=headers,
+        json={"confirmed": True, "note": "collect follow-up diagnostics"},
+    )
+
+    assert execute_response.status_code == 200
+    execution = execute_response.json()
+    assert execution["status"] == "accepted"
+    assert execution["execution_started"] is True
+    assert execution["evidence_request"]["status"] == "pending"
+    assert execution["evidence_request"]["context"]["report_id"] == report["report_id"]
+    assert "conntrack" in execution["evidence_request"]["requested_collectors"]
+
+
+def test_rca_action_execution_blocks_non_auto_safe_actions(tmp_path) -> None:
+    client = TestClient(create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", auto_create_tables=True))
+    headers = admin_headers(client)
+    cluster = client.post(
+        "/api/clusters",
+        headers=headers,
+        json={"name": "prod-cluster", "environment": "prod"},
+    ).json()
+    register_response = client.post(
+        "/api/agents/register",
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "agent_version": "0.1.0",
+            "supported_collectors": ["systemd", "runtime"],
+        },
+    )
+    evidence_request = client.post(
+        "/api/evidence/requests",
+        headers=headers,
+        json={
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "alert_name": "NodeNotReady",
+            "requested_collectors": ["systemd", "runtime"],
+        },
+    ).json()
+    client.post(
+        "/api/agents/evidence-responses",
+        json={
+            "request_id": evidence_request["request_id"],
+            "cluster_id": cluster["cluster_id"],
+            "node_name": "worker-3",
+            "agent_token": cluster["bootstrap_token"],
+            "node_token": register_response.json()["node_token"],
+            "status": "completed",
+            "collectors": {
+                "systemd": {"containerd_status": "failed"},
+                "runtime": {"containerd_socket_healthy": False},
+            },
+        },
+    )
+    report = client.get("/api/rca/reports", headers=headers).json()[0]
+    action_index = next(
+        index
+        for index, action in enumerate(report["recommended_actions"])
+        if action["policy"] == "APPROVAL_REQUIRED"
+    )
+
+    execute_response = client.post(
+        f"/api/rca/reports/{report['report_id']}/actions/{action_index}/execute",
+        headers=headers,
+        json={"confirmed": True},
+    )
+
+    assert execute_response.status_code == 200
+    execution = execute_response.json()
+    assert execution["status"] == "approval_required"
+    assert execution["execution_started"] is False
+    assert execution["evidence_request"] is None
 
 
 def test_evidence_request_failure_and_wrong_agent_errors(tmp_path) -> None:

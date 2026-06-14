@@ -158,6 +158,22 @@ class EvidenceRequest(BaseModel):
     completed_at: datetime | None = None
 
 
+class ClusterCollectionRequest(BaseModel):
+    confirmed: bool = False
+    alert_name: str = Field(default="BackendManualCollection", min_length=1)
+    node_names: list[str] = Field(default_factory=list)
+    requested_collectors: list[str] = Field(default_factory=list)
+    reason: str | None = Field(default="Backend-initiated collection")
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClusterCollectionResponse(BaseModel):
+    cluster_id: str
+    requested_nodes: list[str]
+    created_evidence_requests: list[EvidenceRequest]
+    skipped_nodes: list[str]
+
+
 class AgentEvidencePollRequest(BaseModel):
     cluster_id: str
     node_name: str = Field(min_length=1, examples=["worker-3"])
@@ -293,6 +309,24 @@ class RecommendedAction(BaseModel):
     review_required: bool = False
     guardrails: list[str] = Field(default_factory=list)
     risk_factors: list[str] = Field(default_factory=list)
+
+
+class ActionExecutionRequest(BaseModel):
+    confirmed: bool = False
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ActionExecutionResponse(BaseModel):
+    report_id: str
+    action_index: int
+    action_key: str | None = None
+    policy: PolicyLevel
+    status: str
+    message: str
+    execution_started: bool = False
+    requires_approval: bool = False
+    evidence_request: EvidenceRequest | None = None
+    guardrails: list[str] = Field(default_factory=list)
 
 
 class RcaReport(BaseModel):
