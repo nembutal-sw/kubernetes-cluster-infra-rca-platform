@@ -4,16 +4,25 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecutionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecutionResponse;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AlertmanagerPayload;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AuditEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.PolicyLevel;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.WebhookIngestResponse;
 import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.RcaService;
+import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -39,6 +48,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @RestController
@@ -49,28 +59,45 @@ public class RcaController {
     private final RcaRepository repository;
     private final RcaService rcaService;
     private final AccessService access;
+    private final AuditService audit;
     private final ObjectMapper objectMapper;
 
     public RcaController(
         RcaRepository repository,
         RcaService rcaService,
         AccessService access,
+        AuditService audit,
         ObjectMapper objectMapper
     ) {
         this.repository = repository;
         this.rcaService = rcaService;
         this.access = access;
+        this.audit = audit;
         this.objectMapper = objectMapper;
     }
 
     @PostMapping("/api/webhooks/alertmanager")
-    public Object alertmanager(
+    public WebhookIngestResponse alertmanager(
         @Valid @RequestBody AlertmanagerPayload payload,
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
         @RequestHeader(name = "X-Webhook-Token", required = false) String webhookToken
     ) {
         access.verifyWebhookToken(authorization, webhookToken);
-        return rcaService.ingestAlertmanager(payload);
+        WebhookIngestResponse response = rcaService.ingestAlertmanager(payload);
+        audit.system(
+            "alertmanager",
+            "webhook.ingest",
+            "webhook",
+            "alertmanager",
+            "success",
+            Map.of(
+                "received_alerts", response.receivedAlerts(),
+                "created_reports", response.createdReports().size(),
+                "created_evidence_requests", response.createdEvidenceRequests().size(),
+                "skipped_alerts", response.skippedAlerts().size()
+            )
+        );
+        return response;
     }
 
     @GetMapping("/api/rca/jobs")
@@ -96,6 +123,80 @@ public class RcaController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public RcaReport report(@PathVariable String reportId) {
         return requireReport(reportId);
+    }
+
+    @GetMapping("/api/rca/incidents")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public List<Incident> incidents(
+        @RequestParam(name = "cluster_id", required = false) String clusterId
+    ) {
+        return repository.listIncidents(clusterId);
+    }
+
+    @GetMapping("/api/rca/incidents/{incidentId}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public Incident incident(@PathVariable String incidentId) {
+        return repository.getIncident(incidentId)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "incident not found"));
+    }
+
+    @PostMapping("/api/rca/incidents/{incidentId}/resolve")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public Incident resolveIncident(
+        @PathVariable String incidentId,
+        @Valid @RequestBody ActionDecisionRequest request,
+        Authentication authentication
+    ) {
+        return changeIncidentStatus(incidentId, request, authentication, IncidentStatus.resolved);
+    }
+
+    @PostMapping("/api/rca/incidents/{incidentId}/reopen")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public Incident reopenIncident(
+        @PathVariable String incidentId,
+        @Valid @RequestBody ActionDecisionRequest request,
+        Authentication authentication
+    ) {
+        return changeIncidentStatus(incidentId, request, authentication, IncidentStatus.open);
+    }
+
+    private Incident changeIncidentStatus(
+        String incidentId,
+        ActionDecisionRequest request,
+        Authentication authentication,
+        IncidentStatus status
+    ) {
+        if (!request.confirmed()) {
+            throw new ResponseStatusException(BAD_REQUEST, "incident status confirmation is required");
+        }
+        UserAccount user = access.currentUser(authentication);
+        Incident incident = repository.updateIncidentStatus(incidentId, status)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "incident not found"));
+        audit.user(
+            user,
+            "incident.status_change",
+            "incident",
+            incidentId,
+            status.name(),
+            Map.of("note", request.note() == null ? "" : request.note())
+        );
+        return incident;
+    }
+
+    @GetMapping("/api/rca/action-requests")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public List<ActionRequest> actionRequests(
+        @RequestParam(name = "report_id", required = false) String reportId
+    ) {
+        return repository.listActionRequests(reportId);
+    }
+
+    @GetMapping("/api/audit/events")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<AuditEvent> auditEvents(
+        @RequestParam(name = "limit", defaultValue = "200") Integer limit
+    ) {
+        return repository.listAuditEvents(limit);
     }
 
     @GetMapping("/api/rca/reports/export")
@@ -145,30 +246,59 @@ public class RcaController {
         }
         RecommendedAction action = report.recommendedActions().get(actionIndex);
         if (!action.automationAllowed()) {
+            ActionRequestStatus status = action.policy() == PolicyLevel.APPROVAL_REQUIRED
+                && !"llm".equals(action.source())
+                ? ActionRequestStatus.pending_approval
+                : ActionRequestStatus.blocked;
+            ActionRequest actionRequest = repository.createActionRequest(
+                reportId,
+                actionIndex,
+                action.actionKey(),
+                action.policy(),
+                action.source(),
+                status,
+                user.email(),
+                request.note(),
+                null
+            );
+            auditAction(user, actionRequest, status.name());
             return new ActionExecutionResponse(
                 reportId,
                 actionIndex,
                 action.actionKey(),
                 action.policy(),
-                "blocked",
-                action.source().equals("llm")
-                    ? "LLM-origin actions are diagnostic suggestions and cannot trigger automation."
-                    : "Policy Engine does not allow this action to execute automatically.",
+                status.name(),
+                status == ActionRequestStatus.pending_approval
+                    ? "Approval request recorded. Approval does not execute a node mutation automatically."
+                    : action.source().equals("llm")
+                        ? "LLM-origin actions are diagnostic suggestions and cannot trigger automation."
+                        : "Policy Engine does not allow this action to execute automatically.",
                 false,
                 action.requiresApproval(),
                 null,
-                action.guardrails()
+                action.guardrails(),
+                actionRequest
             );
         }
         String nodeName = targetNode(report);
         if (nodeName == null) {
-            return blocked(reportId, actionIndex, action, "No target node was found in the RCA report scope.", "missing_target_node");
+            return blocked(
+                reportId,
+                actionIndex,
+                action,
+                user,
+                request.note(),
+                "No target node was found in the RCA report scope.",
+                "missing_target_node"
+            );
         }
         if (repository.getAgent(report.clusterId(), nodeName).isEmpty()) {
             return blocked(
                 reportId,
                 actionIndex,
                 action,
+                user,
+                request.note(),
                 "Target node agent is not registered, so evidence collection cannot be requested.",
                 "agent_not_registered"
             );
@@ -191,6 +321,18 @@ public class RcaController {
             "RCA read-only action confirmed: " + action.action(),
             context
         ));
+        ActionRequest actionRequest = repository.createActionRequest(
+            reportId,
+            actionIndex,
+            action.actionKey(),
+            action.policy(),
+            action.source(),
+            ActionRequestStatus.accepted,
+            user.email(),
+            request.note(),
+            evidenceRequest.requestId()
+        );
+        auditAction(user, actionRequest, "accepted");
         return new ActionExecutionResponse(
             reportId,
             actionIndex,
@@ -201,19 +343,89 @@ public class RcaController {
             true,
             false,
             evidenceRequest,
-            action.guardrails()
+            action.guardrails(),
+            actionRequest
         );
+    }
+
+    @PostMapping("/api/rca/action-requests/{actionRequestId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ActionRequest approveActionRequest(
+        @PathVariable String actionRequestId,
+        @Valid @RequestBody ActionDecisionRequest request,
+        Authentication authentication
+    ) {
+        return decideActionRequest(
+            actionRequestId,
+            request,
+            authentication,
+            ActionRequestStatus.approved_manual
+        );
+    }
+
+    @PostMapping("/api/rca/action-requests/{actionRequestId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ActionRequest rejectActionRequest(
+        @PathVariable String actionRequestId,
+        @Valid @RequestBody ActionDecisionRequest request,
+        Authentication authentication
+    ) {
+        return decideActionRequest(
+            actionRequestId,
+            request,
+            authentication,
+            ActionRequestStatus.rejected
+        );
+    }
+
+    private ActionRequest decideActionRequest(
+        String actionRequestId,
+        ActionDecisionRequest request,
+        Authentication authentication,
+        ActionRequestStatus decision
+    ) {
+        if (!request.confirmed()) {
+            throw new ResponseStatusException(BAD_REQUEST, "action decision confirmation is required");
+        }
+        UserAccount user = access.currentUser(authentication);
+        ActionRequest existing = repository.getActionRequest(actionRequestId)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "action request not found"));
+        if (existing.status() != ActionRequestStatus.pending_approval) {
+            throw new ResponseStatusException(CONFLICT, "action request is not pending approval");
+        }
+        ActionRequest decided = repository.decideActionRequest(
+            actionRequestId,
+            decision,
+            user.email(),
+            request.note()
+        ).orElseThrow(() -> new ResponseStatusException(CONFLICT, "action request was already decided"));
+        auditAction(user, decided, decision.name());
+        return decided;
     }
 
     private ActionExecutionResponse blocked(
         String reportId,
         int actionIndex,
         RecommendedAction action,
+        UserAccount user,
+        String note,
         String message,
         String guardrail
     ) {
         List<String> guardrails = new java.util.ArrayList<>(action.guardrails());
         guardrails.add(guardrail);
+        ActionRequest actionRequest = repository.createActionRequest(
+            reportId,
+            actionIndex,
+            action.actionKey(),
+            action.policy(),
+            action.source(),
+            ActionRequestStatus.blocked,
+            user.email(),
+            note,
+            null
+        );
+        auditAction(user, actionRequest, "blocked");
         return new ActionExecutionResponse(
             reportId,
             actionIndex,
@@ -224,7 +436,24 @@ public class RcaController {
             false,
             action.requiresApproval(),
             null,
-            guardrails
+            guardrails,
+            actionRequest
+        );
+    }
+
+    private void auditAction(UserAccount user, ActionRequest request, String outcome) {
+        audit.user(
+            user,
+            "rca.action_request",
+            "action_request",
+            request.actionRequestId(),
+            outcome,
+            Map.of(
+                "report_id", request.reportId(),
+                "action_key", request.actionKey(),
+                "policy", request.policy().name(),
+                "source", request.source()
+            )
         );
     }
 

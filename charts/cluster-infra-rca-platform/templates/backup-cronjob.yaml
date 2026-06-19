@@ -1,0 +1,77 @@
+{{- if and .Values.backup.enabled .Values.database.enabled }}
+{{- $type := include "cluster-infra-rca-platform.databaseType" . }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cluster-infra-rca-platform.fullname" . }}-backup
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "cluster-infra-rca-platform.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          containers:
+            - name: backup
+              {{- if eq $type "mariadb" }}
+              image: "{{ .Values.database.image.mariadb.repository }}:{{ .Values.database.image.mariadb.tag }}"
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  umask 077;
+                  mariadb-dump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME"
+                  | gzip > "/backup/${DB_NAME}-$(date -u +%Y%m%dT%H%M%SZ).sql.gz";
+                  find /backup -type f -name '*.sql.gz' -mtime +{{ .Values.backup.retentionDays }} -delete
+              {{- else }}
+              image: "{{ .Values.database.image.postgresql.repository }}:{{ .Values.database.image.postgresql.tag }}"
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  umask 077;
+                  export PGPASSWORD="$DB_PASSWORD";
+                  pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME"
+                  | gzip > "/backup/${DB_NAME}-$(date -u +%Y%m%dT%H%M%SZ).sql.gz";
+                  find /backup -type f -name '*.sql.gz' -mtime +{{ .Values.backup.retentionDays }} -delete
+              {{- end }}
+              env:
+                - name: DB_HOST
+                  value: {{ include "cluster-infra-rca-platform.databaseServiceName" . | quote }}
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                      key: database
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                      key: username
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "cluster-infra-rca-platform.databaseSecretName" . }}
+                      key: password
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ include "cluster-infra-rca-platform.backupPvcName" . }}
+{{- end }}

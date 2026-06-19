@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
@@ -50,10 +51,13 @@ class DatabaseCompatibilityTests {
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
+        "action_requests",
+        "audit_events",
         "rca_jobs",
         "user_sessions",
         "evidence_requests",
         "rca_reports",
+        "incidents",
         "evidence_bundles",
         "node_agents",
         "user_accounts",
@@ -106,7 +110,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(1);
+        assertThat(migration.migrationsExecuted).isEqualTo(2);
 
         RcaRepository repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -194,6 +198,7 @@ class DatabaseCompatibilityTests {
         RcaReport report = new RcaReport(
             "report-db-compat",
             cluster.clusterId(),
+            null,
             RcaJobStatus.completed,
             Map.of("alert_name", "DiskPressure"),
             Map.of("node_name", "worker-a"),
@@ -214,11 +219,40 @@ class DatabaseCompatibilityTests {
             completed.evidenceId(),
             now
         );
-        repository.saveReportAndJob(report, job);
+        repository.saveCorrelatedReportAndJob(
+            report,
+            job,
+            "database-compatibility-dedup-key",
+            repository.getEvidence(completed.evidenceId()).orElseThrow()
+        );
 
-        assertThat(repository.getReport(report.reportId()).orElseThrow().summary().mostLikelyCause())
-            .isEqualTo("Inode exhaustion");
+        RcaReport storedReport = repository.getReport(report.reportId()).orElseThrow();
+        assertThat(storedReport.summary().mostLikelyCause()).isEqualTo("Inode exhaustion");
+        assertThat(storedReport.incidentId()).startsWith("incident-");
+        assertThat(repository.getIncident(storedReport.incidentId()).orElseThrow().occurrenceCount()).isEqualTo(1);
         assertThat(repository.getJob(job.jobId())).contains(job);
+        var actionRequest = repository.createActionRequest(
+            report.reportId(),
+            0,
+            action.actionKey(),
+            action.policy(),
+            action.source(),
+            ActionRequestStatus.accepted,
+            admin.email(),
+            "database compatibility",
+            null
+        );
+        assertThat(repository.getActionRequest(actionRequest.actionRequestId())).contains(actionRequest);
+        repository.saveAuditEvent(
+            "user",
+            admin.email(),
+            "database.compatibility",
+            "cluster",
+            cluster.clusterId(),
+            "success",
+            Map.of("database", "testcontainers")
+        );
+        assertThat(repository.listAuditEvents(10)).hasSize(1);
         assertThat(repository.deleteCluster(cluster.clusterId())).isTrue();
         assertThat(repository.getCluster(cluster.clusterId())).isEmpty();
     }
@@ -287,7 +321,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isZero();
+        assertThat(migration.migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

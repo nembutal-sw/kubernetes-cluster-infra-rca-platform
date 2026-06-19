@@ -37,6 +37,14 @@ public final class RcaModels {
         pending, completed, failed
     }
 
+    public enum IncidentStatus {
+        open, resolved
+    }
+
+    public enum ActionRequestStatus {
+        pending_approval, accepted, approved_manual, rejected, blocked
+    }
+
     public enum UserStatus {
         pending_approval, active, rejected
     }
@@ -386,6 +394,58 @@ public final class RcaModels {
     ) {
     }
 
+    public record ActionDecisionRequest(
+        boolean confirmed,
+        @Size(max = 1000) String note
+    ) {
+    }
+
+    public record Incident(
+        String incidentId,
+        String clusterId,
+        String nodeName,
+        String alertName,
+        String rootCause,
+        IncidentStatus status,
+        int occurrenceCount,
+        Instant firstSeenAt,
+        Instant lastSeenAt,
+        String latestEvidenceId,
+        String latestReportId
+    ) {
+    }
+
+    public record ActionRequest(
+        String actionRequestId,
+        String reportId,
+        int actionIndex,
+        String actionKey,
+        PolicyLevel policy,
+        String source,
+        ActionRequestStatus status,
+        String requestedBy,
+        String reviewedBy,
+        String requestNote,
+        String decisionNote,
+        String evidenceRequestId,
+        Instant createdAt,
+        Instant reviewedAt
+    ) {
+    }
+
+    public record AuditEvent(
+        String auditEventId,
+        String actorType,
+        String actorId,
+        String eventType,
+        String resourceType,
+        String resourceId,
+        String outcome,
+        Map<String, Object> details,
+        Instant createdAt
+    ) {
+    }
+
     public record ActionExecutionResponse(
         String reportId,
         int actionIndex,
@@ -396,13 +456,15 @@ public final class RcaModels {
         boolean executionStarted,
         boolean requiresApproval,
         EvidenceRequest evidenceRequest,
-        List<String> guardrails
+        List<String> guardrails,
+        ActionRequest actionRequest
     ) {
     }
 
     public record RcaReport(
         String reportId,
         String clusterId,
+        String incidentId,
         RcaJobStatus status,
         Map<String, Object> trigger,
         Map<String, Object> scope,
@@ -413,6 +475,22 @@ public final class RcaModels {
         List<RecommendedAction> policyDecisions,
         Instant createdAt
     ) {
+        public RcaReport withIncidentId(String value) {
+            return new RcaReport(
+                reportId,
+                clusterId,
+                value,
+                status,
+                trigger,
+                scope,
+                summary,
+                evidence,
+                rootCauseCandidates,
+                recommendedActions,
+                policyDecisions,
+                createdAt
+            );
+        }
     }
 
     public record RcaJob(

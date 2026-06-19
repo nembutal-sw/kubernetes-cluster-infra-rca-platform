@@ -35,3 +35,14 @@ helm upgrade --install rca charts/cluster-infra-rca-platform
 - LLM API key는 Kubernetes Secret 또는 외부 secret manager 사용
 
 중앙 플랫폼을 진단 대상 클러스터에 배포해야 한다면 최소한 별도 node pool, PodDisruptionBudget, DB 백업, 외부 상태 확인 경로를 구성해야 합니다.
+
+Platform chart는 다음 운영 옵션을 제공합니다.
+
+- 전용 ServiceAccount와 service account token 비활성화
+- PodDisruptionBudget, rolling update, graceful shutdown
+- 선택적 ingress NetworkPolicy
+- External Secrets Operator 연동
+- PostgreSQL/MariaDB backup CronJob
+- topology spread constraint와 replica 확장
+
+중앙 플랫폼 자체가 장애 클러스터와 함께 중단되지 않도록 별도 관리 클러스터 또는 외부 VM 배포를 권장합니다.

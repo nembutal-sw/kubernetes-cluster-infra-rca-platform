@@ -1,5 +1,9 @@
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 
+ARG VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
 WORKDIR /workspace
 
 COPY web-console/pom.xml .
@@ -12,12 +16,31 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
+ARG VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="Cluster Infra RCA Platform" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/nembutal-sw/kubernetes-cluster-infra-rca-platform"
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
+    && groupadd --gid 65532 rca \
+    && useradd --uid 65532 --gid 65532 --create-home --shell /usr/sbin/nologin rca \
+    && mkdir -p /app/data \
+    && chown -R 65532:65532 /app \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /workspace/target/cluster-infra-rca-platform-0.1.0.war /app/platform.war
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "/app/platform.war"]
+USER 65532:65532
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl --fail --silent http://127.0.0.1:8080/health/ready || exit 1
+
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/platform.war"]

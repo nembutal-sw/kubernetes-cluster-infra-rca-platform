@@ -24,6 +24,16 @@ database:
     enabled: true
     size: 8Gi
     storageClassName: ""
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 6
   podAnnotations: {}
   podLabels: {}
   podSecurityContext: {}
@@ -41,6 +51,12 @@ database:
 
 platform:
   replicaCount: 1
+  revisionHistoryLimit: 3
+  terminationGracePeriodSeconds: 30
+  serviceAccount:
+    create: true
+    name: ""
+    automountServiceAccountToken: false
   image:
     repository: ghcr.io/example/cluster-infra-rca-web-console
     tag: latest
@@ -58,6 +74,12 @@ platform:
     llmProvider: none
     llmModel: ""
     springAiChatModel: none
+    llmTimeoutSeconds: 30
+    llmMaxAttempts: 2
+    llmFailureThreshold: 3
+    llmCooldownSeconds: 60
+    incidentCorrelationWindowMinutes: 15
+    auditRetentionDays: 180
   secret:
     create: true
     existingSecret: ""
@@ -71,6 +93,14 @@ platform:
     anthropicApiKey: ""
     geminiApiKey: ""
     ollamaBaseUrl: ""
+  externalSecret:
+    enabled: false
+    targetName: ""
+    refreshInterval: 1h
+    secretStoreRef:
+      kind: ClusterSecretStore
+      name: ""
+    data: []
   env: {}
   podAnnotations: {}
   podLabels: {}
@@ -91,6 +121,11 @@ platform:
     periodSeconds: 10
     timeoutSeconds: 3
     failureThreshold: 6
+  startupProbe:
+    path: /health
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 60
   livenessProbe:
     path: /health
     initialDelaySeconds: 30
@@ -100,6 +135,31 @@ platform:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    maxUnavailable: null
+  networkPolicy:
+    enabled: false
+    ingressFrom: []
+
+backup:
+  enabled: false
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  retentionDays: 14
+  persistence:
+    size: 10Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 ingress:
   platform:

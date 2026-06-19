@@ -8,6 +8,7 @@ import random
 import socket
 import sys
 import time
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -184,8 +185,8 @@ def run_agent(args: argparse.Namespace) -> int:
         Path(os.getenv("AGENT_STATE_DIR", "/tmp/cluster-infra-rca-agent")),
         client.cluster_id,
         client.node_name,
-        max_spool_files=int(os.getenv("AGENT_MAX_SPOOL_FILES", "1000")),
-        max_spool_bytes=int(os.getenv("AGENT_MAX_SPOOL_BYTES", str(256 * 1024 * 1024))),
+        max_spool_files=_positive_int_env("AGENT_MAX_SPOOL_FILES", 1000),
+        max_spool_bytes=_positive_int_env("AGENT_MAX_SPOOL_BYTES", 256 * 1024 * 1024, minimum=1024),
     )
     state.initialize()
     client.node_token = state.load_node_token()
@@ -348,6 +349,20 @@ def _required_env(name: str) -> str:
     value = os.getenv(name)
     if not value:
         raise ValueError(f"{name} environment variable is required")
+    return value
+
+
+def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
+    raw_value = os.getenv(name, str(default)).strip()
+    try:
+        parsed = Decimal(raw_value)
+    except InvalidOperation as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not parsed.is_finite() or parsed != parsed.to_integral_value():
+        raise ValueError(f"{name} must be an integer")
+    value = int(parsed)
+    if value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
     return value
 
 

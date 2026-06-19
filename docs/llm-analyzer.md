@@ -27,6 +27,10 @@ Backend는 provider별 SDK에 직접 묶이지 않습니다. 공통 `LlmAnalyzer
 | `RCA_LLM_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint base URL |
 | `RCA_LLM_TIMEOUT_SECONDS` | 요청 timeout. 기본 `20`, 적용 범위 `1`-`120` |
 | `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token. 기본 `1200`, 적용 범위 `128`-`8000` |
+| `RCA_LLM_TIMEOUT_SECONDS` | provider 호출 timeout. 기본 `30` |
+| `RCA_LLM_MAX_ATTEMPTS` | 진단 호출 최대 시도 횟수. 기본 `2`, 최대 `3` |
+| `RCA_LLM_FAILURE_THRESHOLD` | circuit breaker를 여는 연속 실패 횟수. 기본 `3` |
+| `RCA_LLM_COOLDOWN_SECONDS` | circuit breaker 대기 시간. 기본 `60` |
 
 Provider 호출이 실패해도 RCA report 생성은 계속됩니다. 실패 메시지는 `llm_analysis.status = "failed"`에 남기되 token, API key 계열 문자열은 마스킹합니다.
 
@@ -102,6 +106,8 @@ LLM은 JSON object만 반환해야 합니다.
 ```
 
 Backend는 LLM action suggestion을 그대로 실행하지 않습니다. `action_key`를 Policy Engine에 다시 넣어 `AUTO_SAFE`, `APPROVAL_REQUIRED`, `GITOPS_PR_ONLY`, `NEVER_AUTO_EXECUTE`, `MANUAL_INVESTIGATION`으로 재분류합니다.
+
+Provider 응답은 허용된 네 개 필드만 남기고 문자열 길이, 목록 개수, confidence, action key를 다시 검증합니다. timeout이나 provider 장애가 반복되면 circuit breaker가 열리며 Rule-based RCA는 계속 동작합니다.
 
 읽기 전용 Linux low-level 진단은 `collect_linux_low_level_evidence`, `inspect_kernel_state`, `inspect_network_state`, `inspect_storage_state` 같은 action key로 제안할 수 있습니다. 단, LLM 제안은 항상 `source = "llm"`으로 들어가며 자동 실행 후보가 되지 않습니다.
 

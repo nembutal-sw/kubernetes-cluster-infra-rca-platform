@@ -22,6 +22,7 @@
   <properties>
     <java.version>21</java.version>
     <spring-ai.version>1.1.8</spring-ai.version>
+    <flyway.version>12.9.0</flyway.version>
   </properties>
 
   <dependencyManagement>

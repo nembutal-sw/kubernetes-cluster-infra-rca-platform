@@ -521,6 +521,23 @@ def test_retry_backoff_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert backoff.next_delay() == 2.0
 
 
+def test_positive_int_env_accepts_scientific_notation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MAX_SPOOL_BYTES", "2.68435456e+08")
+
+    assert agent_main._positive_int_env("AGENT_MAX_SPOOL_BYTES", 1, minimum=1024) == 268435456
+
+
+@pytest.mark.parametrize("raw_value", ["1.5", "nan", "invalid", "0"])
+def test_positive_int_env_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+) -> None:
+    monkeypatch.setenv("AGENT_MAX_SPOOL_FILES", raw_value)
+
+    with pytest.raises(ValueError):
+        agent_main._positive_int_env("AGENT_MAX_SPOOL_FILES", 1000)
+
+
 def test_agent_state_enforces_spool_file_limit(tmp_path: Path) -> None:
     state = AgentStateStore(
         tmp_path / "state",

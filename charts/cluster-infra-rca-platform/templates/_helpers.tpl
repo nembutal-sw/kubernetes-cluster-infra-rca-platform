@@ -70,11 +70,25 @@
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.secretName" -}}
-{{- if .Values.platform.secret.create -}}
+{{- if .Values.platform.externalSecret.enabled -}}
+{{- default (printf "%s-secret" (include "cluster-infra-rca-platform.fullname" .)) .Values.platform.externalSecret.targetName | trunc 63 | trimSuffix "-" -}}
+{{- else if .Values.platform.secret.create -}}
 {{- printf "%s-secret" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
 {{- required "platform.secret.existingSecret is required when platform.secret.create=false" .Values.platform.secret.existingSecret -}}
 {{- end -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.serviceAccountName" -}}
+{{- if .Values.platform.serviceAccount.create -}}
+{{- default (include "cluster-infra-rca-platform.platformName" .) .Values.platform.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.platform.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.backupPvcName" -}}
+{{- printf "%s-backup" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.selectorLabels" -}}

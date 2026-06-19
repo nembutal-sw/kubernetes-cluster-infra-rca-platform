@@ -9,6 +9,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
 import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
+import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,22 +32,42 @@ public class AuthController {
     private final RcaRepository repository;
     private final AccessService access;
     private final RcaConsoleProperties properties;
+    private final AuditService audit;
 
-    public AuthController(RcaRepository repository, AccessService access, RcaConsoleProperties properties) {
+    public AuthController(
+        RcaRepository repository,
+        AccessService access,
+        RcaConsoleProperties properties,
+        AuditService audit
+    ) {
         this.repository = repository;
         this.access = access;
         this.properties = properties;
+        this.audit = audit;
     }
 
     @PostMapping("/login")
     public AuthSessionResponse login(@Valid @RequestBody UserLoginRequest request) {
         UserAccount user = repository.authenticateUser(request.normalizedUsername(), request.password())
-            .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "invalid username or password"));
+            .orElseGet(() -> {
+                audit.record(
+                    "user",
+                    request.normalizedUsername(),
+                    "auth.login",
+                    "session",
+                    null,
+                    "failed",
+                    Map.of("reason", "invalid_credentials")
+                );
+                throw new ResponseStatusException(UNAUTHORIZED, "invalid username or password");
+            });
         if (user.status() != UserStatus.active || user.role() == null) {
+            audit.user(user, "auth.login", "session", null, "failed", Map.of("reason", "inactive_user"));
             throw new ResponseStatusException(FORBIDDEN, "user is not active");
         }
         Instant expiresAt = Instant.now().plus(Duration.ofHours(Math.max(1, properties.getSessionTtlHours())));
         String token = repository.createUserSession(user.userId(), expiresAt);
+        audit.user(user, "auth.login", "session", null, "success", Map.of("expires_at", expiresAt.toString()));
         return new AuthSessionResponse(token, "bearer", expiresAt, user);
     }
 
@@ -57,10 +78,14 @@ public class AuthController {
 
     @PostMapping("/logout")
     public Map<String, Boolean> logout(
-        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization
+        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+        Authentication authentication
     ) {
+        UserAccount user = access.currentUser(authentication);
         String token = PlatformAuthenticationFilter.bearerToken(authorization);
-        return Map.of("revoked", token != null && repository.revokeUserSession(token));
+        boolean revoked = token != null && repository.revokeUserSession(token);
+        audit.user(user, "auth.logout", "session", null, revoked ? "success" : "not_found", Map.of());
+        return Map.of("revoked", revoked);
     }
 
     @PostMapping("/change-password")
@@ -70,8 +95,10 @@ public class AuthController {
     ) {
         UserAccount user = access.currentUser(authentication);
         if (!repository.changeUserPassword(user.userId(), request.currentPassword(), request.newPassword())) {
+            audit.user(user, "auth.password_change", "user", user.userId(), "failed", Map.of());
             throw new ResponseStatusException(UNAUTHORIZED, "current password is invalid");
         }
+        audit.user(user, "auth.password_change", "user", user.userId(), "success", Map.of());
         return Map.of("changed", true);
     }
 }

@@ -12,8 +12,8 @@ data:
   COMMAND_TIMEOUT_SECONDS: {{ .Values.commandTimeoutSeconds | quote }}
   RETRY_INITIAL_SECONDS: {{ .Values.retryInitialSeconds | quote }}
   RETRY_MAX_SECONDS: {{ .Values.retryMaxSeconds | quote }}
-  AGENT_MAX_SPOOL_FILES: {{ .Values.maxSpoolFiles | quote }}
-  AGENT_MAX_SPOOL_BYTES: {{ .Values.maxSpoolBytes | quote }}
+  AGENT_MAX_SPOOL_FILES: {{ int64 .Values.maxSpoolFiles | quote }}
+  AGENT_MAX_SPOOL_BYTES: {{ int64 .Values.maxSpoolBytes | quote }}
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
   CONTROL_PLANE_PROBE_PORTS: {{ .Values.controlPlaneProbePorts | quote }}
   CONTAINER_RUNTIME_SOCKET_PATHS: {{ .Values.runtimeSocketPaths | quote }}

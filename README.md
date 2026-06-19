@@ -8,6 +8,8 @@ LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `a
 
 Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=true`로 플랫폼 주기 수집을 활성화할 수 있습니다. 정상 evidence는 저장만 하고, 장애 signal이 감지될 때만 RCA 보고서를 생성합니다.
 
+동일 노드·경보·원인으로 반복되는 evidence는 설정된 시간 구간 안에서 하나의 incident로 묶습니다. 조치 요청, 승인, 거절, 로그인, 클러스터 변경은 audit event로 기록됩니다.
+
 ## Architecture
 
 ```text
@@ -23,7 +25,7 @@ Alertmanager 또는 수동 수집 요청
 | --- | --- | --- |
 | Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
 | Web Console | JSP, React, Bootstrap 5 | 클러스터, 에이전트, 증거, 보고서 관리 |
-| Node Agent | Python 3.11+ | Linux 및 Kubernetes 노드 증거 수집 |
+| Node Agent | Python 3.10+ | Linux 및 Kubernetes 노드 증거 수집 |
 | Database | PostgreSQL 또는 MariaDB | 플랫폼 데이터 저장 |
 | Migration | Flyway | 공통 DB 스키마 관리 |
 
@@ -160,6 +162,8 @@ bash scripts/linux-dev-check.sh --full
 - Web Console JavaScript syntax
 - Spring Boot API/UI 통합 테스트
 - PostgreSQL/MariaDB Testcontainers 호환성 및 기존 Alembic DB 승계
+- Ubuntu, Debian, Rocky Linux, openSUSE Agent 수집 호환성
+- Helm HA, NetworkPolicy, External Secrets, DB backup 렌더링
 - 인증, 클러스터, 에이전트, evidence, RCA report 흐름
 
 ## Repository

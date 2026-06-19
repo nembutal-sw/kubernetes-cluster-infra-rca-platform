@@ -103,6 +103,7 @@ public class RuleBasedRcaAnalyzer {
         return new RcaReport(
             reportId,
             evidence.clusterId(),
+            null,
             RcaJobStatus.completed,
             Map.of("source", "evidence", "alert_name", evidence.alertName()),
             Map.of("nodes", List.of(evidence.nodeName()), "components", List.copyOf(components)),

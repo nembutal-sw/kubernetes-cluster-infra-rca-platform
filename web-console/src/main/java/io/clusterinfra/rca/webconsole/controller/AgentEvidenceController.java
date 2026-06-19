@@ -13,6 +13,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResp
 import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.RcaService;
+import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -35,18 +36,35 @@ public class AgentEvidenceController {
     private final RcaRepository repository;
     private final AccessService access;
     private final RcaService rcaService;
+    private final AuditService audit;
 
-    public AgentEvidenceController(RcaRepository repository, AccessService access, RcaService rcaService) {
+    public AgentEvidenceController(
+        RcaRepository repository,
+        AccessService access,
+        RcaService rcaService,
+        AuditService audit
+    ) {
         this.repository = repository;
         this.access = access;
         this.rcaService = rcaService;
+        this.audit = audit;
     }
 
     @PostMapping("/api/agents/register")
     @ResponseStatus(HttpStatus.CREATED)
     public NodeAgentRegistrationResponse register(@Valid @RequestBody NodeAgentRegisterRequest request) {
         access.verifyBootstrapToken(request.clusterId(), request.agentToken());
-        return repository.registerAgent(request);
+        NodeAgentRegistrationResponse registered = repository.registerAgent(request);
+        audit.record(
+            "agent",
+            request.nodeName(),
+            "agent.register",
+            "cluster",
+            request.clusterId(),
+            "success",
+            java.util.Map.of("agent_version", request.agentVersion())
+        );
+        return registered;
     }
 
     @PostMapping("/api/agents/heartbeat")
@@ -132,6 +150,15 @@ public class AgentEvidenceController {
         if (submitted.status() == EvidenceRequestStatus.completed) {
             rcaService.createReportFromEvidenceRequest(submitted);
         }
+        audit.record(
+            "agent",
+            request.nodeName(),
+            "evidence.submit",
+            "evidence_request",
+            request.requestId(),
+            submitted.status().name(),
+            java.util.Map.of("cluster_id", request.clusterId())
+        );
         return submitted;
     }
 }

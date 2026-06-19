@@ -41,6 +41,20 @@ spec:
           ports:
             - name: db
               containerPort: {{ include "cluster-infra-rca-platform.databasePort" . }}
+          readinessProbe:
+            tcpSocket:
+              port: db
+            initialDelaySeconds: {{ .Values.database.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.database.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.database.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.database.readinessProbe.failureThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: db
+            initialDelaySeconds: {{ .Values.database.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.database.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.database.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.database.livenessProbe.failureThreshold }}
           env:
             {{- if eq $type "mariadb" }}
             - name: MARIADB_DATABASE

@@ -79,6 +79,14 @@ rca:
     provider: ${RCA_LLM_PROVIDER:none}
     model: ${RCA_LLM_MODEL:}
     max-output-tokens: ${RCA_LLM_MAX_OUTPUT_TOKENS:1800}
+    timeout-seconds: ${RCA_LLM_TIMEOUT_SECONDS:30}
+    max-attempts: ${RCA_LLM_MAX_ATTEMPTS:2}
+    failure-threshold: ${RCA_LLM_FAILURE_THRESHOLD:3}
+    cooldown-seconds: ${RCA_LLM_COOLDOWN_SECONDS:60}
+  incident:
+    correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
+  audit:
+    retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}
   thresholds:
     disk-warning-percent: ${RCA_THRESHOLD_DISK_WARNING_PERCENT:85}
     disk-critical-percent: ${RCA_THRESHOLD_DISK_CRITICAL_PERCENT:90}

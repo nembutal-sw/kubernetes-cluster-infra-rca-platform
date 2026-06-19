@@ -36,7 +36,22 @@ Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니�
 - `rca_jobs`
 - `user_accounts`
 - `user_sessions`
+- `incidents`
+- `action_requests`
+- `audit_events`
 
 JSON 데이터는 DB별 JSON 타입 대신 `TEXT`로 저장해 PostgreSQL과 MariaDB의 동작을 동일하게 유지합니다.
 
 `DatabaseCompatibilityTests`는 두 DB에서 새 스키마 생성과 기존 Alembic 스키마 승계를 검증합니다. Docker가 없는 로컬 환경에서는 자동으로 건너뛰며 GitHub Actions에서는 실제 DB 컨테이너로 실행합니다.
+
+## Backup
+
+Helm의 `backup.enabled=true`는 내장 DB를 대상으로 `pg_dump` 또는 `mariadb-dump` CronJob과 backup PVC를 생성합니다.
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set backup.enabled=true \
+  --set backup.persistence.size=20Gi
+```
+
+복구 전에는 플랫폼 쓰기를 중지하고 대상 DB를 별도 인스턴스에 복구한 뒤 무결성을 검증합니다. 운영 환경에서는 chart의 단일 DB보다 관리형 DB와 provider snapshot을 우선합니다.

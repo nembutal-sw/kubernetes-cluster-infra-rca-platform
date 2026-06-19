@@ -12,6 +12,8 @@ public class RcaConsoleProperties {
     private int agentOfflineAfterSeconds = 180;
     private final Agent agent = new Agent();
     private final Llm llm = new Llm();
+    private final Incident incident = new Incident();
+    private final Audit audit = new Audit();
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
 
@@ -69,6 +71,14 @@ public class RcaConsoleProperties {
 
     public Llm getLlm() {
         return llm;
+    }
+
+    public Incident getIncident() {
+        return incident;
+    }
+
+    public Audit getAudit() {
+        return audit;
     }
 
     public Thresholds getThresholds() {
@@ -132,6 +142,10 @@ public class RcaConsoleProperties {
         private String provider = "none";
         private String model = "";
         private int maxOutputTokens = 1800;
+        private int timeoutSeconds = 30;
+        private int maxAttempts = 2;
+        private int failureThreshold = 3;
+        private int cooldownSeconds = 60;
 
         public boolean isEnabled() {
             return enabled;
@@ -163,6 +177,62 @@ public class RcaConsoleProperties {
 
         public void setMaxOutputTokens(int maxOutputTokens) {
             this.maxOutputTokens = maxOutputTokens;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = maxAttempts;
+        }
+
+        public int getFailureThreshold() {
+            return failureThreshold;
+        }
+
+        public void setFailureThreshold(int failureThreshold) {
+            this.failureThreshold = failureThreshold;
+        }
+
+        public int getCooldownSeconds() {
+            return cooldownSeconds;
+        }
+
+        public void setCooldownSeconds(int cooldownSeconds) {
+            this.cooldownSeconds = cooldownSeconds;
+        }
+    }
+
+    public static class Incident {
+        private int correlationWindowMinutes = 15;
+
+        public int getCorrelationWindowMinutes() {
+            return correlationWindowMinutes;
+        }
+
+        public void setCorrelationWindowMinutes(int correlationWindowMinutes) {
+            this.correlationWindowMinutes = correlationWindowMinutes;
+        }
+    }
+
+    public static class Audit {
+        private int retentionDays = 180;
+
+        public int getRetentionDays() {
+            return retentionDays;
+        }
+
+        public void setRetentionDays(int retentionDays) {
+            this.retentionDays = retentionDays;
         }
     }
 

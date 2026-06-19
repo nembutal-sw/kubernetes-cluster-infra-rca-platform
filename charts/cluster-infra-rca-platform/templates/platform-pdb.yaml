@@ -1,0 +1,18 @@
+{{- if .Values.platform.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cluster-infra-rca-platform.platformName" . }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+spec:
+  {{- if .Values.platform.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.platform.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.platform.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 6 }}
+{{- end }}

@@ -17,6 +17,7 @@ import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptions;
 import io.clusterinfra.rca.webconsole.service.RcaService;
+import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,26 +53,39 @@ public class ClusterController {
     private final AgentManifestService manifests;
     private final RcaService rcaService;
     private final RcaConsoleProperties properties;
+    private final AuditService audit;
 
     public ClusterController(
         RcaRepository repository,
         AccessService access,
         AgentManifestService manifests,
         RcaService rcaService,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        AuditService audit
     ) {
         this.repository = repository;
         this.access = access;
         this.manifests = manifests;
         this.rcaService = rcaService;
         this.properties = properties;
+        this.audit = audit;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
-    public Cluster create(@Valid @RequestBody ClusterCreateRequest request) {
-        return repository.createCluster(request);
+    public Cluster create(@Valid @RequestBody ClusterCreateRequest request, Authentication authentication) {
+        UserAccount user = access.currentUser(authentication);
+        Cluster cluster = repository.createCluster(request);
+        audit.user(
+            user,
+            "cluster.create",
+            "cluster",
+            cluster.clusterId(),
+            "success",
+            Map.of("name", cluster.name(), "environment", cluster.environment())
+        );
+        return cluster;
     }
 
     @GetMapping
@@ -90,13 +104,23 @@ public class ClusterController {
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String, Object> delete(
         @PathVariable String clusterId,
-        @RequestParam(name = "confirm_name") String confirmName
+        @RequestParam(name = "confirm_name") String confirmName,
+        Authentication authentication
     ) {
+        UserAccount user = access.currentUser(authentication);
         Cluster cluster = requireCluster(clusterId);
         if (!cluster.name().equals(confirmName)) {
             throw new ResponseStatusException(BAD_REQUEST, "confirm_name must match the cluster name");
         }
         repository.deleteCluster(clusterId);
+        audit.user(
+            user,
+            "cluster.delete",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of("name", cluster.name())
+        );
         return Map.of("deleted", true, "cluster_id", clusterId, "name", cluster.name());
     }
 
@@ -212,6 +236,14 @@ public class ClusterController {
                 context
             )));
         }
+        audit.user(
+            user,
+            "collection.request",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of("requested_nodes", targets.size(), "created_requests", created.size(), "skipped_nodes", skipped.size())
+        );
         return new ClusterCollectionResponse(clusterId, targets, created, skipped);
     }
 

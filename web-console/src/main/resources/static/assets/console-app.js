@@ -8,13 +8,35 @@
     { id: "overview", label: "Overview", icon: "speedometer2" },
     { id: "clusters", label: "Clusters", icon: "hdd-network" },
     { id: "webhooks", label: "Webhooks", icon: "diagram-3" },
+    { id: "incidents", label: "Incidents", icon: "exclamation-diamond" },
     { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
+    { id: "audit", label: "Audit", icon: "journal-check" },
     { id: "settings", label: "Settings", icon: "sliders" },
   ];
   let activeLocale = normalizeLocale(localStorage.getItem(LANGUAGE_STORAGE_KEY));
 
   const translations = {
     ko: {
+      "Incidents": "인시던트",
+      "Incident": "인시던트",
+      "Audit": "감사 로그",
+      "Actor": "행위자",
+      "Event": "이벤트",
+      "Resource": "대상",
+      "Outcome": "결과",
+      "Root Cause": "근본 원인",
+      "Occurrences": "발생 횟수",
+      "Action History": "조치 이력",
+      "Approval and execution attempts": "승인 및 실행 요청 이력",
+      "No action requests.": "조치 요청 이력이 없습니다.",
+      "No incidents loaded.": "등록된 인시던트가 없습니다.",
+      "No audit events loaded.": "감사 이벤트가 없습니다.",
+      "Approve": "승인",
+      "Reject": "거절",
+      "Requested by": "요청자",
+      "Reviewed by": "검토자",
+      "Resolve": "해결 처리",
+      "Reopen": "다시 열기",
       "Overview": "개요",
       "Clusters": "클러스터",
       "Webhooks": "웹훅",
@@ -562,6 +584,8 @@
     const [locale, setLocale] = React.useState(activeLocale);
     const [clusters, setClusters] = React.useState([]);
     const [reports, setReports] = React.useState([]);
+    const [incidents, setIncidents] = React.useState([]);
+    const [auditEvents, setAuditEvents] = React.useState([]);
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
     const [installCommands, setInstallCommands] = React.useState({});
@@ -669,13 +693,42 @@
       }
     }, [authHeaders, callApi, notify]);
 
+    const loadIncidents = React.useCallback(async (silent) => {
+      try {
+        setLoading((value) => ({ ...value, incidents: true }));
+        const result = await callApi("/api/rca/incidents", { headers: authHeaders() });
+        setIncidents(Array.isArray(result) ? result : []);
+      } catch (error) {
+        setIncidents([]);
+        if (!silent) notify(error.message);
+      } finally {
+        setLoading((value) => ({ ...value, incidents: false }));
+      }
+    }, [authHeaders, callApi, notify]);
+
+    const loadAuditEvents = React.useCallback(async (silent) => {
+      if (currentUser?.role !== "admin") return;
+      try {
+        setLoading((value) => ({ ...value, audit: true }));
+        const result = await callApi("/api/audit/events?limit=300", { headers: authHeaders() });
+        setAuditEvents(Array.isArray(result) ? result : []);
+      } catch (error) {
+        setAuditEvents([]);
+        if (!silent) notify(error.message);
+      } finally {
+        setLoading((value) => ({ ...value, audit: false }));
+      }
+    }, [currentUser, authHeaders, callApi, notify]);
+
     const refreshAll = React.useCallback(async (silent) => {
       await Promise.allSettled([
         loadClusters(silent),
         loadReports(silent),
+        loadIncidents(silent),
+        loadAuditEvents(silent),
       ]);
       setLastRefresh(new Date());
-    }, [loadClusters, loadReports]);
+    }, [loadClusters, loadReports, loadIncidents, loadAuditEvents]);
 
     React.useEffect(() => {
       loadCurrentUser(true);
@@ -721,6 +774,8 @@
       setCurrentUser(null);
       setClusters([]);
       setReports([]);
+      setIncidents([]);
+      setAuditEvents([]);
       setReportDetails({});
       setAgentsByCluster({});
       setClusterData(null);
@@ -845,10 +900,19 @@
       }
       setReportDetails((value) => ({ ...value, [reportId]: { ...(value[reportId] || {}), open: true, loading: true } }));
       try {
-        const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, {
-          headers: authHeaders(),
-        });
-        setReportDetails((value) => ({ ...value, [reportId]: { open: true, loading: false, report } }));
+        const [report, actionRequests] = await Promise.all([
+          callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+          callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+        ]);
+        setReportDetails((value) => ({
+          ...value,
+          [reportId]: {
+            open: true,
+            loading: false,
+            report,
+            actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
+          },
+        }));
       } catch (error) {
         setReportDetails((value) => ({ ...value, [reportId]: { open: true, loading: false, error: error.message } }));
       }
@@ -943,9 +1007,57 @@
         );
         setActionDialog(null);
         notify(result.evidence_request ? `${result.message} ${result.evidence_request.request_id}` : result.message);
+        await reloadActionRequests(report.report_id);
         if (result.evidence_request) loadClusterData(report.cluster_id);
       } catch (error) {
         setActionDialog((value) => ({ ...value, loading: false, error: error.message }));
+      }
+    }
+
+    async function reloadActionRequests(reportId) {
+      const actionRequests = await callApi(
+        `/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`,
+        { headers: authHeaders() }
+      );
+      setReportDetails((value) => ({
+        ...value,
+        [reportId]: {
+          ...(value[reportId] || {}),
+          actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
+        },
+      }));
+      if (currentUser?.role === "admin") loadAuditEvents(true);
+    }
+
+    async function decideActionRequest(actionRequestId, reportId, decision) {
+      try {
+        const result = await callApi(
+          `/api/rca/action-requests/${encodeURIComponent(actionRequestId)}/${decision}`,
+          {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ confirmed: true, note: `Decision from web console: ${decision}` }),
+          }
+        );
+        notify(`Action request ${result.status}.`);
+        await reloadActionRequests(reportId);
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+
+    async function changeIncidentStatus(incidentId, status) {
+      try {
+        await callApi(`/api/rca/incidents/${encodeURIComponent(incidentId)}/${status}`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ confirmed: true, note: `Status changed from web console: ${status}` }),
+        });
+        notify(`Incident ${status}.`);
+        await loadIncidents(false);
+        if (currentUser?.role === "admin") loadAuditEvents(true);
+      } catch (error) {
+        notify(error.message);
       }
     }
 
@@ -1030,7 +1142,7 @@
     }
 
     return h("div", { className: "console-shell" },
-      h(Sidebar, { activeView, setActiveView }),
+      h(Sidebar, { activeView, setActiveView, currentUser }),
       h("main", { className: "console-main" },
         h(Topbar, {
           currentUser,
@@ -1068,6 +1180,13 @@
           endpoint: webhookEndpoint,
           onCopy: copyText,
         }),
+        activeView === "incidents" && h(IncidentsView, {
+          incidents,
+          loading: loading.incidents,
+          onReload: () => loadIncidents(false),
+          onChangeStatus: changeIncidentStatus,
+          currentUser,
+        }),
         activeView === "reports" && h(ReportsView, {
           reports,
           loading,
@@ -1078,6 +1197,13 @@
           onExportReports: () => downloadReportsExport(),
           onExportReport: downloadReportExport,
           onCopy: copyText,
+          currentUser,
+          onDecideAction: decideActionRequest,
+        }),
+        activeView === "audit" && currentUser.role === "admin" && h(AuditView, {
+          events: auditEvents,
+          loading: loading.audit,
+          onReload: () => loadAuditEvents(false),
         }),
         activeView === "settings" && h(SettingsView, {
           apiBase,
@@ -1118,7 +1244,7 @@
     );
   }
 
-  function Sidebar({ activeView, setActiveView }) {
+  function Sidebar({ activeView, setActiveView, currentUser }) {
     return h("aside", { className: "console-sidebar" },
       h("div", { className: "console-brand" },
         h("div", { className: "console-brand-mark" }, "RCA"),
@@ -1128,7 +1254,7 @@
         )
       ),
       h("nav", { className: "console-nav", "aria-label": "Console navigation" },
-        views.map((view) => h("button", {
+        views.filter((view) => view.id !== "audit" || currentUser?.role === "admin").map((view) => h("button", {
           key: view.id,
           type: "button",
           className: activeView === view.id ? "active" : "",
@@ -1402,7 +1528,92 @@
     );
   }
 
-  function ReportsView({ reports, loading, reportDetails, onLoadReports, onToggleReport, onPrepareAction, onExportReports, onExportReport, onCopy }) {
+  function IncidentsView({ incidents, loading, onReload, onChangeStatus, currentUser }) {
+    return h(Panel, {
+      title: "Incidents",
+      subtitle: loading ? "Loading" : `${incidents.length} incidents`,
+      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
+        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+    }, incidents.length ? h("div", { className: "table-responsive" },
+      h("table", { className: "table table-hover align-middle mb-0" },
+        h("thead", null, h("tr", null,
+          h("th", null, tr("Incident")),
+          h("th", null, tr("Cluster")),
+          h("th", null, tr("Node")),
+          h("th", null, tr("Root Cause")),
+          h("th", null, tr("Occurrences")),
+          h("th", null, tr("Last seen")),
+          h("th", { className: "text-end" }, tr("Actions"))
+        )),
+        h("tbody", null, incidents.map((incident) => h("tr", { key: incident.incident_id },
+          h("td", null,
+            h(StatusBadge, { value: incident.status, tone: incident.status === "open" ? "red" : "green" }),
+            h("div", { className: "small font-monospace mt-1" }, incident.incident_id)
+          ),
+          h("td", { className: "font-monospace small" }, incident.cluster_id),
+          h("td", null, incident.node_name),
+          h("td", null, displayText(incident.root_cause)),
+          h("td", null, incident.occurrence_count),
+          h("td", null, formatDate(incident.last_seen_at)),
+          h("td", { className: "text-end" },
+            ["admin", "operator"].includes(currentUser?.role)
+              ? h("button", {
+                  className: "btn btn-sm btn-outline-secondary",
+                  onClick: () => onChangeStatus(
+                    incident.incident_id,
+                    incident.status === "open" ? "resolve" : "reopen"
+                  ),
+                }, tr(incident.status === "open" ? "Resolve" : "Reopen"))
+              : null
+          )
+        )))
+      )
+    ) : h(EmptyState, { message: "No incidents loaded." }));
+  }
+
+  function AuditView({ events, loading, onReload }) {
+    return h(Panel, {
+      title: "Audit",
+      subtitle: loading ? "Loading" : `${events.length} events`,
+      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
+        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+    }, events.length ? h("div", { className: "table-responsive" },
+      h("table", { className: "table table-hover align-middle mb-0" },
+        h("thead", null, h("tr", null,
+          h("th", null, tr("Created")),
+          h("th", null, tr("Actor")),
+          h("th", null, tr("Event")),
+          h("th", null, tr("Resource")),
+          h("th", null, tr("Outcome"))
+        )),
+        h("tbody", null, events.map((event) => h("tr", { key: event.audit_event_id },
+          h("td", null, formatDate(event.created_at)),
+          h("td", null, `${event.actor_type}: ${event.actor_id}`),
+          h("td", { className: "font-monospace small" }, event.event_type),
+          h("td", { className: "small" }, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`),
+          h("td", null, h(StatusBadge, {
+            value: event.outcome,
+            tone: ["success", "accepted", "approved_manual", "report_created"].includes(event.outcome) ? "green"
+              : ["failed", "blocked"].includes(event.outcome) ? "red" : "amber",
+          }))
+        )))
+      )
+    ) : h(EmptyState, { message: "No audit events loaded." }));
+  }
+
+  function ReportsView({
+    reports,
+    loading,
+    reportDetails,
+    onLoadReports,
+    onToggleReport,
+    onPrepareAction,
+    onExportReports,
+    onExportReport,
+    onCopy,
+    currentUser,
+    onDecideAction,
+  }) {
     return h(Panel, {
       title: "RCA Reports",
       subtitle: loading.reports ? "Loading" : `${reports.length} reports`,
@@ -1439,7 +1650,14 @@
                   )
                 )
               ),
-              detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })))
+              detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, {
+                detail,
+                onPrepareAction,
+                onExportReport,
+                onCopy,
+                currentUser,
+                onDecideAction,
+              })))
             );
           }))
         )
@@ -1471,7 +1689,7 @@
               )
             ),
             detail?.open && h("div", { className: "mobile-card-expanded" },
-              h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })
+              h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy, currentUser, onDecideAction })
             )
           );
         })
@@ -1906,7 +2124,7 @@
     );
   }
 
-  function ReportDetail({ detail, onPrepareAction, onExportReport, onCopy }) {
+  function ReportDetail({ detail, onPrepareAction, onExportReport, onCopy, currentUser, onDecideAction }) {
     if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
     if (detail.error) return h(EmptyState, { message: detail.error });
     const report = detail.report;
@@ -1951,6 +2169,18 @@
           h("span", { className: "small text-muted" }, tr("Policy Engine decides whether an action can be automated"))
         ),
         h(ActionFacts, { items: actions, report, onPrepareAction })
+      ),
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Action History")),
+          h("span", { className: "small text-muted" }, tr("Approval and execution attempts"))
+        ),
+        h(ActionRequestHistory, {
+          items: detail.actionRequests || [],
+          reportId: report.report_id,
+          currentUser,
+          onDecideAction,
+        })
       )
     );
   }
@@ -1961,6 +2191,7 @@
     const llmCount = actions.filter((action) => action.source === "llm").length;
     return h("div", { className: "report-summary-grid" },
       h(SummaryBox, { label: "Report", value: h("span", { className: "font-monospace small text-break" }, report.report_id) }),
+      h(SummaryBox, { label: "Incident", value: h("span", { className: "font-monospace small text-break" }, report.incident_id || "n/a") }),
       h(SummaryBox, { label: "Nodes", value: listValue(report.scope?.nodes) }),
       h(SummaryBox, { label: "Confidence", value: h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) }) }),
       h(SummaryBox, { label: "Automation", value: activeLocale === "ko" ? `${allowed}개 ${tr("allowed")} / ${blocked}개 ${tr("gated")}` : `${allowed} allowed / ${blocked} gated` }),
@@ -1969,6 +2200,47 @@
       h(SummaryBox, { label: "LLM", value: h("span", null, h(StatusBadge, { value: llm.status || "unknown", tone: llm.status === "completed" ? "green" : "amber" }), llmCount ? h("span", { className: "small text-muted ms-2" }, `${llmCount} ${tr("action")}`) : null) }),
       h(SummaryBox, { label: "Provider", value: llm.provider || llm.reason || llm.error || "n/a" })
     );
+  }
+
+  function ActionRequestHistory({ items, reportId, currentUser, onDecideAction }) {
+    if (!items.length) return h(EmptyState, { message: "No action requests." });
+    return h("div", { className: "d-grid gap-2" }, items.map((item) => h("article", {
+      key: item.action_request_id,
+      className: "action-card",
+    },
+    h("div", { className: "d-flex justify-content-between gap-2 flex-wrap" },
+      h("div", null,
+        h("strong", null, item.action_key),
+        h("div", { className: "small text-muted font-monospace" }, item.action_request_id)
+      ),
+      h("div", { className: "d-flex gap-2 align-items-center flex-wrap" },
+        h(StatusBadge, { value: item.policy, tone: policyTone(item.policy) }),
+        h(StatusBadge, {
+          value: item.status,
+          tone: ["accepted", "approved_manual"].includes(item.status) ? "green"
+            : item.status === "blocked" || item.status === "rejected" ? "red" : "amber",
+        }),
+        currentUser?.role === "admin" && item.status === "pending_approval"
+          ? h("div", { className: "btn-group btn-group-sm" },
+              h("button", {
+                className: "btn btn-outline-success",
+                onClick: () => onDecideAction(item.action_request_id, reportId, "approve"),
+              }, tr("Approve")),
+              h("button", {
+                className: "btn btn-outline-danger",
+                onClick: () => onDecideAction(item.action_request_id, reportId, "reject"),
+              }, tr("Reject"))
+            )
+          : null
+      )
+    ),
+    h("div", { className: "small text-muted mt-2" },
+      `${tr("Requested by")}: ${item.requested_by} / ${formatDate(item.created_at)}`
+    ),
+    item.reviewed_by ? h("div", { className: "small text-muted" },
+      `${tr("Reviewed by")}: ${item.reviewed_by} / ${formatDate(item.reviewed_at)}`
+    ) : null
+    )));
   }
 
   function PolicyOverview({ actions }) {

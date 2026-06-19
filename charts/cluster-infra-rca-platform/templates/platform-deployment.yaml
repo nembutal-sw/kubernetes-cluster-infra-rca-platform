@@ -7,6 +7,12 @@ metadata:
     app.kubernetes.io/component: platform
 spec:
   replicas: {{ .Values.platform.replicaCount }}
+  revisionHistoryLimit: {{ .Values.platform.revisionHistoryLimit }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 6 }}
@@ -22,6 +28,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      serviceAccountName: {{ include "cluster-infra-rca-platform.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.platform.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.platform.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -59,6 +68,20 @@ spec:
               value: {{ .Values.platform.config.llmModel | quote }}
             - name: RCA_SPRING_AI_CHAT_MODEL
               value: {{ .Values.platform.config.springAiChatModel | quote }}
+            - name: RCA_LLM_TIMEOUT_SECONDS
+              value: {{ .Values.platform.config.llmTimeoutSeconds | quote }}
+            - name: RCA_LLM_MAX_ATTEMPTS
+              value: {{ .Values.platform.config.llmMaxAttempts | quote }}
+            - name: RCA_LLM_FAILURE_THRESHOLD
+              value: {{ .Values.platform.config.llmFailureThreshold | quote }}
+            - name: RCA_LLM_COOLDOWN_SECONDS
+              value: {{ .Values.platform.config.llmCooldownSeconds | quote }}
+            - name: RCA_INCIDENT_CORRELATION_WINDOW_MINUTES
+              value: {{ .Values.platform.config.incidentCorrelationWindowMinutes | quote }}
+            - name: RCA_AUDIT_RETENTION_DAYS
+              value: {{ .Values.platform.config.auditRetentionDays | quote }}
+            - name: SERVER_SHUTDOWN
+              value: graceful
             {{- range $key, $value := .Values.platform.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
@@ -67,6 +90,13 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.platform.startupProbe.path }}
+              port: http
+            periodSeconds: {{ .Values.platform.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.platform.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.platform.startupProbe.failureThreshold }}
           readinessProbe:
             httpGet:
               path: {{ .Values.platform.readinessProbe.path }}
@@ -97,5 +127,9 @@ spec:
       {{- end }}
       {{- with .Values.platform.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.platform.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -30,6 +30,25 @@ helm template rca charts/cluster-infra-rca-platform \
 
 `platform.secret.create=false`를 사용할 때 Secret에는 다음 key가 필요합니다.
 
+External Secrets Operator를 사용할 때:
+
+```yaml
+platform:
+  secret:
+    create: false
+  externalSecret:
+    enabled: true
+    secretStoreRef:
+      kind: ClusterSecretStore
+      name: production-vault
+    data:
+      - secretKey: RCA_DB_PASSWORD
+        remoteRef:
+          key: rca/database-password
+```
+
+`platform.networkPolicy.enabled=true`, `platform.podDisruptionBudget.enabled=true`, `backup.enabled=true`로 운영 보호 기능을 활성화할 수 있습니다.
+
 - `RCA_JDBC_URL`
 - `RCA_DB_USERNAME`
 - `RCA_DB_PASSWORD`

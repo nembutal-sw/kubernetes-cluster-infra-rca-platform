@@ -2,7 +2,7 @@
 name = "kubernetes-cluster-infra-rca-platform"
 version = "0.1.0"
 description = "Node evidence collector for the Kubernetes Cluster Infra RCA Platform"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]

@@ -14,12 +14,15 @@
 - Prometheus 없이 동작하는 정기 수집 scheduler
 - PostgreSQL/MariaDB Testcontainers 통합 검증
 - GitHub Actions CI
+- incident correlation 및 중복 보고서 억제
+- 조치 승인 이력과 audit log
+- LLM timeout, retry, circuit breaker, provider contract test
+- External Secrets, NetworkPolicy, PDB, DB backup Helm 옵션
+- 다중 Linux 배포판 Agent 검증 자동화
+- CodeQL, Trivy, secret scan, SBOM, image signing release workflow
 
 ## Next
 
 - 실제 다중 배포판과 managed Kubernetes에서 collector field 검증
-- Spring AI provider별 contract test
-- 정기 수집 결과의 incident correlation
-- 외부 secret manager 및 audit log
 - GitOps PR provider 연동
 - 운영 HA 구성과 disaster recovery 검증

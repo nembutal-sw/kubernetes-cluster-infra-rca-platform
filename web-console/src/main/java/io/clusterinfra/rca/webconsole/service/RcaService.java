@@ -10,23 +10,38 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.WebhookIngestResponse;
+import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Locale;
 import org.springframework.stereotype.Service;
 
 @Service
 public class RcaService {
     private final RcaRepository repository;
     private final RuleBasedRcaAnalyzer analyzer;
+    private final RcaConsoleProperties properties;
+    private final TokenService tokens;
+    private final AuditService audit;
 
-    public RcaService(RcaRepository repository, RuleBasedRcaAnalyzer analyzer) {
+    public RcaService(
+        RcaRepository repository,
+        RuleBasedRcaAnalyzer analyzer,
+        RcaConsoleProperties properties,
+        TokenService tokens,
+        AuditService audit
+    ) {
         this.repository = repository;
         this.analyzer = analyzer;
+        this.properties = properties;
+        this.tokens = tokens;
+        this.audit = audit;
     }
 
     public WebhookIngestResponse ingestAlertmanager(AlertmanagerPayload payload) {
@@ -126,7 +141,41 @@ public class RcaService {
             evidence.evidenceId(),
             Instant.now()
         );
-        return repository.saveReportAndJob(report, job);
+        String dedupKey = incidentDedupKey(report, evidence);
+        RcaJob saved = repository.saveCorrelatedReportAndJob(report, job, dedupKey, evidence);
+        boolean duplicate = !saved.reportId().equals(reportId);
+        audit.system(
+            "rca-pipeline",
+            duplicate ? "incident.correlated" : "incident.created",
+            "incident",
+            repository.getReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
+            duplicate ? "suppressed_duplicate_report" : "report_created",
+            Map.of(
+                "cluster_id", evidence.clusterId(),
+                "node_name", evidence.nodeName(),
+                "alert_name", evidence.alertName(),
+                "evidence_id", evidence.evidenceId(),
+                "report_id", saved.reportId()
+            )
+        );
+        return saved;
+    }
+
+    private String incidentDedupKey(RcaReport report, EvidenceBundle evidence) {
+        long windowSeconds = Math.max(60L, properties.getIncident().getCorrelationWindowMinutes() * 60L);
+        long bucket = evidence.collectedAt().getEpochSecond() / windowSeconds;
+        String cause = report.summary().mostLikelyCause()
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^a-z0-9]+", " ")
+            .trim();
+        return tokens.sha256(String.join(
+            "|",
+            evidence.clusterId(),
+            evidence.nodeName(),
+            evidence.alertName().toLowerCase(Locale.ROOT),
+            cause,
+            Long.toString(bucket)
+        ));
     }
 
     public List<String> collectorsFor(String alertName) {
