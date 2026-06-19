@@ -1,96 +1,44 @@
 # Platform Helm Chart
 
-`charts/cluster-infra-rca-platform` deploys the backend API and Spring Boot web console.
+경로: `charts/cluster-infra-rca-platform`
 
-The chart expects an external PostgreSQL or MariaDB database. It does not install a database by default.
+차트는 Spring Boot Platform Deployment, Service, 선택적 Ingress, PostgreSQL 또는 MariaDB StatefulSet을 생성합니다.
 
-## Install
-
-```bash
-helm upgrade --install rca-platform charts/cluster-infra-rca-platform \
-  --namespace rca-system \
-  --create-namespace \
-  --set backend.image.repository=ghcr.io/acme/cluster-infra-rca-backend \
-  --set backend.image.tag=v0.1.0 \
-  --set webConsole.image.repository=ghcr.io/acme/cluster-infra-rca-web-console \
-  --set webConsole.image.tag=v0.1.0 \
-  --set backend.secret.databaseUrl='postgresql+psycopg://rca:password@postgresql.example:5432/rca' \
-  --set backend.secret.defaultAdminPassword='change-this-password' \
-  --set backend.secret.webhookToken='change-this-token'
-```
-
-MariaDB example:
+## Database
 
 ```bash
---set backend.secret.databaseUrl='mysql+pymysql://rca:password@mariadb.example:3306/rca'
+helm template rca charts/cluster-infra-rca-platform \
+  --set database.type=postgresql
 ```
 
-## Ingress
-
-Expose the web console:
-
-```yaml
-ingress:
-  webConsole:
-    enabled: true
-    className: nginx
-    hosts:
-      - host: rca.example.com
-        paths:
-          - path: /
-            pathType: Prefix
+```bash
+helm template rca charts/cluster-infra-rca-platform \
+  --set database.type=mariadb
 ```
 
-Expose the backend API for node agents and Alertmanager:
+외부 DB:
 
-```yaml
-ingress:
-  backend:
-    enabled: true
-    className: nginx
-    hosts:
-      - host: rca-api.example.com
-        paths:
-          - path: /
-            pathType: Prefix
-webConsole:
-  config:
-    publicApiBaseUrl: https://rca-api.example.com
+```bash
+helm template rca charts/cluster-infra-rca-platform \
+  --set database.enabled=false \
+  --set-string platform.secret.jdbcUrl='jdbc:postgresql://db.example:5432/rca' \
+  --set-string platform.secret.databaseUsername='rca' \
+  --set-string platform.secret.databasePassword='change-me'
 ```
-
-`webConsole.config.publicApiBaseUrl` is used in the UI when generating agent install commands and webhook endpoint text.
 
 ## Existing Secret
 
-Use an existing Secret when credentials are managed outside Helm:
+`platform.secret.create=false`를 사용할 때 Secret에는 다음 key가 필요합니다.
 
-```yaml
-backend:
-  secret:
-    create: false
-    existingSecret: rca-backend-secret
-```
+- `RCA_JDBC_URL`
+- `RCA_DB_USERNAME`
+- `RCA_DB_PASSWORD`
+- `RCA_DEFAULT_ADMIN_USERNAME`
+- `RCA_DEFAULT_ADMIN_PASSWORD`
+- `RCA_WEBHOOK_TOKEN`
 
-The Secret must provide:
+Spring AI provider key는 선택 사항입니다.
 
-```text
-RCA_DATABASE_URL
-RCA_DEFAULT_ADMIN_USERNAME
-RCA_DEFAULT_ADMIN_PASSWORD
-RCA_WEBHOOK_TOKEN
-```
+## Image
 
-Optional LLM keys:
-
-```text
-RCA_OPENAI_API_KEY
-RCA_ANTHROPIC_API_KEY
-RCA_GEMINI_API_KEY
-```
-
-## Notes
-
-- Replace the default `admin/admin` credential before production use.
-- Keep `backend.config.runMigrations=true` unless migrations are handled by a separate job.
-- Set `backend.config.llmProvider` to `openai`, `anthropic`, `gemini`, `openai_compatible`, or `self_hosted` only after the matching endpoint and key are configured.
-- The action request API only starts read-only evidence collection for rule-based `AUTO_SAFE` actions. Mutating actions remain blocked, approval-gated, or PR-only.
+`platform.image.repository`와 `platform.image.tag`는 실제 registry에 맞게 지정합니다. 저장소 기본값은 placeholder입니다.

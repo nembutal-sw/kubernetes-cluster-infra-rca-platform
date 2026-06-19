@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -9,7 +10,9 @@ from typing import Any
 
 
 class AgentClientError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 @dataclass
@@ -20,6 +23,9 @@ class AgentClient:
     agent_token: str
     node_token: str | None = None
     timeout_seconds: float = 10
+    ca_bundle: str | None = None
+    client_cert: str | None = None
+    client_key: str | None = None
 
     def register(
         self,
@@ -119,13 +125,28 @@ class AgentClient:
         )
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=self._ssl_context()))
+            with opener.open(request, timeout=self.timeout_seconds) as response:
                 body = response.read().decode("utf-8")
                 return json.loads(body) if body else {}
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")[:2000]
-            raise AgentClientError(f"backend returned HTTP {exc.code} for {path}: {body}") from exc
+            raise AgentClientError(
+                f"backend returned HTTP {exc.code} for {path}: {body}",
+                status_code=exc.code,
+            ) from exc
         except (urllib.error.URLError, socket.timeout, TimeoutError) as exc:
             raise AgentClientError(f"failed to call backend {path}: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise AgentClientError(f"backend returned invalid JSON for {path}") from exc
+
+    def _ssl_context(self) -> ssl.SSLContext:
+        context = ssl.create_default_context(cafile=self.ca_bundle or None)
+        if bool(self.client_cert) != bool(self.client_key):
+            raise AgentClientError("both AGENT_CLIENT_CERT and AGENT_CLIENT_KEY are required for mTLS")
+        if self.client_cert and self.client_key:
+            try:
+                context.load_cert_chain(self.client_cert, self.client_key)
+            except (OSError, ssl.SSLError) as exc:
+                raise AgentClientError(f"failed to load agent mTLS certificate: {exc}") from exc
+        return context

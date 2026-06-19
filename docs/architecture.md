@@ -1,69 +1,36 @@
-# 아키텍처
+# Architecture
 
-이 플랫폼은 Kubernetes 장애 이벤트를 트리거로 사용하지만, 분석의 중심은 클러스터 노드와 Linux 시스템 계층입니다.
+## Components
 
-## 논리 구조
-
-```mermaid
-flowchart LR
-    Operator["Operator / Web UI"]
-    Backend["API Backend"]
-    Install["Agent Install Command"]
-    Agent["Node Agent DaemonSet"]
-    Prom["Prometheus"]
-    Alert["Alertmanager"]
-    Webhook["Webhook Receiver"]
-    Job["RCA Job Orchestrator"]
-    Evidence["Evidence Collector"]
-    Store["Evidence Store"]
-    LLM["LLM Analyzer"]
-    Policy["Policy Engine"]
-    Report["Report Generator"]
-
-    Operator --> Backend
-    Backend --> Install
-    Install --> Agent
-    Prom --> Alert
-    Alert --> Webhook
-    Webhook --> Job
-    Job --> Evidence
-    Evidence --> Agent
-    Evidence --> Store
-    Store --> LLM
-    LLM --> Policy
-    Policy --> Report
-    Report --> Backend
-    Backend --> Operator
+```text
+Node Agent
+  -> Spring Boot Platform API
+     -> Evidence Preprocessor
+     -> Rule-based Analyzer
+     -> Optional Spring AI Analyzer
+     -> Policy Engine
+     -> RCA Report
+  -> Web Console
+  -> PostgreSQL or MariaDB
 ```
 
-## 장애 분석 흐름
+중앙 플랫폼은 Spring Boot 단일 애플리케이션입니다. API, 인증, DB 접근, RCA 분석, Policy Engine, JSP Web Console을 같은 프로세스에서 제공합니다.
 
-1. Alertmanager가 `NodeNotReady`, `DiskPressure`, kubelet 장애, CNI 장애 같은 이벤트를 Backend webhook으로 전송합니다.
-2. Webhook Receiver는 alert label에서 클러스터, 노드, namespace, component, severity, 시간 범위를 추출합니다.
-3. RCA Job Orchestrator는 장애 유형별 evidence profile을 선택합니다.
-4. Evidence Collector는 관련 Node Agent에 증거 수집을 요청합니다.
-5. Node Agent는 노드 로컬 로그와 시스템 상태를 수집해 evidence bundle을 반환합니다.
-6. LLM Analyzer는 증거 bundle을 읽고 진단 보고서 초안을 생성합니다.
-7. Policy Engine은 보고서의 권장 조치를 안전 등급으로 분류합니다.
-8. Report Generator는 운영자가 읽을 수 있는 최종 RCA 보고서를 생성합니다.
+Node Agent만 Python으로 유지합니다. Agent는 노드 장애 시 중앙 플랫폼과 독립적으로 host evidence를 수집하고, 전송 실패 데이터는 로컬 spool에 보관합니다.
 
-## 신뢰 경계
+## Analysis Order
 
-LLM Analyzer는 실행 권한을 갖지 않습니다.
+1. 수집 데이터 크기와 불필요 필드를 제한합니다.
+2. 임계값과 상태 조합으로 Rule-based signal을 생성합니다.
+3. 원인 후보와 read-only 추가 확인 명령을 구성합니다.
+4. Spring AI가 설정된 경우 전처리 JSON만 LLM에 전달합니다.
+5. Policy Engine이 모든 권장 조치를 다시 분류합니다.
+6. LLM 출처 조치는 항상 자동화 금지 상태로 저장합니다.
 
-- 노드 접속 권한 없음
-- Kubernetes write 권한 없음
-- systemd 제어 권한 없음
-- 재시작, 삭제, 수정, 스케일 조정 권한 없음
+## Availability
 
-LLM이 생성한 권장 조치는 Policy Engine의 입력일 뿐이며, Policy Engine과 운영 승인 흐름을 통과해야만 실행 후보가 됩니다.
+중앙 플랫폼을 진단 대상 클러스터 내부에만 배포하면 해당 클러스터 전체 장애 시 접근할 수 없습니다. 운영 환경에서는 별도 관리 클러스터, VM, 또는 외부 Kubernetes에 배포하는 구성을 권장합니다.
 
-## 데이터 흐름
+Node Agent의 로컬 spool은 중앙 플랫폼 일시 중단 중 evidence 손실을 줄이지만, 중앙 DB와 Web Console 자체의 가용성을 대신하지는 않습니다.
 
-- Alert event: Prometheus/Alertmanager에서 Backend로 전달되는 장애 트리거
-- Evidence request: Backend에서 Node Agent로 전달되는 수집 요청
-- Evidence bundle: Node Agent가 반환하는 로그, 메트릭, 상태 정보 묶음
-- RCA analysis: LLM이 생성하는 원인 후보와 근거
-- Policy decision: 조치 권한과 실행 가능성에 대한 분류
-- RCA report: 운영자에게 제공되는 최종 보고서
-
+Prometheus가 없는 환경에서는 선택적 scheduler가 정상 Agent에 evidence request를 생성합니다. 같은 노드에 pending request가 있거나 Agent가 offline이면 새 요청을 만들지 않습니다. 정상 수집은 보고서를 생성하지 않고 장애 signal이 있을 때만 RCA로 승격합니다.

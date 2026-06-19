@@ -1,21 +1,13 @@
 [project]
 name = "kubernetes-cluster-infra-rca-platform"
 version = "0.1.0"
-description = "AI-based Kubernetes cluster infrastructure RCA platform backend MVP"
+description = "Node evidence collector for the Kubernetes Cluster Infra RCA Platform"
 requires-python = ">=3.11"
-dependencies = [
-    "fastapi>=0.115,<1.0",
-    "uvicorn[standard]>=0.30,<1.0",
-    "sqlalchemy>=2.0,<3.0",
-    "psycopg[binary]>=3.2,<4.0",
-    "pymysql>=1.1,<2.0",
-    "alembic>=1.14,<2.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
-    "httpx>=0.27,<1.0",
 ]
 
 [tool.pytest.ini_options]

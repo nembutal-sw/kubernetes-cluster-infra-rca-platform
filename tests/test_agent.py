@@ -12,6 +12,7 @@ from node_agent.client import AgentClient, AgentClientError
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 import node_agent.main as agent_main
+from node_agent.state import AgentStateStore
 
 
 class FakeRunner:
@@ -469,6 +470,69 @@ def test_agent_client_requires_registration_before_node_requests() -> None:
 
     with pytest.raises(AgentClientError, match="node_token is missing"):
         client.heartbeat("0.1.0", ["node"], {})
+
+
+def test_agent_state_persists_identity_and_spooled_response(tmp_path: Path) -> None:
+    state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    state.save_node_token("node-token-1")
+    state.enqueue_response(
+        {
+            "request_id": "evidence-request-1",
+            "status": "completed",
+            "collectors": {"disk": {"root_usage_percent": 95}},
+            "error_message": None,
+        }
+    )
+
+    reloaded = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    assert reloaded.load_node_token() == "node-token-1"
+    assert reloaded.has_pending_response("evidence-request-1") is True
+    assert reloaded.pending_responses()[0]["collectors"]["disk"]["root_usage_percent"] == 95
+
+    reloaded.acknowledge_response("evidence-request-1")
+    assert reloaded.pending_responses() == []
+
+
+def test_spooled_response_is_retried_without_recollecting(tmp_path: Path) -> None:
+    state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    state.enqueue_response(
+        {
+            "request_id": "evidence-request-1",
+            "status": "completed",
+            "collectors": {"node": {"status": "ok"}},
+            "error_message": None,
+        }
+    )
+    client = FakeClient()
+
+    submitted = agent_main.flush_spooled_responses(client, state)  # type: ignore[arg-type]
+
+    assert submitted == 1
+    assert client.submitted[0]["request_id"] == "evidence-request-1"
+    assert state.pending_responses() == []
+
+
+def test_retry_backoff_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(agent_main.random, "uniform", lambda low, high: 1.0)
+    backoff = agent_main.RetryBackoff(initial_seconds=2, maximum_seconds=5)
+
+    assert [backoff.next_delay() for _ in range(4)] == [2.0, 4.0, 5.0, 5.0]
+    backoff.reset()
+    assert backoff.next_delay() == 2.0
+
+
+def test_agent_state_enforces_spool_file_limit(tmp_path: Path) -> None:
+    state = AgentStateStore(
+        tmp_path / "state",
+        "cluster-1",
+        "worker-1",
+        max_spool_files=1,
+        max_spool_bytes=1024 * 1024,
+    )
+    state.enqueue_response({"request_id": "request-1", "status": "failed"})
+
+    with pytest.raises(RuntimeError, match="file limit"):
+        state.enqueue_response({"request_id": "request-2", "status": "failed"})
 
 
 def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:

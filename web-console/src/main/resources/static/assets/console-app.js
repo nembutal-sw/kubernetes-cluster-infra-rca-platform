@@ -1,7 +1,7 @@
 (function () {
   const rootElement = document.getElementById("rca-console-root");
   const h = React.createElement;
-  const apiBase = rootElement.dataset.apiBase || "/console-api";
+  const apiBase = rootElement.dataset.apiBase || "";
   const publicApiBase = rootElement.dataset.publicApiBase || window.location.origin;
   const LANGUAGE_STORAGE_KEY = "rca_console_language";
   const views = [
@@ -76,7 +76,8 @@
       "Access": "접근",
       "Session": "세션",
       "Webhook": "웹훅",
-      "Console proxy": "콘솔 프록시",
+      "Platform API": "플랫폼 API",
+      "same origin": "동일 출처",
       "Public API": "Public API",
       "Signed in": "로그인 계정",
       "Role": "역할",
@@ -107,9 +108,9 @@
       "Verify": "검증",
       "Check node agents after DaemonSet rollout.": "DaemonSet 배포 후 노드 에이전트를 확인합니다.",
       "Cluster name": "클러스터 이름",
-      "Backend API URL for agents": "에이전트용 Backend API URL",
-      "Agents and kubectl will use this backend API URL.": "에이전트와 kubectl이 이 Backend API URL을 사용합니다.",
-      "Enter the backend API URL reachable from your kubectl workstation and cluster nodes.": "kubectl 작업 PC와 클러스터 노드에서 접근 가능한 Backend API URL을 입력하세요.",
+      "Platform API URL for agents": "에이전트용 Platform API URL",
+      "Agents and kubectl will use this platform API URL.": "에이전트와 kubectl이 이 Platform API URL을 사용합니다.",
+      "Enter the platform API URL reachable from your kubectl workstation and cluster nodes.": "kubectl 작업 PC와 클러스터 노드에서 접근 가능한 Platform API URL을 입력하세요.",
       "Description": "설명",
       "Optional note for operators": "운영자용 선택 메모",
       "Register and show install command": "등록 후 설치 명령 표시",
@@ -185,7 +186,7 @@
       "Confirm Delete": "삭제 확인",
       "Delete cluster": "클러스터 삭제",
       "Type the cluster name to confirm deletion.": "삭제하려면 클러스터 이름을 입력하세요.",
-      "This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the backend.": "backend에서 클러스터 등록 정보와 저장된 agent, evidence request, evidence bundle, RCA job, report를 모두 삭제합니다.",
+      "This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the platform.": "플랫폼에서 클러스터 등록 정보와 저장된 agent, evidence request, evidence bundle, RCA job, report를 모두 삭제합니다.",
       "Agent DaemonSets in target clusters are not removed automatically.": "대상 클러스터에 배포된 agent DaemonSet은 자동으로 제거되지 않습니다.",
       "Confirmation does not match the cluster name.": "확인 값이 클러스터 이름과 일치하지 않습니다.",
       "Cluster deleted.": "클러스터를 삭제했습니다.",
@@ -611,7 +612,7 @@
           },
         });
       } catch (error) {
-        throw new Error("Backend API is unreachable.");
+        throw new Error("Platform API is unreachable.");
       }
 
       const contentType = response.headers.get("content-type") || "";
@@ -912,7 +913,7 @@
           headers: authHeaders(),
           body: JSON.stringify({
             confirmed: true,
-            reason: "Manual backend collection from web console",
+            reason: "Manual platform collection from web console",
             context: { source: "web-console" },
           }),
         });
@@ -977,7 +978,7 @@
           headers: authHeaders(),
         });
       } catch (error) {
-        notify("Backend API is unreachable.");
+        notify("Platform API is unreachable.");
         return;
       }
       if (!response.ok) {
@@ -1148,7 +1149,7 @@
           h("h1", { className: "h4 mb-0" }, tr("Cluster Infrastructure RCA"))
         ),
         h("div", { className: "col-12 col-xl-8" },
-          h("div", { className: "d-flex gap-2 flex-wrap justify-content-xl-end" },
+          h("div", { className: "topbar-actions d-flex gap-2 flex-wrap justify-content-xl-end" },
             h(LanguageSelect, { locale: props.locale, onChangeLanguage: props.onChangeLanguage, compact: true }),
             h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), tr("Refresh")),
             h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? tr("Auto") : tr("Manual")),
@@ -1216,8 +1217,8 @@
 
   function ClustersView(props) {
     const backendUrlHelp = props.publicApiBase
-      ? "Agents and kubectl will use this backend API URL."
-      : "Enter the backend API URL reachable from your kubectl workstation and cluster nodes.";
+      ? "Agents and kubectl will use this platform API URL."
+      : "Enter the platform API URL reachable from your kubectl workstation and cluster nodes.";
     return h("div", { className: "d-grid gap-3" },
       h("div", { className: "row g-3" },
         h("div", { className: "col-12 col-xl-5" },
@@ -1238,7 +1239,7 @@
                 )
               ),
               h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-backend-url" }, tr("Backend API URL for agents")),
+                h("label", { className: "form-label", htmlFor: "cluster-backend-url" }, tr("Platform API URL for agents")),
                 h("input", {
                   id: "cluster-backend-url",
                   className: "form-control font-monospace",
@@ -1265,50 +1266,86 @@
             title: "Registered Clusters",
             subtitle: props.loading.clusters ? "Loading" : `${props.clusters.length} clusters`,
             action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: props.onLoadClusters }, h(Icon, { name: "arrow-clockwise" }), "Reload"),
-          }, props.clusters.length ? h("div", { className: "table-responsive" },
-            h("table", { className: "table table-hover mb-0" },
-              h("thead", null, h("tr", null,
-                h("th", null, tr("Cluster")),
-                h("th", null, tr("Environment")),
-                h("th", null, tr("Status")),
-                h("th", { className: "text-end" }, tr("Actions"))
-              )),
-              h("tbody", null, props.clusters.map((cluster) => h(React.Fragment, { key: cluster.cluster_id },
-                h("tr", null,
-                  h("td", null,
+          }, props.clusters.length ? h(React.Fragment, null,
+            h("div", { className: "table-responsive desktop-table-view" },
+              h("table", { className: "table table-hover mb-0" },
+                h("thead", null, h("tr", null,
+                  h("th", null, tr("Cluster")),
+                  h("th", null, tr("Environment")),
+                  h("th", null, tr("Status")),
+                  h("th", { className: "text-end" }, tr("Actions"))
+                )),
+                h("tbody", null, props.clusters.map((cluster) => h(React.Fragment, { key: cluster.cluster_id },
+                  h("tr", null,
+                    h("td", null,
+                      h("button", {
+                        type: "button",
+                        className: "cluster-name-button",
+                        onClick: () => props.onOpenClusterData(cluster.cluster_id),
+                      }, cluster.name),
+                      h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)
+                    ),
+                    h("td", null, cluster.environment),
+                    h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })),
+                    h("td", { className: "text-end" },
+                      h(ClusterActionGroup, { cluster, props })
+                    )
+                  ),
+                  (props.installCommands[cluster.cluster_id] || props.agentsByCluster[cluster.cluster_id]) && h("tr", null,
+                    h("td", { colSpan: 4 },
+                      props.installCommands[cluster.cluster_id] && h(InstallCommandPanel, {
+                        command: props.installCommands[cluster.cluster_id],
+                        onCopy: props.onCopy,
+                      }),
+                      props.agentsByCluster[cluster.cluster_id] && h(AgentsTable, { state: props.agentsByCluster[cluster.cluster_id] })
+                    )
+                  )
+                )))
+              )
+            ),
+            h("div", { className: "mobile-card-list" },
+              props.clusters.map((cluster) => h("article", { key: cluster.cluster_id, className: "mobile-data-card" },
+                h("div", { className: "mobile-card-header" },
+                  h("div", { className: "mobile-card-title" },
                     h("button", {
                       type: "button",
                       className: "cluster-name-button",
                       onClick: () => props.onOpenClusterData(cluster.cluster_id),
                     }, cluster.name),
-                    h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)
+                    h("span", { className: "small text-muted font-monospace" }, cluster.cluster_id)
                   ),
-                  h("td", null, cluster.environment),
-                  h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })),
-                  h("td", { className: "text-end" },
-                    h("div", { className: "btn-group btn-group-sm" },
-                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), tr("Data")),
-                      h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
-                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
-                      h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents")),
-                      h("button", { className: "btn btn-outline-danger btn-icon", onClick: () => props.onDeleteCluster(cluster) }, h(Icon, { name: "trash3" }), tr("Delete"))
-                    )
-                  )
+                  h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })
                 ),
-                (props.installCommands[cluster.cluster_id] || props.agentsByCluster[cluster.cluster_id]) && h("tr", null,
-                  h("td", { colSpan: 4 },
-                    props.installCommands[cluster.cluster_id] && h(InstallCommandPanel, {
-                      command: props.installCommands[cluster.cluster_id],
-                      onCopy: props.onCopy,
-                    }),
-                    props.agentsByCluster[cluster.cluster_id] && h(AgentsTable, { state: props.agentsByCluster[cluster.cluster_id] })
-                  )
+                h("div", { className: "mobile-field-grid" },
+                  h(MobileField, { label: "Environment", value: cluster.environment })
+                ),
+                h("div", { className: "mobile-card-actions" },
+                  h(ClusterActionGroup, { cluster, props, mobile: true })
+                ),
+                (props.installCommands[cluster.cluster_id] || props.agentsByCluster[cluster.cluster_id]) && h("div", { className: "mobile-card-expanded" },
+                  props.installCommands[cluster.cluster_id] && h(InstallCommandPanel, {
+                    command: props.installCommands[cluster.cluster_id],
+                    onCopy: props.onCopy,
+                  }),
+                  props.agentsByCluster[cluster.cluster_id] && h(AgentsTable, { state: props.agentsByCluster[cluster.cluster_id] })
                 )
-              )))
+              ))
             )
           ) : h(EmptyState, { message: "No registered clusters loaded." }))
         )
       )
+    );
+  }
+
+  function ClusterActionGroup({ cluster, props, mobile }) {
+    const secondaryClass = mobile ? "btn btn-sm btn-outline-secondary btn-icon" : "btn btn-outline-secondary btn-icon";
+    const dangerClass = mobile ? "btn btn-sm btn-outline-danger btn-icon" : "btn btn-outline-danger btn-icon";
+    return h("div", { className: mobile ? "mobile-action-grid" : "btn-group btn-group-sm" },
+      h("button", { type: "button", className: secondaryClass, onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), tr("Data")),
+      h("button", { type: "button", className: secondaryClass, onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
+      h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
+      h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents")),
+      h("button", { type: "button", className: dangerClass, onClick: () => props.onDeleteCluster(cluster) }, h(Icon, { name: "trash3" }), tr("Delete"))
     );
   }
 
@@ -1373,51 +1410,85 @@
         h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onExportReports }, h(Icon, { name: "download" }), tr("Export all")),
         h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload"))
       ),
-    }, reports.length ? h("div", { className: "table-responsive" },
-      h("table", { className: "table table-hover mb-0" },
-        h("thead", null, h("tr", null,
-          h("th", null, tr("Symptom")),
-          h("th", null, tr("Cluster")),
-          h("th", null, tr("Confidence")),
-          h("th", null, tr("Policy")),
-          h("th", { className: "text-end" }, tr("Actions"))
-        )),
-        h("tbody", null, reports.map((report) => {
-          const detail = reportDetails[report.report_id];
-          return h(React.Fragment, { key: report.report_id },
-            h("tr", null,
-              h("td", null,
-                h("div", { className: "fw-semibold" }, displaySummary(report.summary?.symptom)),
-                h("div", { className: "small text-muted text-truncate-cell" }, displayText(report.summary?.most_likely_cause || report.report_id))
+    }, reports.length ? h(React.Fragment, null,
+      h("div", { className: "table-responsive desktop-table-view" },
+        h("table", { className: "table table-hover mb-0" },
+          h("thead", null, h("tr", null,
+            h("th", null, tr("Symptom")),
+            h("th", null, tr("Cluster")),
+            h("th", null, tr("Confidence")),
+            h("th", null, tr("Policy")),
+            h("th", { className: "text-end" }, tr("Actions"))
+          )),
+          h("tbody", null, reports.map((report) => {
+            const detail = reportDetails[report.report_id];
+            return h(React.Fragment, { key: report.report_id },
+              h("tr", null,
+                h("td", null,
+                  h("div", { className: "fw-semibold" }, displaySummary(report.summary?.symptom)),
+                  h("div", { className: "small text-muted text-truncate-cell" }, displayText(report.summary?.most_likely_cause || report.report_id))
+                ),
+                h("td", { className: "font-monospace small" }, report.cluster_id),
+                h("td", null, h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })),
+                h("td", null, uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))),
+                h("td", { className: "text-end" },
+                  h("div", { className: "btn-group btn-group-sm" },
+                    h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
+                    h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
+                    h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
+                  )
+                )
               ),
-              h("td", { className: "font-monospace small" }, report.cluster_id),
-              h("td", null, h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })),
-              h("td", null, uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))),
-              h("td", { className: "text-end" },
-                h("div", { className: "btn-group btn-group-sm" },
-                  h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
-                  h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
-                  h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
+              detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })))
+            );
+          }))
+        )
+      ),
+      h("div", { className: "mobile-card-list" },
+        reports.map((report) => {
+          const detail = reportDetails[report.report_id];
+          return h("article", { key: report.report_id, className: "mobile-data-card" },
+            h("div", { className: "mobile-card-header" },
+              h("div", { className: "mobile-card-title" },
+                h("strong", null, displaySummary(report.summary?.symptom)),
+                h("span", { className: "small text-muted" }, displayText(report.summary?.most_likely_cause || report.report_id))
+              ),
+              h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
+            ),
+            h("div", { className: "mobile-field-grid" },
+              h(MobileField, { label: "Cluster", value: report.cluster_id, mono: true }),
+              h(MobileField, { label: "Policy" },
+                h("div", { className: "d-flex gap-1 flex-wrap" },
+                  uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))
                 )
               )
             ),
-            detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })))
+            h("div", { className: "mobile-card-actions" },
+              h("div", { className: "btn-group btn-group-sm" },
+                h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
+                h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
+                h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
+              )
+            ),
+            detail?.open && h("div", { className: "mobile-card-expanded" },
+              h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy })
+            )
           );
-        }))
+        })
       )
     ) : h(EmptyState, { message: "No reports loaded." }));
   }
 
   function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage }) {
     const rows = [
-      ["Console proxy", apiBase],
+      ["Platform API", apiBase || tr("same origin")],
       ["Public API", publicApiBase],
       ["Signed in", currentUser.email],
       ["Role", currentUser.role],
       ["Refresh mode", autoRefresh ? "auto / 30s" : "manual"],
       ["Webhook token env", "RCA_WEBHOOK_TOKEN"],
       ["LLM provider env", "RCA_LLM_PROVIDER"],
-      ["Database env", "RCA_DATABASE_URL"],
+      ["Database env", "RCA_JDBC_URL"],
     ];
     return h("div", { className: "row g-3" },
       h("div", { className: "col-12 col-xl-8" },
@@ -1477,16 +1548,42 @@
     );
   }
 
+  function MobileField({ label, value, children, mono }) {
+    const content = children !== undefined
+      ? h("div", { className: mono ? "font-monospace" : "" }, children)
+      : h("strong", { className: mono ? "font-monospace" : "" }, displayText(value));
+    return h("div", { className: "mobile-field" },
+      h("span", null, tr(label)),
+      content
+    );
+  }
+
   function ClusterTable({ clusters }) {
     if (!clusters.length) return h(EmptyState, { message: "No clusters loaded." });
-    return h("div", { className: "table-responsive" },
-      h("table", { className: "table table-hover mb-0" },
-        h("thead", null, h("tr", null, h("th", null, tr("Name")), h("th", null, tr("Environment")), h("th", null, tr("Status")))),
-        h("tbody", null, clusters.map((cluster) => h("tr", { key: cluster.cluster_id },
-          h("td", null, h("div", { className: "fw-semibold" }, cluster.name), h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)),
-          h("td", null, cluster.environment),
-          h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) }))
-        )))
+    return h(React.Fragment, null,
+      h("div", { className: "table-responsive desktop-table-view" },
+        h("table", { className: "table table-hover mb-0" },
+          h("thead", null, h("tr", null, h("th", null, tr("Name")), h("th", null, tr("Environment")), h("th", null, tr("Status")))),
+          h("tbody", null, clusters.map((cluster) => h("tr", { key: cluster.cluster_id },
+            h("td", null, h("div", { className: "fw-semibold" }, cluster.name), h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)),
+            h("td", null, cluster.environment),
+            h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) }))
+          )))
+        )
+      ),
+      h("div", { className: "mobile-card-list" },
+        clusters.map((cluster) => h("article", { key: cluster.cluster_id, className: "mobile-data-card" },
+          h("div", { className: "mobile-card-header" },
+            h("div", { className: "mobile-card-title" },
+              h("strong", null, cluster.name),
+              h("span", { className: "small text-muted font-monospace" }, cluster.cluster_id)
+            ),
+            h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })
+          ),
+          h("div", { className: "mobile-field-grid" },
+            h(MobileField, { label: "Environment", value: cluster.environment })
+          )
+        ))
       )
     );
   }
@@ -1495,15 +1592,31 @@
     if (state.loading) return h(EmptyState, { message: "Loading agents." });
     if (state.error) return h(EmptyState, { message: state.error });
     if (!state.items.length) return h(EmptyState, { message: "No agents registered." });
-    return h("div", { className: "table-responsive" },
-      h("table", { className: "table table-sm mb-0" },
-        h("thead", null, h("tr", null, h("th", null, tr("Node")), h("th", null, tr("Status")), h("th", null, tr("Version")), h("th", null, tr("Last seen")))),
-        h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
-          h("td", { className: "font-monospace small" }, agent.node_name),
-          h("td", null, h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })),
-          h("td", null, agent.agent_version || "n/a"),
-          h("td", null, formatAgentLastSeen(agent))
-        )))
+    return h(React.Fragment, null,
+      h("div", { className: "table-responsive desktop-table-view" },
+        h("table", { className: "table table-sm mb-0" },
+          h("thead", null, h("tr", null, h("th", null, tr("Node")), h("th", null, tr("Status")), h("th", null, tr("Version")), h("th", null, tr("Last seen")))),
+          h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
+            h("td", { className: "font-monospace small" }, agent.node_name),
+            h("td", null, h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })),
+            h("td", null, agent.agent_version || "n/a"),
+            h("td", null, formatAgentLastSeen(agent))
+          )))
+        )
+      ),
+      h("div", { className: "mobile-card-list" },
+        state.items.map((agent) => h("article", { key: agent.node_name, className: "mobile-data-card" },
+          h("div", { className: "mobile-card-header" },
+            h("div", { className: "mobile-card-title" },
+              h("strong", { className: "font-monospace" }, agent.node_name)
+            ),
+            h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })
+          ),
+          h("div", { className: "mobile-field-grid" },
+            h(MobileField, { label: "Version", value: agent.agent_version || "n/a" }),
+            h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) })
+          )
+        ))
       )
     );
   }
@@ -1590,31 +1703,57 @@
 
   function EvidenceRequestTable({ items, onLoadEvidence }) {
     if (!items.length) return h(EmptyState, { message: "No evidence requests." });
-    return h("div", { className: "table-responsive" },
-      h("table", { className: "table table-sm mb-0" },
-        h("thead", null, h("tr", null,
-          h("th", null, tr("Request")),
-          h("th", null, tr("Node")),
-          h("th", null, tr("Alert")),
-          h("th", null, tr("Status")),
-          h("th", null, tr("Created")),
-          h("th", { className: "text-end" }, tr("Data"))
-        )),
-        h("tbody", null, items.slice(0, 8).map((item) => h("tr", { key: item.request_id },
-          h("td", { className: "font-monospace small" }, item.request_id),
-          h("td", { className: "font-monospace small" }, item.node_name),
-          h("td", null, item.alert_name),
-          h("td", null, h(StatusBadge, { value: item.status, tone: evidenceStatusTone(item.status) })),
-          h("td", null, formatDate(item.created_at)),
-          h("td", { className: "text-end" },
+    const visibleItems = items.slice(0, 8);
+    return h(React.Fragment, null,
+      h("div", { className: "table-responsive desktop-table-view" },
+        h("table", { className: "table table-sm mb-0" },
+          h("thead", null, h("tr", null,
+            h("th", null, tr("Request")),
+            h("th", null, tr("Node")),
+            h("th", null, tr("Alert")),
+            h("th", null, tr("Status")),
+            h("th", null, tr("Created")),
+            h("th", { className: "text-end" }, tr("Data"))
+          )),
+          h("tbody", null, visibleItems.map((item) => h("tr", { key: item.request_id },
+            h("td", { className: "font-monospace small" }, item.request_id),
+            h("td", { className: "font-monospace small" }, item.node_name),
+            h("td", null, item.alert_name),
+            h("td", null, h(StatusBadge, { value: item.status, tone: evidenceStatusTone(item.status) })),
+            h("td", null, formatDate(item.created_at)),
+            h("td", { className: "text-end" },
+              h("button", {
+                type: "button",
+                className: "btn btn-sm btn-outline-secondary",
+                disabled: !item.evidence_id,
+                onClick: () => onLoadEvidence(item.evidence_id),
+              }, tr("View"))
+            )
+          )))
+        )
+      ),
+      h("div", { className: "mobile-card-list" },
+        visibleItems.map((item) => h("article", { key: item.request_id, className: "mobile-data-card" },
+          h("div", { className: "mobile-card-header" },
+            h("div", { className: "mobile-card-title" },
+              h("strong", { className: "font-monospace" }, item.request_id),
+              h("span", { className: "small text-muted" }, item.alert_name)
+            ),
+            h(StatusBadge, { value: item.status, tone: evidenceStatusTone(item.status) })
+          ),
+          h("div", { className: "mobile-field-grid" },
+            h(MobileField, { label: "Node", value: item.node_name, mono: true }),
+            h(MobileField, { label: "Created", value: formatDate(item.created_at) })
+          ),
+          h("div", { className: "mobile-card-actions" },
             h("button", {
               type: "button",
-              className: "btn btn-sm btn-outline-secondary",
+              className: "btn btn-sm btn-outline-secondary btn-icon w-100",
               disabled: !item.evidence_id,
               onClick: () => onLoadEvidence(item.evidence_id),
-            }, tr("View"))
+            }, h(Icon, { name: "eye" }), tr("View"))
           )
-        )))
+        ))
       )
     );
   }
@@ -1737,7 +1876,7 @@
             h("div", { className: "action-card" },
               h("div", { className: "fw-semibold" }, `${tr("Delete cluster")}: ${cluster.name || "n/a"}`),
               h("div", { className: "small text-muted mt-1" },
-                tr("This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the backend.")
+                tr("This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the platform.")
               ),
               h("div", { className: "small text-muted mt-1" }, tr("Agent DaemonSets in target clusters are not removed automatically."))
             ),

@@ -1,193 +1,177 @@
 # Kubernetes Cluster Infra RCA Platform
 
-Kubernetes 클러스터의 노드/Linux 시스템 레벨 장애 원인을 수집·분석하는 AI 기반 RCA 플랫폼입니다.
+Kubernetes 클러스터의 노드와 Linux 시스템 장애를 진단하는 RCA 플랫폼입니다.
 
-증상은 대부분 앱 레벨처럼 보이지만 실제 원인은 그 아래에 있습니다. 이 플랫폼은 `NodeNotReady`, `DiskPressure`, `MemoryPressure`, kubelet/runtime 장애, CNI/DNS 문제, kernel error, conntrack 고갈, inode 고갈 같은 노드 레벨 신호를 먼저 봅니다. `CrashLoopBackOff`, `OOMKilled`, HTTP 5xx는 근거로 참고하되 원인으로 보지 않습니다.
+노드 에이전트가 커널, systemd, 디스크, inode, 메모리, PID, 네트워크, conntrack, 컨테이너 런타임, kubelet, CNI, DNS 정보를 수집합니다. 중앙 플랫폼은 증거를 전처리하고 Rule-based 분석, 선택적 LLM 분석, Policy Engine 분류를 거쳐 RCA 보고서를 생성합니다.
 
-## 흐름
+LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `automation_allowed=false`이며 직접 실행되지 않습니다.
 
+Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=true`로 플랫폼 주기 수집을 활성화할 수 있습니다. 정상 evidence는 저장만 하고, 장애 signal이 감지될 때만 RCA 보고서를 생성합니다.
+
+## Architecture
+
+```text
+Alertmanager 또는 수동 수집 요청
+  -> Node Agent 증거 수집
+  -> 전처리 및 Rule-based RCA
+  -> 선택적 Spring AI 분석
+  -> Policy Engine 검증
+  -> RCA 보고서 및 확인용 조치 요청
 ```
-alert / 수동 요청
-  → evidence request
-  → node agent 수집
-  → 전처리
-  → rule-based RCA
-  → (선택) LLM 진단
-  → policy 분류
-  → RCA report
-```
 
-LLM은 진단 설명만 합니다. 클러스터를 직접 건드리지 않습니다. 권장 조치는 Policy Engine이 분류하고, UI에 등급과 위험 사유를 함께 표시합니다.
+| Component | Stack | Role |
+| --- | --- | --- |
+| Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
+| Web Console | JSP, React, Bootstrap 5 | 클러스터, 에이전트, 증거, 보고서 관리 |
+| Node Agent | Python 3.11+ | Linux 및 Kubernetes 노드 증거 수집 |
+| Database | PostgreSQL 또는 MariaDB | 플랫폼 데이터 저장 |
+| Migration | Flyway | 공통 DB 스키마 관리 |
 
-Prometheus/Alertmanager 없이도 동작합니다. Backend가 직접 evidence request를 만들고, agent가 제출한 host evidence로 RCA report를 생성합니다.
+## Main Targets
 
-## 구성 요소
+- `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
+- kubelet, containerd 및 CRI runtime 장애
+- CNI, DNS, CoreDNS, API Server, etcd 지연
+- 디스크 용량, inode, I/O latency, kernel I/O error
+- systemd unit 실패 및 재시작 반복
+- NIC link flap, conntrack 고갈, 노드 네트워크 장애
 
-| 컴포넌트 | 역할 |
-| --- | --- |
-| Backend API | 클러스터, agent, evidence, RCA job/report, auth, webhook 관리 (FastAPI) |
-| Node Agent | Linux host + Kubernetes node evidence 수집 (Python DaemonSet / local) |
-| Preprocessor | raw evidence, log를 RCA 분석용 compact JSON으로 정리 |
-| Rule Analyzer | node pressure, runtime, kernel, network, CNI, DNS, inode, conntrack rule 분석 |
-| LLM Analyzer | GPT, Gemini, Claude, OpenAI-compatible local 모델 연동 (선택) |
-| Policy Engine | 권장 조치를 안전/승인 필요/PR 전용/자동 실행 금지로 분류 |
-| Web Console | Spring Boot JSP + Bootstrap 5 + React 관리 콘솔 |
-| Helm Charts | agent와 backend/web-console 배포용 chart |
+`CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`, HTTP 5xx 등은 보조 증거로 취급합니다.
 
-## 주요 기능
-
-- session token 기반 API 인증
-- 클러스터 등록 + agent 설치 명령 자동 생성
-- agent bootstrap token / node token 검증
-- DaemonSet 환경 file-mode systemd/journal 수집
-- kernel, disk, inode, memory, process, network, conntrack, runtime, kubelet, CNI, DNS, Kubernetes node 상태 수집
-- Alertmanager webhook 수신
-- rule-based RCA + 선택형 LLM 보강
-- Policy Engine (안전/승인 필요/PR 전용/자동 실행 금지)
-- PostgreSQL, MariaDB, SQLite 지원
-
-## 스택
-
-- Backend: FastAPI, SQLAlchemy, Alembic
-- Agent: Python 3.11+
-- Web Console: Spring Boot, JSP, Bootstrap 5, React
-- DB: PostgreSQL, MariaDB (개발용 SQLite fallback)
-- 배포: Docker Compose, Kubernetes manifests, Helm
-- 테스트: pytest, Maven, smoke scripts
-
-## 빠른 시작
+## Quick Start
 
 ```powershell
 Copy-Item .env.example .env
 docker compose up --build -d
 ```
 
-```
-Web Console: http://localhost:8080
-Backend API: http://localhost:8000
-
-기본 계정: admin / admin  ← 운영 환경에서는 로그인 후 즉시 변경
-```
-
-## 개발 환경
-
-**Backend**
-
-```powershell
-.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
-.venv\Scripts\python.exe -m alembic upgrade head
-.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+```text
+Web/API: http://localhost:8080
+Username: admin
+Password: admin
 ```
 
-**Web Console**
+최초 로그인 후 기본 비밀번호를 변경해야 합니다.
+
+Docker 없이 실행할 때는 Java 21과 Maven 3.9 이상이 필요합니다.
 
 ```powershell
 cd web-console
 mvn spring-boot:run
 ```
 
-주요 환경 변수: `RCA_API_BASE_URL`, `RCA_PUBLIC_API_BASE_URL`
-
-## 데이터베이스
+기본 개발 DB는 H2 파일 DB입니다. PostgreSQL 또는 MariaDB를 사용할 때는 JDBC 설정을 지정합니다.
 
 ```powershell
-# PostgreSQL
-$env:RCA_DATABASE_URL = "postgresql+psycopg://rca:rca_password@localhost:5432/rca"
-
-# MariaDB
-$env:RCA_DATABASE_URL = "mysql+pymysql://rca:rca_password@localhost:3306/rca"
-
-# SQLite (개발용)
-$env:RCA_DATABASE_URL = "sqlite:///./data/rca-dev.db"
+$env:RCA_JDBC_URL = "jdbc:postgresql://localhost:5432/rca"
+$env:RCA_DB_USERNAME = "rca"
+$env:RCA_DB_PASSWORD = "rca_password"
 ```
 
-Schema는 Alembic migration으로 관리합니다.
+```powershell
+$env:RCA_JDBC_URL = "jdbc:mariadb://localhost:3306/rca"
+```
+
+## Spring AI
+
+기본값은 비활성화입니다. 지원 대상은 OpenAI SDK, Anthropic, Google GenAI, Ollama입니다.
+
+```text
+RCA_LLM_ENABLED=true
+RCA_LLM_PROVIDER=openai
+RCA_LLM_MODEL=gpt-5-mini
+RCA_SPRING_AI_CHAT_MODEL=openai-sdk
+SPRING_AI_OPENAI_SDK_API_KEY=...
+```
+
+다른 provider는 `anthropic`, `google-genai`, `ollama`를 `RCA_SPRING_AI_CHAT_MODEL`에 지정합니다.
 
 ## Node Agent
 
-**로컬 수집**
+로컬 증거 수집:
 
 ```powershell
-.venv\Scripts\python.exe -m node_agent.main --collect-local --output evidence.json
+.venv\Scripts\python.exe -m node_agent.main `
+  --collect-local `
+  --output evidence.json
 ```
 
-**DaemonSet 환경**
+DaemonSet Agent는 다음 안전장치를 사용합니다.
 
-DaemonSet에서는 host DBus나 `journalctl` 접근이 불안정할 수 있어 file mode가 기본입니다.
+- host 디렉터리는 상태 저장 경로를 제외하고 read-only mount
+- systemd와 journal은 기본적으로 file mode 수집
+- node token을 노드별 상태 디렉터리에 저장
+- 전송 실패 evidence를 디스크에 spool한 뒤 재전송
+- 지수 backoff 및 선택적 CA bundle/mTLS 지원
 
-```
-SYSTEMD_COLLECTOR_MODE=file
-```
+## Helm
 
-collector는 `/host/var/log`, `/host/proc`, `/host/sys`, `/host/etc`, `/host/run` 등 mount path에서 파일 기반 evidence를 수집합니다.
-
-## Kubernetes 배포
+중앙 플랫폼과 DB:
 
 ```bash
-# Agent
-helm template rca-agent charts/cluster-infra-rca-agent \
+helm upgrade --install rca charts/cluster-infra-rca-platform
+```
+
+MariaDB:
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set database.type=mariadb
+```
+
+외부 DB:
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set database.enabled=false \
+  --set-string platform.secret.jdbcUrl='jdbc:postgresql://postgres.example:5432/rca' \
+  --set-string platform.secret.databaseUsername='rca' \
+  --set-string platform.secret.databasePassword='change-me'
+```
+
+Agent:
+
+```bash
+helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --namespace rca-system \
+  --create-namespace \
   --set backendUrl=https://rca.example.com \
   --set secret.create=true \
   --set secret.clusterId=cluster-xxx \
   --set secret.agentToken=token-xxx
-
-# Platform (기본: PostgreSQL 포함)
-helm template rca charts/cluster-infra-rca-platform
-
-# MariaDB 사용
-helm template rca charts/cluster-infra-rca-platform \
-  --set database.type=mariadb
-
-# 외부 DB 사용
-helm template rca charts/cluster-infra-rca-platform \
-  --set database.enabled=false \
-  --set-string backend.secret.databaseUrl='postgresql+psycopg://rca:password@postgresql.example:5432/rca'
-
-# LLM API key
-  --set-string backend.secret.llmApiKey='...'
 ```
 
-## 검증
+Helm 이미지 repository 값은 예시 placeholder입니다. 실제 배포 시 사용하는 registry로 지정해야 합니다.
+
+## Validation
 
 ```powershell
-# Windows
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows-dev-check.ps1 -Validate
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows-integration-smoke.ps1
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\windows-dev-check.ps1 -BootstrapMaven -Validate
 ```
 
 ```bash
-# Linux
-scripts/linux-dev-check.sh --full
-scripts/linux-integration-smoke.sh
+bash scripts/linux-dev-check.sh --full
 ```
 
-확인된 상태: Windows full dev check, SUSE Linux Python 3.11 pytest, Helm template (agent/PostgreSQL/MariaDB/external DB/LLM key), agent local collect (`SYSTEMD_COLLECTOR_MODE=file`) 모두 통과.
+검증 범위:
 
-## 디렉토리 구조
+- Node Agent pytest 및 Python compile
+- Web Console JavaScript syntax
+- Spring Boot API/UI 통합 테스트
+- 인증, 클러스터, 에이전트, evidence, RCA report 흐름
 
+## Repository
+
+```text
+web-console/  Spring Boot platform and Web Console
+node_agent/   Python node evidence collector
+charts/       Platform and Agent Helm charts
+manifests/    Agent example manifest
+tests/        Node Agent tests
+docs/         Design and operation documents
+scripts/      Local validation scripts
+examples/     Sample webhook and report payloads
 ```
-backend/        FastAPI backend
-node_agent/     node-local collector
-web-console/    Spring Boot JSP console
-charts/         Helm charts
-manifests/      Kubernetes manifests
-migrations/     Alembic migrations
-tests/          Python tests
-docs/           설계 및 운영 문서
-scripts/        개발 및 smoke 스크립트
-examples/       샘플 페이로드
-```
 
-## 문서
-
-- [Architecture](docs/architecture.md)
-- [Backend API](docs/backend-api.md)
-- [Agent API](docs/agent-api.md)
-- [Evidence API](docs/evidence-api.md)
-- [Evidence Preprocessing](docs/evidence-preprocessing.md)
-- [LLM Analyzer](docs/llm-analyzer.md)
-- [Policy Engine](docs/policy-engine.md)
-- [Database](docs/database.md)
-- [Deployment](docs/deployment.md)
-- [Platform Helm Chart](docs/helm-platform-chart.md)
-- [Web Console](docs/web-console.md)
+세부 문서는 [docs](docs/)에서 확인할 수 있습니다.

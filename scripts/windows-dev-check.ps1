@@ -104,7 +104,7 @@ function Run-Validation {
     $maven = Get-MavenCommand
     $pytestTemp = Join-Path ([System.IO.Path]::GetTempPath()) ("rca-pytest-" + [System.Guid]::NewGuid().ToString("N"))
 
-    Write-Step "Running backend tests"
+    Write-Step "Running node agent tests"
     try {
         & $python -m pytest --basetemp $pytestTemp -p no:cacheprovider
         if ($LASTEXITCODE -ne 0) {
@@ -117,7 +117,7 @@ function Run-Validation {
     }
 
     Write-Step "Running Python compile check"
-    & $python -m compileall -q (Join-Path $Root "backend") (Join-Path $Root "node_agent") (Join-Path $Root "tests")
+    & $python -m compileall -q (Join-Path $Root "node_agent") (Join-Path $Root "tests")
     if ($LASTEXITCODE -ne 0) {
         throw "Python compile check failed"
     }
@@ -130,7 +130,7 @@ function Run-Validation {
         }
     }
 
-    Write-Step "Running Spring Boot web console tests"
+    Write-Step "Running Spring Boot platform tests"
     Push-Location (Join-Path $Root "web-console")
     try {
         Invoke-Maven $maven @("test")

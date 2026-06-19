@@ -1,6 +1,6 @@
 apiVersion: v2
 name: cluster-infra-rca-platform
-description: Backend API and Spring Boot web console for Cluster Infra RCA.
+description: Unified Spring Boot API and web console for Cluster Infra RCA.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"

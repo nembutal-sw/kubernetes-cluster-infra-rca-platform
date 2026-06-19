@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cluster-infra-rca-platform.platformName" . }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+spec:
+  type: {{ .Values.platform.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.platform.service.port }}
+      targetPort: http
+  selector:
+    {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 4 }}

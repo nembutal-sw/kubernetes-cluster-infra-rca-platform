@@ -1,74 +1,42 @@
-# Cluster Infra RCA Web Console
+# Cluster Infra RCA Platform
 
-Spring Boot MVC + JSP shell, Bootstrap 5 layout, and React-driven console views.
+Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다.
 
-This module is the only user-facing Web UI. The Python FastAPI service stays API-only.
+이 모듈 하나가 다음 기능을 제공합니다.
 
-The module targets Java 17+.
+- JSP, React, Bootstrap 5 Web Console
+- 인증과 role 기반 API 보안
+- 클러스터, Agent, evidence, RCA report API
+- PostgreSQL/MariaDB JDBC 저장소와 Flyway migration
+- Rule-based Analyzer, Policy Engine, Spring AI 연동
 
 ## Run
 
-Start the Python RCA backend first:
-
 ```powershell
-.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
-```
-
-Run the console:
-
-```powershell
-cd web-console
 mvn spring-boot:run
 ```
 
-Open:
-
 ```text
-http://127.0.0.1:8080/
-```
-
-Initial login:
-
-```text
+http://127.0.0.1:8080
 admin / admin
 ```
 
-Change the password from Settings after first login.
-
-The console can also be packaged and run as a WAR:
+## Database
 
 ```powershell
-mvn package
-java -jar target\cluster-infra-rca-web-console-0.1.0.war
+$env:RCA_JDBC_URL = "jdbc:postgresql://localhost:5432/rca"
+$env:RCA_DB_USERNAME = "rca"
+$env:RCA_DB_PASSWORD = "change-me"
 ```
 
-## Configuration
+MariaDB는 `jdbc:mariadb://localhost:3306/rca` 형식을 사용합니다.
 
-```powershell
-$env:RCA_API_BASE_URL = "http://127.0.0.1:8000"
-$env:RCA_PUBLIC_API_BASE_URL = "http://127.0.0.1:8000"
-```
-
-`RCA_API_BASE_URL` is used by the Spring Boot proxy. `RCA_PUBLIC_API_BASE_URL` is shown in install commands and webhook examples.
-
-## Notes
-
-- JSP renders the page shell from `/WEB-INF/jsp/console.jsp`.
-- React mounts on `#rca-console-root`.
-- Browser API calls go through `/console-api/**` to avoid CORS issues.
-- `/console-api/**` blocks protected API calls without a Bearer session.
-- Bootstrap, Bootstrap Icons, React, and ReactDOM are served from WebJars.
-- Security headers are applied by `SecurityHeadersFilter`.
-- HTTP tests verify JSP rendering, proxy forwarding, auth blocking, auth header forwarding, and cache control.
-
-## Test
+## Build
 
 ```powershell
 mvn test
+mvn package
+java -jar target\cluster-infra-rca-platform-0.1.0.war
 ```
 
-For Linux server validation from the repository root:
-
-```bash
-bash scripts/linux-dev-check.sh --validate
-```
+브라우저 API는 별도 proxy 없이 같은 Spring Boot origin의 `/api/**`를 직접 호출합니다.

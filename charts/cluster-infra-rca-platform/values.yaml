@@ -39,87 +39,38 @@ database:
   tolerations: []
   affinity: {}
 
-backend:
-  replicaCount: 1
-  image:
-    repository: ghcr.io/example/cluster-infra-rca-backend
-    tag: latest
-    pullPolicy: IfNotPresent
-
-  service:
-    type: ClusterIP
-    port: 8000
-
-  config:
-    runMigrations: true
-    autoCreateTables: false
-    sessionTtlHours: 8
-    agentOfflineAfterSeconds: 180
-    llmProvider: disabled
-    llmModel: ""
-    llmBaseUrl: ""
-    llmTimeoutSeconds: 45
-
-  secret:
-    create: true
-    existingSecret: ""
-    databaseUrl: ""
-    defaultAdminUsername: admin
-    defaultAdminPassword: admin
-    webhookToken: dev-webhook-token
-    llmApiKey: ""
-    openaiApiKey: ""
-    anthropicApiKey: ""
-    geminiApiKey: ""
-
-  env: {}
-  podAnnotations: {}
-  podLabels: {}
-  podSecurityContext: {}
-  securityContext:
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-
-  readinessProbe:
-    path: /health/ready
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    timeoutSeconds: 3
-    failureThreshold: 6
-  livenessProbe:
-    path: /health
-    initialDelaySeconds: 20
-    periodSeconds: 20
-    timeoutSeconds: 3
-    failureThreshold: 3
-
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
-
-webConsole:
+platform:
   replicaCount: 1
   image:
     repository: ghcr.io/example/cluster-infra-rca-web-console
     tag: latest
     pullPolicy: IfNotPresent
-
   service:
     type: ClusterIP
     port: 8080
-
   config:
-    apiBaseUrl: ""
     publicApiBaseUrl: ""
-
+    sessionTtlHours: 12
+    agentOfflineAfterSeconds: 180
+    monitoringEnabled: false
+    monitoringIntervalMs: 60000
+    llmEnabled: false
+    llmProvider: none
+    llmModel: ""
+    springAiChatModel: none
+  secret:
+    create: true
+    existingSecret: ""
+    jdbcUrl: ""
+    databaseUsername: ""
+    databasePassword: ""
+    defaultAdminUsername: admin
+    defaultAdminPassword: admin
+    webhookToken: dev-webhook-token
+    openaiApiKey: ""
+    anthropicApiKey: ""
+    geminiApiKey: ""
+    ollamaBaseUrl: ""
   env: {}
   podAnnotations: {}
   podLabels: {}
@@ -127,7 +78,6 @@ webConsole:
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: false
-
   resources:
     requests:
       cpu: 100m
@@ -135,41 +85,29 @@ webConsole:
     limits:
       cpu: 1000m
       memory: 1Gi
-
   readinessProbe:
-    path: /
+    path: /health/ready
     initialDelaySeconds: 15
     periodSeconds: 10
     timeoutSeconds: 3
     failureThreshold: 6
   livenessProbe:
-    path: /
+    path: /health
     initialDelaySeconds: 30
     periodSeconds: 20
     timeoutSeconds: 3
     failureThreshold: 3
-
   nodeSelector: {}
   tolerations: []
   affinity: {}
 
 ingress:
-  webConsole:
+  platform:
     enabled: false
     className: ""
     annotations: {}
     hosts:
       - host: rca.example.com
-        paths:
-          - path: /
-            pathType: Prefix
-    tls: []
-  backend:
-    enabled: false
-    className: ""
-    annotations: {}
-    hosts:
-      - host: rca-api.example.com
         paths:
           - path: /
             pathType: Prefix

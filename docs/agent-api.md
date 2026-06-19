@@ -24,12 +24,18 @@ python -m node_agent.main --collect-local --output /tmp/cluster-infra-rca-eviden
 
 | 이름 | 설명 |
 | --- | --- |
-| `BACKEND_URL` | Backend API 주소 |
+| `BACKEND_URL` | Spring Boot Platform API 주소 |
 | `CLUSTER_ID` | 등록된 클러스터 ID |
 | `AGENT_TOKEN` | 클러스터 bootstrap token |
 | `NODE_NAME` | Kubernetes node name |
 | `POLL_INTERVAL_SECONDS` | evidence request poll 주기, 기본 15초 |
-| `HTTP_TIMEOUT_SECONDS` | Backend API 요청 timeout, 기본 10초 |
+| `HTTP_TIMEOUT_SECONDS` | Platform API 요청 timeout, 기본 10초 |
+| `RETRY_INITIAL_SECONDS` | 재시도 backoff 시작값, 기본 2초 |
+| `RETRY_MAX_SECONDS` | 재시도 backoff 상한, 기본 120초 |
+| `AGENT_STATE_DIR` | node token과 evidence spool 저장 경로 |
+| `AGENT_CA_BUNDLE` | 사용자 CA bundle 경로 |
+| `AGENT_CLIENT_CERT` | mTLS client certificate 경로 |
+| `AGENT_CLIENT_KEY` | mTLS client private key 경로 |
 | `COMMAND_TIMEOUT_SECONDS` | 로컬 수집 명령 timeout, 기본 5초 |
 
 hostPath 기본값:

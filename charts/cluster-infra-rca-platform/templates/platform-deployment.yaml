@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cluster-infra-rca-platform.platformName" . }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+spec:
+  replicas: {{ .Values.platform.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 8 }}
+        {{- with .Values.platform.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.platform.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.platform.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: platform
+          image: "{{ .Values.platform.image.repository }}:{{ .Values.platform.image.tag }}"
+          imagePullPolicy: {{ .Values.platform.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: {{ include "cluster-infra-rca-platform.secretName" . }}
+          env:
+            - name: RCA_PUBLIC_API_BASE_URL
+              value: {{ .Values.platform.config.publicApiBaseUrl | quote }}
+            - name: RCA_SESSION_TTL_HOURS
+              value: {{ .Values.platform.config.sessionTtlHours | quote }}
+            - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
+              value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
+            - name: RCA_MONITORING_ENABLED
+              value: {{ .Values.platform.config.monitoringEnabled | quote }}
+            - name: RCA_MONITORING_INTERVAL_MS
+              value: {{ .Values.platform.config.monitoringIntervalMs | quote }}
+            - name: RCA_LLM_ENABLED
+              value: {{ .Values.platform.config.llmEnabled | quote }}
+            - name: RCA_LLM_PROVIDER
+              value: {{ .Values.platform.config.llmProvider | quote }}
+            - name: RCA_LLM_MODEL
+              value: {{ .Values.platform.config.llmModel | quote }}
+            - name: RCA_SPRING_AI_CHAT_MODEL
+              value: {{ .Values.platform.config.springAiChatModel | quote }}
+            {{- range $key, $value := .Values.platform.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- with .Values.platform.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.platform.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.platform.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.platform.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.platform.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.platform.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.platform.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.platform.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.platform.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.platform.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.platform.livenessProbe.failureThreshold }}
+          {{- with .Values.platform.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.platform.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.platform.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.platform.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

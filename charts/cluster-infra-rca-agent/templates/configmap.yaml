@@ -10,7 +10,12 @@ data:
   POLL_INTERVAL_SECONDS: {{ .Values.pollIntervalSeconds | quote }}
   HTTP_TIMEOUT_SECONDS: {{ .Values.httpTimeoutSeconds | quote }}
   COMMAND_TIMEOUT_SECONDS: {{ .Values.commandTimeoutSeconds | quote }}
+  RETRY_INITIAL_SECONDS: {{ .Values.retryInitialSeconds | quote }}
+  RETRY_MAX_SECONDS: {{ .Values.retryMaxSeconds | quote }}
+  AGENT_MAX_SPOOL_FILES: {{ .Values.maxSpoolFiles | quote }}
+  AGENT_MAX_SPOOL_BYTES: {{ .Values.maxSpoolBytes | quote }}
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
   CONTROL_PLANE_PROBE_PORTS: {{ .Values.controlPlaneProbePorts | quote }}
   CONTAINER_RUNTIME_SOCKET_PATHS: {{ .Values.runtimeSocketPaths | quote }}
   SYSTEMD_COLLECTOR_MODE: {{ .Values.systemdCollectorMode | quote }}
+  AGENT_STATE_DIR: /var/lib/cluster-infra-rca-agent

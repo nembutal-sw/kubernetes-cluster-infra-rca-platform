@@ -33,10 +33,21 @@ serviceAccount:
 pollIntervalSeconds: 15
 httpTimeoutSeconds: 10
 commandTimeoutSeconds: 5
+retryInitialSeconds: 2
+retryMaxSeconds: 120
+maxSpoolFiles: 1000
+maxSpoolBytes: 268435456
 kubernetesApiTimeoutSeconds: 5
 controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
 systemdCollectorMode: file
+
+tls:
+  enabled: false
+  existingSecret: ""
+  caBundleKey: ca.crt
+  clientCertKey: tls.crt
+  clientKeyKey: tls.key
 
 hostNetwork: true
 hostPID: true
@@ -53,6 +64,8 @@ tolerations:
   - operator: Exists
 
 containerSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
 
@@ -71,3 +84,4 @@ hostPaths:
   etc: /etc
   proc: /proc
   sys: /sys
+  state: /var/lib/cluster-infra-rca-agent

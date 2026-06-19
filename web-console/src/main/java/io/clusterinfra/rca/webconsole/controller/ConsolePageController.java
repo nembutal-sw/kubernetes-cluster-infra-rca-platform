@@ -15,7 +15,7 @@ public class ConsolePageController {
 
     @GetMapping({"/", "/console"})
     public String console(Model model) {
-        model.addAttribute("apiBasePath", properties.getProxyPath());
+        model.addAttribute("apiBasePath", "");
         model.addAttribute("publicApiBaseUrl", properties.getPublicApiBaseUrl());
         return "console";
     }

@@ -12,7 +12,28 @@ server:
 
 spring:
   application:
-    name: cluster-infra-rca-web-console
+    name: cluster-infra-rca-platform
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: ${RCA_JDBC_URL:jdbc:h2:file:./data/rca;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
+    username: ${RCA_DB_USERNAME:sa}
+    password: ${RCA_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${RCA_DB_POOL_SIZE:10}
+      minimum-idle: ${RCA_DB_MIN_IDLE:1}
+      connection-timeout: 10000
+      validation-timeout: 3000
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
+  jackson:
+    default-property-inclusion: non_null
+    property-naming-strategy: SNAKE_CASE
+    deserialization:
+      fail-on-unknown-properties: false
   mvc:
     view:
       prefix: /WEB-INF/jsp/
@@ -22,9 +43,56 @@ spring:
       cache:
         cachecontrol:
           no-store: true
+  ai:
+    model:
+      chat: ${RCA_SPRING_AI_CHAT_MODEL:none}
+      embedding: ${RCA_SPRING_AI_EMBEDDING_MODEL:none}
+      image: ${RCA_SPRING_AI_IMAGE_MODEL:none}
+      moderation: ${RCA_SPRING_AI_MODERATION_MODEL:none}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
 
 rca:
-  api-base-url: ${RCA_API_BASE_URL:http://127.0.0.1:8000}
   public-api-base-url: ${RCA_PUBLIC_API_BASE_URL:}
-  proxy-path: /console-api
-  proxy-timeout-seconds: ${RCA_PROXY_TIMEOUT_SECONDS:20}
+  default-admin-username: ${RCA_DEFAULT_ADMIN_USERNAME:admin}
+  default-admin-password: ${RCA_DEFAULT_ADMIN_PASSWORD:admin}
+  webhook-token: ${RCA_WEBHOOK_TOKEN:}
+  session-ttl-hours: ${RCA_SESSION_TTL_HOURS:12}
+  agent-offline-after-seconds: ${RCA_AGENT_OFFLINE_AFTER_SECONDS:180}
+  agent:
+    image: ${RCA_AGENT_IMAGE:ghcr.io/example/cluster-infra-rca-agent:latest}
+    namespace: ${RCA_AGENT_NAMESPACE:rca-system}
+    poll-interval-seconds: ${RCA_AGENT_POLL_INTERVAL_SECONDS:30}
+    http-timeout-seconds: ${RCA_AGENT_HTTP_TIMEOUT_SECONDS:20}
+    command-timeout-seconds: ${RCA_AGENT_COMMAND_TIMEOUT_SECONDS:10}
+  llm:
+    enabled: ${RCA_LLM_ENABLED:false}
+    provider: ${RCA_LLM_PROVIDER:none}
+    model: ${RCA_LLM_MODEL:}
+    max-output-tokens: ${RCA_LLM_MAX_OUTPUT_TOKENS:1800}
+  thresholds:
+    disk-warning-percent: ${RCA_THRESHOLD_DISK_WARNING_PERCENT:85}
+    disk-critical-percent: ${RCA_THRESHOLD_DISK_CRITICAL_PERCENT:90}
+    inode-warning-percent: ${RCA_THRESHOLD_INODE_WARNING_PERCENT:85}
+    inode-critical-percent: ${RCA_THRESHOLD_INODE_CRITICAL_PERCENT:90}
+    memory-critical-percent: ${RCA_THRESHOLD_MEMORY_CRITICAL_PERCENT:90}
+    pid-warning-percent: ${RCA_THRESHOLD_PID_WARNING_PERCENT:85}
+    conntrack-warning-percent: ${RCA_THRESHOLD_CONNTRACK_WARNING_PERCENT:80}
+    conntrack-critical-percent: ${RCA_THRESHOLD_CONNTRACK_CRITICAL_PERCENT:95}
+    disk-await-warning-ms: ${RCA_THRESHOLD_DISK_AWAIT_WARNING_MS:20}
+    dns-latency-warning-ms: ${RCA_THRESHOLD_DNS_LATENCY_WARNING_MS:500}
+    api-server-latency-warning-ms: ${RCA_THRESHOLD_API_SERVER_LATENCY_WARNING_MS:1000}
+    etcd-latency-warning-ms: ${RCA_THRESHOLD_ETCD_LATENCY_WARNING_MS:500}
+  monitoring:
+    enabled: ${RCA_MONITORING_ENABLED:false}
+    interval-ms: ${RCA_MONITORING_INTERVAL_MS:60000}
+    initial-delay-ms: ${RCA_MONITORING_INITIAL_DELAY_MS:30000}

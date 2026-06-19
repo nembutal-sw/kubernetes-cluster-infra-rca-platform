@@ -49,10 +49,15 @@ data:
   POLL_INTERVAL_SECONDS: "15"
   HTTP_TIMEOUT_SECONDS: "10"
   COMMAND_TIMEOUT_SECONDS: "5"
+  RETRY_INITIAL_SECONDS: "2"
+  RETRY_MAX_SECONDS: "120"
+  AGENT_MAX_SPOOL_FILES: "1000"
+  AGENT_MAX_SPOOL_BYTES: "268435456"
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
   CONTROL_PLANE_PROBE_PORTS: "6443,9345"
   CONTAINER_RUNTIME_SOCKET_PATHS: ""
   SYSTEMD_COLLECTOR_MODE: "file"
+  AGENT_STATE_DIR: "/var/lib/cluster-infra-rca-agent"
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -123,6 +128,26 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: COMMAND_TIMEOUT_SECONDS
+            - name: RETRY_INITIAL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: RETRY_INITIAL_SECONDS
+            - name: RETRY_MAX_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: RETRY_MAX_SECONDS
+            - name: AGENT_MAX_SPOOL_FILES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: AGENT_MAX_SPOOL_FILES
+            - name: AGENT_MAX_SPOOL_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: AGENT_MAX_SPOOL_BYTES
             - name: KUBERNETES_API_TIMEOUT_SECONDS
               valueFrom:
                 configMapKeyRef:
@@ -143,7 +168,14 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: SYSTEMD_COLLECTOR_MODE
+            - name: AGENT_STATE_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: AGENT_STATE_DIR
           securityContext:
+            runAsUser: 0
+            runAsGroup: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
           volumeMounts:
@@ -165,6 +197,8 @@ spec:
             - name: host-sys
               mountPath: /host/sys
               readOnly: true
+            - name: agent-state
+              mountPath: /var/lib/cluster-infra-rca-agent
           resources:
             requests:
               cpu: 50m
@@ -191,3 +225,7 @@ spec:
         - name: host-sys
           hostPath:
             path: /sys
+        - name: agent-state
+          hostPath:
+            path: /var/lib/cluster-infra-rca-agent
+            type: DirectoryOrCreate

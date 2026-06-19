@@ -48,8 +48,8 @@ ensure_tools_dir_safe() {
 }
 
 activate_user_tools() {
-  if [ -x "${TOOLS_DIR}/jdk-17/bin/java" ]; then
-    export JAVA_HOME="${TOOLS_DIR}/jdk-17"
+  if [ -x "${TOOLS_DIR}/jdk-21/bin/java" ]; then
+    export JAVA_HOME="${TOOLS_DIR}/jdk-21"
     export PATH="${JAVA_HOME}/bin:${PATH}"
   fi
 
@@ -89,12 +89,12 @@ bootstrap_user_tools() {
   ensure_tools_dir_safe
   mkdir -p "${TOOLS_DIR}"
 
-  if [ ! -x "${TOOLS_DIR}/jdk-17/bin/java" ]; then
-    log "Installing user-local JDK 17 under ${TOOLS_DIR}"
-    rm -rf "${TOOLS_DIR}/jdk-17" "${TOOLS_DIR}/jdk17.tar.gz"
-    download "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse" "${TOOLS_DIR}/jdk17.tar.gz"
-    mkdir -p "${TOOLS_DIR}/jdk-17"
-    tar -xzf "${TOOLS_DIR}/jdk17.tar.gz" -C "${TOOLS_DIR}/jdk-17" --strip-components=1
+  if [ ! -x "${TOOLS_DIR}/jdk-21/bin/java" ]; then
+    log "Installing user-local JDK 21 under ${TOOLS_DIR}"
+    rm -rf "${TOOLS_DIR}/jdk-21" "${TOOLS_DIR}/jdk21.tar.gz"
+    download "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse" "${TOOLS_DIR}/jdk21.tar.gz"
+    mkdir -p "${TOOLS_DIR}/jdk-21"
+    tar -xzf "${TOOLS_DIR}/jdk21.tar.gz" -C "${TOOLS_DIR}/jdk-21" --strip-components=1
   fi
 
   if [ ! -x "${TOOLS_DIR}/apache-maven-3.9.9/bin/mvn" ]; then
@@ -151,8 +151,8 @@ check_tooling() {
   java_major="${java_major:-0}"
   python_version="$(python_minor_version)"
 
-  if [ "${java_major}" -lt 17 ]; then
-    log "Java 17+ is required. Detected: ${java_major}"
+  if [ "${java_major}" -lt 21 ]; then
+    log "Java 21+ is required. Detected: ${java_major}"
     failed=1
   else
     log "Java OK: $(java -version 2>&1 | head -n 1)"
@@ -170,7 +170,7 @@ check_tooling() {
       log "Python OK: $("${PYTHON_BIN}" --version)"
       ;;
     *)
-      log "Python 3.11+ is required for backend validation. Detected: ${python_version}"
+      log "Python 3.11+ is required for node agent validation. Detected: ${python_version}"
       failed=1
       ;;
   esac
@@ -212,11 +212,11 @@ run_validation() {
   activate_user_tools
   activate_user_python
 
-  log "Running backend Python tests"
+  log "Running node agent Python tests"
   "${ROOT_DIR}/.venv/bin/python" -m pytest
 
   log "Running Python compile check"
-  "${ROOT_DIR}/.venv/bin/python" -m compileall -q "${ROOT_DIR}/backend" "${ROOT_DIR}/node_agent" "${ROOT_DIR}/tests"
+  "${ROOT_DIR}/.venv/bin/python" -m compileall -q "${ROOT_DIR}/node_agent" "${ROOT_DIR}/tests"
 
   if has_cmd node; then
     log "Running web console JavaScript syntax check"
@@ -225,7 +225,7 @@ run_validation() {
     log "Skipping JavaScript syntax check because Node.js is not available"
   fi
 
-  log "Running Spring Boot web console tests"
+  log "Running Spring Boot platform tests"
   (cd "${ROOT_DIR}/web-console" && mvn test)
 }
 
@@ -251,7 +251,7 @@ case "${MODE}" in
     ;;
   --validate-web)
     bootstrap_user_tools
-    log "Running Spring Boot web console tests"
+    log "Running Spring Boot platform tests"
     (cd "${ROOT_DIR}/web-console" && mvn test)
     ;;
   --full)
@@ -266,7 +266,7 @@ case "${MODE}" in
 Usage: scripts/linux-dev-check.sh [--check|--bootstrap-tools|--bootstrap-python|--bootstrap|--validate|--validate-web|--full]
 
   --check            Check Java, Maven, Python, and Node.js. No system changes.
-  --bootstrap-tools  Install user-local JDK 17 and Maven under $HOME/.local.
+  --bootstrap-tools  Install user-local JDK 21 and Maven under $HOME/.local.
   --bootstrap-python Install user-local uv and managed Python 3.11 under $HOME/.local.
   --bootstrap        Create .venv and install Python dependencies.
   --validate         Run Python, JavaScript, and Spring Boot checks.

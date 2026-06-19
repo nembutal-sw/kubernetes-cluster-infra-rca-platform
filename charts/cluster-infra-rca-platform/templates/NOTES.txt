@@ -1,25 +1,22 @@
 Cluster Infra RCA platform has been installed.
 
-Backend service:
-  {{ include "cluster-infra-rca-platform.backendName" . }}:{{ .Values.backend.service.port }}
-
-Web console service:
-  {{ include "cluster-infra-rca-platform.webConsoleName" . }}:{{ .Values.webConsole.service.port }}
+Platform service:
+  {{ include "cluster-infra-rca-platform.platformName" . }}:{{ .Values.platform.service.port }}
 
 {{- if .Values.database.enabled }}
 Database:
   {{ include "cluster-infra-rca-platform.databaseType" . }} at {{ include "cluster-infra-rca-platform.databaseServiceName" . }}:{{ include "cluster-infra-rca-platform.databasePort" . }}
 {{- else }}
 Database:
-  external database configured by backend.secret.databaseUrl
+  external database configured by platform.secret.jdbcUrl
 {{- end }}
 
 Before production use, replace:
-  - backend.secret.defaultAdminPassword
-  - backend.secret.webhookToken
-  - database.auth.password and database.auth.rootPassword, or set database.enabled=false with backend.secret.databaseUrl
+  - platform.secret.defaultAdminPassword
+  - platform.secret.webhookToken
+  - database.auth.password and database.auth.rootPassword, or set database.enabled=false with platform.secret.jdbcUrl
   - image repositories and tags
 
-If agents or Alertmanager call the backend through Ingress, set:
-  webConsole.config.publicApiBaseUrl
-  ingress.backend.enabled=true
+If agents or Alertmanager call the platform through Ingress, set:
+  platform.config.publicApiBaseUrl
+  ingress.platform.enabled=true

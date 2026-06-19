@@ -18,62 +18,44 @@ services:
       timeout: 5s
       retries: 10
 
-  backend:
+  platform:
     build:
       context: .
-      dockerfile: Dockerfile.backend
-    image: cluster-infra-rca-backend:local
-    container_name: rca-backend
+      dockerfile: Dockerfile.web-console
+    image: cluster-infra-rca-platform:local
+    container_name: rca-platform
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      RCA_DATABASE_URL: ${RCA_DATABASE_URL:-postgresql+psycopg://rca:rca_password@postgres:5432/rca}
-      RCA_AUTO_CREATE_TABLES: "false"
-      RCA_RUN_MIGRATIONS: ${RCA_RUN_MIGRATIONS:-true}
+      RCA_JDBC_URL: ${RCA_JDBC_URL:-jdbc:postgresql://postgres:5432/rca}
+      RCA_DB_USERNAME: ${RCA_DB_USERNAME:-rca}
+      RCA_DB_PASSWORD: ${RCA_DB_PASSWORD:-rca_password}
       RCA_DEFAULT_ADMIN_USERNAME: ${RCA_DEFAULT_ADMIN_USERNAME:-admin}
       RCA_DEFAULT_ADMIN_PASSWORD: ${RCA_DEFAULT_ADMIN_PASSWORD:-admin}
       RCA_WEBHOOK_TOKEN: ${RCA_WEBHOOK_TOKEN:-dev-webhook-token}
       RCA_SESSION_TTL_HOURS: ${RCA_SESSION_TTL_HOURS:-12}
       RCA_AGENT_OFFLINE_AFTER_SECONDS: ${RCA_AGENT_OFFLINE_AFTER_SECONDS:-180}
-      RCA_LLM_PROVIDER: ${RCA_LLM_PROVIDER:-disabled}
+      RCA_MONITORING_ENABLED: ${RCA_MONITORING_ENABLED:-false}
+      RCA_MONITORING_INTERVAL_MS: ${RCA_MONITORING_INTERVAL_MS:-60000}
+      RCA_PUBLIC_API_BASE_URL: ${RCA_PUBLIC_API_BASE_URL:-http://localhost:8080}
+      RCA_LLM_ENABLED: ${RCA_LLM_ENABLED:-false}
+      RCA_LLM_PROVIDER: ${RCA_LLM_PROVIDER:-none}
       RCA_LLM_MODEL: ${RCA_LLM_MODEL:-}
-      RCA_LLM_API_KEY: ${RCA_LLM_API_KEY:-}
-      RCA_LLM_BASE_URL: ${RCA_LLM_BASE_URL:-}
-      RCA_LLM_TIMEOUT_SECONDS: ${RCA_LLM_TIMEOUT_SECONDS:-20}
-      RCA_LLM_MAX_OUTPUT_TOKENS: ${RCA_LLM_MAX_OUTPUT_TOKENS:-1200}
-    ports:
-      - "127.0.0.1:8000:8000"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).read()",
-        ]
-      interval: 10s
-      timeout: 6s
-      retries: 12
-      start_period: 10s
-    restart: unless-stopped
-
-  web-console:
-    build:
-      context: .
-      dockerfile: Dockerfile.web-console
-    image: cluster-infra-rca-web-console:local
-    container_name: rca-web-console
-    depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      RCA_API_BASE_URL: http://backend:8000
-      RCA_PUBLIC_API_BASE_URL: ${RCA_PUBLIC_API_BASE_URL:-http://localhost:8000}
-      RCA_PROXY_TIMEOUT_SECONDS: ${RCA_PROXY_TIMEOUT_SECONDS:-20}
+      RCA_SPRING_AI_CHAT_MODEL: ${RCA_SPRING_AI_CHAT_MODEL:-none}
+      SPRING_AI_OPENAI_SDK_API_KEY: ${OPENAI_API_KEY:-}
+      SPRING_AI_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SPRING_AI_GOOGLE_GENAI_API_KEY: ${GEMINI_API_KEY:-}
+      SPRING_AI_OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       SERVER_PORT: 8080
     ports:
       - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     restart: unless-stopped
 
   mariadb:

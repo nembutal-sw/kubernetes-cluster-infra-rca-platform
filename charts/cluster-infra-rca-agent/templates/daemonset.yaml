@@ -87,6 +87,26 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: COMMAND_TIMEOUT_SECONDS
+            - name: RETRY_INITIAL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: RETRY_INITIAL_SECONDS
+            - name: RETRY_MAX_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: RETRY_MAX_SECONDS
+            - name: AGENT_MAX_SPOOL_FILES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_MAX_SPOOL_FILES
+            - name: AGENT_MAX_SPOOL_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_MAX_SPOOL_BYTES
             - name: KUBERNETES_API_TIMEOUT_SECONDS
               valueFrom:
                 configMapKeyRef:
@@ -107,6 +127,19 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: SYSTEMD_COLLECTOR_MODE
+            - name: AGENT_STATE_DIR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_STATE_DIR
+            {{- if .Values.tls.enabled }}
+            - name: AGENT_CA_BUNDLE
+              value: /var/run/cluster-infra-rca-tls/{{ .Values.tls.caBundleKey }}
+            - name: AGENT_CLIENT_CERT
+              value: /var/run/cluster-infra-rca-tls/{{ .Values.tls.clientCertKey }}
+            - name: AGENT_CLIENT_KEY
+              value: /var/run/cluster-infra-rca-tls/{{ .Values.tls.clientKeyKey }}
+            {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           volumeMounts:
@@ -128,6 +161,13 @@ spec:
             - name: host-sys
               mountPath: /host/sys
               readOnly: true
+            - name: agent-state
+              mountPath: /var/lib/cluster-infra-rca-agent
+            {{- if .Values.tls.enabled }}
+            - name: agent-tls
+              mountPath: /var/run/cluster-infra-rca-tls
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
@@ -149,3 +189,12 @@ spec:
         - name: host-sys
           hostPath:
             path: {{ .Values.hostPaths.sys | quote }}
+        - name: agent-state
+          hostPath:
+            path: {{ .Values.hostPaths.state | quote }}
+            type: DirectoryOrCreate
+        {{- if .Values.tls.enabled }}
+        - name: agent-tls
+          secret:
+            secretName: {{ required "tls.existingSecret is required when tls.enabled=true" .Values.tls.existingSecret }}
+        {{- end }}

@@ -15,12 +15,8 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "cluster-infra-rca-platform.backendName" -}}
-{{- printf "%s-backend" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-
-{{- define "cluster-infra-rca-platform.webConsoleName" -}}
-{{- printf "%s-web-console" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- define "cluster-infra-rca-platform.platformName" -}}
+{{- printf "%s-platform" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.databaseType" -}}
@@ -47,36 +43,38 @@
 {{- if eq (include "cluster-infra-rca-platform.databaseType" .) "mariadb" -}}3306{{- else -}}5432{{- end -}}
 {{- end -}}
 
-{{- define "cluster-infra-rca-platform.databaseUrl" -}}
-{{- if .Values.backend.secret.databaseUrl -}}
-{{- .Values.backend.secret.databaseUrl -}}
+{{- define "cluster-infra-rca-platform.jdbcUrl" -}}
+{{- if .Values.platform.secret.jdbcUrl -}}
+{{- .Values.platform.secret.jdbcUrl -}}
 {{- else if .Values.database.enabled -}}
 {{- $type := include "cluster-infra-rca-platform.databaseType" . -}}
-{{- $username := .Values.database.auth.username | toString | urlquery -}}
-{{- $password := .Values.database.auth.password | toString | urlquery -}}
-{{- $database := .Values.database.auth.database | toString | urlquery -}}
+{{- $database := .Values.database.auth.database | toString -}}
 {{- $service := include "cluster-infra-rca-platform.databaseServiceName" . -}}
 {{- $port := include "cluster-infra-rca-platform.databasePort" . -}}
 {{- if eq $type "mariadb" -}}
-{{- printf "mysql+pymysql://%s:%s@%s:%s/%s" $username $password $service $port $database -}}
+{{- printf "jdbc:mariadb://%s:%s/%s" $service $port $database -}}
 {{- else -}}
-{{- printf "postgresql+psycopg://%s:%s@%s:%s/%s" $username $password $service $port $database -}}
+{{- printf "jdbc:postgresql://%s:%s/%s" $service $port $database -}}
 {{- end -}}
 {{- else -}}
-{{- required "backend.secret.databaseUrl is required when database.enabled=false" .Values.backend.secret.databaseUrl -}}
+{{- required "platform.secret.jdbcUrl is required when database.enabled=false" .Values.platform.secret.jdbcUrl -}}
 {{- end -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databaseUsername" -}}
+{{- default .Values.database.auth.username .Values.platform.secret.databaseUsername -}}
+{{- end -}}
+
+{{- define "cluster-infra-rca-platform.databasePassword" -}}
+{{- default .Values.database.auth.password .Values.platform.secret.databasePassword -}}
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.secretName" -}}
-{{- if .Values.backend.secret.create -}}
+{{- if .Values.platform.secret.create -}}
 {{- printf "%s-secret" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- required "backend.secret.existingSecret is required when backend.secret.create=false" .Values.backend.secret.existingSecret -}}
+{{- required "platform.secret.existingSecret is required when platform.secret.create=false" .Values.platform.secret.existingSecret -}}
 {{- end -}}
-{{- end -}}
-
-{{- define "cluster-infra-rca-platform.backendUrl" -}}
-{{- default (printf "http://%s:%v" (include "cluster-infra-rca-platform.backendName" .) .Values.backend.service.port) .Values.webConsole.config.apiBaseUrl -}}
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.selectorLabels" -}}
@@ -91,14 +89,9 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{ include "cluster-infra-rca-platform.selectorLabels" . }}
 {{- end -}}
 
-{{- define "cluster-infra-rca-platform.backendSelectorLabels" -}}
+{{- define "cluster-infra-rca-platform.platformSelectorLabels" -}}
 {{ include "cluster-infra-rca-platform.selectorLabels" . }}
-app.kubernetes.io/component: backend
-{{- end -}}
-
-{{- define "cluster-infra-rca-platform.webConsoleSelectorLabels" -}}
-{{ include "cluster-infra-rca-platform.selectorLabels" . }}
-app.kubernetes.io/component: web-console
+app.kubernetes.io/component: platform
 {{- end -}}
 
 {{- define "cluster-infra-rca-platform.databaseSelectorLabels" -}}
