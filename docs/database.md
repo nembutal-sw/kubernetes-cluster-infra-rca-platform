@@ -38,3 +38,5 @@ Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니�
 - `user_sessions`
 
 JSON 데이터는 DB별 JSON 타입 대신 `TEXT`로 저장해 PostgreSQL과 MariaDB의 동작을 동일하게 유지합니다.
+
+`DatabaseCompatibilityTests`는 두 DB에서 새 스키마 생성과 기존 Alembic 스키마 승계를 검증합니다. Docker가 없는 로컬 환경에서는 자동으로 건너뛰며 GitHub Actions에서는 실제 DB 컨테이너로 실행합니다.

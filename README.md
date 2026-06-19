@@ -159,6 +159,7 @@ bash scripts/linux-dev-check.sh --full
 - Node Agent pytest 및 Python compile
 - Web Console JavaScript syntax
 - Spring Boot API/UI 통합 테스트
+- PostgreSQL/MariaDB Testcontainers 호환성 및 기존 Alembic DB 승계
 - 인증, 클러스터, 에이전트, evidence, RCA report 흐름
 
 ## Repository

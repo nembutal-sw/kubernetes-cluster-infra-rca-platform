@@ -11,13 +11,15 @@
 - 반응형 Web Console
 - Agent token persistence, evidence spool, exponential backoff, mTLS 옵션
 - Platform/Agent Helm chart
+- Prometheus 없이 동작하는 정기 수집 scheduler
+- PostgreSQL/MariaDB Testcontainers 통합 검증
+- GitHub Actions CI
 
 ## Next
 
 - 실제 다중 배포판과 managed Kubernetes에서 collector field 검증
-- PostgreSQL/MariaDB Testcontainers CI
 - Spring AI provider별 contract test
-- Prometheus 없이 동작하는 정기 수집 scheduler와 incident correlation
+- 정기 수집 결과의 incident correlation
 - 외부 secret manager 및 audit log
 - GitOps PR provider 연동
 - 운영 HA 구성과 disaster recovery 검증
