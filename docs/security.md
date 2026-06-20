@@ -2,41 +2,40 @@
 
 ## 한국어 요약
 
-이 프로젝트의 보안 방향은 “장애 진단은 자동화하되, 위험 조치는 자동 실행하지 않는다”입니다.
+이 프로젝트의 보안 방향은 “장애 진단은 자동화하되, 운영 변경은 사람이 승인하고 처리한다”입니다.
 
 현재 보안 경계는 다음처럼 나뉩니다.
 
-- 사용자 API: bearer token 기반 stateless session
-- Agent API: `AgentAuthenticationFilter`에서 bootstrap token과 node token 검증
-- Webhook API: webhook token 검증
-- Manifest API: manifest access token 검증
-- Metrics API: 운영 role 또는 metrics token 검증
-- Production profile: 기본 secret, 빈 token, insecure URL, demo enabled 등을 fail-fast로 차단
-- LLM: diagnostic helper로만 사용, action 자동 실행 불가
-- Action workflow: approval/manual completion/audit only
+- 사용자 API: platform session + RBAC
+- Agent API: cluster credential + node credential
+- Webhook API: shared webhook credential
+- Manifest API: manifest access filter
+- Metrics API: operational role or metrics credential
+- Export API: operational role only
+- Action workflow: manual approval and audit only
+
+Node Agent는 evidence collection 역할에 집중합니다. 운영 환경 변경 작업은 Platform이나 Agent가 직접 수행하지 않습니다.
 
 ---
 
 ## English Reference
 
-## Authentication Layers
+## Request Authentication
 
-Spring Security filter chain includes:
+Authentication is handled at the Spring Security filter chain boundary.
 
-```text
-PlatformAuthenticationFilter
-AgentAuthenticationFilter
-WebhookAuthenticationFilter
-ManifestAccessFilter
-MetricsAuthenticationFilter
-SameOriginMutationFilter
-```
+| Boundary | Filter |
+| --- | --- |
+| User API | `PlatformAuthenticationFilter` |
+| Agent API | `AgentAuthenticationFilter` |
+| Webhook API | `WebhookAuthenticationFilter` |
+| Manifest access | `ManifestAccessFilter` |
+| Metrics access | `MetricsAuthenticationFilter` |
+| Browser mutation guard | `SameOriginMutationFilter` |
 
-These filters protect the main external input boundaries before controller logic runs.
+## User Roles
 
-## User Authentication
-
-Platform users authenticate through `/api/auth/login` and receive a bearer token. API roles include:
+Current roles:
 
 ```text
 ADMIN
@@ -47,139 +46,94 @@ AUDITOR
 METRICS
 ```
 
+Examples:
+
+- `VIEWER` can read dashboards and reports but cannot mutate resources.
+- `APPROVER` can approve or reject action requests.
+- `AUDITOR` can read audit and operational review surfaces.
+- `ADMIN` and `OPERATOR` can export reports and evidence bundles.
+
 ## Agent Authentication
 
-Agent endpoints are `permitAll` at the URL layer but authenticated by `AgentAuthenticationFilter`.
+Agent registration uses a cluster-level credential. After registration, the platform issues a node-specific credential.
 
-Register:
+Subsequent agent calls must identify:
 
-```text
-cluster_id + agent_token
-```
+- cluster
+- node name
+- cluster credential
+- node credential
 
-Heartbeat/evidence/realtime:
-
-```text
-cluster_id + node_name + agent_token + node_token
-```
-
-Authentication failures are recorded as audit events when possible.
+The platform verifies these fields before processing heartbeat, evidence, and realtime event calls.
 
 ## Webhook Authentication
 
-Alertmanager webhook ingestion requires the configured webhook token. Production mode rejects empty or development tokens.
+Alertmanager webhook ingestion requires the configured webhook credential. In production, blank or known development values fail startup validation.
 
 ## Metrics Authentication
 
-Metrics endpoints require a platform role or `RCA_METRICS_TOKEN`.
-
-Accepted token forms:
+Metrics endpoints require one of:
 
 ```text
-X-Metrics-Token: <token>
-Authorization: Bearer <token>
+ADMIN, OPERATOR, AUDITOR, METRICS
 ```
 
-Metrics token must be non-default in production when observability is enabled.
+The `METRICS` role is intended for a trusted scraper.
 
-## Production Fail-fast
+## Production Fail-Fast
 
-Production profile is activated by:
+Production validation rejects unsafe settings, including:
 
-```text
-prod
-production
-```
-
-Unsafe configuration causes startup failure. Examples:
-
-```text
-RCA_DEFAULT_ADMIN_PASSWORD=admin
-RCA_WEBHOOK_TOKEN=
-RCA_WEBHOOK_TOKEN=dev-webhook-token
-RCA_DB_PASSWORD=rca_password
-RCA_PUBLIC_API_BASE_URL=http://...
-RCA_DEMO_ENABLED=true
-RCA_AUDIT_ENABLED=false
-RCA_ENCRYPTION_SECRET=
-RCA_METRICS_TOKEN=, when observability is enabled
-RCA_SLACK_WEBHOOK_URL=http://..., when notification is enabled
-```
-
-## LLM Safety
-
-LLM is optional and disabled by default. It may summarize evidence or explain RCA results, but it must not:
-
-```text
-execute actions
-claim remediation was performed
-bypass Policy Engine
-mark automation_allowed=true
-invent unsupported facts
-```
-
-LLM-origin actions are always diagnostic suggestions.
-
-## Action Safety
-
-The platform no longer executes host mutation commands through the agent.
-
-Disabled behavior:
-
-```text
-systemctl restart from agent
-kubectl delete/drain from agent
-node reboot
-shell command execution
-host filesystem mutation
-```
-
-Current behavior:
-
-```text
-read-only evidence collection
-action request creation
-approval/rejection audit
-manual completion tracking
-GitOps PR guidance
-```
+- weak default administrator settings
+- missing or development-only boundary credentials
+- weak database credential
+- non-HTTPS public URL
+- incomplete LLM configuration when LLM is enabled
+- invalid notification URL when notification is enabled
+- observability enabled without safe scraper authentication
+- demo mode enabled in production
+- audit disabled in production
+- missing encryption material
 
 ## Export Security
 
-Report export and evidence bundle export are restricted to:
+Report export and evidence bundle export are restricted to operational roles.
 
-```text
-ADMIN
-OPERATOR
-```
+Evidence bundle export:
 
-Exported bundles are redacted and use `Cache-Control: no-store`.
+- redacts sensitive values
+- applies bundle size limits
+- writes audit events
+- returns `application/zip`
+- uses `Cache-Control: no-store`
 
-## mTLS Readiness
+## LLM Safety
 
-The Python Agent supports optional mTLS client certificate configuration:
+LLM is a diagnostic assistant only.
 
-```text
-AGENT_CA_BUNDLE
-AGENT_CLIENT_CERT
-AGENT_CLIENT_KEY
-```
+Rules:
 
-Both client certificate and key must be provided together.
+- LLM output must be based on supplied evidence.
+- LLM-origin actions are not automatically executable.
+- LLM failures should not fail rule-based RCA.
+- LLM input/output should be redacted.
+- Policy Engine remains the final guardrail.
 
-## Future Enterprise Hardening
+## Manual Action Safety
 
-Planned or recommended future items:
+Action approval records human decision-making. Approval does not cause the platform or agent to perform operational changes.
 
-```text
-OIDC/SAML SSO
-advanced tenant-aware RBAC
-agent token rotation
-strict agent protocol enforcement mode
-mTLS-required agent mode
-KMS/Vault secret management
-immutable audit export
-SIEM forwarding
-retention cleanup job
-image signing and SBOM validation
-```
+## mTLS And Private CA
+
+Agent client supports private CA and client certificate configuration for mTLS-style deployments. Certificate and key must be configured together.
+
+## Future Enterprise Security Work
+
+- tenant-aware access scope
+- permission matrix
+- credential rotation
+- strict agent protocol mode
+- audit export
+- retention policy enforcement
+- external identity provider integration
+- customer-managed encryption key support
