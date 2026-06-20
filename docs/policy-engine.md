@@ -4,13 +4,9 @@
 
 Policy Engine은 RCA 결과와 LLM 제안을 운영자가 안전하게 다룰 수 있도록 조치의 위험도를 분류하는 계층입니다.
 
-현재 핵심 원칙은 명확합니다.
+이 프로젝트에서 LLM은 실행 주체가 아닙니다. LLM은 설명과 제안만 만들고, 모든 조치는 Policy Engine을 거쳐 `automation_allowed=false` 또는 manual approval 중심으로 처리됩니다.
 
-> RCA는 자동화하지만, 위험 조치는 자동 실행하지 않는다.
-
-LLM은 조치 실행자가 아닙니다. LLM이 제안한 action은 항상 diagnostic suggestion으로 취급되며 `automation_allowed=false`입니다.
-
-Rule-based action도 host mutation을 실행하지 않습니다. `restart_kubelet`, `restart_containerd`, `restart_container_runtime` 같은 조치는 runbook/manual workflow 대상으로만 표시됩니다.
+현재 Platform과 Agent는 운영 환경 변경 작업을 직접 실행하지 않습니다. Policy Engine의 역할은 “실행”이 아니라 **분류, guardrail 부여, approval/manual workflow 연결**입니다.
 
 ---
 
@@ -18,119 +14,85 @@ Rule-based action도 host mutation을 실행하지 않습니다. `restart_kubele
 
 ## Policy Levels
 
-```text
-AUTO_SAFE
-APPROVAL_REQUIRED
-GITOPS_PR_ONLY
-NEVER_AUTO_EXECUTE
-MANUAL_INVESTIGATION
-```
+| Policy | Meaning |
+| --- | --- |
+| `AUTO_SAFE` | read-only verification may be requested |
+| `APPROVAL_REQUIRED` | human approval and manual handling required |
+| `GITOPS_PR_ONLY` | change should be reviewed through GitOps PR |
+| `NEVER_AUTO_EXECUTE` | must not be automated |
+| `MANUAL_INVESTIGATION` | investigation-only recommendation |
 
-## Source Types
+## Key Guarantees
 
-```text
-rule_based
-llm
-demo
-system
-```
+- LLM-origin actions are never automatically executable.
+- High-risk actions receive guardrails and manual workflow guidance.
+- Approval does not cause agent-side execution.
+- Recommended action plans can include commands or YAML previews as documentation only.
+- The node agent remains focused on evidence collection.
 
-LLM-origin actions are never executable.
+## Recommended Action Fields
 
-## RecommendedAction Fields
+A report action includes:
 
 ```json
 {
-  "action": "Restart kubelet after manual verification",
+  "action": "Inspect kubelet status and recent logs",
   "policy": "APPROVAL_REQUIRED",
-  "reason": "kubelet service appears unhealthy",
-  "action_key": "restart_kubelet",
+  "reason": "Kubelet failure signals were detected",
+  "action_key": "inspect_kernel_state",
   "source": "rule_based",
-  "automation_mode": "manual",
+  "automation_mode": "manual_only",
   "automation_allowed": false,
   "requires_approval": true,
   "review_required": true,
-  "guardrails": ["manual_runbook_only"],
-  "risks": ["node_disruption"],
+  "guardrails": ["manual runbook required"],
+  "risks": ["service disruption if handled incorrectly"],
   "execution_plan": {
-    "command_key": "restart_systemd_unit",
-    "parameters": {"unit": "kubelet"},
-    "preview_commands": ["systemctl restart kubelet"],
+    "command_key": "documentation_only",
+    "parameters": {},
+    "commands": ["review runbook and verify state manually"],
+    "patch_preview": null,
     "executable": false,
     "timeout_seconds": 60
   }
 }
 ```
 
-`execution_plan.preview_commands` is documentation for human review. It is not executed by the platform or agent.
+## Rule-Based vs LLM Source
 
-## Current Action Semantics
-
-### Read-only action
-
-Some actions may create a read-only evidence request.
-
-Examples:
+Rule-based recommendations can create manual action requests. LLM recommendations remain diagnostic suggestions and cannot trigger automation.
 
 ```text
-inspect_storage_state
-inspect_network_state
-inspect_kernel_state
-collect_linux_low_level_evidence
+source=llm -> automation_allowed=false
+source=llm -> no automatic execution
+source=rule_based -> may create approval/manual workflow
 ```
 
-### Manual action
+## Manual-Only Workflow
 
-Risky actions become action requests that require approval and manual completion.
-
-Examples:
+For `APPROVAL_REQUIRED` actions:
 
 ```text
-restart_kubelet
-restart_containerd
-restart_container_runtime
-cordon_node
-drain_node
+recommended action
+  -> action request
+  -> pending approval
+  -> approved_manual or rejected
+  -> external runbook / GitOps workflow
+  -> completed_manual
 ```
 
-### GitOps-only action
+For `GITOPS_PR_ONLY` actions, the platform may show a YAML preview, but the actual change should happen through an external GitOps review process.
 
-Changes that should be reviewed through GitOps are marked as `GITOPS_PR_ONLY`.
+## Guardrail Examples
 
-Example:
+Guardrails should communicate operational constraints:
 
-```text
-update_cni_mtu
-```
+- verify evidence before applying changes
+- confirm maintenance window when needed
+- keep rollback plan outside the RCA platform
+- record decision reason
+- keep LLM suggestions diagnostic-only
 
-The platform may show a YAML preview, but it does not patch the cluster directly.
+## Portfolio Message
 
-## Disabled Host Mutation
-
-Agent-side mutation execution has been removed:
-
-```text
-node_agent/actions.py removed
-ApprovedActionExecutor removed from agent loop
-ActionExecution queue no longer drives host commands
-```
-
-Database migration `V6__disable_agent_action_execution.sql` expires legacy queued/leased executions and converts queued/executing action requests to manual approval state.
-
-## Guardrail Rules
-
-Recommended guardrails:
-
-```text
-manual_runbook_only
-llm_action_never_auto
-requires_human_approval
-requires_gitops_review
-requires_evidence_bundle
-requires_audit_record
-no_host_mutation
-```
-
-## Design Rationale
-
-The platform is an RCA and decision-support system, not a self-healing root agent. This keeps the project enterprise-friendly because it preserves separation of duties, auditability, and operator control.
+> Policy Engine은 자동 실행을 가능하게 하는 장치가 아니라, RCA 결과를 안전한 운영 절차로 연결하는 guardrail 계층입니다.
