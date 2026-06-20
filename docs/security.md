@@ -1,66 +1,185 @@
 # Security
 
-## Request Authentication
+## 한국어 요약
 
-외부 입력 경계의 인증은 Spring Security filter chain에서 먼저 처리합니다.
+이 프로젝트의 보안 방향은 “장애 진단은 자동화하되, 위험 조치는 자동 실행하지 않는다”입니다.
 
-| Endpoint | Authentication |
-| --- | --- |
-| `/api/agents/register` | cluster bootstrap token |
-| `/api/agents/**` | cluster bootstrap token + node token |
-| `/api/webhooks/alertmanager` | `X-Webhook-Token` 또는 Bearer token |
-| `/api/clusters/{id}/agent-manifest` | 로그인 세션 또는 cluster bootstrap token |
+현재 보안 경계는 다음처럼 나뉩니다.
 
-Agent 요청 본문은 필터에서 한 번 캐시한 뒤 컨트롤러에 그대로 전달합니다. 인증 실패 감사
-로그에는 endpoint, cluster, node, 실패 사유만 기록하며 token 값은 기록하지 않습니다.
+- 사용자 API: bearer token 기반 stateless session
+- Agent API: `AgentAuthenticationFilter`에서 bootstrap token과 node token 검증
+- Webhook API: webhook token 검증
+- Manifest API: manifest access token 검증
+- Metrics API: 운영 role 또는 metrics token 검증
+- Production profile: 기본 secret, 빈 token, insecure URL, demo enabled 등을 fail-fast로 차단
+- LLM: diagnostic helper로만 사용, action 자동 실행 불가
+- Action workflow: approval/manual completion/audit only
 
-## RBAC
+---
 
-| Role | Scope |
-| --- | --- |
-| `ADMIN` | 전체 관리 및 승인 |
-| `OPERATOR` | 클러스터 운영, 수집, incident 상태 변경 |
-| `VIEWER` | 일반 조회 |
-| `APPROVER` | RCA 보고서와 승인 대기 조치 조회, 승인 또는 거절 |
-| `AUDITOR` | audit event 조회 |
+## English Reference
 
-Mutation API는 `VIEWER`에게 허용하지 않습니다. 조치 승인 API는 `ADMIN`과 `APPROVER`,
-audit 조회 API는 `ADMIN`과 `AUDITOR`만 호출할 수 있습니다.
+## Authentication Layers
 
-보고서 JSON과 evidence bundle export는 `ADMIN`과 `OPERATOR`만 허용합니다.
-`VIEWER`와 `APPROVER`는 화면 조회는 가능하지만 다운로드 또는 원문 복사 기능을 사용할 수
-없습니다. 승인 완료 후 실제 처리는 `ADMIN` 또는 `OPERATOR`가 외부 runbook/GitOps 절차로
-수행하고 수동 완료를 기록합니다.
+Spring Security filter chain includes:
+
+```text
+PlatformAuthenticationFilter
+AgentAuthenticationFilter
+WebhookAuthenticationFilter
+ManifestAccessFilter
+MetricsAuthenticationFilter
+SameOriginMutationFilter
+```
+
+These filters protect the main external input boundaries before controller logic runs.
+
+## User Authentication
+
+Platform users authenticate through `/api/auth/login` and receive a bearer token. API roles include:
+
+```text
+ADMIN
+OPERATOR
+VIEWER
+APPROVER
+AUDITOR
+METRICS
+```
+
+## Agent Authentication
+
+Agent endpoints are `permitAll` at the URL layer but authenticated by `AgentAuthenticationFilter`.
+
+Register:
+
+```text
+cluster_id + agent_token
+```
+
+Heartbeat/evidence/realtime:
+
+```text
+cluster_id + node_name + agent_token + node_token
+```
+
+Authentication failures are recorded as audit events when possible.
+
+## Webhook Authentication
+
+Alertmanager webhook ingestion requires the configured webhook token. Production mode rejects empty or development tokens.
+
+## Metrics Authentication
+
+Metrics endpoints require a platform role or `RCA_METRICS_TOKEN`.
+
+Accepted token forms:
+
+```text
+X-Metrics-Token: <token>
+Authorization: Bearer <token>
+```
+
+Metrics token must be non-default in production when observability is enabled.
 
 ## Production Fail-fast
 
-`prod` 또는 `production` profile에서는 다음 설정이 안전하지 않으면 애플리케이션 시작을
-중단합니다.
-
-- 기본 admin 비밀번호
-- 비어 있거나 개발용인 webhook token
-- 비어 있거나 예제값인 DB 비밀번호
-- 1시간 미만 또는 24시간 초과 session TTL
-- HTTPS가 아닌 public API URL
-- 활성화된 LLM의 provider, model, Spring AI model 또는 API key 누락
-- demo mode 활성화 또는 audit 비활성화
-- 비어 있거나 개발용인 encryption secret
-
-최소 운영 설정 예:
+Production profile is activated by:
 
 ```text
-SPRING_PROFILES_ACTIVE=prod
-RCA_PUBLIC_API_BASE_URL=https://rca.example.com
-RCA_DEFAULT_ADMIN_PASSWORD=<secret>
-RCA_WEBHOOK_TOKEN=<secret>
-RCA_DB_PASSWORD=<secret>
-RCA_ENCRYPTION_SECRET=<secret>
-RCA_AUDIT_ENABLED=true
-RCA_DEMO_ENABLED=false
+prod
+production
 ```
 
-Secret 값은 저장소나 Helm values 파일에 직접 넣지 말고 Kubernetes Secret 또는 External
-Secrets를 통해 주입합니다.
+Unsafe configuration causes startup failure. Examples:
 
-Metrics endpoint는 사용자 session 또는 `RCA_METRICS_TOKEN`으로 인증합니다. 운영 profile에서
-observability가 활성화된 경우 metrics token이 비어 있거나 예제값이면 시작을 차단합니다.
+```text
+RCA_DEFAULT_ADMIN_PASSWORD=admin
+RCA_WEBHOOK_TOKEN=
+RCA_WEBHOOK_TOKEN=dev-webhook-token
+RCA_DB_PASSWORD=rca_password
+RCA_PUBLIC_API_BASE_URL=http://...
+RCA_DEMO_ENABLED=true
+RCA_AUDIT_ENABLED=false
+RCA_ENCRYPTION_SECRET=
+RCA_METRICS_TOKEN=, when observability is enabled
+RCA_SLACK_WEBHOOK_URL=http://..., when notification is enabled
+```
+
+## LLM Safety
+
+LLM is optional and disabled by default. It may summarize evidence or explain RCA results, but it must not:
+
+```text
+execute actions
+claim remediation was performed
+bypass Policy Engine
+mark automation_allowed=true
+invent unsupported facts
+```
+
+LLM-origin actions are always diagnostic suggestions.
+
+## Action Safety
+
+The platform no longer executes host mutation commands through the agent.
+
+Disabled behavior:
+
+```text
+systemctl restart from agent
+kubectl delete/drain from agent
+node reboot
+shell command execution
+host filesystem mutation
+```
+
+Current behavior:
+
+```text
+read-only evidence collection
+action request creation
+approval/rejection audit
+manual completion tracking
+GitOps PR guidance
+```
+
+## Export Security
+
+Report export and evidence bundle export are restricted to:
+
+```text
+ADMIN
+OPERATOR
+```
+
+Exported bundles are redacted and use `Cache-Control: no-store`.
+
+## mTLS Readiness
+
+The Python Agent supports optional mTLS client certificate configuration:
+
+```text
+AGENT_CA_BUNDLE
+AGENT_CLIENT_CERT
+AGENT_CLIENT_KEY
+```
+
+Both client certificate and key must be provided together.
+
+## Future Enterprise Hardening
+
+Planned or recommended future items:
+
+```text
+OIDC/SAML SSO
+advanced tenant-aware RBAC
+agent token rotation
+strict agent protocol enforcement mode
+mTLS-required agent mode
+KMS/Vault secret management
+immutable audit export
+SIEM forwarding
+retention cleanup job
+image signing and SBOM validation
+```
