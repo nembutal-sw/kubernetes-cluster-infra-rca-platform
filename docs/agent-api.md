@@ -1,191 +1,176 @@
 # Agent API
 
-Node Agent는 DaemonSet으로 각 노드에 배포되고 Backend에 등록 및 heartbeat를 보냅니다.
+## 한국어 요약
 
-현재 API는 실제 evidence streaming 전에 Agent identity와 상태 흐름을 고정하기 위한 MVP입니다.
+Node Agent API는 각 Kubernetes 노드에 배포된 Python Agent가 Platform에 등록하고, heartbeat를 보내고, read-only evidence 요청을 받아 결과를 제출하는 경계입니다.
 
-현재 repo에는 `node_agent` Python 패키지로 Agent MVP가 들어 있습니다. 실행 진입점은 아래와 같습니다.
+현재 설계에서 Agent는 **host mutation을 실행하지 않습니다.** 예전 승인 조치 실행 API는 호환성 목적으로 남아 있지만, action polling은 빈 목록을 반환하고 action result submit은 `410 Gone`으로 차단됩니다. 운영 조치는 approval/audit/manual runbook 또는 GitOps PR 흐름으로만 처리합니다.
 
-```powershell
-python -m node_agent.main --once
+Agent는 `agent_token`과 노드별 `node_token`을 함께 사용합니다. 등록 시에는 bootstrap token 역할의 `agent_token`만 필요하고, 등록 후에는 backend가 발급한 `node_token`을 로컬 state directory에 저장한 뒤 heartbeat/evidence/realtime event 요청에 함께 보냅니다.
+
+---
+
+## English Reference
+
+Base paths are served by the Spring Boot platform.
+
+```text
+POST /api/agents/register
+POST /api/agents/heartbeat
+POST /api/agents/evidence-requests
+POST /api/agents/evidence-responses
+POST /api/agents/realtime-events
+POST /api/agents/action-executions   # deprecated compatibility endpoint
+POST /api/agents/action-results      # disabled, returns 410 Gone
 ```
 
-DaemonSet에서는 같은 모듈을 장기 실행 프로세스로 실행합니다.
+All agent endpoints are permitted by the HTTP authorization rules but are authenticated by `AgentAuthenticationFilter` before reaching controllers.
 
-Backend 연결 없이 실제 Linux 노드에서 collector만 확인하려면 local collect 모드를 사용합니다.
+## Authentication Contract
 
-```bash
-python -m node_agent.main --collect-local --output /tmp/cluster-infra-rca-evidence.json
-```
+### Register
 
-상세 절차는 [docs/linux-node-collector-validation.md](linux-node-collector-validation.md)를 참고합니다.
-
-## Agent 환경변수
-
-| 이름 | 설명 |
-| --- | --- |
-| `BACKEND_URL` | Spring Boot Platform API 주소 |
-| `CLUSTER_ID` | 등록된 클러스터 ID |
-| `AGENT_TOKEN` | 클러스터 bootstrap token |
-| `NODE_NAME` | Kubernetes node name |
-| `POLL_INTERVAL_SECONDS` | evidence request poll 주기, 기본 15초 |
-| `HTTP_TIMEOUT_SECONDS` | Platform API 요청 timeout, 기본 10초 |
-| `RETRY_INITIAL_SECONDS` | 재시도 backoff 시작값, 기본 2초 |
-| `RETRY_MAX_SECONDS` | 재시도 backoff 상한, 기본 120초 |
-| `AGENT_STATE_DIR` | node token과 evidence spool 저장 경로 |
-| `AGENT_CA_BUNDLE` | 사용자 CA bundle 경로 |
-| `AGENT_CLIENT_CERT` | mTLS client certificate 경로 |
-| `AGENT_CLIENT_KEY` | mTLS client private key 경로 |
-| `COMMAND_TIMEOUT_SECONDS` | 로컬 수집 명령 timeout, 기본 5초 |
-
-hostPath 기본값:
-
-| 이름 | 기본값 |
-| --- | --- |
-| `HOST_ROOT` | `/host/root` |
-| `HOST_PROC` | `/host/proc` |
-| `HOST_SYS` | `/host/sys` |
-| `HOST_ETC` | `/host/etc` |
-| `HOST_VAR_LOG` | `/host/var/log` |
-| `HOST_RUN` | `/host/run` |
-
-## 인증
-
-Agent 등록 요청은 클러스터 등록 시 발급된 `bootstrap_token`을 `agent_token` 필드로 보냅니다.
-
-등록이 성공하면 Backend는 해당 `cluster_id + node_name`에만 사용할 수 있는 `node_token`을 발급합니다.
-이 값은 등록 응답에서만 raw 값으로 내려가고, Backend DB에는 hash만 저장합니다.
-
-Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token`을 모두 보내야 합니다.
-
-- `agent_token`이 틀리면 `401`
-- 등록되지 않은 node면 `404`
-- `node_token`이 해당 node와 맞지 않으면 `401`
-
-## Register
-
-`POST /api/agents/register`
-
-요청:
+`/api/agents/register` requires:
 
 ```json
 {
-  "cluster_id": "cluster-12345678",
-  "node_name": "worker-3",
-  "agent_token": "bootstrap-token",
+  "cluster_id": "cluster-1",
+  "node_name": "worker-1",
+  "agent_token": "cluster-bootstrap-token",
   "agent_version": "0.1.0",
   "agent_protocol_version": "1",
-  "supported_collectors": ["systemd", "disk", "network", "kubelet"],
+  "supported_collectors": ["node", "disk", "kernel", "kubelet"],
   "metadata": {
     "kernel": "6.8.0",
-    "runtime": "containerd"
+    "container_runtime": "containerd"
   }
 }
 ```
 
-응답:
+The response includes a node-specific token.
 
 ```json
 {
-  "agent_id": "agent-12345678",
-  "cluster_id": "cluster-12345678",
-  "node_name": "worker-3",
-  "node_token": "node-specific-token",
+  "agent_id": "agent-...",
+  "cluster_id": "cluster-1",
+  "node_name": "worker-1",
   "agent_version": "0.1.0",
   "agent_protocol_version": "1",
   "status": "registered",
-  "supported_collectors": ["systemd", "disk", "network", "kubelet"],
-  "metadata": {
-    "kernel": "6.8.0",
-    "runtime": "containerd"
-  },
-  "health": {},
-  "registered_at": "2026-06-10T00:00:00Z",
-  "last_heartbeat_at": null
+  "node_token": "node-specific-token"
 }
 ```
 
-동작:
-
-- `cluster_id`가 없으면 `404`
-- `agent_token`이 틀리면 `401`
-- 같은 `cluster_id + node_name`으로 다시 등록하면 기존 Agent row를 갱신하고 `node_token`을 재발급
-- 클러스터 상태를 `active`로 변경
-
-## Heartbeat
-
-`POST /api/agents/heartbeat`
-
-요청:
+### Heartbeat
 
 ```json
 {
-  "cluster_id": "cluster-12345678",
-  "node_name": "worker-3",
-  "agent_token": "bootstrap-token",
+  "cluster_id": "cluster-1",
+  "node_name": "worker-1",
+  "agent_token": "cluster-bootstrap-token",
   "node_token": "node-specific-token",
   "status": "healthy",
-  "agent_version": "0.1.1",
+  "agent_version": "0.1.0",
   "agent_protocol_version": "1",
-  "supported_collectors": ["systemd", "disk", "network", "kubelet"],
+  "supported_collectors": ["node", "disk", "kernel"],
   "health": {
-    "kubelet": "active",
-    "containerd": "active"
+    "agent": "running",
+    "ebpf": "disabled"
   }
 }
 ```
 
-동작:
+Heartbeat updates:
 
-- 등록되지 않은 Agent면 `404`
-- `last_heartbeat_at` 갱신
-- Agent status, version, protocol version, collector list, health summary 갱신
-- 클러스터 `last_seen_at` 갱신
+- `last_heartbeat_at`
+- agent status
+- agent version
+- agent protocol version
+- supported collector list
+- health summary
+- cluster `last_seen_at`
 
-`agent_protocol_version`을 보내지 않는 기존 Agent는 protocol `1`로 처리합니다.
-Platform은 최소 지원 Agent 버전과 protocol 범위를 기준으로 호환되지 않는 Agent를
-`version_mismatch`로 분류합니다. 현재 계약은 인증 후 아래 API에서 조회합니다.
+## Agent Protocol Versioning
+
+The platform exposes compatibility information at:
 
 ```text
 GET /api/v1/platform/info
 ```
 
-## 조회
+Response shape:
 
-클러스터의 Agent 목록:
-
-```text
-GET /api/clusters/{cluster_id}/agents
+```json
+{
+  "platform_version": "0.1.0",
+  "api_version": "v1",
+  "agent_protocol_version": "1",
+  "minimum_supported_agent_protocol_version": "1",
+  "minimum_supported_agent_version": "0.1.0"
+}
 ```
 
-특정 노드 Agent:
+Agents that omit `agent_protocol_version` are treated as protocol `1`. Unsupported versions are not immediately rejected in the current soft-compatibility mode; they appear as `version_mismatch` in Agent Health.
 
-```text
-GET /api/clusters/{cluster_id}/agents/{node_name}
+## Evidence Polling
+
+Agents poll read-only evidence work with:
+
+```json
+{
+  "cluster_id": "cluster-1",
+  "node_name": "worker-1",
+  "agent_token": "cluster-bootstrap-token",
+  "node_token": "node-specific-token",
+  "limit": 10
+}
 ```
 
-## Agent status
+The platform returns pending evidence requests assigned to the node.
 
-- `registered`
-- `healthy`
-- `degraded`
-- `offline`
+## Evidence Submit
 
-저장된 status를 별도로 변경하지 않고, Agent Health 조회 시 `last_heartbeat_at`과
-`RCA_AGENT_OFFLINE_AFTER_SECONDS`를 기준으로 `offline` 상태를 계산합니다.
-
-## Evidence poll/submit
-
-Agent는 수집 요청을 받기 위해 pending evidence request를 poll합니다.
-
-```text
-POST /api/agents/evidence-requests
+```json
+{
+  "request_id": "request-...",
+  "cluster_id": "cluster-1",
+  "node_name": "worker-1",
+  "agent_token": "cluster-bootstrap-token",
+  "node_token": "node-specific-token",
+  "status": "completed",
+  "collectors": {
+    "disk": {"root_usage_percent": 96.0},
+    "kernel": {"messages": ["..."]}
+  },
+  "error_message": null
+}
 ```
 
-수집이 끝나면 결과를 제출합니다.
+Only `completed` and `failed` are valid response states. Submitted evidence may enqueue an RCA analysis task.
+
+## Realtime Events
+
+`/api/agents/realtime-events` accepts eBPF or realtime event batches. eBPF is optional and disabled by default.
+
+## Deprecated Action Endpoints
+
+Agent-side mutation execution has been disabled.
 
 ```text
-POST /api/agents/evidence-responses
+POST /api/agents/action-executions -> []
+POST /api/agents/action-results    -> 410 Gone
 ```
 
-자세한 요청/응답 형식은 [docs/evidence-api.md](evidence-api.md)를 참고합니다.
+The platform preserves these endpoints only for backward compatibility. Future major versions may remove them completely.
+
+## Error Handling
+
+Common failures:
+
+- `400` malformed JSON
+- `401` missing or invalid agent credentials
+- `403` request assigned to another agent
+- `404` cluster, agent, or request not found
+- `409` evidence request already closed
+- `410` agent-side action result endpoint disabled
+- `422` invalid evidence response status
