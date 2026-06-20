@@ -1,78 +1,162 @@
 # RCA Report Schema
 
-RCA 보고서는 장애 증상, 수집 증거, 원인 후보, 신뢰도, 영향 범위, 권장 확인 사항, 정책 분류 결과를 포함합니다.
+## 한국어 요약
 
-## 필드
+RCA Report는 단순히 “원인 하나”를 보여주는 문서가 아니라, **어떤 evidence가 어떤 signal로 해석되었고, 어떤 근거로 원인 후보와 권장 조치가 나왔는지** 보여주는 결과물입니다.
+
+현재 report는 다음 정보를 포함합니다.
+
+- 장애 증상 요약
+- 가장 가능성 높은 원인
+- confidence level 및 candidate별 confidence score
+- derived signals
+- root cause candidates
+- impact scope
+- observed services와 service impact caveat
+- recommended actions
+- policy/guardrail 결과
+- timeline과 evidence bundle export 연결
+
+---
+
+## English Reference
+
+## Top-level Shape
 
 ```json
 {
-  "report_id": "rca-20260610-0001",
-  "cluster_id": "cluster-prod-01",
+  "report_id": "report-...",
+  "cluster_id": "cluster-...",
+  "incident_id": "incident-...",
   "status": "completed",
   "trigger": {
-    "source": "alertmanager",
-    "alert_name": "NodeNotReady",
-    "severity": "critical",
-    "started_at": "2026-06-10T09:15:00+09:00"
+    "alert_name": "DiskPressure",
+    "source": "demo",
+    "demo": true
   },
   "scope": {
-    "nodes": ["worker-3"],
-    "namespaces": ["kube-system"],
-    "components": ["kubelet", "containerd", "cni"]
+    "nodes": ["worker-1"],
+    "affected_pods": ["payments/payment-api-7d9f9c"],
+    "affected_namespaces": ["payments"],
+    "affected_services": [],
+    "observed_services": ["payments/payment-api"],
+    "service_impact_assessment": "Service objects were observed, but endpoint/selector correlation was not verified."
   },
   "summary": {
-    "symptom": "worker-3 노드가 NotReady 상태로 전환됨",
-    "most_likely_cause": "containerd socket 응답 지연과 kubelet 반복 재시작",
-    "confidence": "medium"
+    "symptom": "DiskPressure",
+    "most_likely_cause": "Filesystem capacity is critically high.",
+    "confidence": "high"
   },
   "evidence": [],
   "root_cause_candidates": [],
   "recommended_actions": [],
-  "policy_decisions": [],
-  "operator_notes": []
+  "created_at": "2026-06-21T00:00:00Z"
 }
 ```
 
-`recommended_actions`와 `policy_decisions`의 항목은 아래 형태를 사용합니다.
+## Summary
 
 ```json
 {
-  "action_key": "restart_kubelet",
-  "action": "kubelet 상태가 failed/restarting이면 운영자 승인 후 kubelet 재시작을 검토합니다.",
-  "policy": "APPROVAL_REQUIRED",
-  "reason": "노드 상태 회복에 도움이 될 수 있지만 workload 영향이 있어 승인이 필요합니다.",
-  "source": "rule_based",
-  "automation_mode": "operator_approval",
-  "automation_allowed": false,
-  "requires_approval": true,
-  "review_required": true,
-  "guardrails": ["direct_agent_mutation_disabled"],
-  "risk_factors": ["node_agent_disruption", "workload_status_change"]
+  "symptom": "DiskPressure",
+  "most_likely_cause": "Filesystem capacity is critically high.",
+  "confidence": "high"
 }
 ```
 
-조치의 command/YAML preview는 runbook 또는 GitOps PR 작성을 위한 안내입니다.
-`APPROVAL_REQUIRED`와 `GITOPS_PR_ONLY` 조치는 항상 `execution_plan.executable=false`입니다.
+Report-level confidence is derived from rule-based signals. LLM may improve explanation quality but must not override safety policies.
 
-## 보고서 구성
+## Derived Signals
 
-- 장애 요약
-- 타임라인
-- 영향 범위
-- 수집된 증거
-- LLM 입력용 `preprocessed_evidence`
-- provider 응답과 상태를 담는 `llm_analysis`
-- evidence field에서 도출한 `derived_signals`
-- 운영자가 원인 확정에 사용할 `resolution_checklist`
-- 원인 후보와 근거
-- 배제된 원인
-- 추가 확인 명령어
-- 권장 조치
-- Policy Engine 분류
-- 운영자 메모
+Signals explain how raw evidence was interpreted.
 
-`preprocessed_evidence`, `llm_analysis`, `derived_signals`, `resolution_checklist`는 report의 `evidence` 배열 안에 별도 section으로 들어갑니다. 저장 스키마는 그대로 두고, report 소비자가 원본 collector 결과, LLM 입력 payload, provider 응답, 분석 결과를 같은 응답에서 볼 수 있게 하기 위한 구조입니다.
+```json
+{
+  "signal": "disk_usage_critical",
+  "component": "disk",
+  "severity": "critical",
+  "confidence": "high",
+  "value": 96.0,
+  "threshold": 90.0,
+  "matched_fields": ["disk.root_usage_percent"],
+  "interpretation": "Filesystem capacity is critically high.",
+  "next_step": "Inspect df, container runtime storage, and kubelet image GC logs.",
+  "supporting_evidence": ["disk.root_usage_percent=96.0 >= 90.0"]
+}
+```
 
-`preprocessed_evidence.payload`는 `preprocessed-evidence/v2` 기준으로 `evidence_quality`, `incident_focus`, `component_health`, `log_summary`를 포함합니다. 이 값은 LLM이 raw collector 전체를 보지 않고도 수집 품질, 우선 component, 주요 failure mode, 로그 집계를 판단하기 위한 요약입니다.
+## Root Cause Candidates
 
-LLM Analyzer를 붙일 때는 raw collector 결과가 아니라 `preprocessed_evidence.payload`만 입력으로 사용합니다.
+```json
+{
+  "cause": "Filesystem capacity is critically high.",
+  "confidence": "high",
+  "supporting_evidence": ["disk.root_usage_percent=96.0 >= 90.0"],
+  "confidence_score": 85,
+  "evidence_paths": ["disk.root_usage_percent"]
+}
+```
+
+`confidence_score` is normalized to `0..100` and should be explainable from signals, severity, threshold matches, and evidence paths.
+
+## Impact Scope
+
+Impact scope is intentionally conservative.
+
+```json
+{
+  "affected_pods": ["payments/payment-api-7d9f9c"],
+  "affected_namespaces": ["payments"],
+  "affected_workloads": ["ReplicaSet/payment-api-7d9f9c"],
+  "affected_services": [],
+  "observed_services": ["payments/payment-api"],
+  "service_impact_assessment": "Endpoint, selector, and traffic correlation were not verified, so service impact is unconfirmed."
+}
+```
+
+`affected_services` remains empty until endpoint/selector/traffic correlation is implemented. Use `observed_services` for inventory-level service objects found in evidence.
+
+## Recommended Actions
+
+```json
+{
+  "action": "Restart kubelet after manual verification",
+  "policy": "APPROVAL_REQUIRED",
+  "reason": "kubelet service appears unhealthy",
+  "action_key": "restart_kubelet",
+  "source": "rule_based",
+  "automation_allowed": false,
+  "requires_approval": true,
+  "review_required": true,
+  "guardrails": ["manual_runbook_only"],
+  "risks": ["node_disruption"],
+  "execution_plan": {
+    "command_key": "restart_systemd_unit",
+    "preview_commands": ["systemctl restart kubelet"],
+    "executable": false
+  }
+}
+```
+
+Action plans may include command previews for operators, but the platform and agent do not execute host mutation commands.
+
+## Evidence Bundle Export
+
+Report and incident bundle export produce a redacted ZIP:
+
+```text
+summary.json
+evidence/*.json
+signals.json
+timeline.json
+rca-report.md
+```
+
+Only `ADMIN` and `OPERATOR` can export bundles.
+
+## Schema Compatibility Notes
+
+- Keep new fields additive where possible.
+- Prefer `observed_*` when correlation is not fully proven.
+- Keep LLM-derived text clearly marked by source.
+- Do not allow report schema to imply automatic remediation.
