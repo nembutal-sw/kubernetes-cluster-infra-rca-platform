@@ -59,7 +59,7 @@ public final class RcaModels {
     }
 
     public enum UserRole {
-        admin, operator, viewer
+        admin, operator, viewer, auditor, approver
     }
 
     public record ClusterCreateRequest(

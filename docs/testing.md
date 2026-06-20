@@ -17,6 +17,9 @@ mvn test
 - 정상/unknown/unrelated message 오탐 방지
 - eBPF event에서 report와 timeline 생성
 - PostgreSQL/MariaDB Testcontainers 호환성
+- Agent/Webhook/Manifest 인증 실패 및 정상 token 경로
+- `prod` profile 위험 설정 fail-fast
+- `VIEWER`, `APPROVER`, `AUDITOR` 권한 경계
 
 Docker daemon이 없으면 Testcontainers DB 테스트만 skip됩니다.
 

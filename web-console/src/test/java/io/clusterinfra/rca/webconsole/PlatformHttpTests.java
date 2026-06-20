@@ -51,6 +51,7 @@ class PlatformHttpTests {
         registry.add("rca.public-api-base-url", () -> PUBLIC_API_BASE_URL);
         registry.add("rca.default-admin-username", () -> "admin");
         registry.add("rca.default-admin-password", () -> "admin");
+        registry.add("rca.webhook-token", () -> "test-webhook-token");
         registry.add("spring.ai.model.chat", () -> "none");
         registry.add("rca.pipeline.initial-delay-ms", () -> "600000");
     }
@@ -81,6 +82,25 @@ class PlatformHttpTests {
         ResponseEntity<String> response = restTemplate.getForEntity("/api/clusters", String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody()).contains("login required");
+
+        ResponseEntity<String> webhook = restTemplate.postForEntity(
+            "/api/webhooks/alertmanager",
+            Map.of("alerts", List.of()),
+            String.class
+        );
+        assertThat(webhook.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(webhook.getBody()).contains("invalid webhook token");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-Webhook-Token", "test-webhook-token");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> authorizedWebhook = restTemplate.exchange(
+            "/api/webhooks/alertmanager",
+            HttpMethod.POST,
+            new HttpEntity<>(Map.of("alerts", List.of()), headers),
+            String.class
+        );
+        assertThat(authorizedWebhook.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
@@ -112,6 +132,39 @@ class PlatformHttpTests {
     @Test
     @Order(4)
     void agentEvidenceSubmissionCreatesRcaReport() throws Exception {
+        ResponseEntity<String> missingToken = restTemplate.postForEntity(
+            "/api/agents/register",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "worker-a",
+                "agent_version", "0.1.0"
+            ),
+            String.class
+        );
+        assertThat(missingToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> wrongToken = restTemplate.postForEntity(
+            "/api/agents/register",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "worker-a",
+                "agent_token", "wrong-token",
+                "agent_version", "0.1.0"
+            ),
+            String.class
+        );
+        assertThat(wrongToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        HttpHeaders malformedHeaders = new HttpHeaders();
+        malformedHeaders.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> malformed = restTemplate.exchange(
+            "/api/agents/register",
+            HttpMethod.POST,
+            new HttpEntity<>("{broken", malformedHeaders),
+            String.class
+        );
+        assertThat(malformed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
         ResponseEntity<String> registered = restTemplate.postForEntity(
             "/api/agents/register",
             Map.of(
@@ -125,6 +178,18 @@ class PlatformHttpTests {
         );
         assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         nodeToken = objectMapper.readTree(registered.getBody()).path("node_token").asText();
+
+        ResponseEntity<String> tamperedIdentity = restTemplate.postForEntity(
+            "/api/agents/heartbeat",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "worker-b",
+                "agent_token", bootstrapToken,
+                "node_token", nodeToken
+            ),
+            String.class
+        );
+        assertThat(tamperedIdentity.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
         ResponseEntity<String> request = exchange(
             "/api/evidence/requests",
@@ -183,12 +248,21 @@ class PlatformHttpTests {
         ResponseEntity<String> anonymous = restTemplate.getForEntity(endpoint, String.class);
         assertThat(anonymous.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
+        ResponseEntity<String> invalidAgent = restTemplate.getForEntity(
+            endpoint + "&agent_token=wrong-token",
+            String.class
+        );
+        assertThat(invalidAgent.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
         ResponseEntity<String> authorized = restTemplate.getForEntity(
             endpoint + "&agent_token=" + bootstrapToken,
             String.class
         );
         assertThat(authorized.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(authorized.getBody()).contains("\"kind\":\"DaemonSet\"");
+
+        ResponseEntity<String> authorizedUser = exchange(endpoint, HttpMethod.GET, null);
+        assertThat(authorizedUser.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

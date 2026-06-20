@@ -28,7 +28,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -37,7 +36,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -155,12 +153,8 @@ public class ClusterController {
         @RequestParam(name = "kubernetes_api_timeout_seconds", required = false) Integer kubernetesApiTimeoutSeconds,
         @RequestParam(name = "control_plane_probe_ports", required = false) String controlPlaneProbePorts,
         @RequestParam(name = "runtime_socket_paths", required = false) String runtimeSocketPaths,
-        @RequestParam(name = "systemd_collector_mode", required = false) String systemdCollectorMode,
-        @RequestParam(name = "agent_token", required = false) String agentToken,
-        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-        Authentication authentication
+        @RequestParam(name = "systemd_collector_mode", required = false) String systemdCollectorMode
     ) {
-        access.verifyManifestAccess(clusterId, authorization, agentToken, authentication);
         Cluster cluster = requireCluster(clusterId);
         return manifests.manifest(cluster, new ManifestOptions(
             backendUrl,

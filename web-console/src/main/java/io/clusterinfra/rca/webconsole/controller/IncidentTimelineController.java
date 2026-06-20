@@ -22,7 +22,7 @@ public class IncidentTimelineController {
     }
 
     @GetMapping("/api/rca/incidents/{incidentId}/timeline")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public IncidentTimeline timeline(@PathVariable String incidentId) {
         Incident incident = incidents.find(incidentId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "incident not found"));

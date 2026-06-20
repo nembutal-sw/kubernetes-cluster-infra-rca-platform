@@ -14,7 +14,6 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResp
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
-import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -38,7 +37,6 @@ public class AgentEvidenceController {
     private final ClusterRepository clusters;
     private final AgentRepository agents;
     private final EvidenceRepository evidence;
-    private final AccessService access;
     private final AuditService audit;
     private final RcaConsoleProperties properties;
 
@@ -46,14 +44,12 @@ public class AgentEvidenceController {
         ClusterRepository clusters,
         AgentRepository agents,
         EvidenceRepository evidence,
-        AccessService access,
         AuditService audit,
         RcaConsoleProperties properties
     ) {
         this.clusters = clusters;
         this.agents = agents;
         this.evidence = evidence;
-        this.access = access;
         this.audit = audit;
         this.properties = properties;
     }
@@ -61,7 +57,6 @@ public class AgentEvidenceController {
     @PostMapping("/api/agents/register")
     @ResponseStatus(HttpStatus.CREATED)
     public NodeAgentRegistrationResponse register(@Valid @RequestBody NodeAgentRegisterRequest request) {
-        access.verifyBootstrapToken(request.clusterId(), request.agentToken());
         NodeAgentRegistrationResponse registered = agents.register(request);
         audit.record(
             "agent",
@@ -77,12 +72,6 @@ public class AgentEvidenceController {
 
     @PostMapping("/api/agents/heartbeat")
     public NodeAgent heartbeat(@Valid @RequestBody NodeAgentHeartbeatRequest request) {
-        access.verifyAgentIdentity(
-            request.clusterId(),
-            request.nodeName(),
-            request.agentToken(),
-            request.nodeToken()
-        );
         return agents.heartbeat(request)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "agent not registered"));
     }
@@ -116,12 +105,6 @@ public class AgentEvidenceController {
 
     @PostMapping("/api/agents/evidence-requests")
     public List<EvidenceRequest> poll(@Valid @RequestBody AgentEvidencePollRequest request) {
-        access.verifyAgentIdentity(
-            request.clusterId(),
-            request.nodeName(),
-            request.agentToken(),
-            request.nodeToken()
-        );
         return evidence.listRequests(
             request.clusterId(),
             request.nodeName(),
@@ -132,12 +115,6 @@ public class AgentEvidenceController {
 
     @PostMapping("/api/agents/evidence-responses")
     public EvidenceRequest submit(@Valid @RequestBody AgentEvidenceSubmitRequest request) {
-        access.verifyAgentIdentity(
-            request.clusterId(),
-            request.nodeName(),
-            request.agentToken(),
-            request.nodeToken()
-        );
         if (request.statusOrDefault() != EvidenceRequestStatus.completed
             && request.statusOrDefault() != EvidenceRequestStatus.failed) {
             throw new ResponseStatusException(

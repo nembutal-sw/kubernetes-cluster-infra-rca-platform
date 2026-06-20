@@ -65,6 +65,7 @@ platform:
     type: ClusterIP
     port: 8080
   config:
+    springProfiles: ""
     publicApiBaseUrl: ""
     sessionTtlHours: 12
     agentOfflineAfterSeconds: 180
@@ -79,7 +80,9 @@ platform:
     llmFailureThreshold: 3
     llmCooldownSeconds: 60
     incidentCorrelationWindowMinutes: 15
+    auditEnabled: true
     auditRetentionDays: 180
+    demoEnabled: false
     pipelineEnabled: true
     pipelineBatchSize: 4
     pipelinePollIntervalMs: 2000
@@ -97,6 +100,7 @@ platform:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
     webhookToken: dev-webhook-token
+    encryptionSecret: ""
     openaiApiKey: ""
     anthropicApiKey: ""
     geminiApiKey: ""

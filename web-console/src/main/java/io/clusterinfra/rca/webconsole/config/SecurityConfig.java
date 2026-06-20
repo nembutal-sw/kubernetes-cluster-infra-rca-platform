@@ -1,9 +1,13 @@
 package io.clusterinfra.rca.webconsole.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.security.AgentAuthenticationFilter;
+import io.clusterinfra.rca.webconsole.security.ManifestAccessFilter;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.SameOriginMutationFilter;
+import io.clusterinfra.rca.webconsole.security.WebhookAuthenticationFilter;
 import java.util.Map;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -21,6 +25,9 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         PlatformAuthenticationFilter authenticationFilter,
+        AgentAuthenticationFilter agentAuthenticationFilter,
+        WebhookAuthenticationFilter webhookAuthenticationFilter,
+        ManifestAccessFilter manifestAccessFilter,
         SameOriginMutationFilter sameOriginMutationFilter,
         ObjectMapper objectMapper
     ) throws Exception {
@@ -48,7 +55,7 @@ public class SecurityConfig {
                     "/api/agents/realtime-events",
                     "/api/agents/action-executions",
                     "/api/agents/action-results",
-                    "/api/webhooks/**",
+                    "/api/webhooks/alertmanager",
                     "/api/clusters/*/agent-manifest"
                 ).permitAll()
                 .requestMatchers("/api/**").authenticated()
@@ -69,7 +76,49 @@ public class SecurityConfig {
                 })
             )
             .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(sameOriginMutationFilter, PlatformAuthenticationFilter.class)
+            .addFilterAfter(agentAuthenticationFilter, PlatformAuthenticationFilter.class)
+            .addFilterAfter(webhookAuthenticationFilter, AgentAuthenticationFilter.class)
+            .addFilterAfter(manifestAccessFilter, WebhookAuthenticationFilter.class)
+            .addFilterAfter(sameOriginMutationFilter, ManifestAccessFilter.class)
             .build();
+    }
+
+    @Bean
+    FilterRegistrationBean<PlatformAuthenticationFilter> platformAuthenticationRegistration(
+        PlatformAuthenticationFilter filter
+    ) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<AgentAuthenticationFilter> agentAuthenticationRegistration(
+        AgentAuthenticationFilter filter
+    ) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<WebhookAuthenticationFilter> webhookAuthenticationRegistration(
+        WebhookAuthenticationFilter filter
+    ) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<ManifestAccessFilter> manifestAccessRegistration(ManifestAccessFilter filter) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<SameOriginMutationFilter> sameOriginMutationRegistration(
+        SameOriginMutationFilter filter
+    ) {
+        return securityOnly(filter);
+    }
+
+    private <T extends jakarta.servlet.Filter> FilterRegistrationBean<T> securityOnly(T filter) {
+        FilterRegistrationBean<T> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 }

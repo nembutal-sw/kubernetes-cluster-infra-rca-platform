@@ -1,0 +1,129 @@
+package io.clusterinfra.rca.webconsole.security;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.service.AuditService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.server.ResponseStatusException;
+
+@Component
+public class AgentAuthenticationFilter extends OncePerRequestFilter {
+    private static final String REGISTER_PATH = "/api/agents/register";
+    private static final Set<String> AGENT_PATHS = Set.of(
+        REGISTER_PATH,
+        "/api/agents/heartbeat",
+        "/api/agents/evidence-requests",
+        "/api/agents/evidence-responses",
+        "/api/agents/realtime-events",
+        "/api/agents/action-executions",
+        "/api/agents/action-results"
+    );
+
+    private final AccessService access;
+    private final AuditService audit;
+    private final ObjectMapper objectMapper;
+
+    public AgentAuthenticationFilter(AccessService access, AuditService audit, ObjectMapper objectMapper) {
+        this.access = access;
+        this.audit = audit;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return !AGENT_PATHS.contains(SecurityFilterSupport.path(request));
+    }
+
+    @Override
+    protected void doFilterInternal(
+        HttpServletRequest request,
+        HttpServletResponse response,
+        FilterChain filterChain
+    ) throws ServletException, IOException {
+        CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request);
+        String path = SecurityFilterSupport.path(request);
+        String clusterId = null;
+        String nodeName = null;
+        try {
+            JsonNode body = parseBody(wrapped);
+            clusterId = requiredText(body, "cluster_id");
+            String agentToken = requiredText(body, "agent_token");
+            if (REGISTER_PATH.equals(path)) {
+                access.verifyBootstrapToken(clusterId, agentToken);
+            } else {
+                nodeName = requiredText(body, "node_name");
+                access.verifyAgentIdentity(
+                    clusterId,
+                    nodeName,
+                    agentToken,
+                    requiredText(body, "node_token")
+                );
+            }
+            request.setAttribute("rca.authenticated_cluster_id", clusterId);
+            request.setAttribute("rca.authenticated_node_name", nodeName);
+            filterChain.doFilter(wrapped, response);
+        } catch (ResponseStatusException exception) {
+            auditFailure(path, clusterId, nodeName, exception.getReason());
+            SecurityFilterSupport.writeError(
+                objectMapper,
+                response,
+                exception.getStatusCode().value(),
+                exception.getReason() == null ? "agent authentication failed" : exception.getReason()
+            );
+        }
+    }
+
+    private JsonNode parseBody(CachedBodyHttpServletRequest request) {
+        if (request.body().length == 0) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent credentials required");
+        }
+        try {
+            JsonNode body = objectMapper.readTree(request.body());
+            if (body == null || !body.isObject()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "JSON object body required");
+            }
+            return body;
+        } catch (JsonProcessingException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "malformed JSON request");
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body could not be read");
+        }
+    }
+
+    private String requiredText(JsonNode body, String field) {
+        String value = body.path(field).asText("").trim();
+        if (value.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent credentials required");
+        }
+        return value;
+    }
+
+    private void auditFailure(String path, String clusterId, String nodeName, String reason) {
+        try {
+            audit.record(
+                "agent",
+                nodeName,
+                "agent.auth_failed",
+                "cluster",
+                clusterId,
+                "failed",
+                Map.of(
+                    "path", path,
+                    "reason", reason == null ? "authentication_failed" : reason
+                )
+            );
+        } catch (RuntimeException ignored) {
+            // Authentication failure responses must not depend on audit storage availability.
+        }
+    }
+}

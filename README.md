@@ -189,6 +189,14 @@ bash scripts/linux-dev-check.sh --full
 - 인증, 클러스터, 에이전트, evidence, RCA report 흐름
 - 분석 queue lease, retry, dead-letter 및 수동 재처리
 
+## Production Security
+
+운영 환경은 `SPRING_PROFILES_ACTIVE=prod`로 실행합니다. 기본 admin 비밀번호, 개발용
+webhook token, 예제 DB 비밀번호, HTTP public URL, 빈 encryption secret 등이 남아 있으면
+애플리케이션이 시작되지 않습니다.
+
+필수 설정과 역할별 권한은 [docs/security.md](docs/security.md)에 정리되어 있습니다.
+
 ## Repository
 
 ```text

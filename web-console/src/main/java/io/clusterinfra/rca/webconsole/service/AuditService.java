@@ -1,5 +1,6 @@
 package io.clusterinfra.rca.webconsole.service;
 
+import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AuditEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
@@ -9,9 +10,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuditService {
     private final AuditRepository repository;
+    private final RcaConsoleProperties properties;
 
-    public AuditService(AuditRepository repository) {
+    public AuditService(AuditRepository repository, RcaConsoleProperties properties) {
         this.repository = repository;
+        this.properties = properties;
     }
 
     public AuditEvent user(
@@ -53,6 +56,9 @@ public class AuditService {
         String outcome,
         Map<String, Object> details
     ) {
+        if (!properties.getAudit().isEnabled()) {
+            return null;
+        }
         return repository.save(
             actorType,
             actorId == null || actorId.isBlank() ? "unknown" : actorId,

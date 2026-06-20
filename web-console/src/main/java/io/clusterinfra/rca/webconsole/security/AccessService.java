@@ -63,7 +63,9 @@ public class AccessService {
         String agentToken,
         Authentication authentication
     ) {
-        if (authentication != null && authentication.isAuthenticated()) {
+        if (authentication != null
+            && authentication.isAuthenticated()
+            && authentication.getPrincipal() instanceof UserAccount) {
             return;
         }
         if (agentToken != null && !agentToken.isBlank()) {

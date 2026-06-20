@@ -14,6 +14,8 @@ public class RcaConsoleProperties {
     private final Llm llm = new Llm();
     private final Incident incident = new Incident();
     private final Audit audit = new Audit();
+    private final Security security = new Security();
+    private final Demo demo = new Demo();
     private final Pipeline pipeline = new Pipeline();
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
@@ -80,6 +82,14 @@ public class RcaConsoleProperties {
 
     public Audit getAudit() {
         return audit;
+    }
+
+    public Security getSecurity() {
+        return security;
+    }
+
+    public Demo getDemo() {
+        return demo;
     }
 
     public Pipeline getPipeline() {
@@ -230,7 +240,16 @@ public class RcaConsoleProperties {
     }
 
     public static class Audit {
+        private boolean enabled = true;
         private int retentionDays = 180;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
 
         public int getRetentionDays() {
             return retentionDays;
@@ -238,6 +257,30 @@ public class RcaConsoleProperties {
 
         public void setRetentionDays(int retentionDays) {
             this.retentionDays = retentionDays;
+        }
+    }
+
+    public static class Security {
+        private String encryptionSecret = "";
+
+        public String getEncryptionSecret() {
+            return encryptionSecret;
+        }
+
+        public void setEncryptionSecret(String encryptionSecret) {
+            this.encryptionSecret = encryptionSecret;
+        }
+    }
+
+    public static class Demo {
+        private boolean enabled;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

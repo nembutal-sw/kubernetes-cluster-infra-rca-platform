@@ -52,7 +52,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -105,12 +104,7 @@ public class RcaController {
     }
 
     @PostMapping("/api/webhooks/alertmanager")
-    public WebhookIngestResponse alertmanager(
-        @Valid @RequestBody AlertmanagerPayload payload,
-        @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-        @RequestHeader(name = "X-Webhook-Token", required = false) String webhookToken
-    ) {
-        access.verifyWebhookToken(authorization, webhookToken);
+    public WebhookIngestResponse alertmanager(@Valid @RequestBody AlertmanagerPayload payload) {
         WebhookIngestResponse response = rcaService.ingestAlertmanager(payload);
         audit.system(
             "alertmanager",
@@ -186,19 +180,19 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/reports")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<RcaReport> reports() {
         return reports.listReports();
     }
 
     @GetMapping("/api/rca/reports/{reportId}")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public RcaReport report(@PathVariable String reportId) {
         return requireReport(reportId);
     }
 
     @GetMapping("/api/rca/incidents")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<Incident> incidents(
         @RequestParam(name = "cluster_id", required = false) String clusterId
     ) {
@@ -206,7 +200,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/incidents/{incidentId}")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public Incident incident(@PathVariable String incidentId) {
         return incidents.find(incidentId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "incident not found"));
@@ -256,7 +250,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/action-requests")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<ActionRequest> actionRequests(
         @RequestParam(name = "report_id", required = false) String reportId
     ) {
@@ -264,7 +258,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/action-executions")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<ActionExecution> actionExecutions(
         @RequestParam(name = "report_id", required = false) String reportId
     ) {
@@ -272,7 +266,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/audit/events")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
     public List<AuditEvent> auditEvents(
         @RequestParam(name = "limit", defaultValue = "200") Integer limit
     ) {
@@ -280,7 +274,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/reports/export")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public ResponseEntity<byte[]> exportReports(
         @RequestParam(name = "cluster_id", required = false) String clusterId,
         @RequestParam(name = "format", defaultValue = "json") String format
@@ -296,7 +290,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/reports/{reportId}/export")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public ResponseEntity<byte[]> exportReport(
         @PathVariable String reportId,
         @RequestParam(name = "format", defaultValue = "json") String format
@@ -453,7 +447,7 @@ public class RcaController {
     }
 
     @PostMapping("/api/rca/action-requests/{actionRequestId}/approve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','APPROVER')")
     public ActionApprovalResponse approveActionRequest(
         @PathVariable String actionRequestId,
         @Valid @RequestBody ActionDecisionRequest request,
@@ -474,7 +468,7 @@ public class RcaController {
     }
 
     @PostMapping("/api/rca/action-requests/{actionRequestId}/reject")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','APPROVER')")
     public ActionApprovalResponse rejectActionRequest(
         @PathVariable String actionRequestId,
         @Valid @RequestBody ActionDecisionRequest request,

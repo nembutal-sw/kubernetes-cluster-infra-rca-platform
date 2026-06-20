@@ -83,7 +83,12 @@ rca:
   incident:
     correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
   audit:
+    enabled: ${RCA_AUDIT_ENABLED:true}
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}
+  security:
+    encryption-secret: ${RCA_ENCRYPTION_SECRET:}
+  demo:
+    enabled: ${RCA_DEMO_ENABLED:false}
   pipeline:
     enabled: ${RCA_PIPELINE_ENABLED:true}
     batch-size: ${RCA_PIPELINE_BATCH_SIZE:4}
