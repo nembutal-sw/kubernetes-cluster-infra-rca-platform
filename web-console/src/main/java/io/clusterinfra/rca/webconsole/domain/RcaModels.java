@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.domain;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -42,7 +43,11 @@ public final class RcaModels {
     }
 
     public enum ActionRequestStatus {
-        pending_approval, accepted, approved_manual, rejected, blocked
+        pending_approval, accepted, approved_manual, queued, executing, completed, failed, rejected, blocked
+    }
+
+    public enum ActionExecutionStatus {
+        pending_approval, queued, leased, completed, failed, expired, rejected
     }
 
     public enum AnalysisTaskStatus {
@@ -388,8 +393,26 @@ public final class RcaModels {
         boolean requiresApproval,
         boolean reviewRequired,
         List<String> guardrails,
-        List<String> riskFactors
+        List<String> riskFactors,
+        ActionPlan executionPlan
     ) {
+    }
+
+    public record ActionPlan(
+        String commandKey,
+        Map<String, String> parameters,
+        List<String> commandPreview,
+        String yamlPatch,
+        boolean executable,
+        int timeoutSeconds
+    ) {
+        public Map<String, String> parametersOrEmpty() {
+            return parameters == null ? Map.of() : parameters;
+        }
+
+        public List<String> commandPreviewOrEmpty() {
+            return commandPreview == null ? List.of() : commandPreview;
+        }
     }
 
     public record ActionExecutionRequest(
@@ -437,6 +460,136 @@ public final class RcaModels {
     ) {
     }
 
+    public record ActionExecution(
+        String executionId,
+        String actionRequestId,
+        String reportId,
+        String clusterId,
+        String nodeName,
+        String actionKey,
+        String commandKey,
+        Map<String, String> parameters,
+        ActionPlan preview,
+        ActionExecutionStatus status,
+        int timeoutSeconds,
+        String requestedBy,
+        String approvedBy,
+        String leaseOwner,
+        Instant leaseExpiresAt,
+        Integer exitCode,
+        String stdout,
+        String stderr,
+        String errorMessage,
+        Instant createdAt,
+        Instant approvedAt,
+        Instant startedAt,
+        Instant completedAt
+    ) {
+    }
+
+    public record ActionApprovalResponse(
+        ActionRequest actionRequest,
+        ActionExecution actionExecution
+    ) {
+    }
+
+    public record AgentActionPollRequest(
+        @NotBlank String clusterId,
+        @NotBlank String nodeName,
+        @NotBlank String agentToken,
+        @NotBlank String nodeToken,
+        @Min(1) @Max(10) Integer limit
+    ) {
+        public int limitOrDefault() {
+            return limit == null ? 1 : limit;
+        }
+    }
+
+    public record AgentActionResultRequest(
+        @NotBlank String executionId,
+        @NotBlank String clusterId,
+        @NotBlank String nodeName,
+        @NotBlank String agentToken,
+        @NotBlank String nodeToken,
+        @NotBlank String status,
+        Integer exitCode,
+        @Size(max = 65535) String stdout,
+        @Size(max = 65535) String stderr,
+        @Size(max = 4000) String errorMessage
+    ) {
+    }
+
+    public record RealtimeEvent(
+        String eventId,
+        String evidenceId,
+        String clusterId,
+        String nodeName,
+        String eventType,
+        String component,
+        String severity,
+        Instant observedAt,
+        Map<String, Object> payload,
+        Instant createdAt
+    ) {
+    }
+
+    public record AgentRealtimeEvent(
+        @NotBlank @Size(max = 64) String eventType,
+        @NotBlank @Size(max = 64) String component,
+        @NotBlank @Size(max = 32) String severity,
+        Instant observedAt,
+        Map<String, Object> payload
+    ) {
+        public Instant observedAtOrNow() {
+            return observedAt == null ? Instant.now() : observedAt;
+        }
+
+        public Map<String, Object> payloadOrEmpty() {
+            return payload == null ? Map.of() : payload;
+        }
+    }
+
+    public record AgentRealtimeEventBatch(
+        @NotBlank String clusterId,
+        @NotBlank String nodeName,
+        @NotBlank String agentToken,
+        @NotBlank String nodeToken,
+        @Size(max = 100) List<@Valid AgentRealtimeEvent> events
+    ) {
+        public List<AgentRealtimeEvent> eventsOrEmpty() {
+            return events == null ? List.of() : events;
+        }
+    }
+
+    public record TimelineNode(
+        String id,
+        Instant timestamp,
+        String component,
+        String eventType,
+        String severity,
+        String title,
+        String detail,
+        String evidenceId,
+        boolean rootTrigger
+    ) {
+    }
+
+    public record TimelineEdge(
+        String source,
+        String target,
+        String relationship
+    ) {
+    }
+
+    public record IncidentTimeline(
+        String incidentId,
+        Instant from,
+        Instant to,
+        List<TimelineNode> nodes,
+        List<TimelineEdge> edges
+    ) {
+    }
+
     public record AuditEvent(
         String auditEventId,
         String actorType,
@@ -461,7 +614,8 @@ public final class RcaModels {
         boolean requiresApproval,
         EvidenceRequest evidenceRequest,
         List<String> guardrails,
-        ActionRequest actionRequest
+        ActionRequest actionRequest,
+        ActionExecution actionExecution
     ) {
     }
 

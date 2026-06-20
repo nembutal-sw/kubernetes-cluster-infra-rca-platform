@@ -23,6 +23,7 @@ dist/
 build/
 target/
 node_modules/
+web-console/frontend/node/
 coverage/
 
 # Python

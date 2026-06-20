@@ -65,9 +65,8 @@ class PlatformHttpTests {
         assertThat(response.getHeaders().getContentType().getCharset()).isEqualTo(StandardCharsets.UTF_8);
         assertThat(response.getBody())
             .contains("id=\"rca-console-root\"")
-            .contains("data-api-base=\"\"")
-            .contains("data-public-api-base=\"" + PUBLIC_API_BASE_URL + "\"")
-            .contains("/assets/console-app.js");
+            .contains("type=\"module\"")
+            .contains("/assets/index-");
         assertThat(response.getHeaders().getFirst("X-Frame-Options")).isEqualTo("DENY");
         assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
         assertThat(response.getHeaders().getFirst("Content-Security-Policy"))
@@ -272,7 +271,8 @@ class PlatformHttpTests {
             HttpMethod.POST,
             Map.of("confirmed", true, "note", "approved for manual execution")
         ).getBody());
-        assertThat(approved.path("status").asText()).isEqualTo("approved_manual");
+        assertThat(approved.path("action_request").path("status").asText())
+            .isIn("approved_manual", "queued");
 
         JsonNode auditEvents = objectMapper.readTree(
             exchange("/api/audit/events?limit=100", HttpMethod.GET, null).getBody()
@@ -289,6 +289,54 @@ class PlatformHttpTests {
             Map.of("confirmed", true, "note", "incident cleared")
         ).getBody());
         assertThat(resolved.path("status").asText()).isEqualTo("resolved");
+    }
+
+    @Test
+    @Order(8)
+    void realtimeAgentEventCreatesEvidenceReportAndTimeline() throws Exception {
+        ResponseEntity<String> ingested = restTemplate.postForEntity(
+            "/api/agents/realtime-events",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "worker-a",
+                "agent_token", bootstrapToken,
+                "node_token", nodeToken,
+                "events", List.of(Map.of(
+                    "event_type", "oom_kill",
+                    "component", "memory",
+                    "severity", "critical",
+                    "payload", Map.of("pid", 4242, "comm", "memory-hog")
+                ))
+            ),
+            String.class
+        );
+        assertThat(ingested.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(ingested.getBody())).hasSize(1);
+        assertThat(analysisWorker.processAvailableTasks()).isEqualTo(1);
+
+        JsonNode reports = objectMapper.readTree(exchange("/api/rca/reports", HttpMethod.GET, null).getBody());
+        JsonNode realtimeReport = null;
+        for (JsonNode candidate : reports) {
+            if ("OOMKillDetected".equals(candidate.path("summary").path("symptom").asText())) {
+                realtimeReport = candidate;
+                break;
+            }
+        }
+        assertThat(realtimeReport).isNotNull();
+        String incidentId = realtimeReport.path("incident_id").asText();
+        JsonNode timeline = objectMapper.readTree(
+            exchange("/api/rca/incidents/" + incidentId + "/timeline", HttpMethod.GET, null).getBody()
+        );
+        assertThat(timeline.path("nodes")).isNotEmpty();
+        JsonNode oomNode = null;
+        for (JsonNode node : timeline.path("nodes")) {
+            if ("oom_kill".equals(node.path("event_type").asText())) {
+                oomNode = node;
+                break;
+            }
+        }
+        assertThat(oomNode).isNotNull();
+        assertThat(oomNode.path("root_trigger").asBoolean()).isTrue();
     }
 
     private int actionIndex(JsonNode actions, String policy) {

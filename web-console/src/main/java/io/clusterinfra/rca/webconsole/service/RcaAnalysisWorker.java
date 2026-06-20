@@ -4,7 +4,7 @@ import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
 public class RcaAnalysisWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(RcaAnalysisWorker.class);
 
-    private final RcaRepository repository;
+    private final AnalysisTaskRepository tasks;
     private final RcaService rcaService;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
@@ -31,12 +31,12 @@ public class RcaAnalysisWorker {
     private final String workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
 
     public RcaAnalysisWorker(
-        RcaRepository repository,
+        AnalysisTaskRepository tasks,
         RcaService rcaService,
         RcaConsoleProperties properties,
         AuditService audit
     ) {
-        this.repository = repository;
+        this.tasks = tasks;
         this.rcaService = rcaService;
         this.properties = properties;
         this.audit = audit;
@@ -51,14 +51,14 @@ public class RcaAnalysisWorker {
             return 0;
         }
         Instant now = Instant.now();
-        List<AnalysisTask> tasks = repository.claimAnalysisTasks(
+        List<AnalysisTask> claimedTasks = tasks.claim(
             workerId,
             properties.getPipeline().getBatchSize(),
             now,
             now.plusSeconds(Math.max(30, properties.getPipeline().getLeaseSeconds()))
         );
         List<Future<?>> futures = new ArrayList<>();
-        for (AnalysisTask task : tasks) {
+        for (AnalysisTask task : claimedTasks) {
             futures.add(executor.submit(() -> process(task)));
         }
         for (Future<?> future : futures) {
@@ -68,7 +68,7 @@ public class RcaAnalysisWorker {
                 LOGGER.error("RCA analysis worker thread failed", exception);
             }
         }
-        return tasks.size();
+        return claimedTasks.size();
     }
 
     private void process(AnalysisTask task) {
@@ -78,7 +78,7 @@ public class RcaAnalysisWorker {
             AnalysisTaskStatus status = job == null
                 ? AnalysisTaskStatus.skipped
                 : AnalysisTaskStatus.completed;
-            boolean updated = repository.completeAnalysisTask(
+            boolean updated = tasks.complete(
                 task.taskId(),
                 workerId,
                 status,
@@ -108,7 +108,7 @@ public class RcaAnalysisWorker {
     private void fail(AnalysisTask task, Exception exception) {
         int retrySeconds = retryDelaySeconds(task.attemptCount());
         String error = safeError(exception);
-        boolean updated = repository.failAnalysisTask(
+        boolean updated = tasks.fail(
             task,
             workerId,
             error,

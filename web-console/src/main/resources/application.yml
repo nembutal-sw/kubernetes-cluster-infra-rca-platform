@@ -1,5 +1,6 @@
 server:
   port: 8080
+  forward-headers-strategy: framework
   servlet:
     encoding:
       charset: UTF-8
@@ -34,10 +35,6 @@ spring:
     property-naming-strategy: SNAKE_CASE
     deserialization:
       fail-on-unknown-properties: false
-  mvc:
-    view:
-      prefix: /WEB-INF/jsp/
-      suffix: .jsp
   web:
     resources:
       cache:

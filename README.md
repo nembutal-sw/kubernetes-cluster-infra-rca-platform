@@ -19,14 +19,14 @@ Alertmanager 또는 수동 수집 요청
   -> 전처리 및 Rule-based RCA
   -> 선택적 Spring AI 분석
   -> Policy Engine 검증
-  -> RCA 보고서 및 확인용 조치 요청
+  -> RCA 보고서, 장애 전파 타임라인, 승인 기반 조치
 ```
 
 | Component | Stack | Role |
 | --- | --- | --- |
 | Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
-| Web Console | JSP, React, Bootstrap 5 | 클러스터, 에이전트, 증거, 보고서 관리 |
-| Node Agent | Python 3.10+ | Linux 및 Kubernetes 노드 증거 수집 |
+| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 클러스터, 에이전트, 증거, 보고서 관리 |
+| Node Agent | Python 3.10+ | Linux/Kubernetes 증거 수집, 선택적 eBPF 트레이싱 |
 | Database | PostgreSQL 또는 MariaDB | 플랫폼 데이터 저장 |
 | Migration | Flyway | 공통 DB 스키마 관리 |
 
@@ -106,6 +106,27 @@ DaemonSet Agent는 다음 안전장치를 사용합니다.
 - node token을 노드별 상태 디렉터리에 저장
 - 전송 실패 evidence를 디스크에 spool한 뒤 재전송
 - 지수 backoff 및 선택적 CA bundle/mTLS 지원
+- eBPF와 승인 조치 실행은 기본 비활성
+- 승인 조치는 임의 shell이 아니라 allowlist 명령 키만 실행
+
+eBPF 실시간 수집을 활성화하면 OOM kill, TCP retransmit, DNS 지연 이벤트가 Evidence로 전송됩니다.
+
+```bash
+helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --set ebpf.enabled=true
+```
+
+Linux 5.8 이전 커널처럼 legacy BPF 권한이 필요한 환경에서만
+`--set ebpf.legacySysAdmin=true`를 추가합니다.
+
+승인된 systemd 조치를 Agent에서 실행하려면 별도로 활성화합니다.
+
+```bash
+helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --set approvedActions.enabled=true
+```
+
+Rule-based 실행 계획만 대상이며, LLM 제안은 계속 `automation_allowed=false`입니다.
 
 ## Helm
 
@@ -160,7 +181,7 @@ bash scripts/linux-dev-check.sh --full
 검증 범위:
 
 - Node Agent pytest 및 Python compile
-- Web Console JavaScript syntax
+- React/TypeScript/Vite production build
 - Spring Boot API/UI 통합 테스트
 - PostgreSQL/MariaDB Testcontainers 호환성 및 기존 Alembic DB 승계
 - Ubuntu, Debian, Rocky Linux, openSUSE Agent 수집 호환성

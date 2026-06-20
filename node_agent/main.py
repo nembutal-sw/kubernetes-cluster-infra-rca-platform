@@ -15,7 +15,15 @@ from typing import Any
 
 from node_agent import SUPPORTED_COLLECTORS, __version__
 from node_agent.client import AgentClient, AgentClientError
-from node_agent.collectors import AgentPaths, CommandRunner, collect_evidence, collect_node
+from node_agent.collectors import (
+    AgentPaths,
+    CommandRunner,
+    collect_evidence,
+    collect_node,
+    collector_metadata,
+)
+from node_agent.actions import ApprovedActionExecutor
+from node_agent.ebpf import EbpfEventManager
 from node_agent.state import AgentStateStore
 
 
@@ -110,6 +118,33 @@ def flush_spooled_responses(client: AgentClient, state: AgentStateStore, limit: 
     return submitted
 
 
+def process_approved_actions(
+    client: AgentClient,
+    executor: ApprovedActionExecutor,
+    limit: int = 1,
+) -> int:
+    if not executor.enabled:
+        return 0
+    processed = 0
+    for execution in client.poll_action_executions(limit=limit):
+        execution_id = str(execution.get("execution_id") or "")
+        if not execution_id:
+            LOGGER.warning("skipping malformed action execution without execution_id")
+            continue
+        result = executor.execute(execution)
+        client.submit_action_result(
+            execution_id=execution_id,
+            status=result.status,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            error_message=result.error_message,
+        )
+        processed += 1
+        LOGGER.info("submitted approved action result execution=%s status=%s", execution_id, result.status)
+    return processed
+
+
 def collect_local_evidence(
     paths: AgentPaths,
     runner: CommandRunner,
@@ -180,7 +215,17 @@ def run_agent(args: argparse.Namespace) -> int:
         return 0
 
     client = build_client_from_env(timeout_seconds=args.http_timeout_seconds)
-    metadata = _agent_metadata(paths)
+    metadata = _agent_metadata(paths, runner)
+    ebpf = EbpfEventManager(
+        enabled=_boolean_env("EBPF_ENABLED", False),
+        queue_size=_positive_int_env("EBPF_EVENT_QUEUE_SIZE", 1000),
+    )
+    action_executor = ApprovedActionExecutor(
+        enabled=_boolean_env("APPROVED_ACTIONS_ENABLED", False)
+    )
+    supported_collectors = list(SUPPORTED_COLLECTORS)
+    if ebpf.enabled:
+        supported_collectors.append("ebpf")
     state = AgentStateStore(
         Path(os.getenv("AGENT_STATE_DIR", "/tmp/cluster-infra-rca-agent")),
         client.cluster_id,
@@ -195,16 +240,23 @@ def run_agent(args: argparse.Namespace) -> int:
         maximum_seconds=args.retry_max_seconds,
     )
 
-    if not client.node_token and not _register_with_retry(client, metadata, state, args.once, backoff):
+    if not client.node_token and not _register_with_retry(
+        client, metadata, state, args.once, backoff, supported_collectors
+    ):
         return 1
 
+    ebpf.start()
     while True:
         try:
             flush_spooled_responses(client, state)
             client.heartbeat(
                 agent_version=__version__,
-                supported_collectors=SUPPORTED_COLLECTORS,
-                health={"agent": "running"},
+                supported_collectors=supported_collectors,
+                health={
+                    "agent": "running",
+                    "ebpf": "enabled" if ebpf.enabled else "disabled",
+                    "approved_actions": "enabled" if action_executor.enabled else "disabled",
+                },
             )
             processed = process_pending_requests(
                 client=client,
@@ -213,13 +265,28 @@ def run_agent(args: argparse.Namespace) -> int:
                 limit=args.request_limit,
                 state=state,
             )
-            LOGGER.info("poll cycle completed; processed=%s", processed)
+            realtime_batch = ebpf.drain(limit=100)
+            if realtime_batch:
+                try:
+                    client.submit_realtime_events(realtime_batch)
+                except AgentClientError:
+                    ebpf.requeue(realtime_batch)
+                    raise
+            actions_processed = process_approved_actions(client, action_executor)
+            LOGGER.info(
+                "poll cycle completed; evidence=%s realtime_events=%s approved_actions=%s",
+                processed,
+                len(realtime_batch),
+                actions_processed,
+            )
             backoff.reset()
         except AgentClientError as exc:
             LOGGER.exception("backend communication failed")
             if exc.status_code in {401, 404}:
                 client.node_token = None
-                if not _register_with_retry(client, metadata, state, args.once, backoff):
+                if not _register_with_retry(
+                    client, metadata, state, args.once, backoff, supported_collectors
+                ):
                     return 1
                 if args.once:
                     continue
@@ -314,12 +381,13 @@ def _register_with_retry(
     state: AgentStateStore,
     once: bool,
     backoff: "RetryBackoff",
+    supported_collectors: list[str] | None = None,
 ) -> bool:
     while True:
         try:
             response = client.register(
                 agent_version=__version__,
-                supported_collectors=SUPPORTED_COLLECTORS,
+                supported_collectors=supported_collectors or SUPPORTED_COLLECTORS,
                 metadata=metadata,
             )
             state.save_node_token(str(response["node_token"]))
@@ -333,13 +401,14 @@ def _register_with_retry(
             time.sleep(backoff.next_delay())
 
 
-def _agent_metadata(paths: AgentPaths) -> dict[str, Any]:
+def _agent_metadata(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     try:
         node = collect_node(paths)
         return {
             "host_name": node.get("host_name"),
             "kernel_version": node.get("kernel_version"),
             "os_release": node.get("os_release"),
+            "collectors": collector_metadata(paths, runner),
         }
     except Exception as exc:  # noqa: BLE001 - metadata is useful but not required.
         return {"metadata_error": str(exc)}
@@ -364,6 +433,18 @@ def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
     if value < minimum:
         raise ValueError(f"{name} must be at least {minimum}")
     return value
+
+
+def _boolean_env(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _parse_collector_list(raw_value: str) -> list[str]:

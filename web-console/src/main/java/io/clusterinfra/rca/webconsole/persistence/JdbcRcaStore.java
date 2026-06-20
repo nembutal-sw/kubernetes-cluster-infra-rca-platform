@@ -8,6 +8,9 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitReques
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecution;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecutionStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionPlan;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AuditEvent;
@@ -29,6 +32,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.RealtimeEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
@@ -44,16 +48,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 @Repository
-public class RcaRepository {
+public class JdbcRcaStore {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
     };
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {
+    };
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
     private static final TypeReference<List<Map<String, Object>>> MAP_LIST = new TypeReference<>() {
     };
@@ -66,7 +71,7 @@ public class RcaRepository {
     private final ObjectMapper objectMapper;
     private final TokenService tokens;
 
-    public RcaRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, TokenService tokens) {
+    public JdbcRcaStore(JdbcTemplate jdbc, ObjectMapper objectMapper, TokenService tokens) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.tokens = tokens;
@@ -116,6 +121,7 @@ public class RcaRepository {
             return false;
         }
         jdbc.update("DELETE FROM rca_analysis_tasks WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM action_executions WHERE cluster_id = ?", clusterId);
         jdbc.update(
             """
                 DELETE FROM action_requests
@@ -127,6 +133,7 @@ public class RcaRepository {
         jdbc.update("DELETE FROM evidence_requests WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM rca_reports WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM incidents WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM realtime_events WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM node_agents WHERE cluster_id = ?", clusterId);
         return jdbc.update("DELETE FROM clusters WHERE cluster_id = ?", clusterId) == 1;
@@ -672,6 +679,68 @@ public class RcaRepository {
         );
     }
 
+    public List<EvidenceBundle> listEvidenceForNodeWindow(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to
+    ) {
+        return jdbc.query(
+            """
+                SELECT * FROM evidence_bundles
+                WHERE cluster_id = ? AND node_name = ? AND collected_at BETWEEN ? AND ?
+                ORDER BY collected_at, evidence_id
+                """,
+            this::mapEvidence,
+            clusterId,
+            nodeName,
+            timestamp(from),
+            timestamp(to)
+        );
+    }
+
+    public RealtimeEvent saveRealtimeEvent(RealtimeEvent event) {
+        jdbc.update(
+            """
+                INSERT INTO realtime_events
+                    (event_id, evidence_id, cluster_id, node_name, event_type, component,
+                     severity, observed_at, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            event.eventId(),
+            event.evidenceId(),
+            event.clusterId(),
+            event.nodeName(),
+            event.eventType(),
+            event.component(),
+            event.severity(),
+            timestamp(event.observedAt()),
+            json(event.payload()),
+            timestamp(event.createdAt())
+        );
+        return event;
+    }
+
+    public List<RealtimeEvent> listRealtimeEventsForNodeWindow(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to
+    ) {
+        return jdbc.query(
+            """
+                SELECT * FROM realtime_events
+                WHERE cluster_id = ? AND node_name = ? AND observed_at BETWEEN ? AND ?
+                ORDER BY observed_at, event_id
+                """,
+            this::mapRealtimeEvent,
+            clusterId,
+            nodeName,
+            timestamp(from),
+            timestamp(to)
+        );
+    }
+
     @Transactional
     public RcaJob saveReportAndJob(RcaReport report, RcaJob job) {
         saveReport(report);
@@ -686,6 +755,11 @@ public class RcaRepository {
         String dedupKey,
         EvidenceBundle evidence
     ) {
+        jdbc.queryForObject(
+            "SELECT cluster_id FROM clusters WHERE cluster_id = ? FOR UPDATE",
+            String.class,
+            evidence.clusterId()
+        );
         Incident incident = findIncidentByDedupKey(dedupKey).orElseGet(() -> {
             Incident created = new Incident(
                 id("incident"),
@@ -700,31 +774,27 @@ public class RcaRepository {
                 evidence.evidenceId(),
                 null
             );
-            try {
-                jdbc.update(
-                    """
-                        INSERT INTO incidents
-                            (incident_id, dedup_key, cluster_id, node_name, alert_name, root_cause, status,
-                             occurrence_count, first_seen_at, last_seen_at, latest_evidence_id, latest_report_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                    created.incidentId(),
-                    dedupKey,
-                    created.clusterId(),
-                    created.nodeName(),
-                    created.alertName(),
-                    created.rootCause(),
-                    created.status().name(),
-                    created.occurrenceCount(),
-                    timestamp(created.firstSeenAt()),
-                    timestamp(created.lastSeenAt()),
-                    created.latestEvidenceId(),
-                    null
-                );
-                return created;
-            } catch (DuplicateKeyException exception) {
-                return findIncidentByDedupKey(dedupKey).orElseThrow();
-            }
+            jdbc.update(
+                """
+                    INSERT INTO incidents
+                        (incident_id, dedup_key, cluster_id, node_name, alert_name, root_cause, status,
+                         occurrence_count, first_seen_at, last_seen_at, latest_evidence_id, latest_report_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                created.incidentId(),
+                dedupKey,
+                created.clusterId(),
+                created.nodeName(),
+                created.alertName(),
+                created.rootCause(),
+                created.status().name(),
+                created.occurrenceCount(),
+                timestamp(created.firstSeenAt()),
+                timestamp(created.lastSeenAt()),
+                created.latestEvidenceId(),
+                null
+            );
+            return created;
         });
 
         Incident locked = optionalQuery(
@@ -948,6 +1018,242 @@ public class RcaRepository {
             this::mapActionRequest,
             reportId
         );
+    }
+
+    public ActionExecution createActionExecution(
+        ActionRequest request,
+        RcaReport report,
+        String nodeName,
+        ActionPlan plan
+    ) {
+        if (plan == null || !plan.executable()) {
+            throw new IllegalArgumentException("action plan is not executable");
+        }
+        Instant now = databaseInstant();
+        ActionExecution execution = new ActionExecution(
+            id("execution"),
+            request.actionRequestId(),
+            request.reportId(),
+            report.clusterId(),
+            nodeName,
+            request.actionKey(),
+            plan.commandKey(),
+            plan.parametersOrEmpty(),
+            plan,
+            ActionExecutionStatus.pending_approval,
+            Math.max(1, Math.min(plan.timeoutSeconds(), 900)),
+            request.requestedBy(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            now,
+            null,
+            null,
+            null
+        );
+        jdbc.update(
+            """
+                INSERT INTO action_executions
+                    (execution_id, action_request_id, report_id, cluster_id, node_name, action_key,
+                     command_key, parameters_json, preview_json, status, timeout_seconds, requested_by,
+                     approved_by, lease_owner, lease_expires_at, exit_code, stdout_text, stderr_text,
+                     error_message, created_at, approved_at, started_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            execution.executionId(),
+            execution.actionRequestId(),
+            execution.reportId(),
+            execution.clusterId(),
+            execution.nodeName(),
+            execution.actionKey(),
+            execution.commandKey(),
+            json(execution.parameters()),
+            json(execution.preview()),
+            execution.status().name(),
+            execution.timeoutSeconds(),
+            execution.requestedBy(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            timestamp(execution.createdAt()),
+            null,
+            null,
+            null
+        );
+        return execution;
+    }
+
+    public Optional<ActionExecution> getActionExecution(String executionId) {
+        return optionalQuery(
+            "SELECT * FROM action_executions WHERE execution_id = ?",
+            this::mapActionExecution,
+            executionId
+        );
+    }
+
+    public Optional<ActionExecution> getActionExecutionByRequest(String actionRequestId) {
+        return optionalQuery(
+            "SELECT * FROM action_executions WHERE action_request_id = ?",
+            this::mapActionExecution,
+            actionRequestId
+        );
+    }
+
+    public List<ActionExecution> listActionExecutions(String reportId) {
+        if (reportId == null || reportId.isBlank()) {
+            return jdbc.query(
+                "SELECT * FROM action_executions ORDER BY created_at DESC",
+                this::mapActionExecution
+            );
+        }
+        return jdbc.query(
+            "SELECT * FROM action_executions WHERE report_id = ? ORDER BY created_at DESC",
+            this::mapActionExecution,
+            reportId
+        );
+    }
+
+    @Transactional
+    public Optional<ActionExecution> approveActionExecution(
+        String actionRequestId,
+        String approvedBy
+    ) {
+        Instant now = databaseInstant();
+        int updated = jdbc.update(
+            """
+                UPDATE action_executions
+                SET status = ?, approved_by = ?, approved_at = ?
+                WHERE action_request_id = ? AND status = ?
+                """,
+            ActionExecutionStatus.queued.name(),
+            approvedBy,
+            timestamp(now),
+            actionRequestId,
+            ActionExecutionStatus.pending_approval.name()
+        );
+        return updated == 0 ? Optional.empty() : getActionExecutionByRequest(actionRequestId);
+    }
+
+    public Optional<ActionExecution> rejectActionExecution(String actionRequestId) {
+        Instant now = databaseInstant();
+        int updated = jdbc.update(
+            """
+                UPDATE action_executions SET status = ?, completed_at = ?
+                WHERE action_request_id = ? AND status = ?
+                """,
+            ActionExecutionStatus.rejected.name(),
+            timestamp(now),
+            actionRequestId,
+            ActionExecutionStatus.pending_approval.name()
+        );
+        return updated == 0 ? Optional.empty() : getActionExecutionByRequest(actionRequestId);
+    }
+
+    @Transactional
+    public List<ActionExecution> claimActionExecutions(
+        String clusterId,
+        String nodeName,
+        String leaseOwner,
+        int limit,
+        Instant now,
+        Instant leaseExpiresAt
+    ) {
+        int safeLimit = Math.max(1, Math.min(limit, 10));
+        List<String> ids = jdbc.queryForList(
+            """
+                SELECT execution_id FROM action_executions
+                WHERE cluster_id = ? AND node_name = ?
+                  AND (status = ? OR (status = ? AND lease_expires_at < ?))
+                ORDER BY created_at
+                LIMIT ?
+                """,
+            String.class,
+            clusterId,
+            nodeName,
+            ActionExecutionStatus.queued.name(),
+            ActionExecutionStatus.leased.name(),
+            timestamp(now),
+            safeLimit * 2
+        );
+        List<ActionExecution> claimed = new ArrayList<>();
+        for (String executionId : ids) {
+            int updated = jdbc.update(
+                """
+                    UPDATE action_executions
+                    SET status = ?, lease_owner = ?, lease_expires_at = ?,
+                        started_at = COALESCE(started_at, ?)
+                    WHERE execution_id = ?
+                      AND (status = ? OR (status = ? AND lease_expires_at < ?))
+                    """,
+                ActionExecutionStatus.leased.name(),
+                leaseOwner,
+                timestamp(leaseExpiresAt),
+                timestamp(now),
+                executionId,
+                ActionExecutionStatus.queued.name(),
+                ActionExecutionStatus.leased.name(),
+                timestamp(now)
+            );
+            if (updated == 1) {
+                getActionExecution(executionId).ifPresent(claimed::add);
+            }
+            if (claimed.size() >= safeLimit) {
+                break;
+            }
+        }
+        return claimed;
+    }
+
+    @Transactional
+    public Optional<ActionExecution> completeActionExecution(
+        String executionId,
+        String leaseOwner,
+        ActionExecutionStatus status,
+        Integer exitCode,
+        String stdout,
+        String stderr,
+        String errorMessage
+    ) {
+        if (status != ActionExecutionStatus.completed && status != ActionExecutionStatus.failed) {
+            throw new IllegalArgumentException("action execution result status is invalid");
+        }
+        Instant now = databaseInstant();
+        int updated = jdbc.update(
+            """
+                UPDATE action_executions
+                SET status = ?, exit_code = ?, stdout_text = ?, stderr_text = ?, error_message = ?,
+                    lease_owner = NULL, lease_expires_at = NULL, completed_at = ?
+                WHERE execution_id = ? AND status = ? AND lease_owner = ?
+                """,
+            status.name(),
+            exitCode,
+            limitedText(stdout, 65535),
+            limitedText(stderr, 65535),
+            limitedText(errorMessage, 4000),
+            timestamp(now),
+            executionId,
+            ActionExecutionStatus.leased.name(),
+            leaseOwner
+        );
+        if (updated == 0) {
+            return Optional.empty();
+        }
+        getActionExecution(executionId).ifPresent(execution -> jdbc.update(
+            "UPDATE action_requests SET status = ? WHERE action_request_id = ?",
+            status == ActionExecutionStatus.completed
+                ? ActionRequestStatus.completed.name()
+                : ActionRequestStatus.failed.name(),
+            execution.actionRequestId()
+        ));
+        return getActionExecution(executionId);
     }
 
     public AuditEvent saveAuditEvent(
@@ -1298,6 +1604,49 @@ public class RcaRepository {
         );
     }
 
+    private ActionExecution mapActionExecution(ResultSet resultSet, int rowNumber) throws SQLException {
+        return new ActionExecution(
+            resultSet.getString("execution_id"),
+            resultSet.getString("action_request_id"),
+            resultSet.getString("report_id"),
+            resultSet.getString("cluster_id"),
+            resultSet.getString("node_name"),
+            resultSet.getString("action_key"),
+            resultSet.getString("command_key"),
+            read(resultSet.getString("parameters_json"), STRING_MAP, Map.of()),
+            read(resultSet.getString("preview_json"), ActionPlan.class),
+            ActionExecutionStatus.valueOf(resultSet.getString("status")),
+            resultSet.getInt("timeout_seconds"),
+            resultSet.getString("requested_by"),
+            resultSet.getString("approved_by"),
+            resultSet.getString("lease_owner"),
+            instant(resultSet, "lease_expires_at"),
+            (Integer) resultSet.getObject("exit_code"),
+            resultSet.getString("stdout_text"),
+            resultSet.getString("stderr_text"),
+            resultSet.getString("error_message"),
+            instant(resultSet, "created_at"),
+            instant(resultSet, "approved_at"),
+            instant(resultSet, "started_at"),
+            instant(resultSet, "completed_at")
+        );
+    }
+
+    private RealtimeEvent mapRealtimeEvent(ResultSet resultSet, int rowNumber) throws SQLException {
+        return new RealtimeEvent(
+            resultSet.getString("event_id"),
+            resultSet.getString("evidence_id"),
+            resultSet.getString("cluster_id"),
+            resultSet.getString("node_name"),
+            resultSet.getString("event_type"),
+            resultSet.getString("component"),
+            resultSet.getString("severity"),
+            instant(resultSet, "observed_at"),
+            read(resultSet.getString("payload_json"), OBJECT_MAP, Map.of()),
+            instant(resultSet, "created_at")
+        );
+    }
+
     private AuditEvent mapAuditEvent(ResultSet resultSet, int rowNumber) throws SQLException {
         return new AuditEvent(
             resultSet.getString("audit_event_id"),
@@ -1409,6 +1758,13 @@ public class RcaRepository {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String limitedText(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private static <E extends Enum<E>> E enumOrNull(Class<E> type, String value) {

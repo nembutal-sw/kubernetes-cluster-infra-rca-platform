@@ -11,7 +11,9 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResponse;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
@@ -33,18 +35,24 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 
 @RestController
 public class AgentEvidenceController {
-    private final RcaRepository repository;
+    private final ClusterRepository clusters;
+    private final AgentRepository agents;
+    private final EvidenceRepository evidence;
     private final AccessService access;
     private final AuditService audit;
     private final RcaConsoleProperties properties;
 
     public AgentEvidenceController(
-        RcaRepository repository,
+        ClusterRepository clusters,
+        AgentRepository agents,
+        EvidenceRepository evidence,
         AccessService access,
         AuditService audit,
         RcaConsoleProperties properties
     ) {
-        this.repository = repository;
+        this.clusters = clusters;
+        this.agents = agents;
+        this.evidence = evidence;
         this.access = access;
         this.audit = audit;
         this.properties = properties;
@@ -54,7 +62,7 @@ public class AgentEvidenceController {
     @ResponseStatus(HttpStatus.CREATED)
     public NodeAgentRegistrationResponse register(@Valid @RequestBody NodeAgentRegisterRequest request) {
         access.verifyBootstrapToken(request.clusterId(), request.agentToken());
-        NodeAgentRegistrationResponse registered = repository.registerAgent(request);
+        NodeAgentRegistrationResponse registered = agents.register(request);
         audit.record(
             "agent",
             request.nodeName(),
@@ -75,7 +83,7 @@ public class AgentEvidenceController {
             request.agentToken(),
             request.nodeToken()
         );
-        return repository.recordAgentHeartbeat(request)
+        return agents.heartbeat(request)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "agent not registered"));
     }
 
@@ -83,26 +91,26 @@ public class AgentEvidenceController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public EvidenceRequest createRequest(@Valid @RequestBody EvidenceRequestCreateRequest request) {
-        if (repository.getCluster(request.clusterId()).isEmpty()) {
+        if (clusters.find(request.clusterId()).isEmpty()) {
             throw new ResponseStatusException(NOT_FOUND, "cluster not found");
         }
-        if (repository.getAgent(request.clusterId(), request.nodeName()).isEmpty()) {
+        if (agents.find(request.clusterId(), request.nodeName()).isEmpty()) {
             throw new ResponseStatusException(NOT_FOUND, "agent not found");
         }
-        return repository.createEvidenceRequest(request);
+        return evidence.createRequest(request);
     }
 
     @GetMapping("/api/evidence/requests/{requestId}")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public EvidenceRequest request(@PathVariable String requestId) {
-        return repository.getEvidenceRequest(requestId)
+        return evidence.findRequest(requestId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "evidence request not found"));
     }
 
     @GetMapping("/api/evidence/{evidenceId}")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public EvidenceBundle evidence(@PathVariable String evidenceId) {
-        return repository.getEvidence(evidenceId)
+        return evidence.find(evidenceId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "evidence not found"));
     }
 
@@ -114,7 +122,7 @@ public class AgentEvidenceController {
             request.agentToken(),
             request.nodeToken()
         );
-        return repository.listEvidenceRequests(
+        return evidence.listRequests(
             request.clusterId(),
             request.nodeName(),
             EvidenceRequestStatus.pending,
@@ -137,7 +145,7 @@ public class AgentEvidenceController {
                 "evidence response status must be completed or failed"
             );
         }
-        EvidenceRequest assigned = repository.getEvidenceRequest(request.requestId())
+        EvidenceRequest assigned = evidence.findRequest(request.requestId())
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "evidence request not found"));
         if (!assigned.clusterId().equals(request.clusterId()) || !assigned.nodeName().equals(request.nodeName())) {
             throw new ResponseStatusException(FORBIDDEN, "evidence request is assigned to another agent");
@@ -145,7 +153,7 @@ public class AgentEvidenceController {
         if (assigned.status() != EvidenceRequestStatus.pending) {
             throw new ResponseStatusException(CONFLICT, "evidence request is already closed");
         }
-        EvidenceRequest submitted = repository.submitEvidenceResponse(
+        EvidenceRequest submitted = evidence.submitResponse(
             request,
             properties.getPipeline().getMaxAttempts()
         )

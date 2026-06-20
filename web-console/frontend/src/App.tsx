@@ -1,8 +1,14 @@
-(function () {
+// @ts-nocheck
+import React from "react";
+import { createRoot } from "react-dom/client";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "bootstrap-icons/font/bootstrap-icons.css";
+import "./styles.css";
+
   const rootElement = document.getElementById("rca-console-root");
   const h = React.createElement;
-  const apiBase = rootElement.dataset.apiBase || "";
-  const publicApiBase = rootElement.dataset.publicApiBase || window.location.origin;
+  const apiBase = "";
+  const publicApiBase = window.location.origin;
   const LANGUAGE_STORAGE_KEY = "rca_console_language";
   const views = [
     { id: "overview", label: "Overview", icon: "speedometer2" },
@@ -122,7 +128,7 @@
       "Loading": "불러오는 중",
       "Registered targets": "등록된 대상",
       "high confidence": "높은 신뢰도",
-      "Bearer protected": "Bearer 인증 보호",
+      "HttpOnly session": "HttpOnly 세션",
       "Cluster Snapshot": "클러스터 스냅샷",
       "Latest registered clusters": "최근 등록된 클러스터",
       "Open": "열기",
@@ -598,9 +604,8 @@
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
     const [installCommands, setInstallCommands] = React.useState({});
-    const [sessionToken, setSessionToken] = React.useState(sessionStorage.getItem("rca_session_token") || "");
     const [currentUser, setCurrentUser] = React.useState(null);
-    const [authChecking, setAuthChecking] = React.useState(Boolean(sessionStorage.getItem("rca_session_token")));
+    const [authChecking, setAuthChecking] = React.useState(true);
     const [toast, setToast] = React.useState("");
     const [loading, setLoading] = React.useState({});
     const [autoRefresh, setAutoRefresh] = React.useState(true);
@@ -627,10 +632,8 @@
     }, [notify]);
 
     const authHeaders = React.useCallback(() => {
-      const headers = {};
-      if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
-      return headers;
-    }, [sessionToken]);
+      return {};
+    }, []);
 
     const callApi = React.useCallback(async (path, options = {}) => {
       let response;
@@ -658,23 +661,16 @@
     }, []);
 
     const loadCurrentUser = React.useCallback(async (silent) => {
-      if (!sessionToken) {
-        setCurrentUser(null);
-        setAuthChecking(false);
-        return;
-      }
       try {
         const user = await callApi("/api/auth/me", { headers: authHeaders() });
         setCurrentUser(user);
       } catch (error) {
-        setSessionToken("");
         setCurrentUser(null);
-        sessionStorage.removeItem("rca_session_token");
         if (!silent) notify(error.message);
       } finally {
         setAuthChecking(false);
       }
-    }, [sessionToken, authHeaders, callApi, notify]);
+    }, [authHeaders, callApi, notify]);
 
     const loadClusters = React.useCallback(async (silent) => {
       try {
@@ -776,9 +772,7 @@
           method: "POST",
           body: JSON.stringify(payload),
         });
-        setSessionToken(session.access_token);
         setCurrentUser(session.user);
-        sessionStorage.setItem("rca_session_token", session.access_token);
         form.reset();
         notify(`Signed in: ${session.user.email}`);
       } catch (error) {
@@ -787,13 +781,12 @@
     }
 
     async function logout() {
-      if (sessionToken) {
+      if (currentUser) {
         await callApi("/api/auth/logout", {
           method: "POST",
           headers: authHeaders(),
         }).catch(() => null);
       }
-      setSessionToken("");
       setCurrentUser(null);
       setClusters([]);
       setReports([]);
@@ -806,7 +799,6 @@
       setActionDialog(null);
       setCollectionDialog(null);
       setDeleteDialog(null);
-      sessionStorage.removeItem("rca_session_token");
       notify("Signed out.");
     }
 
@@ -924,9 +916,13 @@
       }
       setReportDetails((value) => ({ ...value, [reportId]: { ...(value[reportId] || {}), open: true, loading: true } }));
       try {
-        const [report, actionRequests] = await Promise.all([
-          callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+        const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() });
+        const [actionRequests, actionExecutions, timeline] = await Promise.all([
           callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+          callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+          report.incident_id
+            ? callApi(`/api/rca/incidents/${encodeURIComponent(report.incident_id)}/timeline`, { headers: authHeaders() })
+            : Promise.resolve(null),
         ]);
         setReportDetails((value) => ({
           ...value,
@@ -935,6 +931,8 @@
             loading: false,
             report,
             actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
+            actionExecutions: Array.isArray(actionExecutions) ? actionExecutions : [],
+            timeline,
           },
         }));
       } catch (error) {
@@ -1043,17 +1041,27 @@
         `/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`,
         { headers: authHeaders() }
       );
+      const actionExecutions = await callApi(
+        `/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`,
+        { headers: authHeaders() }
+      );
       setReportDetails((value) => ({
         ...value,
         [reportId]: {
           ...(value[reportId] || {}),
           actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
+          actionExecutions: Array.isArray(actionExecutions) ? actionExecutions : [],
         },
       }));
       if (currentUser?.role === "admin") loadAuditEvents(true);
     }
 
     async function decideActionRequest(actionRequestId, reportId, decision) {
+      if (!window.confirm(
+        decision === "approve"
+          ? tr("Approve and execute this reviewed action on the target node?")
+          : tr("Reject this action request?")
+      )) return;
       try {
         const result = await callApi(
           `/api/rca/action-requests/${encodeURIComponent(actionRequestId)}/${decision}`,
@@ -1063,7 +1071,7 @@
             body: JSON.stringify({ confirmed: true, note: `Decision from web console: ${decision}` }),
           }
         );
-        notify(`Action request ${result.status}.`);
+        notify(`Action request ${(result.action_request || result).status}.`);
         await reloadActionRequests(reportId);
       } catch (error) {
         notify(error.message);
@@ -1361,7 +1369,7 @@
       h("div", { className: "row g-3" },
         h(MetricTile, { label: "Clusters", value: clusters.length, hint: loading.clusters ? "Loading" : "Registered targets", icon: "hdd-network" }),
         h(MetricTile, { label: "RCA Reports", value: reports.length, hint: `${highConfidence} high confidence`, icon: "clipboard2-pulse" }),
-        h(MetricTile, { label: "Access", value: "Session", hint: "Bearer protected", icon: "shield-lock" }),
+        h(MetricTile, { label: "Access", value: "Session", hint: "HttpOnly session", icon: "shield-lock" }),
         h(MetricTile, { label: "Webhook", value: "Alertmanager", hint: webhookEndpoint, icon: "diagram-3", compact: true })
       ),
       h("div", { className: "row g-3" },
@@ -2240,6 +2248,13 @@
       ),
       h(ReportSummaryStrip, { report, llm, actions }),
       h(PolicyOverview, { actions }),
+      detail.timeline ? h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Cascading Failure Timeline")),
+          h("span", { className: "small text-muted" }, tr("Time-correlated propagation from the first trigger"))
+        ),
+        h(TimelineGraph, { timeline: detail.timeline })
+      ) : null,
       h("section", { className: "report-section" },
         h("div", { className: "report-section-title" },
           h("h3", { className: "h6 mb-0" }, tr("Root Cause Candidates")),
@@ -2275,6 +2290,7 @@
         ),
         h(ActionRequestHistory, {
           items: detail.actionRequests || [],
+          executions: detail.actionExecutions || [],
           reportId: report.report_id,
           currentUser,
           onDecideAction,
@@ -2300,7 +2316,7 @@
     );
   }
 
-  function ActionRequestHistory({ items, reportId, currentUser, onDecideAction }) {
+  function ActionRequestHistory({ items, executions, reportId, currentUser, onDecideAction }) {
     if (!items.length) return h(EmptyState, { message: "No action requests." });
     return h("div", { className: "d-grid gap-2" }, items.map((item) => h("article", {
       key: item.action_request_id,
@@ -2323,7 +2339,7 @@
               h("button", {
                 className: "btn btn-outline-success",
                 onClick: () => onDecideAction(item.action_request_id, reportId, "approve"),
-              }, tr("Approve")),
+              }, tr("Approve & Execute")),
               h("button", {
                 className: "btn btn-outline-danger",
                 onClick: () => onDecideAction(item.action_request_id, reportId, "reject"),
@@ -2337,8 +2353,50 @@
     ),
     item.reviewed_by ? h("div", { className: "small text-muted" },
       `${tr("Reviewed by")}: ${item.reviewed_by} / ${formatDate(item.reviewed_at)}`
-    ) : null
+    ) : null,
+    (() => {
+      const execution = (executions || []).find((value) => value.action_request_id === item.action_request_id);
+      return execution ? h("div", { className: "execution-result mt-2" },
+        h("div", { className: "d-flex justify-content-between gap-2" },
+          h("span", { className: "font-monospace small" }, execution.command_key),
+          h(StatusBadge, {
+            value: execution.status,
+            tone: execution.status === "completed" ? "green"
+              : execution.status === "failed" ? "red" : "amber",
+          })
+        ),
+        execution.stdout ? h("pre", { className: "execution-output mt-2 mb-0" }, execution.stdout) : null,
+        execution.stderr ? h("pre", { className: "execution-output execution-error mt-2 mb-0" }, execution.stderr) : null
+      ) : null;
+    })()
     )));
+  }
+
+  function TimelineGraph({ timeline }) {
+    const nodes = timeline.nodes || [];
+    if (!nodes.length) return h(EmptyState, { message: "No timeline evidence." });
+    return h("div", { className: "timeline-scroll" },
+      h("div", { className: "failure-timeline" }, nodes.map((node, index) =>
+        h("div", { key: node.id, className: "timeline-step" },
+          h("article", { className: `timeline-node severity-${node.severity} ${node.root_trigger ? "root-trigger" : ""}` },
+            h("div", { className: "d-flex justify-content-between gap-2" },
+              h("span", { className: "timeline-component" }, node.component),
+              h(StatusBadge, { value: node.severity, tone: severityTone(node.severity) })
+            ),
+            h("strong", null, displayText(node.title)),
+            h("span", { className: "small text-muted" }, formatDate(node.timestamp)),
+            h("p", { className: "small mb-0" }, displayText(node.detail)),
+            node.root_trigger ? h("span", { className: "root-label" }, tr("Root trigger")) : null
+          ),
+          index < nodes.length - 1
+            ? h("div", { className: "timeline-link" },
+                h(Icon, { name: "arrow-right" }),
+                h("span", null, timeline.edges?.[index]?.relationship || tr("followed by"))
+              )
+            : null
+        )
+      ))
+    );
   }
 
   function PolicyOverview({ actions }) {
@@ -2427,6 +2485,19 @@
         h(MetaPill, { label: "review", value: item.review_required ? "required" : "not required", tone: item.review_required ? "amber" : "green" }),
         h(MetaPill, { label: "key", value: item.action_key || "n/a" })
       ),
+      item.execution_plan ? h("div", { className: "action-plan mt-2" },
+        h("div", { className: "small fw-semibold mb-1" }, tr("Reviewed execution preview")),
+        (item.execution_plan.command_preview || []).map((command, commandIndex) =>
+          h("pre", { key: commandIndex, className: "command-preview mb-1" }, command)
+        ),
+        item.execution_plan.yaml_patch
+          ? h("pre", { className: "command-preview mb-1" }, item.execution_plan.yaml_patch)
+          : null,
+        h(StatusBadge, {
+          value: item.execution_plan.executable ? "agent executable after approval" : "preview only",
+          tone: item.execution_plan.executable ? "amber" : "blue",
+        })
+      ) : null,
       h("div", { className: "mt-2" },
         h(ChipList, { label: tr("Risk reasons"), items: item.risk_factors || [], tone: "red", empty: tr("No policy risk factors.") })
       ),
@@ -2754,5 +2825,4 @@
     return String(value);
   }
 
-  ReactDOM.createRoot(rootElement).render(h(App));
-})();
+  createRoot(rootElement).render(h(App));

@@ -1,6 +1,10 @@
 package io.clusterinfra.rca.webconsole.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
+import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
+import io.clusterinfra.rca.webconsole.analysis.Signal;
+import io.clusterinfra.rca.webconsole.analysis.SignalDetectionEngine;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
@@ -24,38 +28,30 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class RuleBasedRcaAnalyzer {
-    private static final Pattern KERNEL_IO = Pattern.compile(
-        "(i/o error|buffer i/o|blk_update_request|nvme.*error|ext4.*error|xfs.*error|read-only file system)",
-        Pattern.CASE_INSENSITIVE
-    );
-    private static final Pattern OOM = Pattern.compile(
-        "(out of memory|oom-kill|killed process .* memory)",
-        Pattern.CASE_INSENSITIVE
-    );
-    private static final Pattern BLOCKED_TASK = Pattern.compile(
-        "(blocked for more than|hung task|soft lockup|hard lockup)",
-        Pattern.CASE_INSENSITIVE
-    );
-    private static final Pattern LINK_FLAP = Pattern.compile(
-        "(link is down|link is up|nic link.*down|carrier.*lost|renamed from)",
-        Pattern.CASE_INSENSITIVE
-    );
-
     private final PolicyEngine policyEngine;
     private final LlmAnalysisService llm;
     private final RcaConsoleProperties properties;
     private final ObjectMapper objectMapper;
+    private final SignalDetectionEngine detectionEngine;
+    private final ConfidenceScorer confidenceScorer;
+    private final RootCauseCandidateBuilder candidateBuilder;
 
     public RuleBasedRcaAnalyzer(
         PolicyEngine policyEngine,
         LlmAnalysisService llm,
         RcaConsoleProperties properties,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        SignalDetectionEngine detectionEngine,
+        ConfidenceScorer confidenceScorer,
+        RootCauseCandidateBuilder candidateBuilder
     ) {
         this.policyEngine = policyEngine;
         this.llm = llm;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.detectionEngine = detectionEngine;
+        this.confidenceScorer = confidenceScorer;
+        this.candidateBuilder = candidateBuilder;
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
@@ -91,9 +87,7 @@ public class RuleBasedRcaAnalyzer {
         ));
 
         RootCauseCandidate mostLikely = candidates.getFirst();
-        Confidence confidence = signals.stream().anyMatch(signal -> "critical".equals(signal.severity()))
-            ? Confidence.high
-            : signals.isEmpty() ? Confidence.low : Confidence.medium;
+        Confidence confidence = confidenceScorer.reportConfidence(signals);
         Set<String> components = new LinkedHashSet<>();
         signals.forEach(signal -> components.add(signal.component()));
         if (components.isEmpty()) {
@@ -120,221 +114,16 @@ public class RuleBasedRcaAnalyzer {
         return !deriveSignals(collectors).isEmpty();
     }
 
+    public List<Map<String, Object>> deriveTimelineSignals(Map<String, Object> collectors) {
+        return deriveSignals(collectors).stream().map(Signal::asMap).toList();
+    }
+
     private List<Signal> deriveSignals(Map<String, Object> collectors) {
-        Map<String, Object> flattened = new LinkedHashMap<>();
-        flatten("", collectors, flattened, 0);
-        String searchable = safeJson(collectors);
-        List<Signal> signals = new ArrayList<>();
-        RcaConsoleProperties.Thresholds thresholds = properties.getThresholds();
-
-        percentage(flattened, "disk", "usage", "percent").ifPresent(value -> {
-            if (value >= thresholds.getDiskWarningPercent()) {
-                signals.add(signal(
-                    value >= thresholds.getDiskCriticalPercent() ? "disk_usage_critical" : "disk_usage_high",
-                    "disk",
-                    value >= thresholds.getDiskCriticalPercent() ? "critical" : "warning",
-                    value,
-                    "Filesystem capacity is near or above the configured threshold.",
-                    "Inspect df, mount usage, large files, runtime image storage, and log growth.",
-                    "disk"
-                ));
-            }
-        });
-        percentage(flattened, "inode", "usage", "percent").ifPresent(value -> {
-            if (value >= thresholds.getInodeWarningPercent()) {
-                signals.add(signal(
-                    value >= thresholds.getInodeCriticalPercent() ? "inode_usage_critical" : "inode_usage_high",
-                    "inode",
-                    value >= thresholds.getInodeCriticalPercent() ? "critical" : "warning",
-                    value,
-                    "Filesystem inode consumption is near exhaustion.",
-                    "Inspect df -i and identify directories creating many small files.",
-                    "inode"
-                ));
-            }
-        });
-        OptionalDouble diskLatency = number(flattened, "await", "ms");
-        if (diskLatency.isEmpty()) {
-            diskLatency = number(flattened, "io", "latency");
-        }
-        diskLatency.ifPresent(value -> {
-            if (value >= thresholds.getDiskAwaitWarningMs()) {
-                signals.add(signal(
-                    "disk_io_latency_high", "disk", "warning", value,
-                    "Block device latency exceeds the configured threshold.",
-                    "Inspect iostat, device queue depth, kernel I/O errors, and storage backend latency.",
-                    "disk", "kernel"
-                ));
-            }
-        });
-        percentage(flattened, "memory", "usage", "percent").ifPresent(value -> {
-            if (value >= thresholds.getMemoryCriticalPercent()) {
-                signals.add(signal(
-                    "memory_pressure_critical", "memory", "critical", value,
-                    "Node memory consumption is critically high.",
-                    "Inspect free, vmstat, cgroup usage, reclaim pressure, and top memory consumers.",
-                    "memory"
-                ));
-            }
-        });
-        percentage(flattened, "pid", "usage", "percent").ifPresent(value -> {
-            if (value >= thresholds.getPidWarningPercent()) {
-                signals.add(signal(
-                    "pid_usage_high", "process", value >= 95 ? "critical" : "warning", value,
-                    "PID capacity is close to exhaustion.",
-                    "Inspect process fan-out, zombie processes, and container runtime shims.",
-                    "process"
-                ));
-            }
-        });
-        ratio(flattened, List.of("conntrack", "count"), List.of("conntrack", "max")).ifPresent(value -> {
-            if (value >= thresholds.getConntrackWarningPercent()) {
-                signals.add(signal(
-                    "conntrack_near_limit", "conntrack",
-                    value >= thresholds.getConntrackCriticalPercent() ? "critical" : "warning", value,
-                    "Conntrack table occupancy is close to its configured limit.",
-                    "Inspect conntrack statistics, connection churn, drops, and sizing through reviewed configuration.",
-                    "conntrack", "network"
-                ));
-            }
-        });
-        number(flattened, "dns", "latency").ifPresent(value -> {
-            double milliseconds = latencyMs(value);
-            if (milliseconds >= thresholds.getDnsLatencyWarningMs()) {
-                signals.add(signal(
-                    "dns_latency_high", "dns", "warning", milliseconds,
-                    "DNS query latency exceeds the configured threshold.",
-                    "Inspect resolv.conf, CoreDNS health, upstream latency, CNI path, and conntrack pressure.",
-                    "dns", "network"
-                ));
-            }
-        });
-        number(flattened, "etcd", "latency").ifPresent(value -> {
-            double milliseconds = latencyMs(value);
-            if (milliseconds >= thresholds.getEtcdLatencyWarningMs()) {
-                signals.add(signal(
-                    "etcd_latency_high", "etcd", "critical", milliseconds,
-                    "Etcd request latency is high enough to affect control-plane responsiveness.",
-                    "Inspect etcd endpoint health, fsync latency, peer network latency, and quorum state.",
-                    "kubernetes", "disk", "network"
-                ));
-            }
-        });
-        number(flattened, "api", "server", "latency").ifPresent(value -> {
-            double milliseconds = latencyMs(value);
-            if (milliseconds >= thresholds.getApiServerLatencyWarningMs()) {
-                signals.add(signal(
-                    "api_server_latency_high", "api-server", "warning", milliseconds,
-                    "Kubernetes API server latency exceeds the configured threshold.",
-                    "Correlate API latency with etcd, admission, control-plane CPU, and node network reachability.",
-                    "kubernetes", "network"
-                ));
-            }
-        });
-
-        addStatusSignal(flattened, signals, "kubelet", "kubelet_unit_unhealthy", "kubelet",
-            "Kubelet is not active or healthy.", "Inspect kubelet status, logs, API connectivity, and runtime socket.");
-        addStatusSignal(flattened, signals, "containerd", "containerd_unit_unhealthy", "containerd",
-            "Containerd is not active or its socket is unhealthy.", "Inspect runtime unit logs, socket responsiveness, disk, and kernel state.");
-        addStatusSignal(flattened, signals, "runtime", "container_runtime_unit_unhealthy", "runtime",
-            "Container runtime health checks failed.", "Inspect detected CRI runtime unit, socket, storage, and logs.");
-        addStatusSignal(flattened, signals, "cni", "cni_config_invalid", "cni",
-            "CNI configuration or health checks indicate an error.", "Inspect CNI configuration, plugin logs, routes, MTU, and node network state.");
-        addStatusSignal(flattened, signals, "dns", "dns_unconfigured", "dns",
-            "Node resolver or cluster DNS configuration appears invalid.", "Inspect resolv.conf, CoreDNS endpoints, and upstream resolvers.");
-        addStatusSignal(flattened, signals, "node", "node_not_ready", "kubernetes",
-            "Kubernetes reports the node as not ready.", "Correlate node conditions with kubelet, runtime, disk, memory, PID, and network evidence.");
-
-        if (KERNEL_IO.matcher(searchable).find()) {
-            signals.add(signal(
-                searchable.toLowerCase(Locale.ROOT).contains("read-only file system")
-                    ? "root_filesystem_read_only" : "kernel_io_error",
-                "kernel", "critical", "kernel log match",
-                "Kernel logs contain storage or filesystem I/O errors.",
-                "Inspect dmesg, filesystem state, block devices, mounts, and storage hardware.",
-                "kernel", "disk"
-            ));
-        }
-        if (OOM.matcher(searchable).find()) {
-            signals.add(signal(
-                "kernel_oom_detected", "memory", "critical", "kernel OOM log match",
-                "The kernel recorded an out-of-memory kill.",
-                "Identify the killed process and correlate node and cgroup memory pressure.",
-                "kernel", "memory"
-            ));
-        }
-        if (BLOCKED_TASK.matcher(searchable).find()) {
-            signals.add(signal(
-                "blocked_task_detected", "kernel", "critical", "blocked task log match",
-                "Kernel blocked-task or lockup messages indicate stalled execution.",
-                "Inspect blocked stacks, storage latency, locks, and kernel health before considering disruptive action.",
-                "kernel"
-            ));
-        }
-        if (LINK_FLAP.matcher(searchable).find()) {
-            signals.add(signal(
-                "nic_link_flap", "network", "warning", "link state log match",
-                "NIC link state changed during the evidence window.",
-                "Inspect carrier state, interface counters, driver logs, switch port events, and bonding.",
-                "network", "kernel"
-            ));
-        }
-        boolean failedUnit = flattened.entrySet().stream().anyMatch(entry -> {
-            String key = entry.getKey().toLowerCase(Locale.ROOT);
-            String value = string(entry.getValue()).toLowerCase(Locale.ROOT);
-            return (key.contains("failed_units") || key.contains("failed_unit"))
-                && (value.contains("failed") || value.contains("error") || toDouble(entry.getValue()).orElse(0) > 0);
-        }) || searchable.matches("(?is).*(failed unit|activating \\(auto-restart\\)|start request repeated too quickly).*");
-        if (failedUnit) {
-            signals.add(signal(
-                "systemd_failed_units", "systemd", "warning", "failed or restarting unit",
-                "One or more systemd services are failed or repeatedly restarting.",
-                "Inspect failed unit status, restart counters, dependencies, and journal logs.",
-                "systemd"
-            ));
-        }
-        boolean mtuMismatch = flattened.entrySet().stream().anyMatch(entry -> {
-            String key = entry.getKey().toLowerCase(Locale.ROOT);
-            Object value = entry.getValue();
-            return key.contains("mtu")
-                && (key.contains("mismatch") || key.contains("inconsistent"))
-                && (Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(string(value)));
-        }) || searchable.matches("(?is).*(mtu mismatch|inconsistent mtu|mtu values are different).*");
-        if (mtuMismatch) {
-            signals.add(signal(
-                "cni_mtu_values_inconsistent", "cni", "warning", "MTU mismatch",
-                "Host and CNI interface MTU values are inconsistent.",
-                "Verify overlay overhead and propose reviewed CNI MTU changes through GitOps.",
-                "cni", "network"
-            ));
-        }
-
-        return signals.stream()
-            .collect(java.util.stream.Collectors.toMap(
-                Signal::name,
-                item -> item,
-                (left, right) -> left,
-                LinkedHashMap::new
-            ))
-            .values()
-            .stream()
-            .sorted(Comparator.comparingInt(this::severityRank).thenComparing(Signal::name))
-            .toList();
+        return detectionEngine.detect(collectors);
     }
 
     private List<RootCauseCandidate> candidates(String alertName, List<Signal> signals) {
-        if (signals.isEmpty()) {
-            return List.of(new RootCauseCandidate(
-                fallbackCause(alertName),
-                Confidence.low,
-                List.of("No threshold-crossing node signal was found; verify collector completeness and incident timing.")
-            ));
-        }
-        return signals.stream().limit(5).map(signal -> new RootCauseCandidate(
-            signal.interpretation(),
-            "critical".equals(signal.severity()) ? Confidence.high : Confidence.medium,
-            signal.supportingEvidence()
-        )).toList();
+        return candidateBuilder.build(signals, fallbackCause(alertName));
     }
 
     private List<RecommendedAction> actions(String alertName, List<Signal> signals) {
@@ -579,120 +368,6 @@ public class RuleBasedRcaAnalyzer {
         items.putIfAbsent(title, Map.of("title", title, "command", command, "reason", reason, "read_only", true));
     }
 
-    private void addStatusSignal(
-        Map<String, Object> flattened,
-        List<Signal> signals,
-        String componentKey,
-        String signalName,
-        String component,
-        String interpretation,
-        String nextStep
-    ) {
-        boolean unhealthy = flattened.entrySet().stream().anyMatch(entry -> {
-            String key = entry.getKey().toLowerCase(Locale.ROOT);
-            if (!key.contains(componentKey)) {
-                return false;
-            }
-            String value = string(entry.getValue()).toLowerCase(Locale.ROOT);
-            boolean statusKey = key.matches(".*(status|state|healthy|ready|active|running|socket|error|configured).*");
-            boolean badValue = value.matches(".*(false|failed|inactive|dead|unhealthy|not.?ready|error|timeout|unreachable|missing).*");
-            return statusKey && badValue;
-        });
-        if (unhealthy) {
-            signals.add(signal(
-                signalName, component, "critical", "unhealthy status",
-                interpretation, nextStep, componentKey
-            ));
-        }
-    }
-
-    private OptionalDouble percentage(Map<String, Object> flattened, String... fragments) {
-        OptionalDouble found = number(flattened, fragments);
-        if (found.isEmpty()) {
-            return found;
-        }
-        double value = found.getAsDouble();
-        return OptionalDouble.of(value > 0 && value <= 1 ? value * 100 : value);
-    }
-
-    private OptionalDouble ratio(
-        Map<String, Object> flattened,
-        List<String> currentFragments,
-        List<String> maxFragments
-    ) {
-        OptionalDouble current = number(flattened, currentFragments.toArray(String[]::new));
-        OptionalDouble max = number(flattened, maxFragments.toArray(String[]::new));
-        if (current.isEmpty() || max.isEmpty() || max.getAsDouble() <= 0) {
-            return OptionalDouble.empty();
-        }
-        return OptionalDouble.of(current.getAsDouble() / max.getAsDouble() * 100);
-    }
-
-    private OptionalDouble number(Map<String, Object> flattened, String... fragments) {
-        return flattened.entrySet().stream()
-            .filter(entry -> {
-                String key = entry.getKey().toLowerCase(Locale.ROOT);
-                for (String fragment : fragments) {
-                    if (!key.contains(fragment.toLowerCase(Locale.ROOT))) {
-                        return false;
-                    }
-                }
-                return true;
-            })
-            .map(Map.Entry::getValue)
-            .map(this::toDouble)
-            .filter(OptionalDouble::isPresent)
-            .mapToDouble(OptionalDouble::getAsDouble)
-            .max();
-    }
-
-    private OptionalDouble toDouble(Object value) {
-        if (value instanceof Number number) {
-            return OptionalDouble.of(number.doubleValue());
-        }
-        if (value instanceof String text) {
-            String normalized = text.trim().replace("%", "").replace(",", "");
-            try {
-                return OptionalDouble.of(Double.parseDouble(normalized));
-            } catch (NumberFormatException ignored) {
-                return OptionalDouble.empty();
-            }
-        }
-        return OptionalDouble.empty();
-    }
-
-    private void flatten(String prefix, Object value, Map<String, Object> output, int depth) {
-        if (depth > 8 || output.size() > 5000) {
-            return;
-        }
-        if (value instanceof Map<?, ?> map) {
-            map.forEach((key, child) -> flatten(
-                prefix.isBlank() ? String.valueOf(key) : prefix + "." + key,
-                child,
-                output,
-                depth + 1
-            ));
-        } else if (value instanceof List<?> list) {
-            for (int index = 0; index < Math.min(list.size(), 200); index++) {
-                flatten(prefix + "[" + index + "]", list.get(index), output, depth + 1);
-            }
-        } else if (!prefix.isBlank()) {
-            output.put(prefix, value);
-        }
-    }
-
-    private Signal signal(
-        String name,
-        String component,
-        String severity,
-        Object observed,
-        String interpretation,
-        String nextStep,
-        String... evidence
-    ) {
-        return new Signal(name, component, severity, observed, interpretation, nextStep, List.of(evidence));
-    }
-
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> resultList(Map<String, Object> analysis, String key) {
         Object result = analysis.get("result");
@@ -754,50 +429,7 @@ public class RuleBasedRcaAnalyzer {
         return "node";
     }
 
-    private double latencyMs(double value) {
-        return value > 0 && value < 10 ? value * 1000 : value;
-    }
-
-    private int severityRank(Signal signal) {
-        return switch (signal.severity()) {
-            case "critical" -> 0;
-            case "warning" -> 1;
-            default -> 2;
-        };
-    }
-
-    private String safeJson(Object value) {
-        try {
-            String json = objectMapper.writeValueAsString(value);
-            return json.length() > 250_000 ? json.substring(0, 250_000) : json;
-        } catch (Exception exception) {
-            return String.valueOf(value);
-        }
-    }
-
     private String string(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
-    }
-
-    private record Signal(
-        String name,
-        String component,
-        String severity,
-        Object observed,
-        String interpretation,
-        String nextStep,
-        List<String> supportingEvidence
-    ) {
-        Map<String, Object> asMap() {
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("signal", name);
-            result.put("component", component);
-            result.put("severity", severity);
-            result.put("observed", observed);
-            result.put("interpretation", interpretation);
-            result.put("next_step", nextStep);
-            result.put("supporting_evidence", supportingEvidence);
-            return result;
-        }
     }
 }

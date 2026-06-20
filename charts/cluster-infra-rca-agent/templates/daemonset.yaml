@@ -127,6 +127,26 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: SYSTEMD_COLLECTOR_MODE
+            - name: EBPF_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: EBPF_ENABLED
+            - name: EBPF_EVENT_QUEUE_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: EBPF_EVENT_QUEUE_SIZE
+            - name: EBPF_DNS_LATENCY_THRESHOLD_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: EBPF_DNS_LATENCY_THRESHOLD_MS
+            - name: APPROVED_ACTIONS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: APPROVED_ACTIONS_ENABLED
             - name: AGENT_STATE_DIR
               valueFrom:
                 configMapKeyRef:
@@ -142,6 +162,23 @@ spec:
             {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+            {{- if or .Values.ebpf.enabled .Values.approvedActions.enabled }}
+            capabilities:
+              add:
+                {{- if .Values.ebpf.enabled }}
+                - BPF
+                - PERFMON
+                - NET_ADMIN
+                - SYS_RESOURCE
+                {{- end }}
+                {{- if or .Values.ebpf.legacySysAdmin .Values.approvedActions.enabled }}
+                - SYS_ADMIN
+                {{- end }}
+                {{- if .Values.approvedActions.enabled }}
+                - SYS_PTRACE
+                - SYS_CHROOT
+                {{- end }}
+            {{- end }}
           volumeMounts:
             - name: host-root
               mountPath: /host/root
@@ -161,6 +198,15 @@ spec:
             - name: host-sys
               mountPath: /host/sys
               readOnly: true
+            {{- if .Values.ebpf.enabled }}
+            - name: host-debug
+              mountPath: /sys/kernel/debug
+            - name: host-bpf
+              mountPath: /sys/fs/bpf
+            - name: host-modules
+              mountPath: /lib/modules
+              readOnly: true
+            {{- end }}
             - name: agent-state
               mountPath: /var/lib/cluster-infra-rca-agent
             {{- if .Values.tls.enabled }}
@@ -189,6 +235,18 @@ spec:
         - name: host-sys
           hostPath:
             path: {{ .Values.hostPaths.sys | quote }}
+        {{- if .Values.ebpf.enabled }}
+        - name: host-debug
+          hostPath:
+            path: {{ .Values.hostPaths.debug | quote }}
+        - name: host-bpf
+          hostPath:
+            path: {{ .Values.hostPaths.bpf | quote }}
+            type: DirectoryOrCreate
+        - name: host-modules
+          hostPath:
+            path: {{ .Values.hostPaths.modules | quote }}
+        {{- end }}
         - name: agent-state
           hostPath:
             path: {{ .Values.hostPaths.state | quote }}

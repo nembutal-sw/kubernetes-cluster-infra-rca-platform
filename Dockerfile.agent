@@ -15,6 +15,10 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bpfcc-tools util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY node_agent ./node_agent
 
 USER 65532:65532

@@ -2,15 +2,15 @@ package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AuditEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuditService {
-    private final RcaRepository repository;
+    private final AuditRepository repository;
 
-    public AuditService(RcaRepository repository) {
+    public AuditService(AuditRepository repository) {
         this.repository = repository;
     }
 
@@ -53,7 +53,7 @@ public class AuditService {
         String outcome,
         Map<String, Object> details
     ) {
-        return repository.saveAuditEvent(
+        return repository.save(
             actorType,
             actorId == null || actorId.isBlank() ? "unknown" : actorId,
             eventType,

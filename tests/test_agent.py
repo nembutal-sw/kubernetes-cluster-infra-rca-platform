@@ -9,10 +9,47 @@ from typing import Any
 import pytest
 
 from node_agent.client import AgentClient, AgentClientError
+from node_agent.actions import ApprovedActionExecutor
+from node_agent.ebpf import parse_event
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
+from node_agent.collectors import collector_metadata
 import node_agent.main as agent_main
 from node_agent.state import AgentStateStore
+
+
+def test_ebpf_event_parsers_normalize_kernel_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    oom = parse_event("oom", "bash 100 1000 1 worker 200 2000")
+    tcp = parse_event("tcp", "12:00:00 R 10.0.0.1:1234 10.0.0.2:443 retrans")
+    monkeypatch.setenv("EBPF_DNS_LATENCY_THRESHOLD_MS", "1000")
+    dns = parse_event("dns", "worker 123 getaddrinfo api.internal 1500 ms")
+
+    assert oom and oom["event_type"] == "oom_kill" and oom["severity"] == "critical"
+    assert tcp and tcp["event_type"] == "tcp_retransmit"
+    assert dns and dns["event_type"] == "dns_timeout"
+    assert dns["payload"]["latency_ms"] == 1500
+
+
+def test_approved_action_executor_rejects_unlisted_commands() -> None:
+    executor = ApprovedActionExecutor(enabled=True)
+    result = executor.execute(
+        {"command_key": "arbitrary_shell", "parameters": {}, "timeout_seconds": 5}
+    )
+
+    assert result.status == "failed"
+    assert "not allowlisted" in str(result.error_message)
+
+
+def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    metadata = collector_metadata(paths, FakeRunner())  # type: ignore[arg-type]
+
+    by_name = {item["name"]: item for item in metadata}
+    assert set(by_name) >= {"node", "kubernetes", "systemd", "network", "conntrack"}
+    assert by_name["network"]["requires_host_network"] is True
+    assert by_name["systemd"]["requires_host_pid"] is True
+    assert by_name["disk"]["risk_level"] == "read_only"
+    assert by_name["disk"]["max_output_bytes"] == 1_048_576
 
 
 class FakeRunner:
@@ -229,7 +266,11 @@ def test_runtime_collector_uses_generic_cri_socket_fields(
 
     monkeypatch.setenv("CONTAINER_RUNTIME_SOCKET_PATHS", "crio=/run/crio/crio.sock")
     monkeypatch.setattr(collectors.stat, "S_ISSOCK", lambda mode: True)
-    monkeypatch.setattr(collectors, "_probe_unix_socket", lambda path: {"ok": True, "latency_ms": 1.5})
+    monkeypatch.setattr(
+        collectors._legacy,
+        "_probe_unix_socket",
+        lambda path: {"ok": True, "latency_ms": 1.5},
+    )
 
     runtime = collectors.collect_runtime(paths, FakeRunner())  # type: ignore[arg-type]
 

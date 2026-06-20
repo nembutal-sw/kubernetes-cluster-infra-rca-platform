@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PolicyLevel;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionPlan;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -103,6 +104,7 @@ public class PolicyEngine {
         boolean automationAllowed = policy == PolicyLevel.AUTO_SAFE
             && !"llm".equals(normalizedSource)
             && guardrails.isEmpty();
+        ActionPlan executionPlan = actionPlan(key, normalizedSource, policy);
         return new RecommendedAction(
             action,
             policy,
@@ -114,8 +116,100 @@ public class PolicyEngine {
             policy == PolicyLevel.APPROVAL_REQUIRED,
             policy == PolicyLevel.APPROVAL_REQUIRED || policy == PolicyLevel.GITOPS_PR_ONLY,
             dedupe(guardrails),
-            dedupe(risks)
+            dedupe(risks),
+            executionPlan
         );
+    }
+
+    private ActionPlan actionPlan(String key, String source, PolicyLevel policy) {
+        boolean ruleBased = !"llm".equals(source);
+        return switch (key) {
+            case "restart_kubelet" -> plan(
+                "restart_systemd_unit",
+                Map.of("unit", "kubelet"),
+                List.of("systemctl restart kubelet", "systemctl is-active kubelet"),
+                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                60
+            );
+            case "restart_containerd" -> plan(
+                "restart_systemd_unit",
+                Map.of("unit", "containerd"),
+                List.of("systemctl restart containerd", "systemctl is-active containerd"),
+                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                90
+            );
+            case "restart_container_runtime" -> plan(
+                "restart_detected_runtime",
+                Map.of(),
+                List.of("systemctl restart <detected-runtime>", "systemctl is-active <detected-runtime>"),
+                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                90
+            );
+            case "cordon_node" -> new ActionPlan(
+                "kubectl_cordon",
+                Map.of("node", "<incident-node>"),
+                List.of("kubectl cordon <incident-node>"),
+                null,
+                false,
+                60
+            );
+            case "drain_node" -> new ActionPlan(
+                "kubectl_drain",
+                Map.of("node", "<incident-node>"),
+                List.of("kubectl drain <incident-node> --ignore-daemonsets --delete-emptydir-data"),
+                null,
+                false,
+                900
+            );
+            case "update_cni_mtu" -> new ActionPlan(
+                "gitops_patch",
+                Map.of(),
+                List.of(),
+                "spec:\n  template:\n    spec:\n      containers:\n        - name: cni\n          env:\n            - name: MTU\n              value: \"<review-required>\"",
+                false,
+                0
+            );
+            case "increase_conntrack_limit" -> new ActionPlan(
+                "gitops_patch",
+                Map.of(),
+                List.of("sysctl net.netfilter.nf_conntrack_max"),
+                "net.netfilter.nf_conntrack_max: <review-required>",
+                false,
+                0
+            );
+            case "inspect_storage_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("df -hT", "df -i", "iostat -xz 1 5"),
+                false,
+                30
+            );
+            case "inspect_network_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("ip -s link", "ip route", "ss -s", "conntrack -S"),
+                false,
+                30
+            );
+            case "inspect_kernel_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("dmesg -T | tail -n 300"),
+                false,
+                30
+            );
+            default -> null;
+        };
+    }
+
+    private ActionPlan plan(
+        String commandKey,
+        Map<String, String> parameters,
+        List<String> preview,
+        boolean executable,
+        int timeoutSeconds
+    ) {
+        return new ActionPlan(commandKey, parameters, preview, null, executable, timeoutSeconds);
     }
 
     private static Map<String, Rule> rules() {

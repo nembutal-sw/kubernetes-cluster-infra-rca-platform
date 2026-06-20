@@ -42,6 +42,15 @@ controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
 systemdCollectorMode: file
 
+ebpf:
+  enabled: false
+  legacySysAdmin: false
+  eventQueueSize: 1000
+  dnsLatencyThresholdMs: 1000
+
+approvedActions:
+  enabled: false
+
 tls:
   enabled: false
   existingSecret: ""
@@ -84,4 +93,7 @@ hostPaths:
   etc: /etc
   proc: /proc
   sys: /sys
+  debug: /sys/kernel/debug
+  bpf: /sys/fs/bpf
+  modules: /lib/modules
   state: /var/lib/cluster-infra-rca-agent

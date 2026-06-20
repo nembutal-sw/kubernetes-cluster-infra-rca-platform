@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Internal implementation module. Public collector APIs and metadata live in
+# the sibling modules and registry.
+
 import os
 import platform
 import re

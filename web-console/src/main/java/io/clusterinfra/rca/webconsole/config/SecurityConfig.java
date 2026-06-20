@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
+import io.clusterinfra.rca.webconsole.security.SameOriginMutationFilter;
 import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,6 +21,7 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         PlatformAuthenticationFilter authenticationFilter,
+        SameOriginMutationFilter sameOriginMutationFilter,
         ObjectMapper objectMapper
     ) throws Exception {
         return http
@@ -35,12 +37,17 @@ public class SecurityConfig {
                     "/error",
                     "/favicon.ico",
                     "/assets/**",
-                    "/webjars/**",
                     "/health",
                     "/health/ready",
                     "/actuator/health/**",
                     "/api/auth/login",
-                    "/api/agents/**",
+                    "/api/agents/register",
+                    "/api/agents/heartbeat",
+                    "/api/agents/evidence-requests",
+                    "/api/agents/evidence-responses",
+                    "/api/agents/realtime-events",
+                    "/api/agents/action-executions",
+                    "/api/agents/action-results",
                     "/api/webhooks/**",
                     "/api/clusters/*/agent-manifest"
                 ).permitAll()
@@ -62,6 +69,7 @@ public class SecurityConfig {
                 })
             )
             .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(sameOriginMutationFilter, PlatformAuthenticationFilter.class)
             .build();
     }
 }

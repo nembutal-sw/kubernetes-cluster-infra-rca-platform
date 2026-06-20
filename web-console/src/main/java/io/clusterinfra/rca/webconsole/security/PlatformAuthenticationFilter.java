@@ -1,11 +1,12 @@
 package io.clusterinfra.rca.webconsole.security;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.Cookie;
 import java.io.IOException;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
@@ -17,10 +18,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class PlatformAuthenticationFilter extends OncePerRequestFilter {
-    private final RcaRepository repository;
+    public static final String SESSION_COOKIE = "RCA_SESSION";
+    private final UserSessionRepository sessions;
 
-    public PlatformAuthenticationFilter(RcaRepository repository) {
-        this.repository = repository;
+    public PlatformAuthenticationFilter(UserSessionRepository sessions) {
+        this.sessions = sessions;
     }
 
     @Override
@@ -30,8 +32,12 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
         FilterChain filterChain
     ) throws ServletException, IOException {
         String token = bearerToken(request.getHeader(HttpHeaders.AUTHORIZATION));
+        if (token == null) {
+            token = cookieToken(request.getCookies());
+        }
         if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            repository.getUserBySessionToken(token).ifPresent(user -> authenticate(user, token));
+            String sessionToken = token;
+            sessions.findUserByToken(sessionToken).ifPresent(user -> authenticate(user, sessionToken));
         }
         filterChain.doFilter(request, response);
     }
@@ -51,5 +57,17 @@ public class PlatformAuthenticationFilter extends OncePerRequestFilter {
         }
         String token = authorization.substring(7).trim();
         return token.isEmpty() ? null : token;
+    }
+
+    public static String cookieToken(Cookie[] cookies) {
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (SESSION_COOKIE.equals(cookie.getName()) && !cookie.getValue().isBlank()) {
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 }

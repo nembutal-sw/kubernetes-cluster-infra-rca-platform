@@ -105,6 +105,61 @@ class AgentClient:
         }
         return self._post("/api/agents/evidence-responses", payload)
 
+    def submit_realtime_events(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        response = self._post(
+            "/api/agents/realtime-events",
+            {
+                "cluster_id": self.cluster_id,
+                "node_name": self.node_name,
+                "agent_token": self.agent_token,
+                "node_token": self._required_node_token(),
+                "events": events,
+            },
+        )
+        if not isinstance(response, list):
+            raise AgentClientError("backend returned non-list realtime event response")
+        return response
+
+    def poll_action_executions(self, limit: int = 1) -> list[dict[str, Any]]:
+        response = self._post(
+            "/api/agents/action-executions",
+            {
+                "cluster_id": self.cluster_id,
+                "node_name": self.node_name,
+                "agent_token": self.agent_token,
+                "node_token": self._required_node_token(),
+                "limit": limit,
+            },
+        )
+        if not isinstance(response, list):
+            raise AgentClientError("backend returned non-list action execution response")
+        return response
+
+    def submit_action_result(
+        self,
+        execution_id: str,
+        status: str,
+        exit_code: int | None,
+        stdout: str,
+        stderr: str,
+        error_message: str | None,
+    ) -> dict[str, Any]:
+        return self._post(
+            "/api/agents/action-results",
+            {
+                "execution_id": execution_id,
+                "cluster_id": self.cluster_id,
+                "node_name": self.node_name,
+                "agent_token": self.agent_token,
+                "node_token": self._required_node_token(),
+                "status": status,
+                "exit_code": exit_code,
+                "stdout": stdout,
+                "stderr": stderr,
+                "error_message": error_message,
+            },
+        )
+
     def _required_node_token(self) -> str:
         if not self.node_token:
             raise AgentClientError("node_token is missing; register the agent before sending node requests")

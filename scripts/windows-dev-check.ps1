@@ -122,14 +122,6 @@ function Run-Validation {
         throw "Python compile check failed"
     }
 
-    if (Test-Path $BundledNode) {
-        Write-Step "Running web console JavaScript syntax check"
-        & $BundledNode --check (Join-Path $Root "web-console\src\main\resources\static\assets\console-app.js")
-        if ($LASTEXITCODE -ne 0) {
-            throw "JavaScript syntax check failed"
-        }
-    }
-
     Write-Step "Running Spring Boot platform tests"
     Push-Location (Join-Path $Root "web-console")
     try {

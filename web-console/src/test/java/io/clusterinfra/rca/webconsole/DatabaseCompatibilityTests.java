@@ -24,7 +24,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -53,6 +53,7 @@ class DatabaseCompatibilityTests {
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
         "rca_analysis_tasks",
+        "action_executions",
         "action_requests",
         "audit_events",
         "rca_jobs",
@@ -60,6 +61,7 @@ class DatabaseCompatibilityTests {
         "evidence_requests",
         "rca_reports",
         "incidents",
+        "realtime_events",
         "evidence_bundles",
         "node_agents",
         "user_accounts",
@@ -112,9 +114,9 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(3);
+        assertThat(migration.migrationsExecuted).isEqualTo(4);
 
-        RcaRepository repository = repository(dataSource);
+        JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
         assertThat(repository.authenticateUser("admin", "admin")).contains(admin);
 
@@ -235,7 +237,8 @@ class DatabaseCompatibilityTests {
             false,
             true,
             List.of("Read-only commands only"),
-            List.of("Production node")
+            List.of("Production node"),
+            null
         );
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         RcaReport report = new RcaReport(
@@ -364,13 +367,13 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(2);
+        assertThat(migration.migrationsExecuted).isEqualTo(3);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class
         )).isEqualTo(1);
 
-        RcaRepository repository = repository(dataSource);
+        JdbcRcaStore repository = repository(dataSource);
         assertThat(repository.authenticateUser("admin", "admin")).isPresent();
         assertThat(repository.getCluster("cluster-legacy").orElseThrow().name()).isEqualTo("legacy-cluster");
         assertThat(repository.getReport("report-legacy").orElseThrow().summary().mostLikelyCause())
@@ -393,11 +396,11 @@ class DatabaseCompatibilityTests {
             .load();
     }
 
-    private RcaRepository repository(DataSource dataSource) {
+    private JdbcRcaStore repository(DataSource dataSource) {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
         objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        return new RcaRepository(new JdbcTemplate(dataSource), objectMapper, new TokenService());
+        return new JdbcRcaStore(new JdbcTemplate(dataSource), objectMapper, new TokenService());
     }
 
     private DriverManagerDataSource dataSource(String url, String username, String password) {

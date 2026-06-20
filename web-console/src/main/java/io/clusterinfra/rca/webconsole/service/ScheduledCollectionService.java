@@ -4,7 +4,9 @@ import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -22,11 +24,20 @@ public class ScheduledCollectionService {
         "disk", "inode", "memory", "process", "network", "conntrack", "cni", "dns"
     );
 
-    private final RcaRepository repository;
+    private final ClusterRepository clusters;
+    private final AgentRepository agents;
+    private final EvidenceRepository evidence;
     private final RcaConsoleProperties properties;
 
-    public ScheduledCollectionService(RcaRepository repository, RcaConsoleProperties properties) {
-        this.repository = repository;
+    public ScheduledCollectionService(
+        ClusterRepository clusters,
+        AgentRepository agents,
+        EvidenceRepository evidence,
+        RcaConsoleProperties properties
+    ) {
+        this.clusters = clusters;
+        this.agents = agents;
+        this.evidence = evidence;
         this.properties = properties;
     }
 
@@ -39,14 +50,14 @@ public class ScheduledCollectionService {
             return;
         }
         Instant requestedAt = Instant.now();
-        for (var cluster : repository.listClusters()) {
-            for (NodeAgent agent : repository.listAgents(cluster.clusterId())) {
+        for (var cluster : clusters.list()) {
+            for (NodeAgent agent : agents.list(cluster.clusterId())) {
                 if (isOffline(agent, requestedAt)
-                    || repository.hasPendingEvidenceRequest(cluster.clusterId(), agent.nodeName())) {
+                    || evidence.hasPendingRequest(cluster.clusterId(), agent.nodeName())) {
                     continue;
                 }
                 try {
-                    repository.createEvidenceRequest(new EvidenceRequestCreateRequest(
+                    evidence.createRequest(new EvidenceRequestCreateRequest(
                         cluster.clusterId(),
                         agent.nodeName(),
                         "ScheduledNodeHealth",

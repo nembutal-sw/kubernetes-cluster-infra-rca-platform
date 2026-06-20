@@ -11,7 +11,11 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.WebhookIngestResponse;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
+import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,20 +28,32 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class RcaService {
-    private final RcaRepository repository;
+    private final ClusterRepository clusters;
+    private final AgentRepository agents;
+    private final EvidenceRepository evidence;
+    private final IncidentRepository incidents;
+    private final ReportRepository reports;
     private final RuleBasedRcaAnalyzer analyzer;
     private final RcaConsoleProperties properties;
     private final TokenService tokens;
     private final AuditService audit;
 
     public RcaService(
-        RcaRepository repository,
+        ClusterRepository clusters,
+        AgentRepository agents,
+        EvidenceRepository evidence,
+        IncidentRepository incidents,
+        ReportRepository reports,
         RuleBasedRcaAnalyzer analyzer,
         RcaConsoleProperties properties,
         TokenService tokens,
         AuditService audit
     ) {
-        this.repository = repository;
+        this.clusters = clusters;
+        this.agents = agents;
+        this.evidence = evidence;
+        this.incidents = incidents;
+        this.reports = reports;
         this.analyzer = analyzer;
         this.properties = properties;
         this.tokens = tokens;
@@ -65,7 +81,7 @@ public class RcaService {
                 skipped.add(alertName + ": cluster_id label is missing");
                 continue;
             }
-            if (repository.getCluster(clusterId).isEmpty()) {
+            if (clusters.find(clusterId).isEmpty()) {
                 skipped.add(alertName + ": cluster " + clusterId + " is not registered");
                 continue;
             }
@@ -74,8 +90,8 @@ public class RcaService {
                 alert.labelsOrEmpty().get("nodename"),
                 alert.labelsOrEmpty().get("instance")
             );
-            if (nodeName != null && repository.getAgent(clusterId, nodeName).isPresent()) {
-                EvidenceRequest request = repository.createEvidenceRequest(new EvidenceRequestCreateRequest(
+            if (nodeName != null && agents.find(clusterId, nodeName).isPresent()) {
+                EvidenceRequest request = evidence.createRequest(new EvidenceRequestCreateRequest(
                     clusterId,
                     nodeName,
                     alertName,
@@ -99,7 +115,7 @@ public class RcaService {
             metadata.put("annotations", alert.annotationsOrEmpty());
             metadata.put("generator_url", alert.generatorUrl());
             metadata.put("collector_status", "alert_only_no_registered_agent");
-            AnalysisTask task = repository.saveEvidenceAndEnqueue(new EvidenceBundle(
+            AnalysisTask task = evidence.saveAndEnqueue(new EvidenceBundle(
                 null,
                 clusterId,
                 effectiveNode,
@@ -120,7 +136,7 @@ public class RcaService {
     }
 
     public RcaJob processAnalysisTask(AnalysisTask task) {
-        EvidenceBundle evidence = repository.getEvidence(task.evidenceId()).orElse(null);
+        EvidenceBundle evidence = this.evidence.find(task.evidenceId()).orElse(null);
         if (evidence == null) {
             throw new IllegalStateException("analysis evidence not found: " + task.evidenceId());
         }
@@ -144,13 +160,13 @@ public class RcaService {
             Instant.now()
         );
         String dedupKey = incidentDedupKey(report, evidence);
-        RcaJob saved = repository.saveCorrelatedReportAndJob(report, job, dedupKey, evidence);
+        RcaJob saved = incidents.saveCorrelated(report, job, dedupKey, evidence);
         boolean duplicate = !saved.reportId().equals(reportId);
         audit.system(
             "rca-pipeline",
             duplicate ? "incident.correlated" : "incident.created",
             "incident",
-            repository.getReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
+            reports.findReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
             duplicate ? "suppressed_duplicate_report" : "report_created",
             Map.of(
                 "cluster_id", evidence.clusterId(),

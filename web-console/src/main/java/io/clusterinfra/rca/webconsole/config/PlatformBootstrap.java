@@ -1,23 +1,23 @@
 package io.clusterinfra.rca.webconsole.config;
 
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 @Component
 public class PlatformBootstrap implements ApplicationRunner {
-    private final RcaRepository repository;
+    private final UserRepository users;
     private final RcaConsoleProperties properties;
 
-    public PlatformBootstrap(RcaRepository repository, RcaConsoleProperties properties) {
-        this.repository = repository;
+    public PlatformBootstrap(UserRepository users, RcaConsoleProperties properties) {
+        this.users = users;
         this.properties = properties;
     }
 
     @Override
     public void run(ApplicationArguments args) {
-        repository.ensureDefaultAdmin(
+        users.ensureDefaultAdmin(
             properties.getDefaultAdminUsername(),
             properties.getDefaultAdminPassword()
         );

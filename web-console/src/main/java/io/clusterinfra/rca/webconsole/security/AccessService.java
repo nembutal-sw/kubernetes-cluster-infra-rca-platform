@@ -3,7 +3,9 @@ package io.clusterinfra.rca.webconsole.security;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpHeaders;
@@ -16,11 +18,20 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Service
 public class AccessService {
-    private final RcaRepository repository;
+    private final ClusterRepository clusters;
+    private final AgentRepository agents;
+    private final UserSessionRepository sessions;
     private final RcaConsoleProperties properties;
 
-    public AccessService(RcaRepository repository, RcaConsoleProperties properties) {
-        this.repository = repository;
+    public AccessService(
+        ClusterRepository clusters,
+        AgentRepository agents,
+        UserSessionRepository sessions,
+        RcaConsoleProperties properties
+    ) {
+        this.clusters = clusters;
+        this.agents = agents;
+        this.sessions = sessions;
         this.properties = properties;
     }
 
@@ -33,13 +44,13 @@ public class AccessService {
 
     public void verifyAgentIdentity(String clusterId, String nodeName, String agentToken, String nodeToken) {
         verifyBootstrapToken(clusterId, agentToken);
-        if (!repository.verifyAgentNodeToken(clusterId, nodeName, nodeToken)) {
+        if (!agents.verifyNodeToken(clusterId, nodeName, nodeToken)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid node token");
         }
     }
 
     public void verifyBootstrapToken(String clusterId, String agentToken) {
-        Cluster cluster = repository.getCluster(clusterId)
+        Cluster cluster = clusters.find(clusterId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "cluster not found"));
         if (!constantTimeEquals(cluster.bootstrapToken(), agentToken)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid agent token");
@@ -60,7 +71,7 @@ public class AccessService {
             return;
         }
         String bearer = PlatformAuthenticationFilter.bearerToken(authorization);
-        if (bearer != null && repository.getUserBySessionToken(bearer).isPresent()) {
+        if (bearer != null && sessions.findUserByToken(bearer).isPresent()) {
             return;
         }
         throw new ResponseStatusException(UNAUTHORIZED, "user or agent authentication required");

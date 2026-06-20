@@ -6,15 +6,19 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserLoginRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserPasswordChangeRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
-import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,26 +33,33 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
-    private final RcaRepository repository;
+    private final UserRepository users;
+    private final UserSessionRepository sessions;
     private final AccessService access;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
 
     public AuthController(
-        RcaRepository repository,
+        UserRepository users,
+        UserSessionRepository sessions,
         AccessService access,
         RcaConsoleProperties properties,
         AuditService audit
     ) {
-        this.repository = repository;
+        this.users = users;
+        this.sessions = sessions;
         this.access = access;
         this.properties = properties;
         this.audit = audit;
     }
 
     @PostMapping("/login")
-    public AuthSessionResponse login(@Valid @RequestBody UserLoginRequest request) {
-        UserAccount user = repository.authenticateUser(request.normalizedUsername(), request.password())
+    public AuthSessionResponse login(
+        @Valid @RequestBody UserLoginRequest request,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
+    ) {
+        UserAccount user = users.authenticate(request.normalizedUsername(), request.password())
             .orElseGet(() -> {
                 audit.record(
                     "user",
@@ -66,7 +77,11 @@ public class AuthController {
             throw new ResponseStatusException(FORBIDDEN, "user is not active");
         }
         Instant expiresAt = Instant.now().plus(Duration.ofHours(Math.max(1, properties.getSessionTtlHours())));
-        String token = repository.createUserSession(user.userId(), expiresAt);
+        String token = sessions.create(user.userId(), expiresAt);
+        servletResponse.addHeader(
+            HttpHeaders.SET_COOKIE,
+            sessionCookie(token, Duration.between(Instant.now(), expiresAt), servletRequest.isSecure()).toString()
+        );
         audit.user(user, "auth.login", "session", null, "success", Map.of("expires_at", expiresAt.toString()));
         return new AuthSessionResponse(token, "bearer", expiresAt, user);
     }
@@ -79,11 +94,20 @@ public class AuthController {
     @PostMapping("/logout")
     public Map<String, Boolean> logout(
         @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest,
+        HttpServletResponse servletResponse
     ) {
         UserAccount user = access.currentUser(authentication);
         String token = PlatformAuthenticationFilter.bearerToken(authorization);
-        boolean revoked = token != null && repository.revokeUserSession(token);
+        if (token == null) {
+            token = PlatformAuthenticationFilter.cookieToken(servletRequest.getCookies());
+        }
+        boolean revoked = token != null && sessions.revoke(token);
+        servletResponse.addHeader(
+            HttpHeaders.SET_COOKIE,
+            sessionCookie("", Duration.ZERO, servletRequest.isSecure()).toString()
+        );
         audit.user(user, "auth.logout", "session", null, revoked ? "success" : "not_found", Map.of());
         return Map.of("revoked", revoked);
     }
@@ -94,11 +118,21 @@ public class AuthController {
         Authentication authentication
     ) {
         UserAccount user = access.currentUser(authentication);
-        if (!repository.changeUserPassword(user.userId(), request.currentPassword(), request.newPassword())) {
+        if (!users.changePassword(user.userId(), request.currentPassword(), request.newPassword())) {
             audit.user(user, "auth.password_change", "user", user.userId(), "failed", Map.of());
             throw new ResponseStatusException(UNAUTHORIZED, "current password is invalid");
         }
         audit.user(user, "auth.password_change", "user", user.userId(), "success", Map.of());
         return Map.of("changed", true);
+    }
+
+    private ResponseCookie sessionCookie(String value, Duration maxAge, boolean secure) {
+        return ResponseCookie.from(PlatformAuthenticationFilter.SESSION_COOKIE, value)
+            .httpOnly(true)
+            .secure(secure)
+            .sameSite("Strict")
+            .path("/")
+            .maxAge(maxAge)
+            .build();
     }
 }

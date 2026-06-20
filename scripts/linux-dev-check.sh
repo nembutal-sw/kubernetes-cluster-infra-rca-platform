@@ -218,13 +218,6 @@ run_validation() {
   log "Running Python compile check"
   "${ROOT_DIR}/.venv/bin/python" -m compileall -q "${ROOT_DIR}/node_agent" "${ROOT_DIR}/tests"
 
-  if has_cmd node; then
-    log "Running web console JavaScript syntax check"
-    node --check "${ROOT_DIR}/web-console/src/main/resources/static/assets/console-app.js"
-  else
-    log "Skipping JavaScript syntax check because Node.js is not available"
-  fi
-
   log "Running Spring Boot platform tests"
   (cd "${ROOT_DIR}/web-console" && mvn test)
 }
