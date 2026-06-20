@@ -20,9 +20,11 @@
 - External Secrets, NetworkPolicy, PDB, DB backup Helm 옵션
 - 다중 Linux 배포판 Agent 검증 자동화
 - CodeQL, Trivy, secret scan, SBOM, image signing release workflow
+- DB 기반 durable RCA queue, lease, retry, dead-letter 처리
 
 ## Next
 
 - 실제 다중 배포판과 managed Kubernetes에서 collector field 검증
 - GitOps PR provider 연동
 - 운영 HA 구성과 disaster recovery 검증
+- incident 간 다중 신호 상관관계와 시간축 분석

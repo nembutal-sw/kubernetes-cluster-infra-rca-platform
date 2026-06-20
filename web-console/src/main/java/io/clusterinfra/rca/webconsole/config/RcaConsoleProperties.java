@@ -14,6 +14,7 @@ public class RcaConsoleProperties {
     private final Llm llm = new Llm();
     private final Incident incident = new Incident();
     private final Audit audit = new Audit();
+    private final Pipeline pipeline = new Pipeline();
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
 
@@ -79,6 +80,10 @@ public class RcaConsoleProperties {
 
     public Audit getAudit() {
         return audit;
+    }
+
+    public Pipeline getPipeline() {
+        return pipeline;
     }
 
     public Thresholds getThresholds() {
@@ -233,6 +238,81 @@ public class RcaConsoleProperties {
 
         public void setRetentionDays(int retentionDays) {
             this.retentionDays = retentionDays;
+        }
+    }
+
+    public static class Pipeline {
+        private boolean enabled = true;
+        private int batchSize = 4;
+        private long pollIntervalMs = 2000;
+        private long initialDelayMs = 3000;
+        private int leaseSeconds = 120;
+        private int maxAttempts = 5;
+        private int retryBaseSeconds = 5;
+        private int retryMaxSeconds = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public long getPollIntervalMs() {
+            return pollIntervalMs;
+        }
+
+        public void setPollIntervalMs(long pollIntervalMs) {
+            this.pollIntervalMs = pollIntervalMs;
+        }
+
+        public long getInitialDelayMs() {
+            return initialDelayMs;
+        }
+
+        public void setInitialDelayMs(long initialDelayMs) {
+            this.initialDelayMs = initialDelayMs;
+        }
+
+        public int getLeaseSeconds() {
+            return leaseSeconds;
+        }
+
+        public void setLeaseSeconds(int leaseSeconds) {
+            this.leaseSeconds = leaseSeconds;
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = maxAttempts;
+        }
+
+        public int getRetryBaseSeconds() {
+            return retryBaseSeconds;
+        }
+
+        public void setRetryBaseSeconds(int retryBaseSeconds) {
+            this.retryBaseSeconds = retryBaseSeconds;
+        }
+
+        public int getRetryMaxSeconds() {
+            return retryMaxSeconds;
+        }
+
+        public void setRetryMaxSeconds(int retryMaxSeconds) {
+            this.retryMaxSeconds = retryMaxSeconds;
         }
     }
 

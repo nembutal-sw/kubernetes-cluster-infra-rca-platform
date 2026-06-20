@@ -46,3 +46,5 @@ Platform chart는 다음 운영 옵션을 제공합니다.
 - topology spread constraint와 replica 확장
 
 중앙 플랫폼 자체가 장애 클러스터와 함께 중단되지 않도록 별도 관리 클러스터 또는 외부 VM 배포를 권장합니다.
+
+RCA 분석은 DB queue에서 비동기로 처리됩니다. 운영 중에는 Pipeline 화면에서 `retry_wait`와 `dead_letter` 작업을 확인하고, LLM 최대 처리 시간보다 task lease를 길게 설정합니다. 자세한 설정은 [durable-analysis-pipeline.md](durable-analysis-pipeline.md)를 참고합니다.

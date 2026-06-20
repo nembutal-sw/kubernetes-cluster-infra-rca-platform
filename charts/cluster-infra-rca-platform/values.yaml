@@ -80,6 +80,14 @@ platform:
     llmCooldownSeconds: 60
     incidentCorrelationWindowMinutes: 15
     auditRetentionDays: 180
+    pipelineEnabled: true
+    pipelineBatchSize: 4
+    pipelinePollIntervalMs: 2000
+    pipelineInitialDelayMs: 3000
+    pipelineLeaseSeconds: 300
+    pipelineMaxAttempts: 5
+    pipelineRetryBaseSeconds: 5
+    pipelineRetryMaxSeconds: 300
   secret:
     create: true
     existingSecret: ""

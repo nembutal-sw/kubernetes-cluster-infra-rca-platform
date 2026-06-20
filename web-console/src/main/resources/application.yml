@@ -87,6 +87,15 @@ rca:
     correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
   audit:
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}
+  pipeline:
+    enabled: ${RCA_PIPELINE_ENABLED:true}
+    batch-size: ${RCA_PIPELINE_BATCH_SIZE:4}
+    poll-interval-ms: ${RCA_PIPELINE_POLL_INTERVAL_MS:2000}
+    initial-delay-ms: ${RCA_PIPELINE_INITIAL_DELAY_MS:3000}
+    lease-seconds: ${RCA_PIPELINE_LEASE_SECONDS:300}
+    max-attempts: ${RCA_PIPELINE_MAX_ATTEMPTS:5}
+    retry-base-seconds: ${RCA_PIPELINE_RETRY_BASE_SECONDS:5}
+    retry-max-seconds: ${RCA_PIPELINE_RETRY_MAX_SECONDS:300}
   thresholds:
     disk-warning-percent: ${RCA_THRESHOLD_DISK_WARNING_PERCENT:85}
     disk-critical-percent: ${RCA_THRESHOLD_DISK_CRITICAL_PERCENT:90}

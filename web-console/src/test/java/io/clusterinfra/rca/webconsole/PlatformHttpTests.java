@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import io.clusterinfra.rca.webconsole.service.RcaAnalysisWorker;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,9 @@ class PlatformHttpTests {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private RcaAnalysisWorker analysisWorker;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () ->
@@ -48,6 +52,7 @@ class PlatformHttpTests {
         registry.add("rca.default-admin-username", () -> "admin");
         registry.add("rca.default-admin-password", () -> "admin");
         registry.add("spring.ai.model.chat", () -> "none");
+        registry.add("rca.pipeline.initial-delay-ms", () -> "600000");
     }
 
     @Test
@@ -153,6 +158,7 @@ class PlatformHttpTests {
             String.class
         );
         assertThat(submitted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(analysisWorker.processAvailableTasks()).isEqualTo(1);
 
         ResponseEntity<String> reports = exchange("/api/rca/reports", HttpMethod.GET, null);
         assertThat(reports.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -163,6 +169,12 @@ class PlatformHttpTests {
         assertThat(report.path("root_cause_candidates").size()).isGreaterThan(0);
         assertThat(report.path("recommended_actions").size()).isGreaterThan(0);
         assertThat(report.path("evidence").toString()).contains("derived_signals");
+        JsonNode tasks = objectMapper.readTree(
+            exchange("/api/rca/analysis-tasks", HttpMethod.GET, null).getBody()
+        );
+        assertThat(tasks).hasSize(1);
+        assertThat(tasks.get(0).path("status").asText()).isEqualTo("completed");
+        assertThat(tasks.get(0).path("report_id").asText()).isEqualTo(reportId);
     }
 
     @Test
@@ -212,6 +224,7 @@ class PlatformHttpTests {
             String.class
         );
         assertThat(submitted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(analysisWorker.processAvailableTasks()).isEqualTo(1);
 
         JsonNode reports = objectMapper.readTree(
             exchange("/api/rca/reports", HttpMethod.GET, null).getBody()

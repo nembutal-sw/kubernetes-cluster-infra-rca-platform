@@ -2,10 +2,10 @@ package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AlertmanagerAlert;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AlertmanagerPayload;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
-import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
@@ -47,6 +47,7 @@ public class RcaService {
     public WebhookIngestResponse ingestAlertmanager(AlertmanagerPayload payload) {
         List<RcaJob> jobs = new ArrayList<>();
         List<String> reports = new ArrayList<>();
+        List<AnalysisTask> analysisTasks = new ArrayList<>();
         List<EvidenceRequest> requests = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         for (AlertmanagerAlert alert : payload.alertsOrEmpty()) {
@@ -98,31 +99,32 @@ public class RcaService {
             metadata.put("annotations", alert.annotationsOrEmpty());
             metadata.put("generator_url", alert.generatorUrl());
             metadata.put("collector_status", "alert_only_no_registered_agent");
-            EvidenceBundle evidence = repository.saveEvidence(new EvidenceBundle(
+            AnalysisTask task = repository.saveEvidenceAndEnqueue(new EvidenceBundle(
                 null,
                 clusterId,
                 effectiveNode,
                 alertName,
                 Instant.now(),
                 Map.of("alertmanager", metadata)
-            ));
-            RcaJob job = createCompletedJob(evidence);
-            jobs.add(job);
-            reports.add(job.reportId());
+            ), "alertmanager", false, properties.getPipeline().getMaxAttempts());
+            analysisTasks.add(task);
         }
-        return new WebhookIngestResponse(payload.alertsOrEmpty().size(), jobs, reports, requests, skipped);
+        return new WebhookIngestResponse(
+            payload.alertsOrEmpty().size(),
+            jobs,
+            reports,
+            analysisTasks,
+            requests,
+            skipped
+        );
     }
 
-    public RcaJob createReportFromEvidenceRequest(EvidenceRequest request) {
-        if (request.status() != EvidenceRequestStatus.completed || request.evidenceId() == null) {
-            return null;
-        }
-        EvidenceBundle evidence = repository.getEvidence(request.evidenceId()).orElse(null);
+    public RcaJob processAnalysisTask(AnalysisTask task) {
+        EvidenceBundle evidence = repository.getEvidence(task.evidenceId()).orElse(null);
         if (evidence == null) {
-            return null;
+            throw new IllegalStateException("analysis evidence not found: " + task.evidenceId());
         }
-        if ("scheduled_monitoring".equals(request.context().get("trigger"))
-            && !analyzer.hasActionableSignals(evidence.collectors())) {
+        if (task.skipIfHealthy() && !analyzer.hasActionableSignals(evidence.collectors())) {
             return null;
         }
         return createCompletedJob(evidence);

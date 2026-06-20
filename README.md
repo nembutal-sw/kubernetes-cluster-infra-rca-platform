@@ -15,6 +15,7 @@ Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=tru
 ```text
 Alertmanager 또는 수동 수집 요청
   -> Node Agent 증거 수집
+  -> DB 기반 durable analysis queue
   -> 전처리 및 Rule-based RCA
   -> 선택적 Spring AI 분석
   -> Policy Engine 검증
@@ -165,6 +166,7 @@ bash scripts/linux-dev-check.sh --full
 - Ubuntu, Debian, Rocky Linux, openSUSE Agent 수집 호환성
 - Helm HA, NetworkPolicy, External Secrets, DB backup 렌더링
 - 인증, 클러스터, 에이전트, evidence, RCA report 흐름
+- 분석 queue lease, retry, dead-letter 및 수동 재처리
 
 ## Repository
 

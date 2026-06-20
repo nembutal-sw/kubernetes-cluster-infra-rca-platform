@@ -45,6 +45,10 @@ public final class RcaModels {
         pending_approval, accepted, approved_manual, rejected, blocked
     }
 
+    public enum AnalysisTaskStatus {
+        queued, processing, retry_wait, completed, skipped, dead_letter
+    }
+
     public enum UserStatus {
         pending_approval, active, rejected
     }
@@ -505,10 +509,34 @@ public final class RcaModels {
     ) {
     }
 
+    public record AnalysisTask(
+        String taskId,
+        String evidenceId,
+        String clusterId,
+        String nodeName,
+        String alertName,
+        String source,
+        boolean skipIfHealthy,
+        AnalysisTaskStatus status,
+        int attemptCount,
+        int maxAttempts,
+        Instant nextAttemptAt,
+        String leaseOwner,
+        Instant leaseExpiresAt,
+        String lastError,
+        String reportId,
+        String jobId,
+        Instant createdAt,
+        Instant startedAt,
+        Instant completedAt
+    ) {
+    }
+
     public record WebhookIngestResponse(
         int receivedAlerts,
         List<RcaJob> createdJobs,
         List<String> createdReports,
+        List<AnalysisTask> queuedAnalysisTasks,
         List<EvidenceRequest> createdEvidenceRequests,
         List<String> skippedAlerts
     ) {

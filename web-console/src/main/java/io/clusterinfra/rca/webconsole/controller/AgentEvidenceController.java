@@ -1,5 +1,6 @@
 package io.clusterinfra.rca.webconsole.controller;
 
+import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidencePollRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
@@ -12,7 +13,6 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResponse;
 import io.clusterinfra.rca.webconsole.persistence.RcaRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
-import io.clusterinfra.rca.webconsole.service.RcaService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -35,19 +35,19 @@ import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 public class AgentEvidenceController {
     private final RcaRepository repository;
     private final AccessService access;
-    private final RcaService rcaService;
     private final AuditService audit;
+    private final RcaConsoleProperties properties;
 
     public AgentEvidenceController(
         RcaRepository repository,
         AccessService access,
-        RcaService rcaService,
-        AuditService audit
+        AuditService audit,
+        RcaConsoleProperties properties
     ) {
         this.repository = repository;
         this.access = access;
-        this.rcaService = rcaService;
         this.audit = audit;
+        this.properties = properties;
     }
 
     @PostMapping("/api/agents/register")
@@ -145,11 +145,11 @@ public class AgentEvidenceController {
         if (assigned.status() != EvidenceRequestStatus.pending) {
             throw new ResponseStatusException(CONFLICT, "evidence request is already closed");
         }
-        EvidenceRequest submitted = repository.submitEvidenceResponse(request)
+        EvidenceRequest submitted = repository.submitEvidenceResponse(
+            request,
+            properties.getPipeline().getMaxAttempts()
+        )
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "evidence request not found"));
-        if (submitted.status() == EvidenceRequestStatus.completed) {
-            rcaService.createReportFromEvidenceRequest(submitted);
-        }
         audit.record(
             "agent",
             request.nodeName(),

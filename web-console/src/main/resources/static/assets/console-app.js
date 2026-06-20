@@ -9,6 +9,7 @@
     { id: "clusters", label: "Clusters", icon: "hdd-network" },
     { id: "webhooks", label: "Webhooks", icon: "diagram-3" },
     { id: "incidents", label: "Incidents", icon: "exclamation-diamond" },
+    { id: "pipeline", label: "Pipeline", icon: "list-task" },
     { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
     { id: "audit", label: "Audit", icon: "journal-check" },
     { id: "settings", label: "Settings", icon: "sliders" },
@@ -17,6 +18,13 @@
 
   const translations = {
     ko: {
+      "Pipeline": "분석 파이프라인",
+      "Analysis Tasks": "분석 작업",
+      "Attempt": "시도",
+      "Next attempt": "다음 시도",
+      "Last error": "최근 오류",
+      "Retry task": "작업 재시도",
+      "No analysis tasks loaded.": "분석 작업이 없습니다.",
       "Incidents": "인시던트",
       "Incident": "인시던트",
       "Audit": "감사 로그",
@@ -585,6 +593,7 @@
     const [clusters, setClusters] = React.useState([]);
     const [reports, setReports] = React.useState([]);
     const [incidents, setIncidents] = React.useState([]);
+    const [analysisTasks, setAnalysisTasks] = React.useState([]);
     const [auditEvents, setAuditEvents] = React.useState([]);
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
@@ -720,15 +729,29 @@
       }
     }, [currentUser, authHeaders, callApi, notify]);
 
+    const loadAnalysisTasks = React.useCallback(async (silent) => {
+      try {
+        setLoading((value) => ({ ...value, pipeline: true }));
+        const result = await callApi("/api/rca/analysis-tasks?limit=300", { headers: authHeaders() });
+        setAnalysisTasks(Array.isArray(result) ? result : []);
+      } catch (error) {
+        setAnalysisTasks([]);
+        if (!silent) notify(error.message);
+      } finally {
+        setLoading((value) => ({ ...value, pipeline: false }));
+      }
+    }, [authHeaders, callApi, notify]);
+
     const refreshAll = React.useCallback(async (silent) => {
       await Promise.allSettled([
         loadClusters(silent),
         loadReports(silent),
         loadIncidents(silent),
+        loadAnalysisTasks(silent),
         loadAuditEvents(silent),
       ]);
       setLastRefresh(new Date());
-    }, [loadClusters, loadReports, loadIncidents, loadAuditEvents]);
+    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents]);
 
     React.useEffect(() => {
       loadCurrentUser(true);
@@ -775,6 +798,7 @@
       setClusters([]);
       setReports([]);
       setIncidents([]);
+      setAnalysisTasks([]);
       setAuditEvents([]);
       setReportDetails({});
       setAgentsByCluster({});
@@ -1061,6 +1085,21 @@
       }
     }
 
+    async function retryAnalysisTask(taskId) {
+      if (!window.confirm(tr("Retry task") + `: ${taskId}?`)) return;
+      try {
+        await callApi(`/api/rca/analysis-tasks/${encodeURIComponent(taskId)}/retry`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ confirmed: true, note: "Requeued from web console" }),
+        });
+        notify("Analysis task queued.");
+        await loadAnalysisTasks(false);
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+
     async function downloadReportsExport(clusterId) {
       const query = new URLSearchParams();
       if (clusterId) query.set("cluster_id", clusterId);
@@ -1185,6 +1224,13 @@
           loading: loading.incidents,
           onReload: () => loadIncidents(false),
           onChangeStatus: changeIncidentStatus,
+          currentUser,
+        }),
+        activeView === "pipeline" && h(PipelineView, {
+          tasks: analysisTasks,
+          loading: loading.pipeline,
+          onReload: () => loadAnalysisTasks(false),
+          onRetry: retryAnalysisTask,
           currentUser,
         }),
         activeView === "reports" && h(ReportsView, {
@@ -1599,6 +1645,58 @@
         )))
       )
     ) : h(EmptyState, { message: "No audit events loaded." }));
+  }
+
+  function PipelineView({ tasks, loading, onReload, onRetry, currentUser }) {
+    const tone = (status) => {
+      if (["completed", "skipped"].includes(status)) return "green";
+      if (status === "dead_letter") return "red";
+      if (status === "retry_wait") return "amber";
+      return "blue";
+    };
+    return h(Panel, {
+      title: "Analysis Tasks",
+      subtitle: loading ? "Loading" : `${tasks.length} tasks`,
+      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
+        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+    }, tasks.length ? h("div", { className: "table-responsive" },
+      h("table", { className: "table table-hover align-middle mb-0" },
+        h("thead", null, h("tr", null,
+          h("th", null, tr("Status")),
+          h("th", null, tr("Node")),
+          h("th", null, tr("Symptom")),
+          h("th", null, tr("Attempt")),
+          h("th", null, tr("Next attempt")),
+          h("th", null, tr("Last error")),
+          h("th", { className: "text-end" }, tr("Actions"))
+        )),
+        h("tbody", null, tasks.map((task) => h("tr", { key: task.task_id },
+          h("td", null,
+            h(StatusBadge, { value: task.status, tone: tone(task.status) }),
+            h("div", { className: "small font-monospace mt-1" }, task.task_id)
+          ),
+          h("td", null,
+            h("div", null, task.node_name),
+            h("div", { className: "small text-muted font-monospace" }, task.cluster_id)
+          ),
+          h("td", null, task.alert_name),
+          h("td", null, `${task.attempt_count} / ${task.max_attempts}`),
+          h("td", null, formatDate(task.next_attempt_at)),
+          h("td", { className: "small text-break", style: { minWidth: "14rem" } },
+            task.last_error || "-"),
+          h("td", { className: "text-end" },
+            task.status === "dead_letter" && ["admin", "operator"].includes(currentUser?.role)
+              ? h("button", {
+                  className: "btn btn-sm btn-outline-danger",
+                  onClick: () => onRetry(task.task_id),
+                }, tr("Retry task"))
+              : task.report_id
+                ? h("span", { className: "small font-monospace" }, task.report_id)
+                : "-"
+          )
+        )))
+      )
+    ) : h(EmptyState, { message: "No analysis tasks loaded." }));
   }
 
   function ReportsView({

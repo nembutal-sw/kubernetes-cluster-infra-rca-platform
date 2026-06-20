@@ -34,6 +34,7 @@ Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니�
 - `evidence_bundles`
 - `rca_reports`
 - `rca_jobs`
+- `rca_analysis_tasks`
 - `user_accounts`
 - `user_sessions`
 - `incidents`

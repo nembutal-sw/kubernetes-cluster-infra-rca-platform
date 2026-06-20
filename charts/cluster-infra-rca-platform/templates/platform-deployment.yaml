@@ -80,6 +80,22 @@ spec:
               value: {{ .Values.platform.config.incidentCorrelationWindowMinutes | quote }}
             - name: RCA_AUDIT_RETENTION_DAYS
               value: {{ .Values.platform.config.auditRetentionDays | quote }}
+            - name: RCA_PIPELINE_ENABLED
+              value: {{ .Values.platform.config.pipelineEnabled | quote }}
+            - name: RCA_PIPELINE_BATCH_SIZE
+              value: {{ .Values.platform.config.pipelineBatchSize | quote }}
+            - name: RCA_PIPELINE_POLL_INTERVAL_MS
+              value: {{ .Values.platform.config.pipelinePollIntervalMs | quote }}
+            - name: RCA_PIPELINE_INITIAL_DELAY_MS
+              value: {{ .Values.platform.config.pipelineInitialDelayMs | quote }}
+            - name: RCA_PIPELINE_LEASE_SECONDS
+              value: {{ .Values.platform.config.pipelineLeaseSeconds | quote }}
+            - name: RCA_PIPELINE_MAX_ATTEMPTS
+              value: {{ .Values.platform.config.pipelineMaxAttempts | quote }}
+            - name: RCA_PIPELINE_RETRY_BASE_SECONDS
+              value: {{ .Values.platform.config.pipelineRetryBaseSeconds | quote }}
+            - name: RCA_PIPELINE_RETRY_MAX_SECONDS
+              value: {{ .Values.platform.config.pipelineRetryMaxSeconds | quote }}
             - name: SERVER_SHUTDOWN
               value: graceful
             {{- range $key, $value := .Values.platform.env }}

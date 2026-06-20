@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
@@ -51,6 +52,7 @@ class DatabaseCompatibilityTests {
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
+        "rca_analysis_tasks",
         "action_requests",
         "audit_events",
         "rca_jobs",
@@ -110,7 +112,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(2);
+        assertThat(migration.migrationsExecuted).isEqualTo(3);
 
         RcaRepository repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -163,23 +165,64 @@ class DatabaseCompatibilityTests {
             "Database compatibility test",
             Map.of("source", "testcontainers")
         ));
-        EvidenceRequest completed = repository.submitEvidenceResponse(new AgentEvidenceSubmitRequest(
-            evidenceRequest.requestId(),
-            cluster.clusterId(),
-            "worker-a",
-            cluster.bootstrapToken(),
-            registration.nodeToken(),
-            EvidenceRequestStatus.completed,
-            Map.of(
-                "disk", Map.of("usage_percent", 96.0, "await_ms", 35.0),
-                "inode", Map.of("usage_percent", 98.0)
+        EvidenceRequest completed = repository.submitEvidenceResponse(
+            new AgentEvidenceSubmitRequest(
+                evidenceRequest.requestId(),
+                cluster.clusterId(),
+                "worker-a",
+                cluster.bootstrapToken(),
+                registration.nodeToken(),
+                EvidenceRequestStatus.completed,
+                Map.of(
+                    "disk", Map.of("usage_percent", 96.0, "await_ms", 35.0),
+                    "inode", Map.of("usage_percent", 98.0)
+                ),
+                null
             ),
-            null
-        )).orElseThrow();
+            2
+        ).orElseThrow();
 
         assertThat(completed.evidenceId()).isNotBlank();
         assertThat(repository.getEvidence(completed.evidenceId()).orElseThrow().collectors())
             .containsKeys("disk", "inode");
+        var queuedTask = repository.getAnalysisTaskByEvidenceId(completed.evidenceId()).orElseThrow();
+        assertThat(queuedTask.status()).isEqualTo(AnalysisTaskStatus.queued);
+        Instant claimAt = Instant.now();
+        var firstClaim = repository.claimAnalysisTasks(
+            "database-worker",
+            1,
+            claimAt,
+            claimAt.plusSeconds(30)
+        );
+        assertThat(firstClaim).hasSize(1);
+        assertThat(firstClaim.get(0).attemptCount()).isEqualTo(1);
+        assertThat(repository.failAnalysisTask(
+            firstClaim.get(0),
+            "database-worker",
+            "temporary provider failure",
+            claimAt.plusSeconds(1)
+        )).isTrue();
+        assertThat(repository.getAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+            .isEqualTo(AnalysisTaskStatus.retry_wait);
+
+        var secondClaim = repository.claimAnalysisTasks(
+            "database-worker",
+            1,
+            claimAt.plusSeconds(2),
+            claimAt.plusSeconds(32)
+        );
+        assertThat(secondClaim).hasSize(1);
+        assertThat(secondClaim.get(0).attemptCount()).isEqualTo(2);
+        assertThat(repository.failAnalysisTask(
+            secondClaim.get(0),
+            "database-worker",
+            "provider unavailable",
+            claimAt.plusSeconds(3)
+        )).isTrue();
+        assertThat(repository.getAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+            .isEqualTo(AnalysisTaskStatus.dead_letter);
+        assertThat(repository.retryAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+            .isEqualTo(AnalysisTaskStatus.queued);
 
         RecommendedAction action = new RecommendedAction(
             "Inspect filesystem consumers",
@@ -321,7 +364,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(1);
+        assertThat(migration.migrationsExecuted).isEqualTo(2);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

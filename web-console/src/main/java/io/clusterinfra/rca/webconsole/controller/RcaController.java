@@ -7,6 +7,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecutionResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AlertmanagerPayload;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AuditEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
@@ -93,6 +95,7 @@ public class RcaController {
             Map.of(
                 "received_alerts", response.receivedAlerts(),
                 "created_reports", response.createdReports().size(),
+                "queued_analysis_tasks", response.queuedAnalysisTasks().size(),
                 "created_evidence_requests", response.createdEvidenceRequests().size(),
                 "skipped_alerts", response.skippedAlerts().size()
             )
@@ -111,6 +114,49 @@ public class RcaController {
     public RcaJob job(@PathVariable String jobId) {
         return repository.getJob(jobId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "RCA job not found"));
+    }
+
+    @GetMapping("/api/rca/analysis-tasks")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public List<AnalysisTask> analysisTasks(
+        @RequestParam(name = "status", required = false) AnalysisTaskStatus status,
+        @RequestParam(name = "limit", defaultValue = "200") Integer limit
+    ) {
+        return repository.listAnalysisTasks(status, limit);
+    }
+
+    @GetMapping("/api/rca/analysis-tasks/{taskId}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public AnalysisTask analysisTask(@PathVariable String taskId) {
+        return repository.getAnalysisTask(taskId)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "analysis task not found"));
+    }
+
+    @PostMapping("/api/rca/analysis-tasks/{taskId}/retry")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public AnalysisTask retryAnalysisTask(
+        @PathVariable String taskId,
+        @Valid @RequestBody ActionDecisionRequest request,
+        Authentication authentication
+    ) {
+        if (!request.confirmed()) {
+            throw new ResponseStatusException(BAD_REQUEST, "analysis retry confirmation is required");
+        }
+        UserAccount user = access.currentUser(authentication);
+        AnalysisTask task = repository.retryAnalysisTask(taskId)
+            .orElseThrow(() -> new ResponseStatusException(
+                CONFLICT,
+                "only dead-letter analysis tasks can be retried"
+            ));
+        audit.user(
+            user,
+            "analysis.task_requeued",
+            "analysis_task",
+            taskId,
+            "queued",
+            Map.of("note", request.note() == null ? "" : request.note())
+        );
+        return task;
     }
 
     @GetMapping("/api/rca/reports")
