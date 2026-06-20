@@ -1,90 +1,136 @@
 # Policy Engine
 
-Policy Engine은 LLM이 제안한 조치나 RCA 결과에서 도출된 운영 액션을 안전 등급으로 분류합니다.
+## 한국어 요약
 
-LLM은 조치 실행자가 아닙니다. LLM의 출력은 Policy Engine의 입력일 뿐입니다.
+Policy Engine은 RCA 결과와 LLM 제안을 운영자가 안전하게 다룰 수 있도록 조치의 위험도를 분류하는 계층입니다.
 
-## 조치 등급
+현재 핵심 원칙은 명확합니다.
 
-| 등급 | 의미 | 예시 |
-| --- | --- | --- |
-| `AUTO_SAFE` | 자동 실행 가능성이 있는 읽기/검증 중심 조치 | 추가 상태 조회, 비파괴 health check, 보고서 갱신 |
-| `APPROVAL_REQUIRED` | 운영자 승인 후 외부 runbook으로 수동 처리할 조치 | kubelet restart, containerd restart, cordon, drain |
-| `GITOPS_PR_ONLY` | 직접 실행하지 않고 PR로만 제안할 조치 | CNI MTU 설정 변경, CoreDNS config 변경, kubelet config 변경 |
-| `NEVER_AUTO_EXECUTE` | 자동 실행 금지 | 노드 reboot, 데이터 삭제, etcd member 제거, 강제 drain |
-| `MANUAL_INVESTIGATION` | 사람의 판단이 필요한 조치 | 하드웨어 장애 의심, 디스크 교체, 네트워크 장비 점검 |
+> RCA는 자동화하지만, 위험 조치는 자동 실행하지 않는다.
 
-## Action Metadata
+LLM은 조치 실행자가 아닙니다. LLM이 제안한 action은 항상 diagnostic suggestion으로 취급되며 `automation_allowed=false`입니다.
 
-`recommended_actions`와 `policy_decisions`에는 기존 `action`, `policy`, `reason` 외에 자동화 판단을 위한 메타데이터가 붙습니다.
+Rule-based action도 host mutation을 실행하지 않습니다. `restart_kubelet`, `restart_containerd`, `restart_container_runtime` 같은 조치는 runbook/manual workflow 대상으로만 표시됩니다.
 
-| 필드 | 의미 |
-| --- | --- |
-| `action_key` | 정책 taxonomy key. 알 수 없는 key는 `manual_investigation`으로 낮춥니다. |
-| `source` | `rule_based`, `llm` 등 조치 제안 출처 |
-| `automation_mode` | `read_only`, `operator_approval`, `gitops_pr`, `prohibited`, `manual` |
-| `automation_allowed` | 현재 backend가 자동 실행 후보로 볼 수 있는지 여부. 지금은 rule-based `AUTO_SAFE`만 true가 될 수 있습니다. |
-| `requires_approval` | 운영자 승인 workflow가 필요한지 여부 |
-| `review_required` | 운영자 승인 또는 GitOps PR review가 필요한지 여부 |
-| `guardrails` | 정책 엔진이 적용한 방어 규칙 |
-| `risk_factors` | 판단에 사용된 위험 요소 |
+---
 
-## 분류 기준
+## English Reference
 
-- 데이터 손실 가능성
-- 서비스 중단 가능성
-- blast radius
-- 롤백 가능성
-- GitOps로 관리되는 설정인지 여부
-- 운영 승인 정책
-- 장애 severity
-- 대상 클러스터 환경
+## Policy Levels
 
-## Guardrail 우선순위
+```text
+AUTO_SAFE
+APPROVAL_REQUIRED
+GITOPS_PR_ONLY
+NEVER_AUTO_EXECUTE
+MANUAL_INVESTIGATION
+```
 
-정책 엔진은 action key보다 guardrail을 우선합니다.
+## Source Types
 
-1. 재부팅, shutdown, `rm -rf`, filesystem format, `kubectl delete`, etcd member 제거, 강제 drain은 `NEVER_AUTO_EXECUTE`
-2. CNI, CoreDNS, DNS, MTU, conntrack, sysctl, manifest 설정 변경은 `GITOPS_PR_ONLY`
-3. kubelet/containerd 재시작, cordon/drain, disk cleanup은 `APPROVAL_REQUIRED`
-4. `AUTO_SAFE`는 읽기 전용 수집/확인 문맥이 확인될 때만 유지
-5. 알 수 없는 action key는 `MANUAL_INVESTIGATION`
+```text
+rule_based
+llm
+demo
+system
+```
 
-## Linux Low-Level 진단
+LLM-origin actions are never executable.
 
-Linux low-level 진단은 이 플랫폼의 핵심 수집 대상입니다. 아래처럼 상태를 읽기만 하는 조치는 `AUTO_SAFE` 후보로 허용합니다.
+## RecommendedAction Fields
 
-- `dmesg`, `journalctl`
-- `systemctl status/show/is-active/is-failed`
-- `/proc`, `/sys`, `/etc`, `/var/log` 읽기
-- `sysctl -a`, `sysctl net.*` 조회
-- `df`, `du`, `findmnt`, `mount`, `lsblk`, `blkid`
-- `free`, `vmstat`, `iostat`, `mpstat`, `pidstat`, `sar`, `ps`, `top`
-- `ss`, `netstat`, `nstat`, `ip link/addr/route/neigh/rule` 조회
-- `ethtool <interface>` 조회
-- `conntrack -S/-L/-C`, `tc -s qdisc show`
+```json
+{
+  "action": "Restart kubelet after manual verification",
+  "policy": "APPROVAL_REQUIRED",
+  "reason": "kubelet service appears unhealthy",
+  "action_key": "restart_kubelet",
+  "source": "rule_based",
+  "automation_mode": "manual",
+  "automation_allowed": false,
+  "requires_approval": true,
+  "review_required": true,
+  "guardrails": ["manual_runbook_only"],
+  "risks": ["node_disruption"],
+  "execution_plan": {
+    "command_key": "restart_systemd_unit",
+    "parameters": {"unit": "kubelet"},
+    "preview_commands": ["systemctl restart kubelet"],
+    "executable": false,
+    "timeout_seconds": 60
+  }
+}
+```
 
-다만 low-level 명령이라도 상태를 바꾸면 자동화 대상이 아닙니다. 예를 들어 `ip link set`, `ethtool -K`, `conntrack -F`, `tc qdisc add/del`, `echo > /proc/sys`, `tee /sys/...`는 `APPROVAL_REQUIRED` 이상으로 격상합니다. `sysctl -w`처럼 지속 설정과 연결되는 변경은 `GITOPS_PR_ONLY`로 분류합니다.
+`execution_plan.preview_commands` is documentation for human review. It is not executed by the platform or agent.
 
-LLM이 제안한 조치는 policy 등급과 별개로 `automation_allowed=false`가 됩니다. 자동화가 들어오더라도 LLM output을 직접 실행 트리거로 쓰지 않고, rule-based evidence와 Policy Engine 결과를 다시 확인해야 합니다.
+## Current Action Semantics
 
-`APPROVAL_REQUIRED`와 `GITOPS_PR_ONLY`의 `execution_plan`은 안내용 preview이며
-`executable=false`입니다. Platform은 action execution을 생성하거나 queue하지 않고 Node
-Agent에도 host mutation executor를 포함하지 않습니다.
+### Read-only action
 
-## 예시
+Some actions may create a read-only evidence request.
 
-| 권장 조치 | Policy decision |
-| --- | --- |
-| kubelet journal 추가 수집 | `AUTO_SAFE` |
-| `/proc/meminfo`, `sysctl net.netfilter.nf_conntrack_count`, `ss`, `ip -s link` 조회 | `AUTO_SAFE` |
-| kubelet 재시작 | `APPROVAL_REQUIRED` |
-| containerd 재시작 | `APPROVAL_REQUIRED` |
-| 디스크 정리 또는 증설 | `APPROVAL_REQUIRED` |
-| 메모리 압박 지속 시 node cordon/drain 검토 | `APPROVAL_REQUIRED` |
-| CoreDNS replica 증가 PR 생성 | `GITOPS_PR_ONLY` |
-| `sysctl -w` 기반 kernel parameter 변경 | `GITOPS_PR_ONLY` |
-| `ip link set eth0 down` 같은 직접 NIC 상태 변경 | `APPROVAL_REQUIRED` |
-| etcd member 강제 제거 | `NEVER_AUTO_EXECUTE` |
-| read-only filesystem 지속 시 node reboot 검토 | `NEVER_AUTO_EXECUTE` |
-| NIC link flap 의심으로 스위치 포트 확인 | `MANUAL_INVESTIGATION` |
+Examples:
+
+```text
+inspect_storage_state
+inspect_network_state
+inspect_kernel_state
+collect_linux_low_level_evidence
+```
+
+### Manual action
+
+Risky actions become action requests that require approval and manual completion.
+
+Examples:
+
+```text
+restart_kubelet
+restart_containerd
+restart_container_runtime
+cordon_node
+drain_node
+```
+
+### GitOps-only action
+
+Changes that should be reviewed through GitOps are marked as `GITOPS_PR_ONLY`.
+
+Example:
+
+```text
+update_cni_mtu
+```
+
+The platform may show a YAML preview, but it does not patch the cluster directly.
+
+## Disabled Host Mutation
+
+Agent-side mutation execution has been removed:
+
+```text
+node_agent/actions.py removed
+ApprovedActionExecutor removed from agent loop
+ActionExecution queue no longer drives host commands
+```
+
+Database migration `V6__disable_agent_action_execution.sql` expires legacy queued/leased executions and converts queued/executing action requests to manual approval state.
+
+## Guardrail Rules
+
+Recommended guardrails:
+
+```text
+manual_runbook_only
+llm_action_never_auto
+requires_human_approval
+requires_gitops_review
+requires_evidence_bundle
+requires_audit_record
+no_host_mutation
+```
+
+## Design Rationale
+
+The platform is an RCA and decision-support system, not a self-healing root agent. This keeps the project enterprise-friendly because it preserves separation of duties, auditability, and operator control.
