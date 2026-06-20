@@ -65,7 +65,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.17.3
       - name: Lint Helm charts
@@ -160,7 +160,7 @@ jobs:
       - uses: helm/kind-action@v1.14.0
         with:
           cluster_name: rca-smoke
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: v3.17.3
       - name: Run Kubernetes end-to-end smoke test
