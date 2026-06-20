@@ -1,58 +1,217 @@
 # Platform API
 
-Spring Boot 플랫폼은 Web Console과 API를 포트 `8080`에서 함께 제공합니다.
+## 한국어 요약
+
+Platform API는 Spring Boot Web Console과 Node Agent, Alertmanager webhook, RCA pipeline을 하나로 묶는 중앙 API입니다.
+
+현재 API의 핵심 특징은 다음입니다.
+
+- 사용자 API는 bearer token 기반 stateless session으로 보호합니다.
+- Agent/Webhook/Manifest/Metrics 인증은 Spring Security filter chain에서 먼저 처리합니다.
+- Agent는 read-only evidence와 realtime event만 제출합니다.
+- 승인 조치 실행은 manual workflow로 제한됩니다.
+- Report/evidence bundle export는 `ADMIN`, `OPERATOR`에게만 허용합니다.
+- `/api/v1/platform/info`로 platform/API/agent protocol 정보를 제공합니다.
+
+---
+
+## English Reference
+
+## Base URL
+
+Default local URL:
+
+```text
+http://localhost:8080
+```
+
+The UI and API are served from the same Spring Boot application.
 
 ## Authentication
 
-- 사용자 API: `Authorization: Bearer <session-token>`
-- Agent 등록: cluster bootstrap token
-- Agent heartbeat/evidence: bootstrap token + node token
-- Alertmanager: `Authorization: Bearer <webhook-token>` 또는 `X-Webhook-Token`
+### User login
 
-기본 계정은 `admin/admin`이며 최초 로그인 후 변경해야 합니다.
+```text
+POST /api/auth/login
+```
 
-## Endpoints
+Request:
 
-| Method | Path | Role |
-| --- | --- | --- |
-| POST | `/api/auth/login` | 로그인 |
-| GET | `/api/auth/me` | 현재 사용자 |
-| POST | `/api/auth/change-password` | 비밀번호 변경 |
-| GET/POST | `/api/clusters` | 클러스터 조회/등록 |
-| DELETE | `/api/clusters/{id}` | 클러스터 삭제 |
-| GET | `/api/clusters/{id}/install-command` | Agent 설치 명령 |
-| GET | `/api/clusters/{id}/agent-manifest` | Agent manifest |
-| GET | `/api/clusters/{id}/agents` | 노드 Agent 상태 |
-| POST | `/api/clusters/{id}/collection-runs` | 수동 수집 요청 |
-| POST | `/api/agents/register` | Agent 등록 |
-| POST | `/api/agents/heartbeat` | Agent heartbeat |
-| POST | `/api/agents/evidence-requests` | Agent 요청 poll |
-| POST | `/api/agents/evidence-responses` | Agent evidence 제출 |
-| POST | `/api/webhooks/alertmanager` | Alertmanager webhook |
-| GET | `/api/rca/reports` | RCA 보고서 목록 |
-| GET | `/api/rca/reports/{id}` | RCA 보고서 상세 |
-| GET | `/api/rca/reports/export` | 보고서 JSON export (`ADMIN`, `OPERATOR`) |
-| POST | `/api/rca/reports/{id}/actions/{index}/execute` | 허용된 read-only 후속 수집 |
-| POST | `/api/rca/action-requests/{id}/approve` | 수동 처리 또는 GitOps 검토 승인 |
-| POST | `/api/rca/action-requests/{id}/reject` | 조치 요청 거절 |
-| POST | `/api/rca/action-requests/{id}/complete-manual` | 외부 절차 완료 기록 |
+```json
+{
+  "username": "admin",
+  "password": "admin"
+}
+```
 
-`/health`와 `/health/ready`는 인증 없이 사용할 수 있습니다.
+Response:
 
-운영 metric은 `/actuator/metrics`와 `/actuator/prometheus`에서 제공합니다. 사용자 session은
-`ADMIN`, `OPERATOR`, `AUDITOR` 역할이 필요하며 Prometheus scraper는 `RCA_METRICS_TOKEN`을
-Bearer token 또는 `X-Metrics-Token` header로 전달할 수 있습니다.
+```json
+{
+  "access_token": "...",
+  "token_type": "Bearer",
+  "expires_at": "2026-06-21T00:00:00Z",
+  "user": {
+    "email": "admin@example.com",
+    "role": "admin"
+  }
+}
+```
 
-## Action Execution
+User API calls use:
 
-UI의 실행 버튼은 임의의 shell 명령을 실행하지 않습니다. 현재 자동화 허용 대상은 Rule-based `AUTO_SAFE` read-only evidence 요청뿐입니다.
+```text
+Authorization: Bearer <access_token>
+```
 
-다음 항목은 실행되지 않습니다.
+## Platform Info
 
-- LLM이 제안한 모든 조치
-- 서비스 재시작, cordon, drain, disk cleanup
-- GitOps 검토가 필요한 설정 변경
-- reboot, workload 삭제, etcd membership 변경
+```text
+GET /api/platform/info
+GET /api/v1/platform/info
+```
 
-승인은 Agent 실행 권한을 부여하지 않습니다. 명령 preview와 YAML patch는 runbook 또는
-GitOps PR 안내이며, 실제 처리는 플랫폼 밖에서 수행한 후 완료 상태만 기록합니다.
+Requires an authenticated platform user.
+
+```json
+{
+  "platform_version": "0.1.0",
+  "api_version": "v1",
+  "agent_protocol_version": "1",
+  "minimum_supported_agent_protocol_version": "1",
+  "minimum_supported_agent_version": "0.1.0"
+}
+```
+
+## Cluster APIs
+
+```text
+GET    /api/clusters
+POST   /api/clusters
+GET    /api/clusters/{cluster_id}
+DELETE /api/clusters/{cluster_id}
+GET    /api/clusters/{cluster_id}/install-command
+GET    /api/clusters/{cluster_id}/agent-manifest
+GET    /api/clusters/{cluster_id}/agent-health
+```
+
+`agent-manifest` is guarded by manifest access credentials. Agent health classifies agents as:
+
+```text
+healthy
+stale
+offline
+unauthorized
+version_mismatch
+collector_degraded
+```
+
+## Evidence APIs
+
+```text
+POST /api/evidence/requests
+GET  /api/evidence/requests/{request_id}
+GET  /api/evidence/{evidence_id}
+```
+
+`POST /api/evidence/requests` creates read-only evidence collection work for a registered node agent.
+
+## RCA Report APIs
+
+```text
+GET  /api/rca/reports
+GET  /api/rca/reports/{report_id}
+GET  /api/rca/reports/export
+GET  /api/rca/reports/{report_id}/export
+GET  /api/rca/reports/{report_id}/bundle
+```
+
+Export endpoints are restricted to `ADMIN` and `OPERATOR`.
+
+Report bundle export returns `application/zip` and includes:
+
+```text
+summary.json
+evidence/*.json
+signals.json
+timeline.json
+rca-report.md
+```
+
+Sensitive values are redacted before export.
+
+## Incident APIs
+
+```text
+GET /api/rca/incidents
+GET /api/rca/incidents/{incident_id}
+GET /api/rca/incidents/{incident_id}/timeline
+GET /api/rca/incidents/{incident_id}/bundle
+```
+
+Timeline is an RCA analysis flow, not an audit trail. Audit events record user/system actions.
+
+## Analysis Task APIs
+
+```text
+GET  /api/rca/analysis-tasks
+POST /api/rca/analysis-tasks/{task_id}/requeue
+```
+
+Analysis tasks are durable queue records. Workers claim tasks by lease and update status through queued, processing, retry_wait, completed, skipped, failed, or dead_letter states.
+
+## Action Request APIs
+
+```text
+POST /api/rca/reports/{report_id}/actions/{action_index}/execute
+GET  /api/rca/action-requests
+POST /api/rca/action-requests/{action_request_id}/approve
+POST /api/rca/action-requests/{action_request_id}/reject
+POST /api/rca/action-requests/{action_request_id}/complete-manual
+```
+
+Important: the endpoint name `execute` is legacy wording. The platform does not execute host mutation commands. It either creates a read-only evidence request or records a manual approval workflow.
+
+## Demo Scenario APIs
+
+```text
+GET  /api/demo/scenarios
+POST /api/demo/scenarios/{scenario_key}/run
+```
+
+Demo mode is disabled by default and must be disabled in production. Running a demo scenario creates demo evidence and queues a normal RCA analysis task.
+
+## Metrics APIs
+
+```text
+GET /actuator/metrics
+GET /actuator/prometheus
+```
+
+Allowed roles:
+
+```text
+ADMIN, OPERATOR, AUDITOR, METRICS
+```
+
+If `RCA_METRICS_TOKEN` is configured, Prometheus can authenticate with either:
+
+```text
+X-Metrics-Token: <token>
+Authorization: Bearer <token>
+```
+
+## Error Conventions
+
+Common response codes:
+
+```text
+400 bad request
+401 login or agent credentials required
+403 insufficient role or wrong agent assignment
+404 resource not found
+409 state conflict
+410 deprecated endpoint disabled
+413 export bundle too large
+422 unsupported format or invalid status
+```
