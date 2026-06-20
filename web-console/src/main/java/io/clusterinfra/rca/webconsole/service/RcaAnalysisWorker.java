@@ -5,6 +5,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
+import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -174,10 +175,7 @@ public class RcaAnalysisWorker {
         String message = exception.getMessage();
         String value = exception.getClass().getSimpleName()
             + (message == null || message.isBlank() ? "" : ": " + message);
-        String redacted = value
-            .replaceAll("(?i)(api[_-]?key|authorization|token)(\\s*[:=]\\s*)[^\\s,;]+", "$1$2[redacted]")
-            .replaceAll("(?i)bearer\\s+[a-z0-9._-]+", "Bearer [redacted]")
-            .replaceAll("sk-[a-zA-Z0-9_-]{8,}", "sk-[redacted]");
+        String redacted = SensitiveDataRedactor.redactText(value);
         return redacted.length() <= 2000 ? redacted : redacted.substring(0, 2000);
     }
 

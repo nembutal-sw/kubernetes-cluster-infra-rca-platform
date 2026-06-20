@@ -593,6 +593,36 @@ def test_agent_state_enforces_spool_file_limit(tmp_path: Path) -> None:
         state.enqueue_response({"request_id": "request-2", "status": "failed"})
 
 
+def test_agent_state_enforces_spool_byte_limit(tmp_path: Path) -> None:
+    state = AgentStateStore(
+        tmp_path / "state",
+        "cluster-1",
+        "worker-1",
+        max_spool_files=10,
+        max_spool_bytes=1024,
+    )
+
+    with pytest.raises(RuntimeError, match="byte limit"):
+        state.enqueue_response(
+            {
+                "request_id": "request-large",
+                "status": "failed",
+                "error_message": "x" * 2048,
+            }
+        )
+
+
+def test_agent_state_quarantines_invalid_spool_file(tmp_path: Path) -> None:
+    state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    state.initialize()
+    invalid = state.spool_dir / "broken.json"
+    invalid.write_text("{not-json", encoding="utf-8")
+
+    assert state.pending_responses() == []
+    assert not invalid.exists()
+    assert (state.spool_dir / "broken.invalid").exists()
+
+
 def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
     proc = tmp_path / "proc"
     etc = tmp_path / "etc"

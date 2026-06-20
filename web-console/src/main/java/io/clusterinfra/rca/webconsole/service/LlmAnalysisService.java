@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
+import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -262,10 +263,7 @@ public class LlmAnalysisService {
         if (message == null || message.isBlank()) {
             return "analysis failed";
         }
-        String redacted = message
-            .replaceAll("(?i)(api[_-]?key|authorization|token)(\\s*[:=]\\s*)[^\\s,;]+", "$1$2[redacted]")
-            .replaceAll("(?i)bearer\\s+[a-z0-9._-]+", "Bearer [redacted]")
-            .replaceAll("sk-[a-zA-Z0-9_-]{8,}", "sk-[redacted]");
+        String redacted = SensitiveDataRedactor.redactText(message);
         return redacted.length() > 300 ? redacted.substring(0, 300) : redacted;
     }
 

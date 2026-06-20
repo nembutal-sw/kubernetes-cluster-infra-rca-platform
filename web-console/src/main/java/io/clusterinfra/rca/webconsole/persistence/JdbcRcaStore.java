@@ -37,6 +37,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
 import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -402,7 +403,9 @@ public class JdbcRcaStore {
                 """,
             request.statusOrDefault().name(),
             evidenceId,
-            request.statusOrDefault() == EvidenceRequestStatus.failed ? request.errorMessage() : null,
+            request.statusOrDefault() == EvidenceRequestStatus.failed
+                ? SensitiveDataRedactor.redactText(request.errorMessage())
+                : null,
             timestamp(completedAt),
             request.requestId()
         );
@@ -423,6 +426,7 @@ public class JdbcRcaStore {
 
     public EvidenceBundle saveEvidence(EvidenceBundle evidence) {
         String evidenceId = evidence.evidenceId() == null ? id("evidence") : evidence.evidenceId();
+        Map<String, Object> redactedCollectors = SensitiveDataRedactor.redactMap(evidence.collectors());
         jdbc.update(
             """
                 INSERT INTO evidence_bundles
@@ -433,7 +437,7 @@ public class JdbcRcaStore {
             evidence.clusterId(),
             evidence.nodeName(),
             evidence.alertName(),
-            json(evidence.collectors()),
+            json(redactedCollectors),
             timestamp(evidence.collectedAt())
         );
         return new EvidenceBundle(
@@ -442,7 +446,7 @@ public class JdbcRcaStore {
             evidence.nodeName(),
             evidence.alertName(),
             evidence.collectedAt(),
-            evidence.collectors()
+            redactedCollectors
         );
     }
 
@@ -1235,9 +1239,9 @@ public class JdbcRcaStore {
                 """,
             status.name(),
             exitCode,
-            limitedText(stdout, 65535),
-            limitedText(stderr, 65535),
-            limitedText(errorMessage, 4000),
+            limitedText(SensitiveDataRedactor.redactText(stdout), 65535),
+            limitedText(SensitiveDataRedactor.redactText(stderr), 65535),
+            limitedText(SensitiveDataRedactor.redactText(errorMessage), 4000),
             timestamp(now),
             executionId,
             ActionExecutionStatus.leased.name(),

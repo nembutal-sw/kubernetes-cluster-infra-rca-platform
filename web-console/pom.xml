@@ -154,10 +154,10 @@
             </configuration>
           </execution>
           <execution>
-            <id>npm-install</id>
+            <id>npm-ci</id>
             <goals><goal>npm</goal></goals>
             <phase>generate-resources</phase>
-            <configuration><arguments>install --no-audit --no-fund</arguments></configuration>
+            <configuration><arguments>ci --no-audit --no-fund</arguments></configuration>
           </execution>
           <execution>
             <id>vite-build</id>

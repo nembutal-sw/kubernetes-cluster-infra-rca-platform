@@ -13,6 +13,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
+import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -258,7 +259,12 @@ public class RuleBasedRcaAnalyzer {
                 if (Set.of("user_agent", "browser", "browser_version", "client_os", "os_version").contains(normalized)) {
                     continue;
                 }
-                sanitized.put(key, sanitize(entry.getValue(), depth + 1));
+                sanitized.put(
+                    key,
+                    SensitiveDataRedactor.isSensitiveKey(key)
+                        ? "[redacted]"
+                        : sanitize(entry.getValue(), depth + 1)
+                );
                 if (++count >= 120) {
                     sanitized.put("_truncated", true);
                     break;
@@ -269,8 +275,11 @@ public class RuleBasedRcaAnalyzer {
         if (value instanceof List<?> list) {
             return list.stream().limit(100).map(item -> sanitize(item, depth + 1)).toList();
         }
-        if (value instanceof String text && text.length() > 4000) {
-            return text.substring(0, 4000) + "...[truncated]";
+        if (value instanceof String text) {
+            String redacted = SensitiveDataRedactor.redactText(text);
+            return redacted.length() > 4000
+                ? redacted.substring(0, 4000) + "...[truncated]"
+                : redacted;
         }
         return value;
     }

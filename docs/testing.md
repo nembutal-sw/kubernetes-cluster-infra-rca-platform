@@ -4,7 +4,7 @@
 
 ```powershell
 cd web-console
-mvn test
+mvn verify
 ```
 
 검증 범위:
@@ -20,6 +20,9 @@ mvn test
 - Agent/Webhook/Manifest 인증 실패 및 정상 token 경로
 - `prod` profile 위험 설정 fail-fast
 - `VIEWER`, `APPROVER`, `AUDITOR` 권한 경계
+- session 만료 후 보호 API 접근 차단
+- analysis task 동시 claim 및 lease 만료 후 재할당
+- evidence, LLM 입력, 오류 메시지의 credential redaction
 
 Docker daemon이 없으면 Testcontainers DB 테스트만 skip됩니다.
 
@@ -37,6 +40,7 @@ python -m compileall -q node_agent tests
 - generic CRI runtime
 - evidence request 처리와 spool
 - spool file/byte limit
+- 손상된 spool 파일의 `.invalid` 격리
 - eBPF parser
 - approved action allowlist
 - collector registry metadata
@@ -52,3 +56,7 @@ mvn package
 
 PostgreSQL/MariaDB, Helm lint/template와 Docker image build는 Docker/Helm이 준비된 CI 또는
 Linux 검증 환경에서 수행합니다.
+
+CI는 Node Agent, Frontend, Spring Boot, Helm을 독립 job으로 검증합니다. 모든 선행 job이
+통과해야 platform/agent Docker image build가 실행됩니다. Platform Docker build 자체도
+`mvn verify`를 실행하므로 테스트를 생략한 이미지가 만들어지지 않습니다.

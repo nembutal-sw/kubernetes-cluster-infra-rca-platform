@@ -108,7 +108,7 @@ function Run-Validation {
     try {
         & $python -m pytest --basetemp $pytestTemp -p no:cacheprovider
         if ($LASTEXITCODE -ne 0) {
-            throw "Backend tests failed"
+            throw "Node Agent tests failed"
         }
     } finally {
         if (Test-Path $pytestTemp) {
@@ -125,7 +125,7 @@ function Run-Validation {
     Write-Step "Running Spring Boot platform tests"
     Push-Location (Join-Path $Root "web-console")
     try {
-        Invoke-Maven $maven @("test")
+        Invoke-Maven $maven @("verify")
     } finally {
         Pop-Location
     }

@@ -219,7 +219,7 @@ run_validation() {
   "${ROOT_DIR}/.venv/bin/python" -m compileall -q "${ROOT_DIR}/node_agent" "${ROOT_DIR}/tests"
 
   log "Running Spring Boot platform tests"
-  (cd "${ROOT_DIR}/web-console" && mvn test)
+  (cd "${ROOT_DIR}/web-console" && mvn verify)
 }
 
 case "${MODE}" in
@@ -245,7 +245,7 @@ case "${MODE}" in
   --validate-web)
     bootstrap_user_tools
     log "Running Spring Boot platform tests"
-    (cd "${ROOT_DIR}/web-console" && mvn test)
+    (cd "${ROOT_DIR}/web-console" && mvn verify)
     ;;
   --full)
     bootstrap_user_tools

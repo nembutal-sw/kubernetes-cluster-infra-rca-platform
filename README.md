@@ -197,6 +197,9 @@ webhook token, 예제 DB 비밀번호, HTTP public URL, 빈 encryption secret �
 
 필수 설정과 역할별 권한은 [docs/security.md](docs/security.md)에 정리되어 있습니다.
 
+CI 검증 구조와 동시성, spool, redaction 테스트는
+[docs/phase3-testing-ci.md](docs/phase3-testing-ci.md)에 정리되어 있습니다.
+
 ## Repository
 
 ```text

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Named;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -24,6 +25,32 @@ import org.springframework.boot.test.context.SpringBootTest;
 class RuleBasedScenarioTests {
     @Autowired
     private RuleBasedRcaAnalyzer analyzer;
+
+    @Test
+    void preprocessedEvidenceRedactsCredentialsBeforeLlmAndReportStorage() {
+        RcaReport report = analyzer.analyze(
+            "report-redaction",
+            new EvidenceBundle(
+                "evidence-redaction",
+                "cluster-scenario",
+                "worker-a",
+                "NodeNotReady",
+                Instant.now(),
+                Map.of(
+                    "systemd", Map.of(
+                        "status", "failed",
+                        "authorization", "Bearer secret-session",
+                        "messages", List.of("password=secret-password unit failed")
+                    )
+                )
+            )
+        );
+
+        assertThat(report.evidence().toString())
+            .contains("[redacted]")
+            .doesNotContain("secret-session")
+            .doesNotContain("secret-password");
+    }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("scenarios")

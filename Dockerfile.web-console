@@ -9,8 +9,9 @@ WORKDIR /workspace
 COPY web-console/pom.xml .
 RUN mvn -B -ntp dependency:go-offline
 
+COPY web-console/frontend ./frontend
 COPY web-console/src ./src
-RUN mvn -B -ntp package -DskipTests
+RUN mvn -B -ntp verify
 
 FROM eclipse-temurin:21-jre
 

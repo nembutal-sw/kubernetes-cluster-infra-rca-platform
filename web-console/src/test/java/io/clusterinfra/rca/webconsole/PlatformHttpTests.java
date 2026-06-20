@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.persistence.UserRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
+import io.clusterinfra.rca.webconsole.service.RcaAnalysisWorker;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import io.clusterinfra.rca.webconsole.service.RcaAnalysisWorker;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,12 @@ class PlatformHttpTests {
 
     @Autowired
     private RcaAnalysisWorker analysisWorker;
+
+    @Autowired
+    private UserRepository users;
+
+    @Autowired
+    private UserSessionRepository sessions;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -411,6 +420,27 @@ class PlatformHttpTests {
         }
         assertThat(oomNode).isNotNull();
         assertThat(oomNode.path("root_trigger").asBoolean()).isTrue();
+    }
+
+    @Test
+    @Order(9)
+    void expiredSessionCannotAccessProtectedApi() {
+        String expiredToken = sessions.create(
+            users.authenticate("admin", "admin").orElseThrow().userId(),
+            Instant.now().minusSeconds(1)
+        );
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(expiredToken);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+            "/api/clusters",
+            HttpMethod.GET,
+            new HttpEntity<>(null, headers),
+            String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody()).contains("login required");
     }
 
     private int actionIndex(JsonNode actions, String policy) {
