@@ -4,202 +4,151 @@
 
 Node Agent는 각 Kubernetes 노드에서 Linux/Kubernetes evidence를 **read-only**로 수집하는 Python 프로세스입니다.
 
-현재 Agent의 역할은 다음으로 제한합니다.
+현재 Agent의 책임은 다음으로 제한됩니다.
 
-- backend 등록
+- Platform 등록
 - heartbeat 전송
-- evidence request polling
-- collector 실행
-- evidence response 제출
-- backend 장애 시 spool/retry
+- read-only evidence 수집
+- evidence response spool/retry
 - optional eBPF realtime event 제출
+- agent version/protocol version 보고
 
-Agent는 host 명령을 변경하거나 재시작하지 않습니다. 승인 조치 실행기는 제거되었고, Agent-side action endpoint는 더 이상 실제 실행을 제공하지 않습니다.
+Agent는 운영 환경을 직접 변경하지 않습니다. 승인 조치 실행 모듈은 제거되었고, action workflow는 Platform의 manual approval/audit 절차로 처리됩니다.
 
 ---
 
 ## English Reference
 
-## Package Layout
+## Runtime Modes
 
-```text
-node_agent/
-  main.py
-  client.py
-  state.py
-  ebpf.py
-  collectors/
-    registry.py
-    common.py
-    node.py
-    kubernetes.py
-    systemd.py
-    kernel.py
-    disk.py
-    inode.py
-    memory.py
-    process.py
-    network.py
-    conntrack.py
-    runtime.py
-    kubelet.py
-    cni.py
-    dns.py
+### Daemon Mode
+
+The default mode registers the agent and continuously polls the platform.
+
+```bash
+python -m node_agent.main
 ```
 
-## Execution Modes
+### One-shot Mode
 
-### Online agent mode
-
-The normal daemon mode registers with the backend and polls for evidence requests.
-
-Required environment variables:
-
-```text
-BACKEND_URL
-CLUSTER_ID
-AGENT_TOKEN
-NODE_NAME optional, defaults to hostname
+```bash
+python -m node_agent.main --once
 ```
 
-Optional security variables:
+### Local Collection Mode
 
-```text
-AGENT_CA_BUNDLE
-AGENT_CLIENT_CERT
-AGENT_CLIENT_KEY
-```
-
-### Local collection mode
-
-For debugging or demos:
+Collect evidence locally without backend registration.
 
 ```bash
 python -m node_agent.main --collect-local --collectors node,disk,kernel --output evidence.json
 ```
 
-This does not register with the backend.
+## Collector Package
 
-## Registration And Heartbeat
+Collectors are organized as a package and exposed through a registry.
 
-The agent sends:
+```text
+node_agent/collectors/
+  registry.py
+  common.py
+  node.py
+  kubernetes.py
+  systemd.py
+  kernel.py
+  disk.py
+  inode.py
+  memory.py
+  process.py
+  network.py
+  conntrack.py
+  runtime.py
+  kubelet.py
+  cni.py
+  dns.py
+```
+
+Collector metadata can describe risk, timeout, output size, and privilege needs.
+
+## State And Spool
+
+The agent stores node token and unsent evidence responses under `AGENT_STATE_DIR`.
+
+Default:
+
+```text
+/tmp/cluster-infra-rca-agent
+```
+
+Important properties:
+
+- node token is stored locally after registration
+- evidence responses are spooled before submit
+- successful submit acknowledges and removes spool entry
+- closed requests can be acknowledged and discarded
+- retry uses backoff to avoid tight failure loops
+
+## Environment Variables
+
+```text
+BACKEND_URL
+CLUSTER_ID
+AGENT_TOKEN
+NODE_NAME
+AGENT_STATE_DIR
+POLL_INTERVAL_SECONDS
+AGENT_MAX_SPOOL_FILES
+AGENT_MAX_SPOOL_BYTES
+AGENT_CA_BUNDLE
+AGENT_CLIENT_CERT
+AGENT_CLIENT_KEY
+EBPF_ENABLED
+EBPF_EVENT_QUEUE_SIZE
+```
+
+## Agent Protocol
+
+The agent reports:
 
 ```text
 agent_version
 agent_protocol_version
 supported_collectors
-metadata
 health
 ```
 
-The platform stores `agent_protocol_version` and shows compatibility state in Agent Health. Missing protocol version is treated as `1` for backward compatibility.
+Current protocol is defined by `node_agent.AGENT_PROTOCOL_VERSION` and exposed by the platform through `/api/v1/platform/info`.
 
-## Collector Principles
+Unsupported versions are shown as `version_mismatch` in Agent Health. The current compatibility mode is soft classification, not hard rejection.
 
-Collectors must remain:
+## eBPF Events
 
-- read-only
-- timeout-bounded
-- output-size-aware
-- tolerant of missing host tools
-- safe for restricted Kubernetes nodes
-- easy to disable or extend later
-
-Collector metadata should describe risk and requirements.
-
-```json
-{
-  "name": "conntrack",
-  "risk_level": "read_only",
-  "requires_host_network": true,
-  "requires_privileged": false,
-  "default_timeout_seconds": 5,
-  "max_output_bytes": 1048576,
-  "enabled_by_default": true
-}
-```
-
-## Spool And Retry
-
-When the backend is temporarily unavailable, evidence responses are stored under `AGENT_STATE_DIR` and retried later.
-
-The state store should enforce:
+eBPF collection is optional and disabled by default. When enabled, realtime events are submitted through:
 
 ```text
-file permission hardening
-atomic writes
-spool file count limit
-spool byte limit
-invalid spool quarantine
-acknowledge after backend success
+POST /api/agents/realtime-events
 ```
 
-## Optional eBPF
+eBPF may require additional Linux capabilities depending on kernel and environment.
 
-The agent can collect realtime eBPF signals such as OOM kill, TCP retransmit, and DNS latency events. eBPF is disabled by default.
+## Removed Action Execution
 
-Helm values should enable eBPF explicitly:
+The agent no longer executes approved actions.
 
-```yaml
-ebpf:
-  enabled: true
-  legacySysAdmin: false
-```
+- no action executor is created in the main loop
+- no host mutation command is run by the agent
+- old action polling endpoint receives no executable work
+- action result submission is disabled server-side
 
-Only eBPF mode requires additional Linux capabilities. Approved actions no longer add `SYS_ADMIN`, `SYS_PTRACE`, or `SYS_CHROOT`.
+This keeps the agent focused on evidence collection.
 
-## Removed Mutation Execution
+## Security Notes
 
-The previous approved-action executor has been removed.
+- Use TLS for backend communication.
+- Use `AGENT_CA_BUNDLE` for private CA environments.
+- Use `AGENT_CLIENT_CERT` and `AGENT_CLIENT_KEY` together for mTLS.
+- Do not place bootstrap tokens in logs.
+- Keep state directory permissions restrictive.
 
-Current behavior:
+## Portfolio Message
 
-```text
-No node reboot
-No systemctl restart
-No kubectl delete/drain
-No shell command execution
-No host mutation from the agent
-```
-
-RCA recommendations remain report/runbook guidance. Operators execute changes outside the agent and then mark action requests as manually completed in the platform.
-
-## Collector List
-
-Typical collectors:
-
-```text
-node
-kubernetes
-systemd
-kernel
-disk
-inode
-memory
-process
-network
-conntrack
-runtime
-kubelet
-cni
-dns
-ebpf optional
-```
-
-## Testing
-
-Run local Python validation:
-
-```bash
-python -m compileall node_agent tests
-pytest
-```
-
-Recommended test focus:
-
-- collector parsing
-- missing host command behavior
-- spool retry
-- invalid spool file handling
-- mTLS client configuration
-- agent protocol version propagation
+> Node Agent는 장애 조치를 수행하는 자동 복구 에이전트가 아니라, Kubernetes node와 Linux system evidence를 안전하게 수집하는 read-only agent입니다.
