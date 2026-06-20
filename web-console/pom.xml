@@ -124,7 +124,7 @@
     <dependency>
       <groupId>org.webjars.npm</groupId>
       <artifactId>react</artifactId>
-      <version>18.2.0</version>
+      <version>19.2.7</version>
     </dependency>
     <dependency>
       <groupId>org.webjars.npm</groupId>
