@@ -10,6 +10,8 @@ Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=tru
 
 동일 노드·경보·원인으로 반복되는 evidence는 설정된 시간 구간 안에서 하나의 incident로 묶습니다. 조치 요청, 승인, 거절, 로그인, 클러스터 변경은 audit event로 기록됩니다.
 
+Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태 분류와 수집된 pod/workload 영향 범위를 확인할 수 있습니다. 보고서 또는 incident의 분석 근거는 redaction된 ZIP bundle로 내려받을 수 있습니다.
+
 ## Architecture
 
 ```text
@@ -40,6 +42,26 @@ Alertmanager 또는 수동 수집 요청
 - NIC link flap, conntrack 고갈, 노드 네트워크 장애
 
 `CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`, HTTP 5xx 등은 보조 증거로 취급합니다.
+
+## Demo Scenario
+
+개발 환경에서는 `RCA_DEMO_ENABLED=true`로 10개 대표 장애 시나리오를 실행할 수 있습니다. 생성된 evidence는 실제 Agent evidence와 같은 queue, Rule-based 분석, incident/report 흐름을 사용합니다. 운영 profile에서는 Demo Mode가 활성화되면 시작 단계에서 차단됩니다.
+
+주요 설정:
+
+```text
+RCA_DEMO_ENABLED=false
+RCA_EXPORT_MAX_BUNDLE_BYTES=10485760
+RCA_AGENT_EXPECTED_VERSION=
+```
+
+중요 incident를 Slack으로 알리려면 다음 값을 설정합니다. 알림 실패는 보고서 생성을 실패시키지 않으며 audit event로 남습니다.
+
+```text
+RCA_NOTIFICATION_ENABLED=true
+RCA_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+RCA_NOTIFICATION_MINIMUM_SEVERITY=critical
+```
 
 ## Quick Start
 

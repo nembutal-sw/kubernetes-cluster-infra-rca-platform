@@ -34,6 +34,10 @@ public final class RcaModels {
         registered, healthy, degraded, offline
     }
 
+    public enum AgentHealthStatus {
+        healthy, stale, offline, unauthorized, version_mismatch, collector_degraded
+    }
+
     public enum EvidenceRequestStatus {
         pending, completed, failed
     }
@@ -161,6 +165,22 @@ public final class RcaModels {
         Map<String, Object> health,
         Instant registeredAt,
         Instant lastHeartbeatAt
+    ) {
+    }
+
+    public record AgentHealthView(
+        String agentId,
+        String clusterId,
+        String nodeName,
+        String agentVersion,
+        AgentHealthStatus healthStatus,
+        AgentStatus reportedStatus,
+        List<String> supportedCollectors,
+        Map<String, Object> health,
+        Instant registeredAt,
+        Instant lastHeartbeatAt,
+        long heartbeatAgeSeconds,
+        List<String> reasons
     ) {
     }
 
@@ -330,6 +350,31 @@ public final class RcaModels {
     ) {
     }
 
+    public record DemoScenarioRunRequest(
+        boolean confirmed,
+        String clusterId,
+        @Size(max = 255) String nodeName
+    ) {
+        public String nodeNameOrDefault() {
+            return nodeName == null || nodeName.isBlank() ? "demo-worker-01" : nodeName.trim();
+        }
+    }
+
+    public record DemoScenario(
+        String key,
+        String name,
+        String alertName,
+        String description
+    ) {
+    }
+
+    public record DemoScenarioRunResponse(
+        DemoScenario scenario,
+        ClusterView cluster,
+        AnalysisTask analysisTask
+    ) {
+    }
+
     public record UserLoginRequest(
         @NotBlank @Size(max = 255) String username,
         @NotBlank @Size(max = 256) String password
@@ -378,8 +423,34 @@ public final class RcaModels {
     public record RootCauseCandidate(
         String cause,
         Confidence confidence,
-        List<String> supportingEvidence
+        List<String> supportingEvidence,
+        int confidenceScore,
+        List<String> evidencePaths
     ) {
+        public RootCauseCandidate(
+            String cause,
+            Confidence confidence,
+            List<String> supportingEvidence
+        ) {
+            this(cause, confidence, supportingEvidence, defaultScore(confidence), List.of());
+        }
+
+        public RootCauseCandidate {
+            confidenceScore = Math.max(0, Math.min(100, confidenceScore));
+            supportingEvidence = supportingEvidence == null ? List.of() : List.copyOf(supportingEvidence);
+            evidencePaths = evidencePaths == null ? List.of() : List.copyOf(evidencePaths);
+        }
+
+        private static int defaultScore(Confidence confidence) {
+            if (confidence == null) {
+                return 0;
+            }
+            return switch (confidence) {
+                case high -> 80;
+                case medium -> 55;
+                case low -> 25;
+            };
+        }
     }
 
     public record RecommendedAction(

@@ -1188,3 +1188,71 @@ pre,
 .execution-error {
   color: #fecaca;
 }
+
+.demo-scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: .75rem;
+}
+
+.demo-scenario-card {
+  display: grid;
+  gap: .75rem;
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: .5rem;
+  background: #fbfcfd;
+  padding: .9rem;
+}
+
+.demo-scenario-card .btn {
+  justify-self: start;
+}
+
+.candidate-score {
+  color: var(--console-blue);
+  font-size: .85rem;
+}
+
+.confidence-meter {
+  width: 100%;
+  height: .35rem;
+  overflow: hidden;
+  border-radius: .2rem;
+  background: #e4e9ef;
+}
+
+.confidence-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--console-blue);
+}
+
+.impact-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.impact-scope-item {
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: .5rem;
+  background: #fbfcfd;
+  padding: .8rem;
+}
+
+@media (max-width: 520px) {
+  .demo-scenario-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .impact-scope-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-scenario-card .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

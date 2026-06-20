@@ -69,6 +69,7 @@ platform:
     publicApiBaseUrl: ""
     sessionTtlHours: 12
     agentOfflineAfterSeconds: 180
+    agentExpectedVersion: ""
     monitoringEnabled: false
     monitoringIntervalMs: 60000
     llmEnabled: false
@@ -83,6 +84,11 @@ platform:
     auditEnabled: true
     auditRetentionDays: 180
     demoEnabled: false
+    exportMaxBundleBytes: 10485760
+    notificationEnabled: false
+    notificationMinimumSeverity: critical
+    notificationMaxAttempts: 2
+    notificationTimeoutSeconds: 5
     pipelineEnabled: true
     pipelineBatchSize: 4
     pipelinePollIntervalMs: 2000
@@ -101,6 +107,7 @@ platform:
     defaultAdminPassword: admin
     webhookToken: dev-webhook-token
     encryptionSecret: ""
+    slackWebhookUrl: ""
     openaiApiKey: ""
     anthropicApiKey: ""
     geminiApiKey: ""

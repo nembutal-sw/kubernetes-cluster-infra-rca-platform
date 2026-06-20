@@ -73,6 +73,10 @@ class RuleBasedScenarioTests {
 
         assertThat(signalNames(report)).contains(expectedSignal);
         assertThat(report.rootCauseCandidates()).isNotEmpty();
+        assertThat(report.rootCauseCandidates()).allSatisfy(candidate -> {
+            assertThat(candidate.confidenceScore()).isBetween(0, 100);
+            assertThat(candidate.evidencePaths()).isNotNull();
+        });
         assertThat(report.recommendedActions()).isNotEmpty();
         assertThat(report.recommendedActions())
             .allSatisfy(action -> {

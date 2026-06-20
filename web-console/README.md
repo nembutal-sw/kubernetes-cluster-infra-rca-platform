@@ -10,6 +10,9 @@ Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다.
 - PostgreSQL/MariaDB JDBC 저장소와 Flyway migration
 - Rule-based Analyzer, Policy Engine, Spring AI 연동
 - 장애 전파 타임라인과 승인 기반 Agent 조치 실행
+- Demo Scenario Mode와 후보별 0~100 신뢰도 점수
+- Agent Health 분류와 redacted Evidence ZIP export
+- Kubernetes evidence 기반 workload 영향 범위와 선택적 Slack 알림
 
 ## Run
 
@@ -41,3 +44,5 @@ java -jar target\cluster-infra-rca-platform-0.1.0.jar
 ```
 
 브라우저 API는 별도 proxy 없이 같은 Spring Boot origin의 `/api/**`를 직접 호출합니다.
+
+개발 환경에서 Demo Mode를 활성화하려면 `RCA_DEMO_ENABLED=true`를 사용합니다. Evidence ZIP의 압축 전 최대 크기는 `RCA_EXPORT_MAX_BUNDLE_BYTES`, Agent 기준 버전은 `RCA_AGENT_EXPECTED_VERSION`으로 설정합니다. Slack 알림은 `RCA_NOTIFICATION_ENABLED`와 `RCA_SLACK_WEBHOOK_URL`로 활성화합니다.

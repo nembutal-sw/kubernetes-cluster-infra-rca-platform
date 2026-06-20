@@ -17,6 +17,7 @@ import "./styles.css";
     { id: "incidents", label: "Incidents", icon: "exclamation-diamond" },
     { id: "pipeline", label: "Pipeline", icon: "list-task" },
     { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
+    { id: "demo", label: "Demo Scenarios", icon: "play-circle" },
     { id: "audit", label: "Audit", icon: "journal-check" },
     { id: "settings", label: "Settings", icon: "sliders" },
   ];
@@ -601,6 +602,7 @@ import "./styles.css";
     const [incidents, setIncidents] = React.useState([]);
     const [analysisTasks, setAnalysisTasks] = React.useState([]);
     const [auditEvents, setAuditEvents] = React.useState([]);
+    const [demoScenarios, setDemoScenarios] = React.useState({ loading: true, enabled: false, items: [] });
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
     const [installCommands, setInstallCommands] = React.useState({});
@@ -738,6 +740,21 @@ import "./styles.css";
       }
     }, [authHeaders, callApi, notify]);
 
+    const loadDemoScenarios = React.useCallback(async (silent) => {
+      try {
+        setDemoScenarios((value) => ({ ...value, loading: true }));
+        const result = await callApi("/api/demo/scenarios", { headers: authHeaders() });
+        setDemoScenarios({
+          loading: false,
+          enabled: result.enabled === true,
+          items: Array.isArray(result.scenarios) ? result.scenarios : [],
+        });
+      } catch (error) {
+        setDemoScenarios({ loading: false, enabled: false, items: [], error: error.message });
+        if (!silent) notify(error.message);
+      }
+    }, [authHeaders, callApi, notify]);
+
     const refreshAll = React.useCallback(async (silent) => {
       await Promise.allSettled([
         loadClusters(silent),
@@ -745,9 +762,10 @@ import "./styles.css";
         loadIncidents(silent),
         loadAnalysisTasks(silent),
         loadAuditEvents(silent),
+        loadDemoScenarios(silent),
       ]);
       setLastRefresh(new Date());
-    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents]);
+    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents, loadDemoScenarios]);
 
     React.useEffect(() => {
       loadCurrentUser(true);
@@ -793,6 +811,7 @@ import "./styles.css";
       setIncidents([]);
       setAnalysisTasks([]);
       setAuditEvents([]);
+      setDemoScenarios({ loading: true, enabled: false, items: [] });
       setReportDetails({});
       setAgentsByCluster({});
       setClusterData(null);
@@ -864,7 +883,7 @@ import "./styles.css";
     async function loadAgents(clusterId) {
       try {
         setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: true, items: [] } }));
-        const agents = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agents`, {
+        const agents = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, {
           headers: authHeaders(),
         });
         setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: false, items: agents } }));
@@ -878,7 +897,7 @@ import "./styles.css";
       try {
         const [cluster, agents, evidenceRequests, allReports] = await Promise.all([
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}`, { headers: authHeaders() }),
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agents`, { headers: authHeaders() }),
+          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests`, { headers: authHeaders() }),
           callApi("/api/rca/reports", { headers: authHeaders() }),
         ]);
@@ -1128,6 +1147,35 @@ import "./styles.css";
       );
     }
 
+    async function downloadEvidenceBundle(reportId) {
+      if (!reportId) return;
+      await downloadApiFile(
+        `/api/rca/reports/${encodeURIComponent(reportId)}/bundle`,
+        `incident-${reportId}.zip`,
+        "Evidence bundle downloaded."
+      );
+    }
+
+    async function runDemoScenario(scenario) {
+      if (!demoScenarios.enabled) {
+        notify("Demo Scenario Mode is disabled.");
+        return;
+      }
+      if (!window.confirm(`Run demo scenario: ${scenario.name}?`)) return;
+      try {
+        const result = await callApi(`/api/demo/scenarios/${encodeURIComponent(scenario.key)}/run`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ confirmed: true }),
+        });
+        notify(`Demo queued: ${result.analysis_task.task_id}`);
+        await Promise.all([loadClusters(true), loadAnalysisTasks(false)]);
+        setActiveView("pipeline");
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+
     async function downloadApiFile(path, fallbackFilename, message) {
       let response;
       try {
@@ -1250,6 +1298,7 @@ import "./styles.css";
           onPrepareAction: prepareRecommendedAction,
           onExportReports: () => downloadReportsExport(),
           onExportReport: downloadReportExport,
+          onExportBundle: downloadEvidenceBundle,
           onCopy: copyText,
           currentUser,
           onDecideAction: decideActionRequest,
@@ -1258,6 +1307,12 @@ import "./styles.css";
           events: auditEvents,
           loading: loading.audit,
           onReload: () => loadAuditEvents(false),
+        }),
+        activeView === "demo" && h(DemoScenariosView, {
+          state: demoScenarios,
+          onReload: () => loadDemoScenarios(false),
+          onRun: runDemoScenario,
+          canRun: ["admin", "operator"].includes(currentUser?.role),
         }),
         activeView === "settings" && h(SettingsView, {
           apiBase,
@@ -1716,6 +1771,7 @@ import "./styles.css";
     onPrepareAction,
     onExportReports,
     onExportReport,
+    onExportBundle,
     onCopy,
     currentUser,
     onDecideAction,
@@ -1760,6 +1816,7 @@ import "./styles.css";
                 detail,
                 onPrepareAction,
                 onExportReport,
+                onExportBundle,
                 onCopy,
                 currentUser,
                 onDecideAction,
@@ -1795,12 +1852,54 @@ import "./styles.css";
               )
             ),
             detail?.open && h("div", { className: "mobile-card-expanded" },
-              h(ReportDetail, { detail, onPrepareAction, onExportReport, onCopy, currentUser, onDecideAction })
+              h(ReportDetail, { detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction })
             )
           );
         })
       )
     ) : h(EmptyState, { message: "No reports loaded." }));
+  }
+
+  function DemoScenariosView({ state, onReload, onRun, canRun }) {
+    return h("div", { className: "d-grid gap-3" },
+      h(Panel, {
+        title: "Demo Scenarios",
+        subtitle: state.enabled
+          ? "Generate evidence through the same RCA analysis pipeline used by node agents."
+          : "Disabled by configuration. Set RCA_DEMO_ENABLED=true outside production.",
+        action: h("button", {
+          type: "button",
+          className: "btn btn-sm btn-outline-secondary btn-icon",
+          onClick: onReload,
+        }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+      },
+      state.loading
+        ? h(EmptyState, { message: "Loading demo scenarios." })
+        : state.error
+          ? h(EmptyState, { message: state.error })
+          : h("div", { className: "demo-scenario-grid" },
+              state.items.map((scenario) => h("article", {
+                key: scenario.key,
+                className: "demo-scenario-card",
+              },
+              h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
+                h("div", null,
+                  h("strong", null, scenario.name),
+                  h("div", { className: "small text-muted font-monospace mt-1" }, scenario.alert_name)
+                ),
+                h(StatusBadge, { value: state.enabled ? "ready" : "disabled", tone: state.enabled ? "green" : "amber" })
+              ),
+              h("p", { className: "small text-muted mb-0" }, scenario.description),
+              h("button", {
+                type: "button",
+                className: "btn btn-sm btn-outline-primary btn-icon",
+                disabled: !state.enabled || !canRun,
+                onClick: () => onRun(scenario),
+              }, h(Icon, { name: "play-fill" }), "Run")
+              ))
+            )
+      )
+    );
   }
 
   function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage }) {
@@ -1922,7 +2021,15 @@ import "./styles.css";
           h("thead", null, h("tr", null, h("th", null, tr("Node")), h("th", null, tr("Status")), h("th", null, tr("Version")), h("th", null, tr("Last seen")))),
           h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
             h("td", { className: "font-monospace small" }, agent.node_name),
-            h("td", null, h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })),
+            h("td", null,
+              h(StatusBadge, {
+                value: agent.health_status || agent.status || "unknown",
+                tone: agentStatusTone(agent.health_status || agent.status),
+              }),
+              (agent.reasons || []).length
+                ? h("div", { className: "small text-muted mt-1" }, agent.reasons.join(" "))
+                : null
+            ),
             h("td", null, agent.agent_version || "n/a"),
             h("td", null, formatAgentLastSeen(agent))
           )))
@@ -1934,11 +2041,17 @@ import "./styles.css";
             h("div", { className: "mobile-card-title" },
               h("strong", { className: "font-monospace" }, agent.node_name)
             ),
-            h(StatusBadge, { value: agent.status || "unknown", tone: agentStatusTone(agent.status) })
+            h(StatusBadge, {
+              value: agent.health_status || agent.status || "unknown",
+              tone: agentStatusTone(agent.health_status || agent.status),
+            })
           ),
           h("div", { className: "mobile-field-grid" },
             h(MobileField, { label: "Version", value: agent.agent_version || "n/a" }),
-            h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) })
+            h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) }),
+            (agent.reasons || []).length
+              ? h(MobileField, { label: "Reason", value: agent.reasons.join(" ") })
+              : null
           )
         ))
       )
@@ -2230,7 +2343,7 @@ import "./styles.css";
     );
   }
 
-  function ReportDetail({ detail, onPrepareAction, onExportReport, onCopy, currentUser, onDecideAction }) {
+  function ReportDetail({ detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction }) {
     if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
     if (detail.error) return h(EmptyState, { message: detail.error });
     const report = detail.report;
@@ -2239,12 +2352,17 @@ import "./styles.css";
     const llm = section(report, "llm_analysis")?.analysis || {};
     const actions = report.recommended_actions || [];
     return h("div", { className: "d-grid gap-3" },
-      h("div", { className: "d-flex justify-content-end" },
+      h("div", { className: "d-flex justify-content-end gap-2 flex-wrap" },
         h("button", {
           type: "button",
           className: "btn btn-sm btn-outline-secondary btn-icon",
           onClick: () => onExportReport(report.report_id),
-        }, h(Icon, { name: "download" }), tr("Export"))
+        }, h(Icon, { name: "filetype-json" }), tr("Export")),
+        h("button", {
+          type: "button",
+          className: "btn btn-sm btn-outline-secondary btn-icon",
+          onClick: () => onExportBundle(report.report_id),
+        }, h(Icon, { name: "file-earmark-zip" }), "Evidence Bundle")
       ),
       h(ReportSummaryStrip, { report, llm, actions }),
       h(PolicyOverview, { actions }),
@@ -2255,6 +2373,13 @@ import "./styles.css";
         ),
         h(TimelineGraph, { timeline: detail.timeline })
       ) : null,
+      h("section", { className: "report-section" },
+        h("div", { className: "report-section-title" },
+          h("h3", { className: "h6 mb-0" }, tr("Impact Scope")),
+          h("span", { className: "small text-muted" }, displayText(report.scope?.impact_assessment))
+        ),
+        h(ImpactScope, { scope: report.scope || {} })
+      ),
       h("section", { className: "report-section" },
         h("div", { className: "report-section-title" },
           h("h3", { className: "h6 mb-0" }, tr("Root Cause Candidates")),
@@ -2296,6 +2421,25 @@ import "./styles.css";
           onDecideAction,
         })
       )
+    );
+  }
+
+  function ImpactScope({ scope }) {
+    const groups = [
+      ["Affected Pods", scope.affected_pods || []],
+      ["Affected Namespaces", scope.affected_namespaces || []],
+      ["Affected Workloads", scope.affected_workloads || []],
+      ["Affected Services", scope.affected_services || []],
+    ];
+    const hasInventory = groups.some(([, values]) => values.length);
+    if (!hasInventory) {
+      return h(EmptyState, { message: scope.impact_assessment || "No workload inventory was available in the collected evidence." });
+    }
+    return h("div", { className: "impact-scope-grid" },
+      groups.map(([label, values]) => h("div", { key: label, className: "impact-scope-item" },
+        h("div", { className: "small fw-semibold mb-2" }, tr(label)),
+        h(ChipList, { items: values, tone: "blue", empty: tr("No items.") })
+      ))
     );
   }
 
@@ -2441,8 +2585,22 @@ import "./styles.css";
     return h("div", { className: "candidate-list" }, items.map((item, index) => h("article", { key: index, className: "candidate-card" },
       h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
         h("strong", null, `${index + 1}. ${displayText(item[titleKey] || "Unknown cause")}`),
-        h(StatusBadge, { value: item[metaKey], tone: confidenceTone(item[metaKey]) })
+        h("div", { className: "d-flex align-items-center gap-2 flex-wrap justify-content-end" },
+          Number.isFinite(item.confidence_score)
+            ? h("strong", { className: "candidate-score" }, `${item.confidence_score}%`)
+            : null,
+          h(StatusBadge, { value: item[metaKey], tone: confidenceTone(item[metaKey]) })
+        )
       ),
+      Number.isFinite(item.confidence_score)
+        ? h("div", {
+            className: "confidence-meter mt-2",
+            role: "progressbar",
+            "aria-valuenow": item.confidence_score,
+            "aria-valuemin": 0,
+            "aria-valuemax": 100,
+          }, h("span", { style: { width: `${Math.max(0, Math.min(100, item.confidence_score))}%` } }))
+        : null,
       h("div", { className: "small text-muted mt-1" }, displayText(listValue(item[textKey]))),
       h(ChipList, { items: item.evidence_paths || [], tone: "blue", empty: null })
     )));
@@ -2728,8 +2886,8 @@ import "./styles.css";
 
   function agentStatusTone(value) {
     if (value === "healthy") return "green";
-    if (value === "offline") return "red";
-    if (value === "degraded") return "amber";
+    if (value === "offline" || value === "unauthorized") return "red";
+    if (["degraded", "stale", "version_mismatch", "collector_degraded"].includes(value)) return "amber";
     return "blue";
   }
 

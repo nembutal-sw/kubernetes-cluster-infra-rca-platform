@@ -74,6 +74,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         }
         validatePublicBaseUrl(violations);
         validateLlm(violations);
+        validateNotification(violations);
         if (properties.getDemo().isEnabled()) {
             violations.add("RCA_DEMO_ENABLED must be false in production");
         }
@@ -134,6 +135,21 @@ public class ProductionSecurityValidator implements InitializingBean {
         } else if (credentialProperty != null
             && normalized(environment.getProperty(credentialProperty, "")).isEmpty()) {
             violations.add(credentialProperty + " is required for the configured LLM provider");
+        }
+    }
+
+    private void validateNotification(List<String> violations) {
+        if (!properties.getNotification().isEnabled()) {
+            return;
+        }
+        String webhookUrl = properties.getNotification().getSlackWebhookUrl();
+        try {
+            URI uri = URI.create(webhookUrl);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+                violations.add("RCA_SLACK_WEBHOOK_URL must be an absolute HTTPS URL");
+            }
+        } catch (IllegalArgumentException exception) {
+            violations.add("RCA_SLACK_WEBHOOK_URL must be an absolute HTTPS URL");
         }
     }
 

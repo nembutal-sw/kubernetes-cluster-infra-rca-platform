@@ -68,6 +68,7 @@ rca:
   agent:
     image: ${RCA_AGENT_IMAGE:ghcr.io/example/cluster-infra-rca-agent:latest}
     namespace: ${RCA_AGENT_NAMESPACE:rca-system}
+    expected-version: ${RCA_AGENT_EXPECTED_VERSION:}
     poll-interval-seconds: ${RCA_AGENT_POLL_INTERVAL_SECONDS:30}
     http-timeout-seconds: ${RCA_AGENT_HTTP_TIMEOUT_SECONDS:20}
     command-timeout-seconds: ${RCA_AGENT_COMMAND_TIMEOUT_SECONDS:10}
@@ -89,6 +90,14 @@ rca:
     encryption-secret: ${RCA_ENCRYPTION_SECRET:}
   demo:
     enabled: ${RCA_DEMO_ENABLED:false}
+  export:
+    max-bundle-bytes: ${RCA_EXPORT_MAX_BUNDLE_BYTES:10485760}
+  notification:
+    enabled: ${RCA_NOTIFICATION_ENABLED:false}
+    slack-webhook-url: ${RCA_SLACK_WEBHOOK_URL:}
+    minimum-severity: ${RCA_NOTIFICATION_MINIMUM_SEVERITY:critical}
+    max-attempts: ${RCA_NOTIFICATION_MAX_ATTEMPTS:2}
+    timeout-seconds: ${RCA_NOTIFICATION_TIMEOUT_SECONDS:5}
   pipeline:
     enabled: ${RCA_PIPELINE_ENABLED:true}
     batch-size: ${RCA_PIPELINE_BATCH_SIZE:4}

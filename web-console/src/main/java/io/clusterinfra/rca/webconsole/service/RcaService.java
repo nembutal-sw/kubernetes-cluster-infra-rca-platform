@@ -37,6 +37,7 @@ public class RcaService {
     private final RcaConsoleProperties properties;
     private final TokenService tokens;
     private final AuditService audit;
+    private final IncidentNotificationService notifications;
 
     public RcaService(
         ClusterRepository clusters,
@@ -47,7 +48,8 @@ public class RcaService {
         RuleBasedRcaAnalyzer analyzer,
         RcaConsoleProperties properties,
         TokenService tokens,
-        AuditService audit
+        AuditService audit,
+        IncidentNotificationService notifications
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -58,6 +60,7 @@ public class RcaService {
         this.properties = properties;
         this.tokens = tokens;
         this.audit = audit;
+        this.notifications = notifications;
     }
 
     public WebhookIngestResponse ingestAlertmanager(AlertmanagerPayload payload) {
@@ -176,6 +179,11 @@ public class RcaService {
                 "report_id", saved.reportId()
             )
         );
+        if (!duplicate) {
+            reports.findReport(saved.reportId()).ifPresent(savedReport ->
+                notifications.notifyIncident(savedReport, evidence)
+            );
+        }
         return saved;
     }
 

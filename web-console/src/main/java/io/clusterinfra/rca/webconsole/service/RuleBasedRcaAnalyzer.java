@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
+import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
 import io.clusterinfra.rca.webconsole.analysis.Signal;
 import io.clusterinfra.rca.webconsole.analysis.SignalDetectionEngine;
@@ -36,6 +37,7 @@ public class RuleBasedRcaAnalyzer {
     private final SignalDetectionEngine detectionEngine;
     private final ConfidenceScorer confidenceScorer;
     private final RootCauseCandidateBuilder candidateBuilder;
+    private final ImpactScopeAnalyzer impactScopeAnalyzer;
 
     public RuleBasedRcaAnalyzer(
         PolicyEngine policyEngine,
@@ -44,7 +46,8 @@ public class RuleBasedRcaAnalyzer {
         ObjectMapper objectMapper,
         SignalDetectionEngine detectionEngine,
         ConfidenceScorer confidenceScorer,
-        RootCauseCandidateBuilder candidateBuilder
+        RootCauseCandidateBuilder candidateBuilder,
+        ImpactScopeAnalyzer impactScopeAnalyzer
     ) {
         this.policyEngine = policyEngine;
         this.llm = llm;
@@ -53,6 +56,7 @@ public class RuleBasedRcaAnalyzer {
         this.detectionEngine = detectionEngine;
         this.confidenceScorer = confidenceScorer;
         this.candidateBuilder = candidateBuilder;
+        this.impactScopeAnalyzer = impactScopeAnalyzer;
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
@@ -94,14 +98,25 @@ public class RuleBasedRcaAnalyzer {
         if (components.isEmpty()) {
             components.add(componentForAlert(evidence.alertName()));
         }
+        Map<String, Object> scope = new LinkedHashMap<>();
+        scope.put("nodes", List.of(evidence.nodeName()));
+        scope.put("components", List.copyOf(components));
+        scope.putAll(impactScopeAnalyzer.analyze(evidence.collectors(), evidence.nodeName()));
 
+        boolean demo = isDemoEvidence(evidence.collectors());
+        Map<String, Object> trigger = new LinkedHashMap<>();
+        trigger.put("source", demo ? "demo" : "evidence");
+        trigger.put("alert_name", evidence.alertName());
+        if (demo) {
+            trigger.put("demo", true);
+        }
         return new RcaReport(
             reportId,
             evidence.clusterId(),
             null,
             RcaJobStatus.completed,
-            Map.of("source", "evidence", "alert_name", evidence.alertName()),
-            Map.of("nodes", List.of(evidence.nodeName()), "components", List.copyOf(components)),
+            Map.copyOf(trigger),
+            Map.copyOf(scope),
             new RcaSummary(evidence.alertName(), mostLikely.cause(), confidence),
             reportEvidence,
             candidates,
@@ -109,6 +124,15 @@ public class RuleBasedRcaAnalyzer {
             actions,
             Instant.now()
         );
+    }
+
+    private boolean isDemoEvidence(Map<String, Object> collectors) {
+        Object metadata = collectors.get("_meta");
+        if (!(metadata instanceof Map<?, ?> values)) {
+            return false;
+        }
+        return Boolean.TRUE.equals(values.get("demo"))
+            || "demo".equalsIgnoreCase(String.valueOf(values.get("source")));
     }
 
     public boolean hasActionableSignals(Map<String, Object> collectors) {
@@ -297,7 +321,9 @@ public class RuleBasedRcaAnalyzer {
             merged.add(new RootCauseCandidate(
                 cause,
                 confidence(item.get("confidence")),
-                stringList(item.get("supporting_evidence"))
+                stringList(item.get("supporting_evidence")),
+                25,
+                List.of()
             ));
         });
         return merged;

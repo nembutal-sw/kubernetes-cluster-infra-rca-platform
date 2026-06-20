@@ -16,6 +16,8 @@ public class RcaConsoleProperties {
     private final Audit audit = new Audit();
     private final Security security = new Security();
     private final Demo demo = new Demo();
+    private final Export export = new Export();
+    private final Notification notification = new Notification();
     private final Pipeline pipeline = new Pipeline();
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
@@ -92,6 +94,14 @@ public class RcaConsoleProperties {
         return demo;
     }
 
+    public Export getExport() {
+        return export;
+    }
+
+    public Notification getNotification() {
+        return notification;
+    }
+
     public Pipeline getPipeline() {
         return pipeline;
     }
@@ -107,6 +117,7 @@ public class RcaConsoleProperties {
     public static class Agent {
         private String image = "ghcr.io/example/cluster-infra-rca-agent:latest";
         private String namespace = "rca-system";
+        private String expectedVersion = "";
         private int pollIntervalSeconds = 30;
         private int httpTimeoutSeconds = 20;
         private int commandTimeoutSeconds = 10;
@@ -125,6 +136,14 @@ public class RcaConsoleProperties {
 
         public void setNamespace(String namespace) {
             this.namespace = namespace;
+        }
+
+        public String getExpectedVersion() {
+            return expectedVersion == null ? "" : expectedVersion.trim();
+        }
+
+        public void setExpectedVersion(String expectedVersion) {
+            this.expectedVersion = expectedVersion;
         }
 
         public int getPollIntervalSeconds() {
@@ -281,6 +300,66 @@ public class RcaConsoleProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+    }
+
+    public static class Export {
+        private long maxBundleBytes = 10 * 1024 * 1024;
+
+        public long getMaxBundleBytes() {
+            return maxBundleBytes;
+        }
+
+        public void setMaxBundleBytes(long maxBundleBytes) {
+            this.maxBundleBytes = maxBundleBytes;
+        }
+    }
+
+    public static class Notification {
+        private boolean enabled;
+        private String slackWebhookUrl = "";
+        private String minimumSeverity = "critical";
+        private int maxAttempts = 2;
+        private int timeoutSeconds = 5;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getSlackWebhookUrl() {
+            return slackWebhookUrl == null ? "" : slackWebhookUrl.trim();
+        }
+
+        public void setSlackWebhookUrl(String slackWebhookUrl) {
+            this.slackWebhookUrl = slackWebhookUrl;
+        }
+
+        public String getMinimumSeverity() {
+            return minimumSeverity == null ? "critical" : minimumSeverity.trim();
+        }
+
+        public void setMinimumSeverity(String minimumSeverity) {
+            this.minimumSeverity = minimumSeverity;
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = maxAttempts;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
         }
     }
 

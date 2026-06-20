@@ -58,6 +58,8 @@ spec:
               value: {{ .Values.platform.config.sessionTtlHours | quote }}
             - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
+            - name: RCA_AGENT_EXPECTED_VERSION
+              value: {{ .Values.platform.config.agentExpectedVersion | quote }}
             - name: RCA_MONITORING_ENABLED
               value: {{ .Values.platform.config.monitoringEnabled | quote }}
             - name: RCA_MONITORING_INTERVAL_MS
@@ -86,6 +88,16 @@ spec:
               value: {{ .Values.platform.config.auditRetentionDays | quote }}
             - name: RCA_DEMO_ENABLED
               value: {{ .Values.platform.config.demoEnabled | quote }}
+            - name: RCA_EXPORT_MAX_BUNDLE_BYTES
+              value: {{ .Values.platform.config.exportMaxBundleBytes | quote }}
+            - name: RCA_NOTIFICATION_ENABLED
+              value: {{ .Values.platform.config.notificationEnabled | quote }}
+            - name: RCA_NOTIFICATION_MINIMUM_SEVERITY
+              value: {{ .Values.platform.config.notificationMinimumSeverity | quote }}
+            - name: RCA_NOTIFICATION_MAX_ATTEMPTS
+              value: {{ .Values.platform.config.notificationMaxAttempts | quote }}
+            - name: RCA_NOTIFICATION_TIMEOUT_SECONDS
+              value: {{ .Values.platform.config.notificationTimeoutSeconds | quote }}
             - name: RCA_PIPELINE_ENABLED
               value: {{ .Values.platform.config.pipelineEnabled | quote }}
             - name: RCA_PIPELINE_BATCH_SIZE
