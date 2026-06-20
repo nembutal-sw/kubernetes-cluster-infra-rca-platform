@@ -6,203 +6,128 @@ Web Console은 RCA Platform을 시각적으로 보여주는 포트폴리오 핵�
 
 현재 UI에서 강조해야 할 기능은 다음입니다.
 
-- Cluster 등록 및 Agent 설치 안내
-- Agent Health Dashboard
-- RCA Reports
-- Incident Timeline
-- Evidence Bundle Download
+- Cluster 등록과 Agent install manifest 확인
+- RCA report 목록과 상세 조회
+- Incident timeline
+- RCA confidence score
+- Impact scope
+- Agent health dashboard
+- Evidence bundle download
 - Demo Scenario Mode
-- Root Cause Candidate confidence score
-- Impact Scope
-- Observed Services와 service impact caveat
-- Manual-only Action Request Workflow
-- Audit Events
-- Platform/Agent protocol info
-- Observability metrics 접근 안내
+- Action request / manual approval workflow
+- Audit event 조회
+- Observability metrics link
+
+UI 메시지는 “자동 처리”보다 “근거 기반 RCA와 안전한 수동 운영 절차”를 강조해야 합니다.
 
 ---
 
 ## English Reference
 
-## Architecture
+## Frontend Shape
 
-The Web Console is served by the same Spring Boot application as the API.
+The Web Console is bundled inside the Spring Boot platform. It uses:
 
-```text
-Spring Boot
-  ├── API controllers
-  ├── JSP shell
-  └── React + Bootstrap UI assets
-```
+- JSP shell
+- React UI
+- Bootstrap 5 styling
+- same-origin API calls
 
-There is no separate frontend server or API proxy in the current deployment model.
+There is no separate frontend server or API proxy.
 
 ## Main Views
 
-### Dashboard
+| View | Purpose |
+| --- | --- |
+| Clusters | register clusters, inspect status, view agent install command |
+| Reports | inspect RCA reports and confidence scores |
+| Incidents | inspect correlation and timeline |
+| Pipeline | inspect analysis task queue |
+| Agent Health | classify agent freshness, version, and collector state |
+| Demo Scenarios | run fixture-based RCA demos |
+| Audit | review security and workflow events |
+| Actions | review manual action requests |
 
-Recommended content:
-
-- cluster count
-- active incidents
-- queued/dead-letter analysis tasks
-- offline/stale agents
-- latest reports
-- recent audit events
-
-### Clusters
-
-Cluster pages should show:
-
-- cluster metadata
-- install command
-- agent manifest access
-- registered agents
-- agent health classification
-- last heartbeat age
-- agent version/protocol version
-- collector health summary
-
-### RCA Reports
+## RCA Report UX
 
 Report detail should show:
 
-- summary
+- symptom
 - most likely cause
-- confidence level
+- confidence
 - root cause candidates
-- confidence score per candidate
-- matched evidence paths
+- confidence score
+- supporting evidence
+- evidence paths
 - derived signals
-- recommended actions
-- policy/guardrail labels
 - impact scope
-- evidence bundle download button
+- observed services vs confirmed affected services
+- recommended actions
+- policy classification
+- guardrails
 
-### Incidents
+## Evidence Bundle UX
 
-Incident detail should show:
+Evidence bundle download should be visible only to authorized operational roles. The UI should describe the bundle as a redacted diagnostic package.
 
-- correlated reports
-- first/last seen time
-- severity/symptom
-- affected node
-- timeline events
-- bundle export
-
-Timeline is RCA flow, not audit history.
-
-### Demo Scenarios
-
-Demo Mode allows reproducible portfolio demos without damaging a real cluster.
-
-Supported scenario types include:
+Recommended label:
 
 ```text
-Disk Pressure
-Memory Pressure
-Kubelet Failure
-Container Runtime Failure
-CoreDNS Latency
-CNI MTU Mismatch
-Conntrack Exhaustion
-Etcd Latency
-API Server Latency
-Systemd Restart Loop
+Download redacted evidence bundle
 ```
 
-Demo execution is available only when `RCA_DEMO_ENABLED=true` and is forbidden in production.
+## Demo Scenario UX
 
-### Action Requests
+Demo Scenario Mode should clearly indicate that it uses generated evidence fixtures.
 
-The UI must communicate that approval is manual-only.
-
-Good wording:
+Recommended copy:
 
 ```text
-Approval records authorization for a human-operated runbook. The platform and node agent will not execute this command.
+Demo scenarios use fixture evidence and run through the same RCA pipeline as agent-submitted evidence.
 ```
 
-Action request states:
+Demo mode must be disabled in production.
+
+## Manual Action UX
+
+Action UI should make the manual workflow clear.
+
+Recommended copy:
 
 ```text
-pending_approval
-approved_manual
-rejected
-completed_manual
-blocked
-accepted
+Approval records manual handling. Complete the request after the external runbook or review process is done.
 ```
 
-### Evidence Bundle Export
+For GitOps-style actions, show YAML previews as review material only.
 
-Export buttons should be visible only to roles allowed by the backend:
+## Agent Health UX
+
+Statuses:
 
 ```text
-ADMIN
-OPERATOR
+healthy
+stale
+offline
+unauthorized
+version_mismatch
+collector_degraded
 ```
 
-The download returns a redacted ZIP bundle.
+Show:
 
-### Impact Scope
+- node name
+- agent version
+- agent protocol version
+- platform protocol range
+- last heartbeat
+- heartbeat age
+- supported collectors
+- health reasons
 
-Use conservative labels:
+## Observability UX
 
-```text
-Affected Pods
-Affected Namespaces
-Affected Workloads
-Observed Services
-Service Impact Assessment
-```
+The UI can link to metrics documentation or show operational summaries, but raw actuator endpoints should remain protected.
 
-Avoid claiming a service is affected unless endpoint/selector/traffic correlation is implemented.
+## Portfolio Message
 
-## Platform Info
-
-The UI can call:
-
-```text
-GET /api/v1/platform/info
-```
-
-and display:
-
-```text
-platform version
-API version
-agent protocol version
-minimum supported agent protocol version
-minimum supported agent version
-```
-
-## RBAC UX
-
-Recommended UI behavior:
-
-```text
-VIEWER    hide mutation/export buttons
-APPROVER  show approval/rejection, hide export
-OPERATOR  show operation and export controls
-AUDITOR   show audit/metrics focused views
-ADMIN     show all configuration controls
-```
-
-Backend authorization remains the source of truth. UI hiding is only a usability layer.
-
-## Development
-
-```bash
-cd web-console/frontend
-npm ci
-npm run build
-```
-
-The Spring Boot build should package the generated frontend assets.
-
-## UX Principle
-
-The console should make the safety model obvious:
-
-> Explain the cause, show the evidence, preserve the audit trail, and keep risky remediation under human control.
+> Web Console은 장애의 결론만 보여주는 화면이 아니라, evidence, signal, confidence, timeline, impact scope, approval, audit까지 이어지는 운영 판단 과정을 보여주는 콘솔입니다.
