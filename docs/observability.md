@@ -4,21 +4,9 @@
 
 Platform 자체도 운영 대상이기 때문에 RCA 결과뿐 아니라 Platform의 상태도 관측 가능해야 합니다.
 
-현재 observability는 Spring Actuator와 Micrometer 기반입니다. Prometheus는 선택 사항이며, Helm chart에서 `ServiceMonitor`를 활성화할 수 있습니다.
+현재 프로젝트는 Micrometer와 Spring Actuator를 사용해 Agent heartbeat, analysis queue, dead-letter, evidence collection, report generation, LLM analysis, notification outcome 등을 metric으로 노출합니다. Prometheus 연동은 선택 사항이며, Helm chart에서 ServiceMonitor를 켤 수 있습니다.
 
-관측 대상은 다음입니다.
-
-- Agent offline count
-- Agent heartbeat lag
-- Analysis queue depth
-- Dead-letter task count
-- Webhook ingest count
-- Evidence request/response count
-- Evidence collection duration
-- Analysis task duration
-- Report generation duration
-- LLM analysis duration/result
-- Notification delivery result
+운영 metric은 공개 API가 아니며, 운영 권한 또는 별도 metric 전용 인증이 필요합니다.
 
 ---
 
@@ -28,119 +16,75 @@ Platform 자체도 운영 대상이기 때문에 RCA 결과뿐 아니라 Platfor
 
 ```text
 GET /actuator/metrics
+GET /actuator/metrics/{metricName}
 GET /actuator/prometheus
-GET /actuator/health
-GET /actuator/health/readiness
 ```
 
-Metrics endpoints require one of:
+Allowed roles:
 
 ```text
-ROLE_ADMIN
-ROLE_OPERATOR
-ROLE_AUDITOR
-ROLE_METRICS
+ADMIN, OPERATOR, AUDITOR, METRICS
 ```
 
-When `RCA_METRICS_TOKEN` is set, a Prometheus scraper can authenticate with:
-
-```text
-X-Metrics-Token: <token>
-Authorization: Bearer <token>
-```
+The `METRICS` role is intended for Prometheus or another trusted scraper.
 
 ## Configuration
 
-```yaml
-rca:
-  observability:
-    enabled: true
-    metrics-token: ${RCA_METRICS_TOKEN:}
-    refresh-interval-ms: 15000
-    initial-delay-ms: 5000
+```text
+RCA_OBSERVABILITY_ENABLED=true
+RCA_OBSERVABILITY_REFRESH_INTERVAL_MS=15000
+RCA_OBSERVABILITY_INITIAL_DELAY_MS=5000
 ```
 
-Production mode requires a non-default metrics token when observability is enabled.
+When observability is enabled in production, configure a non-default metric credential through deployment secrets.
 
-## Metrics
+## Core Metrics
 
-### Agent metrics
+| Metric | Meaning |
+| --- | --- |
+| `rca.agent.offline.count` | agents beyond heartbeat freshness threshold |
+| `rca.agent.heartbeat.lag.max.seconds` | max heartbeat lag across agents |
+| `rca.analysis.queue.depth` | queued/retry/processing analysis tasks |
+| `rca.analysis.dead.letter.count` | tasks currently in dead-letter |
+| `rca.webhook.ingest` | Alertmanager webhook payload count |
+| `rca.webhook.alerts` | Alertmanager alert count |
+| `rca.evidence.requests` | evidence requests created |
+| `rca.evidence.collection` | evidence responses received |
+| `rca.evidence.collection.duration` | request-to-response duration |
+| `rca.analysis.task.claimed` | tasks claimed by workers |
+| `rca.analysis.task.completed` | completed or skipped tasks |
+| `rca.analysis.task.failed` | failed task attempts |
+| `rca.report.generation` | RCA report generation attempts |
+| `rca.report.generation.duration` | report generation duration |
+| `rca.llm.analysis` | LLM analysis outcomes |
+| `rca.llm.analysis.duration` | LLM analysis duration |
+| `rca.notification` | incident notification outcomes |
+
+## Operational Gauge Refresh
+
+`OperationalMetricsRefresher` updates long-lived gauges on a schedule. It reads current agents and analysis task counts, then updates:
+
+- offline agent count
+- maximum heartbeat lag
+- queue depth
+- dead-letter count
+
+## Suggested SLOs
+
+Suggested starting points:
 
 ```text
-rca.agent.heartbeat
-rca.agent.offline.count
-rca.agent.heartbeat.lag.max.seconds
+Report generation p95 < 30s
+Analysis task processing p95 < 300s
+Evidence collection p95 < 300s
+LLM analysis p95 < 60s
+Dead-letter task count = 0
+Agent offline count = 0 for required nodes
 ```
 
-Use these to detect stale or missing node agents.
+## Prometheus Operator
 
-### Evidence metrics
-
-```text
-rca.evidence.requests
-rca.evidence.collection
-rca.evidence.collection.duration
-```
-
-Evidence collection duration measures request creation to agent response.
-
-### Analysis metrics
-
-```text
-rca.analysis.queue.depth
-rca.analysis.dead.letter.count
-rca.analysis.task.claimed
-rca.analysis.task.completed
-rca.analysis.task.failed
-rca.analysis.task.dead.letter
-rca.analysis.task.duration
-```
-
-These metrics show pipeline health and worker latency.
-
-### Report and incident metrics
-
-```text
-rca.report.generation
-rca.report.generation.duration
-rca.incident
-```
-
-`rca.incident` tags correlation outcomes such as created or duplicate/correlated reports.
-
-### LLM metrics
-
-```text
-rca.llm.analysis
-rca.llm.analysis.duration
-```
-
-LLM is optional. Failures should not prevent rule-based RCA from completing.
-
-### Notification metrics
-
-```text
-rca.notification
-```
-
-Tags include result and severity.
-
-## Gauges Refresh
-
-`OperationalMetricsRefresher` periodically updates gauges from repositories:
-
-```text
-agentOfflineCount
-agentHeartbeatLagMaxSeconds
-analysisQueueDepth
-analysisDeadLetterCount
-```
-
-This job is skipped when observability is disabled.
-
-## Helm ServiceMonitor
-
-Prometheus Operator users can enable:
+Enable ServiceMonitor in Helm:
 
 ```yaml
 platform:
@@ -148,33 +92,17 @@ platform:
     enabled: true
     interval: 30s
     scrapeTimeout: 10s
-    metricsTokenSecretKey: RCA_METRICS_TOKEN
 ```
 
-The generated `ServiceMonitor` scrapes `/actuator/prometheus` using bearer token authentication.
-
-## Suggested SLOs
-
-Initial portfolio-level SLOs:
+The ServiceMonitor scrapes:
 
 ```text
-99% of heartbeat requests accepted under 1s
-95% of evidence requests completed under 180s
-95% of RCA analysis tasks completed under 300s
-99% of report generation completed under 30s
-0 dead-letter tasks during normal demo scenarios
+/actuator/prometheus
 ```
 
-## Alert Ideas
+## Notes
 
-```text
-agent_offline_count > 0 for 5m
-analysis_queue_depth > 50 for 10m
-analysis_dead_letter_count > 0
-report_generation_p95 > 30s
-notification_failed_total > 0
-```
-
-## Important Note
-
-Observability must not expose sensitive evidence. Metrics should contain operational counters, durations, and low-cardinality tags only.
+- Metrics must not contain raw evidence or sensitive values.
+- Use low-cardinality tags only.
+- Notification failures should be observable but should not fail RCA report generation.
+- Gauge refresh is intentionally separated from incident processing.
