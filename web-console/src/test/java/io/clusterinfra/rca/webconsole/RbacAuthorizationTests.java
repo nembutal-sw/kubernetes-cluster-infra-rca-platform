@@ -74,6 +74,53 @@ class RbacAuthorizationTests {
             .andExpect(status().isForbidden());
     }
 
+    @Test
+    void viewerAndApproverCannotExportReportsOrEvidenceBundles() throws Exception {
+        for (UserRole role : List.of(UserRole.viewer, UserRole.approver)) {
+            mockMvc.perform(get("/api/rca/reports/export")
+                    .with(authentication(user(role))))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/rca/reports/missing/export")
+                    .with(authentication(user(role))))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/rca/reports/missing/bundle")
+                    .with(authentication(user(role))))
+                .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/rca/action-executions")
+                    .with(authentication(user(role))))
+                .andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void operatorCanMarkApprovedManualActionCompleteButApproverCannot() throws Exception {
+        String body = """
+            {"confirmed":true,"note":"handled through external runbook"}
+            """;
+        mockMvc.perform(post("/api/rca/action-requests/missing/complete-manual")
+                .with(authentication(user(UserRole.operator)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/rca/action-requests/missing/complete-manual")
+                .with(authentication(user(UserRole.approver)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void actuatorMetricsRequireOperationalRole() throws Exception {
+        mockMvc.perform(get("/actuator/metrics"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/actuator/metrics")
+                .with(authentication(user(UserRole.viewer))))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/actuator/metrics")
+                .with(authentication(user(UserRole.operator))))
+            .andExpect(status().isOk());
+    }
+
     private Authentication user(UserRole role) {
         UserAccount account = new UserAccount(
             "user-" + role.name(),

@@ -46,10 +46,13 @@ RCA 보고서는 장애 증상, 수집 증거, 원인 후보, 신뢰도, 영향 
   "automation_allowed": false,
   "requires_approval": true,
   "review_required": true,
-  "guardrails": [],
+  "guardrails": ["direct_agent_mutation_disabled"],
   "risk_factors": ["node_agent_disruption", "workload_status_change"]
 }
 ```
+
+조치의 command/YAML preview는 runbook 또는 GitOps PR 작성을 위한 안내입니다.
+`APPROVAL_REQUIRED`와 `GITOPS_PR_ONLY` 조치는 항상 `execution_plan.executable=false`입니다.
 
 ## 보고서 구성
 

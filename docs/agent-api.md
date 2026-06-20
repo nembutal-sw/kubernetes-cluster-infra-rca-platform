@@ -74,6 +74,7 @@ Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token
   "node_name": "worker-3",
   "agent_token": "bootstrap-token",
   "agent_version": "0.1.0",
+  "agent_protocol_version": "1",
   "supported_collectors": ["systemd", "disk", "network", "kubelet"],
   "metadata": {
     "kernel": "6.8.0",
@@ -91,6 +92,7 @@ Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token
   "node_name": "worker-3",
   "node_token": "node-specific-token",
   "agent_version": "0.1.0",
+  "agent_protocol_version": "1",
   "status": "registered",
   "supported_collectors": ["systemd", "disk", "network", "kubelet"],
   "metadata": {
@@ -124,6 +126,7 @@ Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token
   "node_token": "node-specific-token",
   "status": "healthy",
   "agent_version": "0.1.1",
+  "agent_protocol_version": "1",
   "supported_collectors": ["systemd", "disk", "network", "kubelet"],
   "health": {
     "kubelet": "active",
@@ -136,8 +139,16 @@ Heartbeat, evidence poll, evidence submit 요청은 `agent_token`과 `node_token
 
 - 등록되지 않은 Agent면 `404`
 - `last_heartbeat_at` 갱신
-- Agent status, version, collector list, health summary 갱신
+- Agent status, version, protocol version, collector list, health summary 갱신
 - 클러스터 `last_seen_at` 갱신
+
+`agent_protocol_version`을 보내지 않는 기존 Agent는 protocol `1`로 처리합니다.
+Platform은 최소 지원 Agent 버전과 protocol 범위를 기준으로 호환되지 않는 Agent를
+`version_mismatch`로 분류합니다. 현재 계약은 인증 후 아래 API에서 조회합니다.
+
+```text
+GET /api/v1/platform/info
+```
 
 ## 조회
 
@@ -160,7 +171,8 @@ GET /api/clusters/{cluster_id}/agents/{node_name}
 - `degraded`
 - `offline`
 
-`offline` 판정은 아직 자동 계산하지 않습니다. 다음 단계에서 scheduler 또는 monitor job이 `last_heartbeat_at` 기준으로 갱신해야 합니다.
+저장된 status를 별도로 변경하지 않고, Agent Health 조회 시 `last_heartbeat_at`과
+`RCA_AGENT_OFFLINE_AFTER_SECONDS`를 기준으로 `offline` 상태를 계산합니다.
 
 ## Evidence poll/submit
 

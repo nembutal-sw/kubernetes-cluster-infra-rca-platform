@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from node_agent.client import AgentClient, AgentClientError
-from node_agent.actions import ApprovedActionExecutor
 from node_agent.ebpf import parse_event
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
@@ -28,16 +27,6 @@ def test_ebpf_event_parsers_normalize_kernel_events(monkeypatch: pytest.MonkeyPa
     assert tcp and tcp["event_type"] == "tcp_retransmit"
     assert dns and dns["event_type"] == "dns_timeout"
     assert dns["payload"]["latency_ms"] == 1500
-
-
-def test_approved_action_executor_rejects_unlisted_commands() -> None:
-    executor = ApprovedActionExecutor(enabled=True)
-    result = executor.execute(
-        {"command_key": "arbitrary_shell", "parameters": {}, "timeout_seconds": 5}
-    )
-
-    assert result.status == "failed"
-    assert "not allowlisted" in str(result.error_message)
 
 
 def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None:
@@ -457,7 +446,9 @@ def test_agent_client_posts_expected_payloads() -> None:
         ]
         assert server.records[0]["payload"]["cluster_id"] == "cluster-1"
         assert server.records[0]["payload"]["agent_token"] == "token-1"
+        assert server.records[0]["payload"]["agent_protocol_version"] == "1"
         assert server.records[1]["payload"]["node_token"] == "node-token-1"
+        assert server.records[1]["payload"]["agent_protocol_version"] == "1"
         assert server.records[2]["payload"]["limit"] == 5
         assert server.records[2]["payload"]["node_token"] == "node-token-1"
         assert server.records[3]["payload"]["collectors"]["node"]["status"] == "ok"

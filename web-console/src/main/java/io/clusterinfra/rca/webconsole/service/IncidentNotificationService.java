@@ -21,15 +21,18 @@ public class IncidentNotificationService {
     private final RcaConsoleProperties properties;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
+    private final RcaMetrics metrics;
 
     public IncidentNotificationService(
         RcaConsoleProperties properties,
         AuditService audit,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        RcaMetrics metrics
     ) {
         this.properties = properties;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     public void notifyIncident(RcaReport report, EvidenceBundle evidence) {
@@ -46,6 +49,7 @@ public class IncidentNotificationService {
             try {
                 int status = send(webhookUrl, payload(report, evidence, severity), config.getTimeoutSeconds());
                 if (status >= 200 && status < 300) {
+                    metrics.notification("sent", severity);
                     audit.system(
                         "notification",
                         "notification.sent",
@@ -61,6 +65,7 @@ public class IncidentNotificationService {
                 lastError = exception;
             }
         }
+        metrics.notification("failed", severity);
         audit.system(
             "notification",
             "notification.failed",
@@ -92,6 +97,9 @@ public class IncidentNotificationService {
             ? ""
             : properties.getPublicApiBaseUrl().replaceAll("/+$", "")
                 + "/?report=" + report.reportId();
+        String confidence = report.rootCauseCandidates() == null || report.rootCauseCandidates().isEmpty()
+            ? "unavailable"
+            : report.rootCauseCandidates().getFirst().confidenceScore() + "%";
         String text = String.join(
             "\n",
             "[Cluster RCA Alert]",
@@ -99,7 +107,7 @@ public class IncidentNotificationService {
             "Node: " + evidence.nodeName(),
             "Severity: " + severity,
             "Likely Cause: " + report.summary().mostLikelyCause(),
-            "Confidence: " + report.rootCauseCandidates().getFirst().confidenceScore() + "%",
+            "Confidence: " + confidence,
             reportUrl.isBlank() ? "Report: " + report.reportId() : "Report: " + reportUrl
         );
         Map<String, Object> payload = new LinkedHashMap<>();

@@ -1,0 +1,252 @@
+package io.clusterinfra.rca.webconsole.service;
+
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.stereotype.Component;
+
+@Component
+public class RcaMetrics {
+    private final MeterRegistry registry;
+    private final AtomicLong agentOfflineCount = new AtomicLong();
+    private final AtomicLong agentHeartbeatLagMaxSeconds = new AtomicLong();
+    private final AtomicLong analysisQueueDepth = new AtomicLong();
+    private final AtomicLong analysisDeadLetterCount = new AtomicLong();
+
+    public RcaMetrics(MeterRegistry registry) {
+        this.registry = registry;
+        gauge(
+            "rca.agent.offline.count",
+            "Number of agents currently past the heartbeat freshness threshold",
+            agentOfflineCount
+        );
+        gauge(
+            "rca.agent.heartbeat.lag.max.seconds",
+            "Maximum heartbeat lag across registered agents",
+            agentHeartbeatLagMaxSeconds
+        );
+        gauge(
+            "rca.analysis.queue.depth",
+            "Number of queued, retry-waiting, or processing RCA analysis tasks",
+            analysisQueueDepth
+        );
+        gauge(
+            "rca.analysis.dead.letter.count",
+            "Number of RCA analysis tasks currently in dead-letter state",
+            analysisDeadLetterCount
+        );
+    }
+
+    public void webhookIngest(String result, int payloads, int alerts) {
+        increment("rca.webhook.ingest", "Alertmanager webhook payloads received", payloads, "result", result);
+        increment("rca.webhook.alerts", "Alertmanager alerts received", alerts, "result", result);
+    }
+
+    public void evidenceRequest(String source, String result, int count) {
+        increment(
+            "rca.evidence.requests",
+            "Evidence collection requests created by the platform",
+            count,
+            "source",
+            source,
+            "result",
+            result
+        );
+    }
+
+    public void evidenceCollection(String result, Duration duration) {
+        increment(
+            "rca.evidence.collection",
+            "Evidence collection responses received from node agents",
+            1,
+            "result",
+            result
+        );
+        timer(
+            "rca.evidence.collection.duration",
+            "Elapsed time from evidence request creation to agent response",
+            "result",
+            result
+        ).record(nonNegative(duration));
+    }
+
+    public void agentHeartbeat(String status) {
+        increment(
+            "rca.agent.heartbeat",
+            "Agent heartbeats accepted by the platform",
+            1,
+            "status",
+            status
+        );
+    }
+
+    public void analysisClaimed(int count) {
+        increment("rca.analysis.task.claimed", "RCA analysis tasks claimed by workers", count);
+    }
+
+    public void analysisCompleted(AnalysisTaskStatus status, Duration duration) {
+        increment(
+            "rca.analysis.task.completed",
+            "RCA analysis tasks completed or skipped",
+            1,
+            "status",
+            status.name()
+        );
+        timer(
+            "rca.analysis.task.duration",
+            "End-to-end RCA analysis task duration",
+            "status",
+            status.name()
+        ).record(nonNegative(duration));
+    }
+
+    public void analysisFailed(AnalysisTaskStatus status) {
+        increment(
+            "rca.analysis.task.failed",
+            "RCA analysis task attempts that failed",
+            1,
+            "status",
+            status.name()
+        );
+        if (status == AnalysisTaskStatus.dead_letter) {
+            increment(
+                "rca.analysis.task.dead.letter",
+                "RCA analysis tasks moved to dead-letter state",
+                1
+            );
+        }
+    }
+
+    public void reportGenerated(String result, Duration duration) {
+        increment(
+            "rca.report.generation",
+            "RCA report generation attempts",
+            1,
+            "result",
+            result
+        );
+        timer(
+            "rca.report.generation.duration",
+            "RCA report generation duration",
+            "result",
+            result
+        ).record(nonNegative(duration));
+    }
+
+    public void incident(String result) {
+        increment(
+            "rca.incident",
+            "RCA incident correlation outcomes",
+            1,
+            "result",
+            result
+        );
+    }
+
+    public void llmAnalysis(String result, String provider, Duration duration) {
+        increment(
+            "rca.llm.analysis",
+            "LLM analysis outcomes",
+            1,
+            "result",
+            result,
+            "provider",
+            provider
+        );
+        timer(
+            "rca.llm.analysis.duration",
+            "LLM analysis duration including validation and retries",
+            "result",
+            result,
+            "provider",
+            provider
+        ).record(nonNegative(duration));
+    }
+
+    public void notification(String result, String severity) {
+        increment(
+            "rca.notification",
+            "Incident notification delivery outcomes",
+            1,
+            "result",
+            result,
+            "severity",
+            severity
+        );
+    }
+
+    public void refreshOperationalGauges(
+        List<NodeAgent> agents,
+        long offlineAfterSeconds,
+        long queueDepth,
+        long deadLetterCount
+    ) {
+        Instant now = Instant.now();
+        long offline = 0;
+        long maximumLag = 0;
+        for (NodeAgent agent : agents) {
+            long lag = agent.lastHeartbeatAt() == null
+                ? Math.max(offlineAfterSeconds + 1, 1)
+                : Math.max(0, Duration.between(agent.lastHeartbeatAt(), now).getSeconds());
+            maximumLag = Math.max(maximumLag, lag);
+            if (agent.lastHeartbeatAt() == null || lag > offlineAfterSeconds) {
+                offline++;
+            }
+        }
+        agentOfflineCount.set(offline);
+        agentHeartbeatLagMaxSeconds.set(maximumLag);
+        analysisQueueDepth.set(Math.max(0, queueDepth));
+        analysisDeadLetterCount.set(Math.max(0, deadLetterCount));
+    }
+
+    private void increment(String name, String description, int amount, String... tags) {
+        if (amount <= 0) {
+            return;
+        }
+        Counter.builder(name)
+            .description(description)
+            .tags(normalizedTags(tags))
+            .register(registry)
+            .increment(amount);
+    }
+
+    private Timer timer(String name, String description, String... tags) {
+        return Timer.builder(name)
+            .description(description)
+            .tags(normalizedTags(tags))
+            .register(registry);
+    }
+
+    private void gauge(String name, String description, AtomicLong value) {
+        Gauge.builder(name, value, AtomicLong::doubleValue)
+            .description(description)
+            .register(registry);
+    }
+
+    private String[] normalizedTags(String[] tags) {
+        String[] normalized = tags.clone();
+        for (int index = 1; index < normalized.length; index += 2) {
+            normalized[index] = normalized(normalized[index]);
+        }
+        return normalized;
+    }
+
+    private String normalized(String value) {
+        if (value == null || value.isBlank()) {
+            return "unknown";
+        }
+        return value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]+", "_");
+    }
+
+    private Duration nonNegative(Duration duration) {
+        return duration == null || duration.isNegative() ? Duration.ZERO : duration;
+    }
+}

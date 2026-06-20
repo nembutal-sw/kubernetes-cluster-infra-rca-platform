@@ -21,6 +21,7 @@ public class RcaConsoleProperties {
     private final Pipeline pipeline = new Pipeline();
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
+    private final Observability observability = new Observability();
 
     public String getPublicApiBaseUrl() {
         return publicApiBaseUrl == null ? "" : publicApiBaseUrl.trim();
@@ -114,10 +115,18 @@ public class RcaConsoleProperties {
         return monitoring;
     }
 
+    public Observability getObservability() {
+        return observability;
+    }
+
     public static class Agent {
         private String image = "ghcr.io/example/cluster-infra-rca-agent:latest";
         private String namespace = "rca-system";
         private String expectedVersion = "";
+        private String minimumSupportedVersion = "0.1.0";
+        private String protocolVersion = "1";
+        private String minimumSupportedProtocolVersion = "1";
+        private String platformVersion = "0.1.0";
         private int pollIntervalSeconds = 30;
         private int httpTimeoutSeconds = 20;
         private int commandTimeoutSeconds = 10;
@@ -146,6 +155,40 @@ public class RcaConsoleProperties {
             this.expectedVersion = expectedVersion;
         }
 
+        public String getMinimumSupportedVersion() {
+            return minimumSupportedVersion == null ? "" : minimumSupportedVersion.trim();
+        }
+
+        public void setMinimumSupportedVersion(String minimumSupportedVersion) {
+            this.minimumSupportedVersion = minimumSupportedVersion;
+        }
+
+        public String getProtocolVersion() {
+            return protocolVersion == null ? "1" : protocolVersion.trim();
+        }
+
+        public void setProtocolVersion(String protocolVersion) {
+            this.protocolVersion = protocolVersion;
+        }
+
+        public String getMinimumSupportedProtocolVersion() {
+            return minimumSupportedProtocolVersion == null
+                ? "1"
+                : minimumSupportedProtocolVersion.trim();
+        }
+
+        public void setMinimumSupportedProtocolVersion(String minimumSupportedProtocolVersion) {
+            this.minimumSupportedProtocolVersion = minimumSupportedProtocolVersion;
+        }
+
+        public String getPlatformVersion() {
+            return platformVersion == null ? "0.1.0" : platformVersion.trim();
+        }
+
+        public void setPlatformVersion(String platformVersion) {
+            this.platformVersion = platformVersion;
+        }
+
         public int getPollIntervalSeconds() {
             return pollIntervalSeconds;
         }
@@ -168,6 +211,45 @@ public class RcaConsoleProperties {
 
         public void setCommandTimeoutSeconds(int commandTimeoutSeconds) {
             this.commandTimeoutSeconds = commandTimeoutSeconds;
+        }
+    }
+
+    public static class Observability {
+        private boolean enabled = true;
+        private String metricsToken = "";
+        private int refreshIntervalMs = 15000;
+        private int initialDelayMs = 5000;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getMetricsToken() {
+            return metricsToken == null ? "" : metricsToken.trim();
+        }
+
+        public void setMetricsToken(String metricsToken) {
+            this.metricsToken = metricsToken;
+        }
+
+        public int getRefreshIntervalMs() {
+            return refreshIntervalMs;
+        }
+
+        public void setRefreshIntervalMs(int refreshIntervalMs) {
+            this.refreshIntervalMs = refreshIntervalMs;
+        }
+
+        public int getInitialDelayMs() {
+            return initialDelayMs;
+        }
+
+        public void setInitialDelayMs(int initialDelayMs) {
+            this.initialDelayMs = initialDelayMs;
         }
     }
 

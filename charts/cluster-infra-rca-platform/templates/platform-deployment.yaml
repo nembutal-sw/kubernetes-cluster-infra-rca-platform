@@ -60,10 +60,24 @@ spec:
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
             - name: RCA_AGENT_EXPECTED_VERSION
               value: {{ .Values.platform.config.agentExpectedVersion | quote }}
+            - name: RCA_AGENT_MINIMUM_SUPPORTED_VERSION
+              value: {{ .Values.platform.config.agentMinimumSupportedVersion | quote }}
+            - name: RCA_AGENT_PROTOCOL_VERSION
+              value: {{ .Values.platform.config.agentProtocolVersion | quote }}
+            - name: RCA_AGENT_MINIMUM_SUPPORTED_PROTOCOL_VERSION
+              value: {{ .Values.platform.config.agentMinimumSupportedProtocolVersion | quote }}
+            - name: RCA_PLATFORM_VERSION
+              value: {{ .Values.platform.config.platformVersion | quote }}
             - name: RCA_MONITORING_ENABLED
               value: {{ .Values.platform.config.monitoringEnabled | quote }}
             - name: RCA_MONITORING_INTERVAL_MS
               value: {{ .Values.platform.config.monitoringIntervalMs | quote }}
+            - name: RCA_OBSERVABILITY_ENABLED
+              value: {{ .Values.platform.config.observabilityEnabled | quote }}
+            - name: RCA_OBSERVABILITY_REFRESH_INTERVAL_MS
+              value: {{ .Values.platform.config.observabilityRefreshIntervalMs | quote }}
+            - name: RCA_OBSERVABILITY_INITIAL_DELAY_MS
+              value: {{ .Values.platform.config.observabilityInitialDelayMs | quote }}
             - name: RCA_LLM_ENABLED
               value: {{ .Values.platform.config.llmEnabled | quote }}
             - name: RCA_LLM_PROVIDER

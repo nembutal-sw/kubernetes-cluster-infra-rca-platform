@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.security.AgentAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.ManifestAccessFilter;
+import io.clusterinfra.rca.webconsole.security.MetricsAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.SameOriginMutationFilter;
 import io.clusterinfra.rca.webconsole.security.WebhookAuthenticationFilter;
@@ -28,6 +29,7 @@ public class SecurityConfig {
         AgentAuthenticationFilter agentAuthenticationFilter,
         WebhookAuthenticationFilter webhookAuthenticationFilter,
         ManifestAccessFilter manifestAccessFilter,
+        MetricsAuthenticationFilter metricsAuthenticationFilter,
         SameOriginMutationFilter sameOriginMutationFilter,
         ObjectMapper objectMapper
     ) throws Exception {
@@ -58,6 +60,8 @@ public class SecurityConfig {
                     "/api/webhooks/alertmanager",
                     "/api/clusters/*/agent-manifest"
                 ).permitAll()
+                .requestMatchers("/actuator/metrics/**", "/actuator/prometheus")
+                    .hasAnyRole("ADMIN", "OPERATOR", "AUDITOR", "METRICS")
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()
             )
@@ -79,7 +83,8 @@ public class SecurityConfig {
             .addFilterAfter(agentAuthenticationFilter, PlatformAuthenticationFilter.class)
             .addFilterAfter(webhookAuthenticationFilter, AgentAuthenticationFilter.class)
             .addFilterAfter(manifestAccessFilter, WebhookAuthenticationFilter.class)
-            .addFilterAfter(sameOriginMutationFilter, ManifestAccessFilter.class)
+            .addFilterAfter(metricsAuthenticationFilter, ManifestAccessFilter.class)
+            .addFilterAfter(sameOriginMutationFilter, MetricsAuthenticationFilter.class)
             .build();
     }
 
@@ -106,6 +111,13 @@ public class SecurityConfig {
 
     @Bean
     FilterRegistrationBean<ManifestAccessFilter> manifestAccessRegistration(ManifestAccessFilter filter) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<MetricsAuthenticationFilter> metricsAuthenticationRegistration(
+        MetricsAuthenticationFilter filter
+    ) {
         return securityOnly(filter);
     }
 

@@ -43,6 +43,7 @@ public class LlmAnalysisService {
     private final ObjectProvider<ChatModel> chatModels;
     private final ObjectMapper objectMapper;
     private final RcaConsoleProperties properties;
+    private final RcaMetrics metrics;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final AtomicInteger consecutiveFailures = new AtomicInteger();
     private final AtomicReference<Instant> circuitOpenUntil = new AtomicReference<>();
@@ -50,35 +51,43 @@ public class LlmAnalysisService {
     public LlmAnalysisService(
         ObjectProvider<ChatModel> chatModels,
         ObjectMapper objectMapper,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        RcaMetrics metrics
     ) {
         this.chatModels = chatModels;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     public Map<String, Object> analyze(Map<String, Object> payload) {
+        Instant startedAt = Instant.now();
+        String providerName = properties.getLlm().getProvider();
         if (!properties.getLlm().isEnabled()) {
+            metrics.llmAnalysis("skipped", providerName, Duration.between(startedAt, Instant.now()));
             return Map.of("status", "skipped", "reason", "llm analyzer disabled");
         }
         ChatModel chatModel = chatModels.orderedStream().findFirst().orElse(null);
         if (chatModel == null) {
+            metrics.llmAnalysis("skipped", providerName, Duration.between(startedAt, Instant.now()));
             return Map.of("status", "skipped", "reason", "spring ai chat model not configured");
         }
         Instant blockedUntil = circuitOpenUntil.get();
         if (blockedUntil != null && blockedUntil.isAfter(Instant.now())) {
+            metrics.llmAnalysis("circuit_open", providerName, Duration.between(startedAt, Instant.now()));
             return Map.of(
                 "status", "skipped",
                 "reason", "llm circuit breaker is open",
                 "retry_after", blockedUntil.toString()
             );
         }
-        long startedAt = System.nanoTime();
+        long startedNanos = System.nanoTime();
         int maxAttempts = Math.max(1, Math.min(properties.getLlm().getMaxAttempts(), 3));
         Exception lastFailure = null;
         try {
             String input = objectMapper.writeValueAsString(payload);
             if (input.length() > 250_000) {
+                metrics.llmAnalysis("skipped", providerName, Duration.between(startedAt, Instant.now()));
                 return Map.of("status", "skipped", "reason", "preprocessed evidence exceeds llm input limit");
             }
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -94,8 +103,9 @@ public class LlmAnalysisService {
                     response.put("provider", properties.getLlm().getProvider());
                     response.put("model", properties.getLlm().getModel());
                     response.put("attempts", attempt);
-                    response.put("latency_ms", Duration.ofNanos(System.nanoTime() - startedAt).toMillis());
+                    response.put("latency_ms", Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
                     response.put("result", result);
+                    metrics.llmAnalysis("completed", providerName, Duration.between(startedAt, Instant.now()));
                     return response;
                 } catch (Exception exception) {
                     lastFailure = exception;
@@ -110,6 +120,7 @@ public class LlmAnalysisService {
             circuitOpenUntil.set(Instant.now().plusSeconds(Math.max(1, properties.getLlm().getCooldownSeconds())));
         }
         Exception failure = lastFailure == null ? new IllegalStateException("analysis failed") : lastFailure;
+        metrics.llmAnalysis("failed", providerName, Duration.between(startedAt, Instant.now()));
         return Map.of(
             "status", "failed",
             "provider", properties.getLlm().getProvider(),

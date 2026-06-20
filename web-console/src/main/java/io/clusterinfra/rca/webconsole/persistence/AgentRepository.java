@@ -28,6 +28,10 @@ public class AgentRepository {
         return store.listAgents(clusterId);
     }
 
+    public List<NodeAgent> listAll() {
+        return store.listAgents();
+    }
+
     public Optional<NodeAgent> find(String clusterId, String nodeName) {
         return store.getAgent(clusterId, nodeName);
     }

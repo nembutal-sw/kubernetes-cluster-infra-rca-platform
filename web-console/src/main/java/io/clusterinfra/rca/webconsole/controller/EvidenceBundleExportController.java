@@ -34,7 +34,7 @@ public class EvidenceBundleExportController {
     }
 
     @GetMapping("/api/rca/reports/{reportId}/bundle")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> reportBundle(
         @PathVariable String reportId,
         Authentication authentication
@@ -43,7 +43,7 @@ public class EvidenceBundleExportController {
     }
 
     @GetMapping("/api/rca/incidents/{incidentId}/bundle")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> incidentBundle(
         @PathVariable String incidentId,
         Authentication authentication

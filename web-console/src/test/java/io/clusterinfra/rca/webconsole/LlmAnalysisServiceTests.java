@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.service.LlmAnalysisService;
+import io.clusterinfra.rca.webconsole.service.RcaMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -119,7 +121,12 @@ class LlmAnalysisServiceTests {
         @SuppressWarnings("unchecked")
         ObjectProvider<ChatModel> provider = mock(ObjectProvider.class);
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(model));
-        return new LlmAnalysisService(provider, new ObjectMapper(), properties);
+        return new LlmAnalysisService(
+            provider,
+            new ObjectMapper(),
+            properties,
+            new RcaMetrics(new SimpleMeterRegistry())
+        );
     }
 
     private RcaConsoleProperties properties() {

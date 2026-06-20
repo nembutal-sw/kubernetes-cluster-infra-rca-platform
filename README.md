@@ -12,6 +12,10 @@ Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=tru
 
 Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태 분류와 수집된 pod/workload 영향 범위를 확인할 수 있습니다. 보고서 또는 incident의 분석 근거는 redaction된 ZIP bundle로 내려받을 수 있습니다.
 
+운영 metric은 Micrometer/Actuator로 제공하며 Prometheus는 선택 사항입니다. Agent offline,
+heartbeat lag, analysis queue/dead-letter, evidence 수집, report 생성 시간, LLM과 알림 결과를
+확인할 수 있습니다. 자세한 내용은 [Observability And SLO](docs/observability.md)를 참고합니다.
+
 ## Architecture
 
 ```text
@@ -128,8 +132,20 @@ DaemonSet Agent는 다음 안전장치를 사용합니다.
 - node token을 노드별 상태 디렉터리에 저장
 - 전송 실패 evidence를 디스크에 spool한 뒤 재전송
 - 지수 backoff 및 선택적 CA bundle/mTLS 지원
-- eBPF와 승인 조치 실행은 기본 비활성
-- 승인 조치는 임의 shell이 아니라 allowlist 명령 키만 실행
+- eBPF는 기본 비활성
+- 승인 조치는 Agent에서 실행하지 않고 수동 runbook 또는 GitOps PR로 처리
+
+Agent 등록과 heartbeat에는 `agent_protocol_version`이 포함됩니다. 누락된 기존 Agent는
+protocol `1`로 처리하며, 지원 범위를 벗어나거나 최소 Agent 버전보다 낮으면 Web Console에서
+`version_mismatch`로 분류합니다. 현재 호환성 정보는 인증 후
+`GET /api/v1/platform/info`에서 확인할 수 있습니다.
+
+주요 설정:
+
+- `RCA_AGENT_PROTOCOL_VERSION`: Platform이 지원하는 최신 protocol
+- `RCA_AGENT_MINIMUM_SUPPORTED_PROTOCOL_VERSION`: 지원하는 최소 protocol
+- `RCA_AGENT_MINIMUM_SUPPORTED_VERSION`: 지원하는 최소 Agent 버전
+- `RCA_PLATFORM_VERSION`: Platform 표시 버전
 
 eBPF 실시간 수집을 활성화하면 OOM kill, TCP retransmit, DNS 지연 이벤트가 Evidence로 전송됩니다.
 
@@ -141,14 +157,9 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
 Linux 5.8 이전 커널처럼 legacy BPF 권한이 필요한 환경에서만
 `--set ebpf.legacySysAdmin=true`를 추가합니다.
 
-승인된 systemd 조치를 Agent에서 실행하려면 별도로 활성화합니다.
-
-```bash
-helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
-  --set approvedActions.enabled=true
-```
-
-Rule-based 실행 계획만 대상이며, LLM 제안은 계속 `automation_allowed=false`입니다.
+승인 workflow는 요청, 승인/거절, audit, 수동 처리 완료 기록으로 구성됩니다.
+명령과 YAML은 runbook 또는 GitOps PR 안내로만 제공되며 Platform과 Agent가 직접 실행하지 않습니다.
+LLM 제안은 항상 `automation_allowed=false`입니다.
 
 ## Helm
 

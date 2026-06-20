@@ -19,7 +19,8 @@ Default account: admin/admin
 - Evidence request와 raw evidence
 - RCA report, 원인 후보, signal, 추가 확인 명령
 - Policy 등급, 자동화 허용 여부, 위험 사유
-- JSON report export
+- `ADMIN`/`OPERATOR` 전용 JSON report와 evidence bundle export
+- 승인/거절과 수동 처리 완료 기록
 - 영어/한국어 사용자 설정
 
 PC와 모바일은 같은 반응형 화면을 사용합니다. 모바일 전용 User-Agent 분기는 사용하지 않습니다.

@@ -146,6 +146,7 @@ class DatabaseCompatibilityTests {
             "worker-a",
             registration.nodeToken()
         )).isTrue();
+        assertThat(registration.agentProtocolVersion()).isEqualTo("1");
 
         assertThat(repository.recordAgentHeartbeat(new NodeAgentHeartbeatRequest(
             cluster.clusterId(),
@@ -157,6 +158,8 @@ class DatabaseCompatibilityTests {
             List.of("disk", "inode", "kernel"),
             Map.of("ready", true)
         ))).isPresent();
+        assertThat(repository.getAgent(cluster.clusterId(), "worker-a").orElseThrow().agentProtocolVersion())
+            .isEqualTo("1");
 
         EvidenceRequest evidenceRequest = repository.createEvidenceRequest(new EvidenceRequestCreateRequest(
             cluster.clusterId(),

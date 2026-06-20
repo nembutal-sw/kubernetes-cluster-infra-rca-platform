@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -28,6 +29,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureObservability
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PlatformHttpTests {
     private static final String PUBLIC_API_BASE_URL = "https://rca.example.com";
@@ -63,6 +65,7 @@ class PlatformHttpTests {
         registry.add("rca.webhook-token", () -> "test-webhook-token");
         registry.add("spring.ai.model.chat", () -> "none");
         registry.add("rca.pipeline.initial-delay-ms", () -> "600000");
+        registry.add("rca.observability.metrics-token", () -> "metrics-contract-token");
     }
 
     @Test
@@ -186,7 +189,9 @@ class PlatformHttpTests {
             String.class
         );
         assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        nodeToken = objectMapper.readTree(registered.getBody()).path("node_token").asText();
+        JsonNode registeredBody = objectMapper.readTree(registered.getBody());
+        nodeToken = registeredBody.path("node_token").asText();
+        assertThat(registeredBody.path("agent_protocol_version").asText()).isEqualTo("1");
 
         ResponseEntity<String> tamperedIdentity = restTemplate.postForEntity(
             "/api/agents/heartbeat",
@@ -355,13 +360,56 @@ class PlatformHttpTests {
             Map.of("confirmed", true, "note", "approved for manual execution")
         ).getBody());
         assertThat(approved.path("action_request").path("status").asText())
-            .isIn("approved_manual", "queued");
+            .isEqualTo("approved_manual");
+        assertThat(
+            approved.path("action_execution").isNull()
+                || approved.path("action_execution").isMissingNode()
+        ).isTrue();
+
+        JsonNode agentExecutions = objectMapper.readTree(restTemplate.postForEntity(
+            "/api/agents/action-executions",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "worker-a",
+                "agent_token", bootstrapToken,
+                "node_token", nodeToken,
+                "limit", 1
+            ),
+            String.class
+        ).getBody());
+        assertThat(agentExecutions).isEmpty();
+        ResponseEntity<String> rejectedAgentResult = restTemplate.postForEntity(
+            "/api/agents/action-results",
+            Map.of(
+                "execution_id", "legacy-execution",
+                "cluster_id", clusterId,
+                "node_name", "worker-a",
+                "agent_token", bootstrapToken,
+                "node_token", nodeToken,
+                "status", "completed",
+                "exit_code", 0,
+                "stdout", "",
+                "stderr", "",
+                "error_message", ""
+            ),
+            String.class
+        );
+        assertThat(rejectedAgentResult.getStatusCode()).isEqualTo(HttpStatus.GONE);
+
+        JsonNode completed = objectMapper.readTree(exchange(
+            "/api/rca/action-requests/" + actionRequestId + "/complete-manual",
+            HttpMethod.POST,
+            Map.of("confirmed", true, "note", "completed through external runbook")
+        ).getBody());
+        assertThat(completed.path("action_request").path("status").asText())
+            .isEqualTo("completed");
 
         JsonNode auditEvents = objectMapper.readTree(
             exchange("/api/audit/events?limit=100", HttpMethod.GET, null).getBody()
         );
         assertThat(auditEvents.toString())
             .contains("rca.action_request")
+            .contains("rca.action_manual_completed")
             .contains("incident.correlated")
             .contains("auth.login");
 
@@ -424,6 +472,42 @@ class PlatformHttpTests {
 
     @Test
     @Order(9)
+    void platformInfoExposesVersionedCompatibilityContract() throws Exception {
+        JsonNode info = objectMapper.readTree(
+            exchange("/api/v1/platform/info", HttpMethod.GET, null).getBody()
+        );
+
+        assertThat(info.path("platform_version").asText()).isEqualTo("0.1.0");
+        assertThat(info.path("api_version").asText()).isEqualTo("v1");
+        assertThat(info.path("agent_protocol_version").asText()).isEqualTo("1");
+        assertThat(info.path("minimum_supported_agent_protocol_version").asText()).isEqualTo("1");
+    }
+
+    @Test
+    @Order(10)
+    void prometheusEndpointExportsRcaMetricsForAuthenticatedOperator() {
+        ResponseEntity<String> response = exchange("/actuator/prometheus", HttpMethod.GET, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getHeaders().getContentType().toString()).contains("text/plain");
+        assertThat(response.getBody())
+            .contains("rca_agent_offline_count")
+            .contains("rca_analysis_queue_depth")
+            .contains("rca_report_generation");
+
+        HttpHeaders metricsHeaders = new HttpHeaders();
+        metricsHeaders.set("X-Metrics-Token", "metrics-contract-token");
+        ResponseEntity<String> scraperResponse = restTemplate.exchange(
+            "/actuator/prometheus",
+            HttpMethod.GET,
+            new HttpEntity<>(null, metricsHeaders),
+            String.class
+        );
+        assertThat(scraperResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @Order(11)
     void expiredSessionCannotAccessProtectedApi() {
         String expiredToken = sessions.create(
             users.authenticate("admin", "admin").orElseThrow().userId(),

@@ -1,0 +1,26 @@
+{{- if .Values.platform.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "cluster-infra-rca-platform.fullname" . }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    {{- with .Values.platform.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "cluster-infra-rca-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: platform
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: {{ .Values.platform.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.platform.serviceMonitor.scrapeTimeout }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ default (include "cluster-infra-rca-platform.secretName" .) .Values.platform.serviceMonitor.metricsTokenSecretName }}
+          key: {{ .Values.platform.serviceMonitor.metricsTokenSecretKey }}
+{{- end }}

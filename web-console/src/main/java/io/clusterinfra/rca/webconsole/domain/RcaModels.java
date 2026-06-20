@@ -123,9 +123,27 @@ public final class RcaModels {
         @NotBlank @Size(max = 255) String nodeName,
         @NotBlank String agentToken,
         @NotBlank @Size(max = 64) String agentVersion,
+        @Size(max = 32) String agentProtocolVersion,
         List<String> supportedCollectors,
         Map<String, Object> metadata
     ) {
+        public NodeAgentRegisterRequest(
+            String clusterId,
+            String nodeName,
+            String agentToken,
+            String agentVersion,
+            List<String> supportedCollectors,
+            Map<String, Object> metadata
+        ) {
+            this(clusterId, nodeName, agentToken, agentVersion, "1", supportedCollectors, metadata);
+        }
+
+        public String protocolVersionOrDefault() {
+            return agentProtocolVersion == null || agentProtocolVersion.isBlank()
+                ? "1"
+                : agentProtocolVersion.trim();
+        }
+
         public List<String> collectorsOrEmpty() {
             return supportedCollectors == null ? List.of() : supportedCollectors;
         }
@@ -142,11 +160,41 @@ public final class RcaModels {
         @NotBlank String nodeToken,
         AgentStatus status,
         String agentVersion,
+        @Size(max = 32) String agentProtocolVersion,
         List<String> supportedCollectors,
         Map<String, Object> health
     ) {
+        public NodeAgentHeartbeatRequest(
+            String clusterId,
+            String nodeName,
+            String agentToken,
+            String nodeToken,
+            AgentStatus status,
+            String agentVersion,
+            List<String> supportedCollectors,
+            Map<String, Object> health
+        ) {
+            this(
+                clusterId,
+                nodeName,
+                agentToken,
+                nodeToken,
+                status,
+                agentVersion,
+                "1",
+                supportedCollectors,
+                health
+            );
+        }
+
         public AgentStatus statusOrDefault() {
             return status == null ? AgentStatus.healthy : status;
+        }
+
+        public String protocolVersionOrDefault() {
+            return agentProtocolVersion == null || agentProtocolVersion.isBlank()
+                ? "1"
+                : agentProtocolVersion.trim();
         }
 
         public Map<String, Object> healthOrEmpty() {
@@ -159,6 +207,7 @@ public final class RcaModels {
         String clusterId,
         String nodeName,
         String agentVersion,
+        String agentProtocolVersion,
         AgentStatus status,
         List<String> supportedCollectors,
         Map<String, Object> metadata,
@@ -166,6 +215,32 @@ public final class RcaModels {
         Instant registeredAt,
         Instant lastHeartbeatAt
     ) {
+        public NodeAgent(
+            String agentId,
+            String clusterId,
+            String nodeName,
+            String agentVersion,
+            AgentStatus status,
+            List<String> supportedCollectors,
+            Map<String, Object> metadata,
+            Map<String, Object> health,
+            Instant registeredAt,
+            Instant lastHeartbeatAt
+        ) {
+            this(
+                agentId,
+                clusterId,
+                nodeName,
+                agentVersion,
+                "1",
+                status,
+                supportedCollectors,
+                metadata,
+                health,
+                registeredAt,
+                lastHeartbeatAt
+            );
+        }
     }
 
     public record AgentHealthView(
@@ -173,6 +248,7 @@ public final class RcaModels {
         String clusterId,
         String nodeName,
         String agentVersion,
+        String agentProtocolVersion,
         AgentHealthStatus healthStatus,
         AgentStatus reportedStatus,
         List<String> supportedCollectors,
@@ -180,6 +256,7 @@ public final class RcaModels {
         Instant registeredAt,
         Instant lastHeartbeatAt,
         long heartbeatAgeSeconds,
+        String platformProtocolVersion,
         List<String> reasons
     ) {
     }
@@ -189,6 +266,7 @@ public final class RcaModels {
         String clusterId,
         String nodeName,
         String agentVersion,
+        String agentProtocolVersion,
         AgentStatus status,
         List<String> supportedCollectors,
         Map<String, Object> metadata,
@@ -196,6 +274,15 @@ public final class RcaModels {
         Instant registeredAt,
         Instant lastHeartbeatAt,
         String nodeToken
+    ) {
+    }
+
+    public record PlatformInfo(
+        String platformVersion,
+        String apiVersion,
+        String agentProtocolVersion,
+        String minimumSupportedAgentProtocolVersion,
+        String minimumSupportedAgentVersion
     ) {
     }
 
@@ -495,6 +582,12 @@ public final class RcaModels {
     public record ActionDecisionRequest(
         boolean confirmed,
         @Size(max = 1000) String note
+    ) {
+    }
+
+    public record ActionManualCompletionRequest(
+        boolean confirmed,
+        @NotBlank @Size(max = 1000) String note
     ) {
     }
 

@@ -51,12 +51,26 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        rca.report.generation.duration: true
+        rca.analysis.task.duration: true
+        rca.evidence.collection.duration: true
+        rca.llm.analysis.duration: true
+      slo:
+        rca.report.generation.duration: 1s,5s,15s,30s
+        rca.analysis.task.duration: 5s,15s,30s,60s,300s
+        rca.evidence.collection.duration: 10s,30s,60s,180s,300s
+        rca.llm.analysis.duration: 1s,5s,15s,30s,60s
 
 rca:
   public-api-base-url: ${RCA_PUBLIC_API_BASE_URL:}
@@ -69,6 +83,10 @@ rca:
     image: ${RCA_AGENT_IMAGE:ghcr.io/example/cluster-infra-rca-agent:latest}
     namespace: ${RCA_AGENT_NAMESPACE:rca-system}
     expected-version: ${RCA_AGENT_EXPECTED_VERSION:}
+    minimum-supported-version: ${RCA_AGENT_MINIMUM_SUPPORTED_VERSION:0.1.0}
+    protocol-version: ${RCA_AGENT_PROTOCOL_VERSION:1}
+    minimum-supported-protocol-version: ${RCA_AGENT_MINIMUM_SUPPORTED_PROTOCOL_VERSION:1}
+    platform-version: ${RCA_PLATFORM_VERSION:0.1.0}
     poll-interval-seconds: ${RCA_AGENT_POLL_INTERVAL_SECONDS:30}
     http-timeout-seconds: ${RCA_AGENT_HTTP_TIMEOUT_SECONDS:20}
     command-timeout-seconds: ${RCA_AGENT_COMMAND_TIMEOUT_SECONDS:10}
@@ -124,3 +142,8 @@ rca:
     enabled: ${RCA_MONITORING_ENABLED:false}
     interval-ms: ${RCA_MONITORING_INTERVAL_MS:60000}
     initial-delay-ms: ${RCA_MONITORING_INITIAL_DELAY_MS:30000}
+  observability:
+    enabled: ${RCA_OBSERVABILITY_ENABLED:true}
+    metrics-token: ${RCA_METRICS_TOKEN:}
+    refresh-interval-ms: ${RCA_OBSERVABILITY_REFRESH_INTERVAL_MS:15000}
+    initial-delay-ms: ${RCA_OBSERVABILITY_INITIAL_DELAY_MS:5000}

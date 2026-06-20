@@ -39,9 +39,9 @@ public class AgentHealthService {
         } else if (unauthorized(agent.health())) {
             status = AgentHealthStatus.unauthorized;
             reasons.add("Agent reported an authentication or authorization failure.");
-        } else if (versionMismatch(agent.agentVersion())) {
+        } else if (versionMismatch(agent)) {
             status = AgentHealthStatus.version_mismatch;
-            reasons.add("Agent version does not match the configured expected version.");
+            reasons.addAll(versionMismatchReasons(agent));
         } else if (collectorDegraded(agent)) {
             status = AgentHealthStatus.collector_degraded;
             reasons.add("One or more collectors reported a degraded or failed state.");
@@ -57,6 +57,7 @@ public class AgentHealthService {
             agent.clusterId(),
             agent.nodeName(),
             agent.agentVersion(),
+            agent.agentProtocolVersion(),
             status,
             agent.status(),
             agent.supportedCollectors(),
@@ -64,13 +65,75 @@ public class AgentHealthService {
             agent.registeredAt(),
             agent.lastHeartbeatAt(),
             ageSeconds == Long.MAX_VALUE ? -1 : ageSeconds,
+            properties.getAgent().getProtocolVersion(),
             List.copyOf(reasons)
         );
     }
 
-    private boolean versionMismatch(String version) {
+    private boolean versionMismatch(NodeAgent agent) {
+        return !versionMismatchReasons(agent).isEmpty();
+    }
+
+    private List<String> versionMismatchReasons(NodeAgent agent) {
+        List<String> reasons = new ArrayList<>();
         String expected = properties.getAgent().getExpectedVersion();
-        return !expected.isBlank() && !expected.equals(version);
+        if (!expected.isBlank() && !expected.equals(agent.agentVersion())) {
+            reasons.add("Agent version does not match the configured expected version.");
+        }
+        String minimum = properties.getAgent().getMinimumSupportedVersion();
+        if (!minimum.isBlank() && compareVersion(agent.agentVersion(), minimum) < 0) {
+            reasons.add("Agent version is below the minimum supported version " + minimum + ".");
+        }
+        int protocol = integerVersion(agent.agentProtocolVersion());
+        int minimumProtocol = integerVersion(properties.getAgent().getMinimumSupportedProtocolVersion());
+        int platformProtocol = integerVersion(properties.getAgent().getProtocolVersion());
+        if (protocol < minimumProtocol || protocol > platformProtocol) {
+            reasons.add(
+                "Agent protocol " + agent.agentProtocolVersion()
+                    + " is outside the supported range "
+                    + properties.getAgent().getMinimumSupportedProtocolVersion()
+                    + "-" + properties.getAgent().getProtocolVersion() + "."
+            );
+        }
+        return reasons;
+    }
+
+    private int compareVersion(String left, String right) {
+        int[] leftParts = numericParts(left);
+        int[] rightParts = numericParts(right);
+        for (int index = 0; index < Math.max(leftParts.length, rightParts.length); index++) {
+            int leftValue = index < leftParts.length ? leftParts[index] : 0;
+            int rightValue = index < rightParts.length ? rightParts[index] : 0;
+            if (leftValue != rightValue) {
+                return Integer.compare(leftValue, rightValue);
+            }
+        }
+        return 0;
+    }
+
+    private int[] numericParts(String version) {
+        if (version == null || version.isBlank()) {
+            return new int[] {-1};
+        }
+        String normalized = version.trim().replaceFirst("^[vV]", "").split("[-+]", 2)[0];
+        String[] parts = normalized.split("\\.");
+        int[] values = new int[parts.length];
+        for (int index = 0; index < parts.length; index++) {
+            try {
+                values[index] = Integer.parseInt(parts[index].replaceAll("[^0-9].*$", ""));
+            } catch (NumberFormatException exception) {
+                values[index] = -1;
+            }
+        }
+        return values;
+    }
+
+    private int integerVersion(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException exception) {
+            return -1;
+        }
     }
 
     private boolean collectorDegraded(NodeAgent agent) {

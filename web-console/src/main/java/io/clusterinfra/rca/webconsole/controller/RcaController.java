@@ -7,6 +7,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecutionResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionExecution;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionApprovalResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionManualCompletionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
@@ -33,6 +34,7 @@ import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.RcaService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
+import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -76,6 +78,7 @@ public class RcaController {
     private final AccessService access;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
+    private final RcaMetrics metrics;
 
     public RcaController(
         ReportRepository reports,
@@ -88,7 +91,8 @@ public class RcaController {
         RcaService rcaService,
         AccessService access,
         AuditService audit,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        RcaMetrics metrics
     ) {
         this.reports = reports;
         this.incidents = incidents;
@@ -101,6 +105,7 @@ public class RcaController {
         this.access = access;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     @PostMapping("/api/webhooks/alertmanager")
@@ -258,7 +263,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/action-executions")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','AUDITOR')")
     public List<ActionExecution> actionExecutions(
         @RequestParam(name = "report_id", required = false) String reportId
     ) {
@@ -274,7 +279,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/reports/export")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> exportReports(
         @RequestParam(name = "cluster_id", required = false) String clusterId,
         @RequestParam(name = "format", defaultValue = "json") String format
@@ -290,7 +295,7 @@ public class RcaController {
     }
 
     @GetMapping("/api/rca/reports/{reportId}/export")
-    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> exportReport(
         @PathVariable String reportId,
         @RequestParam(name = "format", defaultValue = "json") String format
@@ -320,8 +325,10 @@ public class RcaController {
         }
         RecommendedAction action = report.recommendedActions().get(actionIndex);
         if (!action.automationAllowed()) {
-            ActionRequestStatus status = action.policy() == PolicyLevel.APPROVAL_REQUIRED
-                && !"llm".equals(action.source())
+            ActionRequestStatus status = (
+                action.policy() == PolicyLevel.APPROVAL_REQUIRED
+                    || action.policy() == PolicyLevel.GITOPS_PR_ONLY
+            ) && !"llm".equals(action.source())
                 ? ActionRequestStatus.pending_approval
                 : ActionRequestStatus.blocked;
             ActionRequest actionRequest = actions.createRequest(
@@ -335,28 +342,6 @@ public class RcaController {
                 request.note(),
                 null
             );
-            ActionExecution actionExecution = null;
-            if (status == ActionRequestStatus.pending_approval
-                && action.executionPlan() != null
-                && action.executionPlan().executable()) {
-                String nodeName = targetNode(report);
-                if (nodeName == null || agents.find(report.clusterId(), nodeName).isEmpty()) {
-                    status = ActionRequestStatus.blocked;
-                    actions.decide(
-                        actionRequest.actionRequestId(),
-                        status,
-                        user.email(),
-                        "Target node agent is not registered."
-                    );
-                } else {
-                    actionExecution = actions.createExecution(
-                        actionRequest,
-                        report,
-                        nodeName,
-                        action.executionPlan()
-                    );
-                }
-            }
             auditAction(user, actionRequest, status.name());
             return new ActionExecutionResponse(
                 reportId,
@@ -365,16 +350,16 @@ public class RcaController {
                 action.policy(),
                 status.name(),
                 status == ActionRequestStatus.pending_approval
-                    ? "Approval request recorded. Approval does not execute a node mutation automatically."
+                    ? manualWorkflowMessage(action)
                     : action.source().equals("llm")
                         ? "LLM-origin actions are diagnostic suggestions and cannot trigger automation."
                         : "Policy Engine does not allow this action to execute automatically.",
                 false,
-                action.requiresApproval(),
+                action.requiresApproval() || action.reviewRequired(),
                 null,
                 action.guardrails(),
                 actions.findRequest(actionRequest.actionRequestId()).orElse(actionRequest),
-                actionExecution
+                null
             );
         }
         String nodeName = targetNode(report);
@@ -418,6 +403,7 @@ public class RcaController {
             "RCA read-only action confirmed: " + action.action(),
             context
         ));
+        metrics.evidenceRequest("action_read_only", "created", 1);
         ActionRequest actionRequest = actions.createRequest(
             reportId,
             actionIndex,
@@ -453,18 +439,13 @@ public class RcaController {
         @Valid @RequestBody ActionDecisionRequest request,
         Authentication authentication
     ) {
-        boolean executable = actions.findExecutionByRequest(actionRequestId).isPresent();
         ActionRequest decided = decideActionRequest(
             actionRequestId,
             request,
             authentication,
-            executable ? ActionRequestStatus.queued : ActionRequestStatus.approved_manual
+            ActionRequestStatus.approved_manual
         );
-        ActionExecution execution = executable
-            ? actions.approveExecution(actionRequestId, decided.reviewedBy())
-                .orElseThrow(() -> new ResponseStatusException(CONFLICT, "approved execution was not found"))
-            : null;
-        return new ActionApprovalResponse(decided, execution);
+        return new ActionApprovalResponse(decided, null);
     }
 
     @PostMapping("/api/rca/action-requests/{actionRequestId}/reject")
@@ -480,8 +461,40 @@ public class RcaController {
             authentication,
             ActionRequestStatus.rejected
         );
-        ActionExecution execution = actions.rejectExecution(actionRequestId).orElse(null);
-        return new ActionApprovalResponse(decided, execution);
+        return new ActionApprovalResponse(decided, null);
+    }
+
+    @PostMapping("/api/rca/action-requests/{actionRequestId}/complete-manual")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public ActionApprovalResponse completeManualActionRequest(
+        @PathVariable String actionRequestId,
+        @Valid @RequestBody ActionManualCompletionRequest request,
+        Authentication authentication
+    ) {
+        if (!request.confirmed()) {
+            throw new ResponseStatusException(BAD_REQUEST, "manual completion confirmation is required");
+        }
+        UserAccount user = access.currentUser(authentication);
+        ActionRequest existing = actions.findRequest(actionRequestId)
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "action request not found"));
+        if (existing.status() != ActionRequestStatus.approved_manual) {
+            throw new ResponseStatusException(CONFLICT, "action request is not approved for manual handling");
+        }
+        ActionRequest completed = actions.completeManual(actionRequestId)
+            .orElseThrow(() -> new ResponseStatusException(CONFLICT, "manual action was already completed"));
+        audit.user(
+            user,
+            "rca.action_manual_completed",
+            "action_request",
+            actionRequestId,
+            "completed",
+            Map.of(
+                "report_id", completed.reportId(),
+                "action_key", completed.actionKey(),
+                "note", request.note()
+            )
+        );
+        return new ActionApprovalResponse(completed, null);
     }
 
     private ActionRequest decideActionRequest(
@@ -546,6 +559,15 @@ public class RcaController {
             actionRequest,
             null
         );
+    }
+
+    private String manualWorkflowMessage(RecommendedAction action) {
+        if (action.policy() == PolicyLevel.GITOPS_PR_ONLY) {
+            return "Review request recorded. After approval, create a GitOps PR from the YAML preview, "
+                + "complete the external review, and mark this request as manually completed.";
+        }
+        return "Approval request recorded. Approval only authorizes a human-operated runbook; "
+            + "the platform and node agent will not execute the command. Mark completion after manual handling.";
     }
 
     private void auditAction(UserAccount user, ActionRequest request, String outcome) {

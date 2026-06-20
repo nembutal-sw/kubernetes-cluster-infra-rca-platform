@@ -142,11 +142,6 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: EBPF_DNS_LATENCY_THRESHOLD_MS
-            - name: APPROVED_ACTIONS_ENABLED
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
-                  key: APPROVED_ACTIONS_ENABLED
             - name: AGENT_STATE_DIR
               valueFrom:
                 configMapKeyRef:
@@ -162,21 +157,15 @@ spec:
             {{- end }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-            {{- if or .Values.ebpf.enabled .Values.approvedActions.enabled }}
+            {{- if .Values.ebpf.enabled }}
             capabilities:
               add:
-                {{- if .Values.ebpf.enabled }}
                 - BPF
                 - PERFMON
                 - NET_ADMIN
                 - SYS_RESOURCE
-                {{- end }}
-                {{- if or .Values.ebpf.legacySysAdmin .Values.approvedActions.enabled }}
+                {{- if .Values.ebpf.legacySysAdmin }}
                 - SYS_ADMIN
-                {{- end }}
-                {{- if .Values.approvedActions.enabled }}
-                - SYS_PTRACE
-                - SYS_CHROOT
                 {{- end }}
             {{- end }}
           volumeMounts:

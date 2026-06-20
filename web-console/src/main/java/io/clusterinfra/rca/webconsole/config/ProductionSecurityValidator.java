@@ -75,6 +75,14 @@ public class ProductionSecurityValidator implements InitializingBean {
         validatePublicBaseUrl(violations);
         validateLlm(violations);
         validateNotification(violations);
+        if (properties.getObservability().isEnabled()) {
+            rejectUnsafe(
+                properties.getObservability().getMetricsToken(),
+                UNSAFE_SECRETS,
+                "RCA_METRICS_TOKEN must be a non-default secret when observability is enabled",
+                violations
+            );
+        }
         if (properties.getDemo().isEnabled()) {
             violations.add("RCA_DEMO_ENABLED must be false in production");
         }

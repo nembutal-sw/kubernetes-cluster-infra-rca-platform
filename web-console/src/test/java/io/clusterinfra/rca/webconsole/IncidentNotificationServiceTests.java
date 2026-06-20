@@ -17,6 +17,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.IncidentNotificationService;
+import io.clusterinfra.rca.webconsole.service.RcaMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -47,7 +49,8 @@ class IncidentNotificationServiceTests {
             IncidentNotificationService service = new IncidentNotificationService(
                 properties,
                 audit,
-                new ObjectMapper()
+                new ObjectMapper(),
+                new RcaMetrics(new SimpleMeterRegistry())
             );
             RcaReport report = report("Disk full token=private-value");
 
@@ -66,6 +69,53 @@ class IncidentNotificationServiceTests {
                 eq("success"),
                 any()
             );
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsNotificationWhenRootCauseCandidatesAreEmpty() throws Exception {
+        AtomicReference<String> received = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/slack", exchange -> {
+            received.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(200, 0);
+            exchange.close();
+        });
+        server.start();
+        try {
+            RcaConsoleProperties properties = new RcaConsoleProperties();
+            properties.getNotification().setEnabled(true);
+            properties.getNotification().setMinimumSeverity("warning");
+            properties.getNotification().setSlackWebhookUrl(
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/slack"
+            );
+            IncidentNotificationService service = new IncidentNotificationService(
+                properties,
+                mock(AuditService.class),
+                new ObjectMapper(),
+                new RcaMetrics(new SimpleMeterRegistry())
+            );
+            RcaReport base = report("Cause is still under investigation");
+            RcaReport withoutCandidates = new RcaReport(
+                base.reportId(),
+                base.clusterId(),
+                base.incidentId(),
+                base.status(),
+                base.trigger(),
+                base.scope(),
+                base.summary(),
+                base.evidence(),
+                List.of(),
+                base.recommendedActions(),
+                base.policyDecisions(),
+                base.createdAt()
+            );
+
+            service.notifyIncident(withoutCandidates, evidence());
+
+            assertThat(received.get()).contains("Confidence: unavailable");
         } finally {
             server.stop(0);
         }

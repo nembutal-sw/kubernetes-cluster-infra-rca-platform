@@ -20,6 +20,8 @@ mvn verify
 - Agent/Webhook/Manifest 인증 실패 및 정상 token 경로
 - `prod` profile 위험 설정 fail-fast
 - `VIEWER`, `APPROVER`, `AUDITOR` 권한 경계
+- `VIEWER`, `APPROVER` report/evidence export 차단
+- 승인 조치가 queue되지 않고 수동 완료 상태로만 전이되는지 검증
 - session 만료 후 보호 API 접근 차단
 - analysis task 동시 claim 및 lease 만료 후 재할당
 - evidence, LLM 입력, 오류 메시지의 credential redaction
@@ -42,7 +44,6 @@ python -m compileall -q node_agent tests
 - spool file/byte limit
 - 손상된 spool 파일의 `.invalid` 격리
 - eBPF parser
-- approved action allowlist
 - collector registry metadata
 
 ## Build

@@ -47,6 +47,27 @@ class AgentHealthServiceTests {
         assertThat(service.classify(offline).healthStatus()).isEqualTo(AgentHealthStatus.offline);
     }
 
+    @Test
+    void unsupportedProtocolIsReportedAsVersionMismatch() {
+        NodeAgent incompatible = new NodeAgent(
+            "agent-1",
+            "cluster-1",
+            "worker-1",
+            "0.1.0",
+            "2",
+            AgentStatus.healthy,
+            List.of("disk", "kernel"),
+            Map.of(),
+            Map.of(),
+            Instant.now().minusSeconds(60),
+            Instant.now()
+        );
+
+        var health = service.classify(incompatible);
+        assertThat(health.healthStatus()).isEqualTo(AgentHealthStatus.version_mismatch);
+        assertThat(health.reasons()).anyMatch(reason -> reason.contains("protocol 2"));
+    }
+
     private NodeAgent agent(
         String version,
         AgentStatus status,

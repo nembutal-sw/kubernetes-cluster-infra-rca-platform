@@ -64,14 +64,28 @@ platform:
   service:
     type: ClusterIP
     port: 8080
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    metricsTokenSecretName: ""
+    metricsTokenSecretKey: RCA_METRICS_TOKEN
   config:
     springProfiles: ""
     publicApiBaseUrl: ""
     sessionTtlHours: 12
     agentOfflineAfterSeconds: 180
     agentExpectedVersion: ""
+    agentMinimumSupportedVersion: "0.1.0"
+    agentProtocolVersion: "1"
+    agentMinimumSupportedProtocolVersion: "1"
+    platformVersion: "0.1.0"
     monitoringEnabled: false
     monitoringIntervalMs: 60000
+    observabilityEnabled: true
+    observabilityRefreshIntervalMs: 15000
+    observabilityInitialDelayMs: 5000
     llmEnabled: false
     llmProvider: none
     llmModel: ""
@@ -106,6 +120,7 @@ platform:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
     webhookToken: dev-webhook-token
+    metricsToken: ""
     encryptionSecret: ""
     slackWebhookUrl: ""
     openaiApiKey: ""

@@ -28,17 +28,20 @@ public class ScheduledCollectionService {
     private final AgentRepository agents;
     private final EvidenceRepository evidence;
     private final RcaConsoleProperties properties;
+    private final RcaMetrics metrics;
 
     public ScheduledCollectionService(
         ClusterRepository clusters,
         AgentRepository agents,
         EvidenceRepository evidence,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        RcaMetrics metrics
     ) {
         this.clusters = clusters;
         this.agents = agents;
         this.evidence = evidence;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     @Scheduled(
@@ -66,7 +69,9 @@ public class ScheduledCollectionService {
                         "Periodic platform-initiated node health collection",
                         Map.of("trigger", "scheduled_monitoring", "requested_at", requestedAt.toString())
                     ));
+                    metrics.evidenceRequest("scheduled", "created", 1);
                 } catch (RuntimeException exception) {
+                    metrics.evidenceRequest("scheduled", "failed", 1);
                     LOGGER.warn(
                         "Failed to create scheduled evidence request for cluster={} node={}",
                         cluster.clusterId(),

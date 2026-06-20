@@ -27,7 +27,8 @@ class ProductionSecurityValidatorTests {
                 .hasStackTraceContaining("RCA_WEBHOOK_TOKEN")
                 .hasStackTraceContaining("RCA_DB_PASSWORD")
                 .hasStackTraceContaining("RCA_PUBLIC_API_BASE_URL")
-                .hasStackTraceContaining("RCA_ENCRYPTION_SECRET");
+                .hasStackTraceContaining("RCA_ENCRYPTION_SECRET")
+                .hasStackTraceContaining("RCA_METRICS_TOKEN");
         });
     }
 
@@ -43,6 +44,7 @@ class ProductionSecurityValidatorTests {
                 "rca.audit.enabled=true",
                 "rca.demo.enabled=false",
                 "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
                 "rca.llm.enabled=false"
             )
             .run(context -> {
@@ -60,6 +62,7 @@ class ProductionSecurityValidatorTests {
                 "spring.datasource.password=a-strong-database-password",
                 "rca.public-api-base-url=https://rca.example.com",
                 "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
                 "rca.llm.enabled=true",
                 "rca.llm.provider=openai",
                 "rca.llm.model=gpt-test",

@@ -32,6 +32,10 @@ public class AnalysisTaskRepository {
         return store.listAnalysisTasks(status, limit);
     }
 
+    public long count(AnalysisTaskStatus status) {
+        return store.countAnalysisTasks(status);
+    }
+
     public List<AnalysisTask> claim(
         String leaseOwner,
         int limit,

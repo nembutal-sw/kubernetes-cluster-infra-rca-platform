@@ -54,6 +54,25 @@ class ImpactScopeAnalyzerTests {
             .isEqualTo("No workload inventory was available in the collected evidence.");
     }
 
+    @Test
+    void reportsServiceInventoryAsObservedButNotConfirmedImpact() {
+        Map<String, Object> impact = analyzer.analyze(
+            Map.of("kubernetes", Map.of(
+                "services", Map.of("data", Map.of("items", List.of(Map.of(
+                    "kind", "Service",
+                    "metadata", Map.of("namespace", "payments", "name", "payment-api")
+                ))))
+            )),
+            "worker-a"
+        );
+
+        assertThat(strings(impact.get("affected_services"))).isEmpty();
+        assertThat(strings(impact.get("observed_services")))
+            .containsExactly("payments/payment-api");
+        assertThat(String.valueOf(impact.get("service_impact_assessment")))
+            .contains("service impact is unconfirmed");
+    }
+
     private List<String> strings(Object value) {
         if (!(value instanceof List<?> list)) {
             return List.of();

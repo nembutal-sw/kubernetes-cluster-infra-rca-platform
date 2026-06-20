@@ -31,10 +31,17 @@ Spring Boot 플랫폼은 Web Console과 API를 포트 `8080`에서 함께 제공
 | POST | `/api/webhooks/alertmanager` | Alertmanager webhook |
 | GET | `/api/rca/reports` | RCA 보고서 목록 |
 | GET | `/api/rca/reports/{id}` | RCA 보고서 상세 |
-| GET | `/api/rca/reports/export` | 보고서 JSON export |
+| GET | `/api/rca/reports/export` | 보고서 JSON export (`ADMIN`, `OPERATOR`) |
 | POST | `/api/rca/reports/{id}/actions/{index}/execute` | 허용된 read-only 후속 수집 |
+| POST | `/api/rca/action-requests/{id}/approve` | 수동 처리 또는 GitOps 검토 승인 |
+| POST | `/api/rca/action-requests/{id}/reject` | 조치 요청 거절 |
+| POST | `/api/rca/action-requests/{id}/complete-manual` | 외부 절차 완료 기록 |
 
 `/health`와 `/health/ready`는 인증 없이 사용할 수 있습니다.
+
+운영 metric은 `/actuator/metrics`와 `/actuator/prometheus`에서 제공합니다. 사용자 session은
+`ADMIN`, `OPERATOR`, `AUDITOR` 역할이 필요하며 Prometheus scraper는 `RCA_METRICS_TOKEN`을
+Bearer token 또는 `X-Metrics-Token` header로 전달할 수 있습니다.
 
 ## Action Execution
 
@@ -46,3 +53,6 @@ UI의 실행 버튼은 임의의 shell 명령을 실행하지 않습니다. 현�
 - 서비스 재시작, cordon, drain, disk cleanup
 - GitOps 검토가 필요한 설정 변경
 - reboot, workload 삭제, etcd membership 변경
+
+승인은 Agent 실행 권한을 부여하지 않습니다. 명령 preview와 YAML patch는 runbook 또는
+GitOps PR 안내이며, 실제 처리는 플랫폼 밖에서 수행한 후 완료 상태만 기록합니다.

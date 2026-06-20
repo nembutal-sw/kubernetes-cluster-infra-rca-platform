@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from node_agent import SUPPORTED_COLLECTORS, __version__
+from node_agent import AGENT_PROTOCOL_VERSION, SUPPORTED_COLLECTORS, __version__
 from node_agent.client import AgentClient, AgentClientError
 from node_agent.collectors import (
     AgentPaths,
@@ -22,7 +22,6 @@ from node_agent.collectors import (
     collect_node,
     collector_metadata,
 )
-from node_agent.actions import ApprovedActionExecutor
 from node_agent.ebpf import EbpfEventManager
 from node_agent.state import AgentStateStore
 
@@ -118,33 +117,6 @@ def flush_spooled_responses(client: AgentClient, state: AgentStateStore, limit: 
     return submitted
 
 
-def process_approved_actions(
-    client: AgentClient,
-    executor: ApprovedActionExecutor,
-    limit: int = 1,
-) -> int:
-    if not executor.enabled:
-        return 0
-    processed = 0
-    for execution in client.poll_action_executions(limit=limit):
-        execution_id = str(execution.get("execution_id") or "")
-        if not execution_id:
-            LOGGER.warning("skipping malformed action execution without execution_id")
-            continue
-        result = executor.execute(execution)
-        client.submit_action_result(
-            execution_id=execution_id,
-            status=result.status,
-            exit_code=result.exit_code,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            error_message=result.error_message,
-        )
-        processed += 1
-        LOGGER.info("submitted approved action result execution=%s status=%s", execution_id, result.status)
-    return processed
-
-
 def collect_local_evidence(
     paths: AgentPaths,
     runner: CommandRunner,
@@ -153,6 +125,7 @@ def collect_local_evidence(
     collectors = collect_evidence(requested_collectors, paths=paths, runner=runner)
     return {
         "agent_version": __version__,
+        "agent_protocol_version": AGENT_PROTOCOL_VERSION,
         "node_name": os.getenv("NODE_NAME") or socket.gethostname(),
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "requested_collectors": requested_collectors,
@@ -220,9 +193,6 @@ def run_agent(args: argparse.Namespace) -> int:
         enabled=_boolean_env("EBPF_ENABLED", False),
         queue_size=_positive_int_env("EBPF_EVENT_QUEUE_SIZE", 1000),
     )
-    action_executor = ApprovedActionExecutor(
-        enabled=_boolean_env("APPROVED_ACTIONS_ENABLED", False)
-    )
     supported_collectors = list(SUPPORTED_COLLECTORS)
     if ebpf.enabled:
         supported_collectors.append("ebpf")
@@ -251,11 +221,11 @@ def run_agent(args: argparse.Namespace) -> int:
             flush_spooled_responses(client, state)
             client.heartbeat(
                 agent_version=__version__,
+                agent_protocol_version=AGENT_PROTOCOL_VERSION,
                 supported_collectors=supported_collectors,
                 health={
                     "agent": "running",
                     "ebpf": "enabled" if ebpf.enabled else "disabled",
-                    "approved_actions": "enabled" if action_executor.enabled else "disabled",
                 },
             )
             processed = process_pending_requests(
@@ -272,12 +242,10 @@ def run_agent(args: argparse.Namespace) -> int:
                 except AgentClientError:
                     ebpf.requeue(realtime_batch)
                     raise
-            actions_processed = process_approved_actions(client, action_executor)
             LOGGER.info(
-                "poll cycle completed; evidence=%s realtime_events=%s approved_actions=%s",
+                "poll cycle completed; evidence=%s realtime_events=%s",
                 processed,
                 len(realtime_batch),
-                actions_processed,
             )
             backoff.reset()
         except AgentClientError as exc:
@@ -387,6 +355,7 @@ def _register_with_retry(
         try:
             response = client.register(
                 agent_version=__version__,
+                agent_protocol_version=AGENT_PROTOCOL_VERSION,
                 supported_collectors=supported_collectors or SUPPORTED_COLLECTORS,
                 metadata=metadata,
             )

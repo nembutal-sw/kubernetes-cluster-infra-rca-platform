@@ -14,16 +14,34 @@ public class ImpactScopeAnalyzer {
         Set<String> pods = new LinkedHashSet<>();
         Set<String> namespaces = new LinkedHashSet<>();
         Set<String> workloads = new LinkedHashSet<>();
-        Set<String> services = new LinkedHashSet<>();
+        Set<String> observedServices = new LinkedHashSet<>();
         Set<String> evidencePaths = new LinkedHashSet<>();
 
         Object kubernetes = collectors == null ? null : collectors.get("kubernetes");
-        collect(kubernetes, "kubernetes", nodeName, pods, namespaces, workloads, services, evidencePaths, 0);
+        collect(
+            kubernetes,
+            "kubernetes",
+            nodeName,
+            pods,
+            namespaces,
+            workloads,
+            observedServices,
+            evidencePaths,
+            0
+        );
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("affected_pods", List.copyOf(pods));
         result.put("affected_namespaces", List.copyOf(namespaces));
-        result.put("affected_services", List.copyOf(services));
+        result.put("affected_services", List.of());
+        result.put("observed_services", List.copyOf(observedServices));
+        result.put(
+            "service_impact_assessment",
+            observedServices.isEmpty()
+                ? "No Service inventory was present in the collected evidence."
+                : observedServices.size() + " Service object(s) were observed in the evidence. "
+                    + "Endpoint, selector, and traffic correlation were not verified, so service impact is unconfirmed."
+        );
         result.put("affected_workloads", List.copyOf(workloads));
         result.put("impact_evidence_paths", List.copyOf(evidencePaths));
         result.put(

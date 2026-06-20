@@ -43,6 +43,17 @@ import "./styles.css";
       "Occurrences": "발생 횟수",
       "Action History": "조치 이력",
       "Approval and execution attempts": "승인 및 실행 요청 이력",
+      "Approval and manual handling history": "승인 및 수동 처리 이력",
+      "Approve for Manual Handling": "수동 처리 승인",
+      "Approve this request for human-operated handling? The platform and agent will not execute it.": "사람이 직접 처리하도록 승인할까요? 플랫폼과 Agent는 조치를 실행하지 않습니다.",
+      "Mark Manually Completed": "수동 처리 완료",
+      "Mark this approved request as manually completed?": "승인된 요청을 수동 처리 완료로 표시할까요?",
+      "Manual completion recorded.": "수동 처리 완료를 기록했습니다.",
+      "Collect Evidence": "근거 수집",
+      "Runbook / GitOps guidance": "Runbook / GitOps 안내",
+      "Commands are guidance only and are never executed by the platform or agent.": "명령은 안내용이며 플랫폼이나 Agent가 실행하지 않습니다.",
+      "Observed Services": "관찰된 Service",
+      "Service relationship unverified": "Service 영향 관계 미검증",
       "No action requests.": "조치 요청 이력이 없습니다.",
       "No incidents loaded.": "등록된 인시던트가 없습니다.",
       "No audit events loaded.": "감사 이벤트가 없습니다.",
@@ -86,6 +97,7 @@ import "./styles.css";
       "Policy Engine decides whether an action can be automated": "정책 엔진이 조치 자동화 가능 여부를 판단합니다",
       "Policy keeps automation_allowed=false for every LLM-origin action.": "LLM 출처 조치는 항상 automation_allowed=false로 유지됩니다.",
       "LLM suggestion only. automation_allowed=false until a rule or operator explicitly approves it.": "LLM 제안은 참고용입니다. Rule 또는 운영자 승인 전까지 automation_allowed=false 입니다.",
+      "LLM suggestion only. It cannot become executable and must remain diagnostic context.": "LLM 제안은 실행 가능 상태가 될 수 없으며 진단 참고 정보로만 사용합니다.",
       "Risk reasons": "위험 사유",
       "Guardrails": "가드레일",
       "No policy risk factors.": "정책 위험 사유 없음",
@@ -122,6 +134,10 @@ import "./styles.css";
       "Webhook token env": "웹훅 토큰 환경 변수",
       "LLM provider env": "LLM provider 환경 변수",
       "Database env": "데이터베이스 환경 변수",
+      "Platform version": "플랫폼 버전",
+      "API version": "API 버전",
+      "Agent protocol": "에이전트 프로토콜",
+      "Minimum agent version": "최소 에이전트 버전",
       "Webhook endpoint copied.": "웹훅 엔드포인트를 복사했습니다.",
       "Receiver sample copied.": "Receiver 예시를 복사했습니다.",
       "Install command copied.": "설치 명령을 복사했습니다.",
@@ -603,6 +619,7 @@ import "./styles.css";
     const [analysisTasks, setAnalysisTasks] = React.useState([]);
     const [auditEvents, setAuditEvents] = React.useState([]);
     const [demoScenarios, setDemoScenarios] = React.useState({ loading: true, enabled: false, items: [] });
+    const [platformInfo, setPlatformInfo] = React.useState(null);
     const [reportDetails, setReportDetails] = React.useState({});
     const [agentsByCluster, setAgentsByCluster] = React.useState({});
     const [installCommands, setInstallCommands] = React.useState({});
@@ -755,6 +772,15 @@ import "./styles.css";
       }
     }, [authHeaders, callApi, notify]);
 
+    const loadPlatformInfo = React.useCallback(async (silent) => {
+      try {
+        setPlatformInfo(await callApi("/api/v1/platform/info", { headers: authHeaders() }));
+      } catch (error) {
+        setPlatformInfo(null);
+        if (!silent) notify(error.message);
+      }
+    }, [authHeaders, callApi, notify]);
+
     const refreshAll = React.useCallback(async (silent) => {
       await Promise.allSettled([
         loadClusters(silent),
@@ -763,9 +789,10 @@ import "./styles.css";
         loadAnalysisTasks(silent),
         loadAuditEvents(silent),
         loadDemoScenarios(silent),
+        loadPlatformInfo(silent),
       ]);
       setLastRefresh(new Date());
-    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents, loadDemoScenarios]);
+    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents, loadDemoScenarios, loadPlatformInfo]);
 
     React.useEffect(() => {
       loadCurrentUser(true);
@@ -812,6 +839,7 @@ import "./styles.css";
       setAnalysisTasks([]);
       setAuditEvents([]);
       setDemoScenarios({ loading: true, enabled: false, items: [] });
+      setPlatformInfo(null);
       setReportDetails({});
       setAgentsByCluster({});
       setClusterData(null);
@@ -938,7 +966,9 @@ import "./styles.css";
         const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() });
         const [actionRequests, actionExecutions, timeline] = await Promise.all([
           callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
-          callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
+          ["admin", "operator"].includes(currentUser?.role)
+            ? callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() })
+            : Promise.resolve([]),
           report.incident_id
             ? callApi(`/api/rca/incidents/${encodeURIComponent(report.incident_id)}/timeline`, { headers: authHeaders() })
             : Promise.resolve(null),
@@ -1060,10 +1090,12 @@ import "./styles.css";
         `/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`,
         { headers: authHeaders() }
       );
-      const actionExecutions = await callApi(
-        `/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`,
-        { headers: authHeaders() }
-      );
+      const actionExecutions = ["admin", "operator"].includes(currentUser?.role)
+        ? await callApi(
+            `/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`,
+            { headers: authHeaders() }
+          )
+        : [];
       setReportDetails((value) => ({
         ...value,
         [reportId]: {
@@ -1078,7 +1110,7 @@ import "./styles.css";
     async function decideActionRequest(actionRequestId, reportId, decision) {
       if (!window.confirm(
         decision === "approve"
-          ? tr("Approve and execute this reviewed action on the target node?")
+          ? tr("Approve this request for human-operated handling? The platform and agent will not execute it.")
           : tr("Reject this action request?")
       )) return;
       try {
@@ -1091,6 +1123,27 @@ import "./styles.css";
           }
         );
         notify(`Action request ${(result.action_request || result).status}.`);
+        await reloadActionRequests(reportId);
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+
+    async function completeManualActionRequest(actionRequestId, reportId) {
+      if (!window.confirm(tr("Mark this approved request as manually completed?"))) return;
+      try {
+        await callApi(
+          `/api/rca/action-requests/${encodeURIComponent(actionRequestId)}/complete-manual`,
+          {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+              confirmed: true,
+              note: "Manual handling completion recorded from web console",
+            }),
+          }
+        );
+        notify(tr("Manual completion recorded."));
         await reloadActionRequests(reportId);
       } catch (error) {
         notify(error.message);
@@ -1302,6 +1355,7 @@ import "./styles.css";
           onCopy: copyText,
           currentUser,
           onDecideAction: decideActionRequest,
+          onCompleteManual: completeManualActionRequest,
         }),
         activeView === "audit" && currentUser.role === "admin" && h(AuditView, {
           events: auditEvents,
@@ -1322,6 +1376,7 @@ import "./styles.css";
           onChangePassword: changePassword,
           locale,
           onChangeLanguage: changeLanguage,
+          platformInfo,
         }),
         clusterData?.open && h(ClusterDataModal, {
           state: clusterData,
@@ -1331,6 +1386,7 @@ import "./styles.css";
           onCollectCluster: prepareClusterCollection,
           onExportReports: () => downloadReportsExport(clusterData.clusterId),
           onCopy: copyText,
+          canExport: ["admin", "operator"].includes(currentUser?.role),
         }),
         actionDialog && h(ActionConfirmDialog, {
           state: actionDialog,
@@ -1775,12 +1831,14 @@ import "./styles.css";
     onCopy,
     currentUser,
     onDecideAction,
+    onCompleteManual,
   }) {
+    const canExport = ["admin", "operator"].includes(currentUser?.role);
     return h(Panel, {
       title: "RCA Reports",
       subtitle: loading.reports ? "Loading" : `${reports.length} reports`,
       action: h("div", { className: "btn-group btn-group-sm" },
-        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onExportReports }, h(Icon, { name: "download" }), tr("Export all")),
+        canExport ? h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onExportReports }, h(Icon, { name: "download" }), tr("Export all")) : null,
         h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload"))
       ),
     }, reports.length ? h(React.Fragment, null,
@@ -1807,8 +1865,8 @@ import "./styles.css";
                 h("td", { className: "text-end" },
                   h("div", { className: "btn-group btn-group-sm" },
                     h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
-                    h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
-                    h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
+                    canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")) : null,
+                    canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy")) : null
                   )
                 )
               ),
@@ -1820,6 +1878,7 @@ import "./styles.css";
                 onCopy,
                 currentUser,
                 onDecideAction,
+                onCompleteManual,
               })))
             );
           }))
@@ -1847,12 +1906,12 @@ import "./styles.css";
             h("div", { className: "mobile-card-actions" },
               h("div", { className: "btn-group btn-group-sm" },
                 h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
-                h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")),
-                h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy"))
+                canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")) : null,
+                canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy")) : null
               )
             ),
             detail?.open && h("div", { className: "mobile-card-expanded" },
-              h(ReportDetail, { detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction })
+              h(ReportDetail, { detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction, onCompleteManual })
             )
           );
         })
@@ -1902,7 +1961,7 @@ import "./styles.css";
     );
   }
 
-  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage }) {
+  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage, platformInfo }) {
     const rows = [
       ["Platform API", apiBase || tr("same origin")],
       ["Public API", publicApiBase],
@@ -1912,6 +1971,12 @@ import "./styles.css";
       ["Webhook token env", "RCA_WEBHOOK_TOKEN"],
       ["LLM provider env", "RCA_LLM_PROVIDER"],
       ["Database env", "RCA_JDBC_URL"],
+      ["Platform version", platformInfo?.platform_version || "n/a"],
+      ["API version", platformInfo?.api_version || "n/a"],
+      ["Agent protocol", platformInfo
+        ? `${platformInfo.minimum_supported_agent_protocol_version} - ${platformInfo.agent_protocol_version}`
+        : "n/a"],
+      ["Minimum agent version", platformInfo?.minimum_supported_agent_version || "n/a"],
     ];
     return h("div", { className: "row g-3" },
       h("div", { className: "col-12 col-xl-8" },
@@ -2030,7 +2095,12 @@ import "./styles.css";
                 ? h("div", { className: "small text-muted mt-1" }, agent.reasons.join(" "))
                 : null
             ),
-            h("td", null, agent.agent_version || "n/a"),
+            h("td", null,
+              h("div", null, agent.agent_version || "n/a"),
+              h("div", { className: "small text-muted" },
+                `protocol ${agent.agent_protocol_version || "1"} / ${agent.platform_protocol_version || "1"}`
+              )
+            ),
             h("td", null, formatAgentLastSeen(agent))
           )))
         )
@@ -2047,7 +2117,10 @@ import "./styles.css";
             })
           ),
           h("div", { className: "mobile-field-grid" },
-            h(MobileField, { label: "Version", value: agent.agent_version || "n/a" }),
+            h(MobileField, {
+              label: "Version",
+              value: `${agent.agent_version || "n/a"} / protocol ${agent.agent_protocol_version || "1"}`,
+            }),
             h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) }),
             (agent.reasons || []).length
               ? h(MobileField, { label: "Reason", value: agent.reasons.join(" ") })
@@ -2058,7 +2131,7 @@ import "./styles.css";
     );
   }
 
-  function ClusterDataModal({ state, onClose, onRefresh, onLoadEvidence, onCollectCluster, onExportReports, onCopy }) {
+  function ClusterDataModal({ state, onClose, onRefresh, onLoadEvidence, onCollectCluster, onExportReports, onCopy, canExport }) {
     const cluster = state.cluster || {};
     const agents = state.agents || [];
     const evidenceRequests = state.evidenceRequests || [];
@@ -2085,7 +2158,7 @@ import "./styles.css";
           h("div", null,
             h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
               h("h3", { className: "h6 mb-0" }, tr("Collected Evidence")),
-              state.selectedEvidence && h("button", {
+              state.selectedEvidence && canExport && h("button", {
                 type: "button",
                 className: "btn btn-sm btn-outline-secondary btn-icon",
                 onClick: () => onCopy(JSON.stringify(state.selectedEvidence, null, 2), "Evidence bundle copied."),
@@ -2097,16 +2170,16 @@ import "./styles.css";
             h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
               h("h3", { className: "h6 mb-0" }, tr("Recent RCA")),
               reports.length ? h("div", { className: "btn-group btn-group-sm" },
-                h("button", {
+                canExport ? h("button", {
                   type: "button",
                   className: "btn btn-outline-secondary btn-icon",
                   onClick: onExportReports,
-                }, h(Icon, { name: "download" }), tr("Export")),
-                h("button", {
+                }, h(Icon, { name: "download" }), tr("Export")) : null,
+                canExport ? h("button", {
                   type: "button",
                   className: "btn btn-outline-secondary btn-icon",
                   onClick: () => onCopy(JSON.stringify(reports, null, 2), "Cluster RCA reports copied."),
-                }, h(Icon, { name: "clipboard" }), tr("Copy"))
+                }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
               ) : null
             ),
             h(ClusterReportList, { items: reports })
@@ -2343,7 +2416,7 @@ import "./styles.css";
     );
   }
 
-  function ReportDetail({ detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction }) {
+  function ReportDetail({ detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction, onCompleteManual }) {
     if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
     if (detail.error) return h(EmptyState, { message: detail.error });
     const report = detail.report;
@@ -2352,7 +2425,7 @@ import "./styles.css";
     const llm = section(report, "llm_analysis")?.analysis || {};
     const actions = report.recommended_actions || [];
     return h("div", { className: "d-grid gap-3" },
-      h("div", { className: "d-flex justify-content-end gap-2 flex-wrap" },
+      ["admin", "operator"].includes(currentUser?.role) ? h("div", { className: "d-flex justify-content-end gap-2 flex-wrap" },
         h("button", {
           type: "button",
           className: "btn btn-sm btn-outline-secondary btn-icon",
@@ -2363,7 +2436,7 @@ import "./styles.css";
           className: "btn btn-sm btn-outline-secondary btn-icon",
           onClick: () => onExportBundle(report.report_id),
         }, h(Icon, { name: "file-earmark-zip" }), "Evidence Bundle")
-      ),
+      ) : null,
       h(ReportSummaryStrip, { report, llm, actions }),
       h(PolicyOverview, { actions }),
       detail.timeline ? h("section", { className: "report-section" },
@@ -2406,12 +2479,12 @@ import "./styles.css";
           h("h3", { className: "h6 mb-0" }, tr("Recommended Actions")),
           h("span", { className: "small text-muted" }, tr("Policy Engine decides whether an action can be automated"))
         ),
-        h(ActionFacts, { items: actions, report, onPrepareAction })
+        h(ActionFacts, { items: actions, report, onPrepareAction, currentUser })
       ),
       h("section", { className: "report-section" },
         h("div", { className: "report-section-title" },
           h("h3", { className: "h6 mb-0" }, tr("Action History")),
-          h("span", { className: "small text-muted" }, tr("Approval and execution attempts"))
+          h("span", { className: "small text-muted" }, tr("Approval and manual handling history"))
         ),
         h(ActionRequestHistory, {
           items: detail.actionRequests || [],
@@ -2419,6 +2492,7 @@ import "./styles.css";
           reportId: report.report_id,
           currentUser,
           onDecideAction,
+          onCompleteManual,
         })
       )
     );
@@ -2429,17 +2503,22 @@ import "./styles.css";
       ["Affected Pods", scope.affected_pods || []],
       ["Affected Namespaces", scope.affected_namespaces || []],
       ["Affected Workloads", scope.affected_workloads || []],
-      ["Affected Services", scope.affected_services || []],
+      ["Observed Services", scope.observed_services || []],
     ];
     const hasInventory = groups.some(([, values]) => values.length);
     if (!hasInventory) {
       return h(EmptyState, { message: scope.impact_assessment || "No workload inventory was available in the collected evidence." });
     }
-    return h("div", { className: "impact-scope-grid" },
+    return h(React.Fragment, null,
+      scope.service_impact_assessment ? h("div", { className: "alert alert-info py-2 mb-3" },
+        h("strong", null, `${tr("Service relationship unverified")}: `),
+        displayText(scope.service_impact_assessment)
+      ) : null,
+      h("div", { className: "impact-scope-grid" },
       groups.map(([label, values]) => h("div", { key: label, className: "impact-scope-item" },
         h("div", { className: "small fw-semibold mb-2" }, tr(label)),
         h(ChipList, { items: values, tone: "blue", empty: tr("No items.") })
-      ))
+      )))
     );
   }
 
@@ -2460,7 +2539,7 @@ import "./styles.css";
     );
   }
 
-  function ActionRequestHistory({ items, executions, reportId, currentUser, onDecideAction }) {
+  function ActionRequestHistory({ items, executions, reportId, currentUser, onDecideAction, onCompleteManual }) {
     if (!items.length) return h(EmptyState, { message: "No action requests." });
     return h("div", { className: "d-grid gap-2" }, items.map((item) => h("article", {
       key: item.action_request_id,
@@ -2475,20 +2554,26 @@ import "./styles.css";
         h(StatusBadge, { value: item.policy, tone: policyTone(item.policy) }),
         h(StatusBadge, {
           value: item.status,
-          tone: ["accepted", "approved_manual"].includes(item.status) ? "green"
+          tone: ["accepted", "approved_manual", "completed"].includes(item.status) ? "green"
             : item.status === "blocked" || item.status === "rejected" ? "red" : "amber",
         }),
-        currentUser?.role === "admin" && item.status === "pending_approval"
+        ["admin", "approver"].includes(currentUser?.role) && item.status === "pending_approval"
           ? h("div", { className: "btn-group btn-group-sm" },
               h("button", {
                 className: "btn btn-outline-success",
                 onClick: () => onDecideAction(item.action_request_id, reportId, "approve"),
-              }, tr("Approve & Execute")),
+              }, tr("Approve for Manual Handling")),
               h("button", {
                 className: "btn btn-outline-danger",
                 onClick: () => onDecideAction(item.action_request_id, reportId, "reject"),
               }, tr("Reject"))
             )
+          : null,
+        ["admin", "operator"].includes(currentUser?.role) && item.status === "approved_manual"
+          ? h("button", {
+              className: "btn btn-sm btn-outline-primary",
+              onClick: () => onCompleteManual(item.action_request_id, reportId),
+            }, tr("Mark Manually Completed"))
           : null
       )
     ),
@@ -2606,7 +2691,7 @@ import "./styles.css";
     )));
   }
 
-  function ActionFacts({ items, report, onPrepareAction }) {
+  function ActionFacts({ items, report, onPrepareAction, currentUser }) {
     if (!items.length) return h("div", { className: "empty-state" }, tr("No actions."));
     return h("div", { className: "d-grid gap-2" }, items.map((item, index) => {
       const llmSourced = item.source === "llm";
@@ -2627,7 +2712,9 @@ import "./styles.css";
           h("button", {
             type: "button",
             className: `btn btn-sm ${item.automation_allowed ? "btn-primary" : "btn-outline-secondary"} btn-icon`,
-            disabled: item.policy === "NEVER_AUTO_EXECUTE" || !onPrepareAction,
+            disabled: item.policy === "NEVER_AUTO_EXECUTE"
+              || !onPrepareAction
+              || !["admin", "operator"].includes(currentUser?.role),
             onClick: () => onPrepareAction(report, item, index),
           }, h(Icon, { name: actionIcon(item) }), actionButtonLabel(item))
         )
@@ -2635,7 +2722,7 @@ import "./styles.css";
       h("div", { className: "policy-description mt-2" }, policyDescription(item.policy)),
       llmSourced ? h("div", { className: "llm-action-warning mt-2" },
         h(Icon, { name: "exclamation-triangle" }),
-        h("span", null, tr("LLM suggestion only. automation_allowed=false until a rule or operator explicitly approves it."))
+        h("span", null, tr("LLM suggestion only. It cannot become executable and must remain diagnostic context."))
       ) : null,
       h("div", { className: "action-meta-grid mt-2" },
         h(MetaPill, { label: "mode", value: item.automation_mode || "manual" }),
@@ -2644,17 +2731,17 @@ import "./styles.css";
         h(MetaPill, { label: "key", value: item.action_key || "n/a" })
       ),
       item.execution_plan ? h("div", { className: "action-plan mt-2" },
-        h("div", { className: "small fw-semibold mb-1" }, tr("Reviewed execution preview")),
+        h("div", { className: "small fw-semibold mb-1" }, tr("Runbook / GitOps guidance")),
         (item.execution_plan.command_preview || []).map((command, commandIndex) =>
           h("pre", { key: commandIndex, className: "command-preview mb-1" }, command)
         ),
         item.execution_plan.yaml_patch
           ? h("pre", { className: "command-preview mb-1" }, item.execution_plan.yaml_patch)
           : null,
-        h(StatusBadge, {
-          value: item.execution_plan.executable ? "agent executable after approval" : "preview only",
-          tone: item.execution_plan.executable ? "amber" : "blue",
-        })
+        h(StatusBadge, { value: "manual guidance only", tone: "blue" }),
+        h("div", { className: "small text-muted mt-1" },
+          tr("Commands are guidance only and are never executed by the platform or agent.")
+        )
       ) : null,
       h("div", { className: "mt-2" },
         h(ChipList, { label: tr("Risk reasons"), items: item.risk_factors || [], tone: "red", empty: tr("No policy risk factors.") })
@@ -2958,7 +3045,7 @@ import "./styles.css";
   }
 
   function actionButtonLabel(action) {
-    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return tr("Execute");
+    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return tr("Collect Evidence");
     if (action.policy === "APPROVAL_REQUIRED") return tr("Request");
     if (action.policy === "GITOPS_PR_ONLY") return tr("PR Gate");
     if (action.policy === "NEVER_AUTO_EXECUTE") return tr("Blocked");

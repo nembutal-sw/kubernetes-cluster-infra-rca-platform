@@ -18,6 +18,7 @@ import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,6 +39,7 @@ public class RcaService {
     private final TokenService tokens;
     private final AuditService audit;
     private final IncidentNotificationService notifications;
+    private final RcaMetrics metrics;
 
     public RcaService(
         ClusterRepository clusters,
@@ -49,7 +51,8 @@ public class RcaService {
         RcaConsoleProperties properties,
         TokenService tokens,
         AuditService audit,
-        IncidentNotificationService notifications
+        IncidentNotificationService notifications,
+        RcaMetrics metrics
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -61,6 +64,7 @@ public class RcaService {
         this.tokens = tokens;
         this.audit = audit;
         this.notifications = notifications;
+        this.metrics = metrics;
     }
 
     public WebhookIngestResponse ingestAlertmanager(AlertmanagerPayload payload) {
@@ -108,6 +112,7 @@ public class RcaService {
                     )
                 ));
                 requests.add(request);
+                metrics.evidenceRequest("alertmanager", "created", 1);
                 continue;
             }
 
@@ -128,6 +133,10 @@ public class RcaService {
             ), "alertmanager", false, properties.getPipeline().getMaxAttempts());
             analysisTasks.add(task);
         }
+        String result = skipped.isEmpty()
+            ? "accepted"
+            : skipped.size() == payload.alertsOrEmpty().size() ? "rejected" : "partial";
+        metrics.webhookIngest(result, 1, payload.alertsOrEmpty().size());
         return new WebhookIngestResponse(
             payload.alertsOrEmpty().size(),
             jobs,
@@ -150,41 +159,52 @@ public class RcaService {
     }
 
     private RcaJob createCompletedJob(EvidenceBundle evidence) {
-        String reportId = id("report");
-        RcaReport report = analyzer.analyze(reportId, evidence);
-        RcaJob job = new RcaJob(
-            id("job"),
-            evidence.clusterId(),
-            evidence.alertName(),
-            evidence.nodeName(),
-            RcaJobStatus.completed,
-            reportId,
-            evidence.evidenceId(),
-            Instant.now()
-        );
-        String dedupKey = incidentDedupKey(report, evidence);
-        RcaJob saved = incidents.saveCorrelated(report, job, dedupKey, evidence);
-        boolean duplicate = !saved.reportId().equals(reportId);
-        audit.system(
-            "rca-pipeline",
-            duplicate ? "incident.correlated" : "incident.created",
-            "incident",
-            reports.findReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
-            duplicate ? "suppressed_duplicate_report" : "report_created",
-            Map.of(
-                "cluster_id", evidence.clusterId(),
-                "node_name", evidence.nodeName(),
-                "alert_name", evidence.alertName(),
-                "evidence_id", evidence.evidenceId(),
-                "report_id", saved.reportId()
-            )
-        );
-        if (!duplicate) {
-            reports.findReport(saved.reportId()).ifPresent(savedReport ->
-                notifications.notifyIncident(savedReport, evidence)
+        Instant startedAt = Instant.now();
+        try {
+            String reportId = id("report");
+            RcaReport report = analyzer.analyze(reportId, evidence);
+            RcaJob job = new RcaJob(
+                id("job"),
+                evidence.clusterId(),
+                evidence.alertName(),
+                evidence.nodeName(),
+                RcaJobStatus.completed,
+                reportId,
+                evidence.evidenceId(),
+                Instant.now()
             );
+            String dedupKey = incidentDedupKey(report, evidence);
+            RcaJob saved = incidents.saveCorrelated(report, job, dedupKey, evidence);
+            boolean duplicate = !saved.reportId().equals(reportId);
+            metrics.incident(duplicate ? "correlated" : "created");
+            audit.system(
+                "rca-pipeline",
+                duplicate ? "incident.correlated" : "incident.created",
+                "incident",
+                reports.findReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
+                duplicate ? "suppressed_duplicate_report" : "report_created",
+                Map.of(
+                    "cluster_id", evidence.clusterId(),
+                    "node_name", evidence.nodeName(),
+                    "alert_name", evidence.alertName(),
+                    "evidence_id", evidence.evidenceId(),
+                    "report_id", saved.reportId()
+                )
+            );
+            if (!duplicate) {
+                reports.findReport(saved.reportId()).ifPresent(savedReport ->
+                    notifications.notifyIncident(savedReport, evidence)
+                );
+            }
+            metrics.reportGenerated(
+                duplicate ? "correlated" : "created",
+                Duration.between(startedAt, Instant.now())
+            );
+            return saved;
+        } catch (RuntimeException exception) {
+            metrics.reportGenerated("failed", Duration.between(startedAt, Instant.now()));
+            throw exception;
         }
-        return saved;
     }
 
     private String incidentDedupKey(RcaReport report, EvidenceBundle evidence) {

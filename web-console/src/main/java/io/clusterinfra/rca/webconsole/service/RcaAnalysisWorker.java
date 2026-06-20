@@ -8,6 +8,7 @@ import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import jakarta.annotation.PreDestroy;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ public class RcaAnalysisWorker {
     private final RcaService rcaService;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
+    private final RcaMetrics metrics;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final String workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -35,12 +37,14 @@ public class RcaAnalysisWorker {
         AnalysisTaskRepository tasks,
         RcaService rcaService,
         RcaConsoleProperties properties,
-        AuditService audit
+        AuditService audit,
+        RcaMetrics metrics
     ) {
         this.tasks = tasks;
         this.rcaService = rcaService;
         this.properties = properties;
         this.audit = audit;
+        this.metrics = metrics;
     }
 
     @Scheduled(
@@ -58,6 +62,7 @@ public class RcaAnalysisWorker {
             now,
             now.plusSeconds(Math.max(30, properties.getPipeline().getLeaseSeconds()))
         );
+        metrics.analysisClaimed(claimedTasks.size());
         List<Future<?>> futures = new ArrayList<>();
         for (AnalysisTask task : claimedTasks) {
             futures.add(executor.submit(() -> process(task)));
@@ -91,6 +96,7 @@ public class RcaAnalysisWorker {
                 LOGGER.warn("Analysis task lease was lost before completion: {}", task.taskId());
                 return;
             }
+            metrics.analysisCompleted(status, Duration.between(task.createdAt(), completedAt));
             recordAudit(
                 task,
                 "analysis.task_completed",
@@ -122,6 +128,7 @@ public class RcaAnalysisWorker {
         AnalysisTaskStatus status = task.attemptCount() >= task.maxAttempts()
             ? AnalysisTaskStatus.dead_letter
             : AnalysisTaskStatus.retry_wait;
+        metrics.analysisFailed(status);
         recordAudit(
             task,
             "analysis.task_failed",

@@ -19,6 +19,7 @@ import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptions;
 import io.clusterinfra.rca.webconsole.service.RcaService;
+import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.time.Duration;
@@ -56,6 +57,7 @@ public class ClusterController {
     private final RcaService rcaService;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
+    private final RcaMetrics metrics;
 
     public ClusterController(
         ClusterRepository clusters,
@@ -65,7 +67,8 @@ public class ClusterController {
         AgentManifestService manifests,
         RcaService rcaService,
         RcaConsoleProperties properties,
-        AuditService audit
+        AuditService audit,
+        RcaMetrics metrics
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -75,6 +78,7 @@ public class ClusterController {
         this.rcaService = rcaService;
         this.properties = properties;
         this.audit = audit;
+        this.metrics = metrics;
     }
 
     @PostMapping
@@ -237,6 +241,7 @@ public class ClusterController {
                 request.reasonOrDefault(),
                 context
             )));
+            metrics.evidenceRequest("manual", "created", 1);
         }
         audit.user(
             user,
@@ -273,6 +278,7 @@ public class ClusterController {
             agent.clusterId(),
             agent.nodeName(),
             agent.agentVersion(),
+            agent.agentProtocolVersion(),
             AgentStatus.offline,
             agent.supportedCollectors(),
             agent.metadata(),

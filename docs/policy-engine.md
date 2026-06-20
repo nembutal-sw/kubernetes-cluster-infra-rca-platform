@@ -9,7 +9,7 @@ LLM은 조치 실행자가 아닙니다. LLM의 출력은 Policy Engine의 입�
 | 등급 | 의미 | 예시 |
 | --- | --- | --- |
 | `AUTO_SAFE` | 자동 실행 가능성이 있는 읽기/검증 중심 조치 | 추가 상태 조회, 비파괴 health check, 보고서 갱신 |
-| `APPROVAL_REQUIRED` | 운영자 승인 후 실행 가능한 조치 | kubelet restart, containerd restart, cordon, drain |
+| `APPROVAL_REQUIRED` | 운영자 승인 후 외부 runbook으로 수동 처리할 조치 | kubelet restart, containerd restart, cordon, drain |
 | `GITOPS_PR_ONLY` | 직접 실행하지 않고 PR로만 제안할 조치 | CNI MTU 설정 변경, CoreDNS config 변경, kubelet config 변경 |
 | `NEVER_AUTO_EXECUTE` | 자동 실행 금지 | 노드 reboot, 데이터 삭제, etcd member 제거, 강제 drain |
 | `MANUAL_INVESTIGATION` | 사람의 판단이 필요한 조치 | 하드웨어 장애 의심, 디스크 교체, 네트워크 장비 점검 |
@@ -67,6 +67,10 @@ Linux low-level 진단은 이 플랫폼의 핵심 수집 대상입니다. 아래
 다만 low-level 명령이라도 상태를 바꾸면 자동화 대상이 아닙니다. 예를 들어 `ip link set`, `ethtool -K`, `conntrack -F`, `tc qdisc add/del`, `echo > /proc/sys`, `tee /sys/...`는 `APPROVAL_REQUIRED` 이상으로 격상합니다. `sysctl -w`처럼 지속 설정과 연결되는 변경은 `GITOPS_PR_ONLY`로 분류합니다.
 
 LLM이 제안한 조치는 policy 등급과 별개로 `automation_allowed=false`가 됩니다. 자동화가 들어오더라도 LLM output을 직접 실행 트리거로 쓰지 않고, rule-based evidence와 Policy Engine 결과를 다시 확인해야 합니다.
+
+`APPROVAL_REQUIRED`와 `GITOPS_PR_ONLY`의 `execution_plan`은 안내용 preview이며
+`executable=false`입니다. Platform은 action execution을 생성하거나 queue하지 않고 Node
+Agent에도 host mutation executor를 포함하지 않습니다.
 
 ## 예시
 

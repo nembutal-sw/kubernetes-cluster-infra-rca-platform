@@ -150,6 +150,7 @@ public class JdbcRcaStore {
             request.clusterId(),
             request.nodeName().trim(),
             request.agentVersion().trim(),
+            request.protocolVersionOrDefault(),
             AgentStatus.registered,
             request.collectorsOrEmpty(),
             request.metadataOrEmpty(),
@@ -160,13 +161,15 @@ public class JdbcRcaStore {
         if (existing.isPresent()) {
             jdbc.update(
                 """
-                    UPDATE node_agents SET node_token_hash = ?, agent_version = ?, status = ?,
+                    UPDATE node_agents SET node_token_hash = ?, agent_version = ?,
+                        agent_protocol_version = ?, status = ?,
                         supported_collectors_json = ?, metadata_json = ?, health_json = ?,
                         registered_at = ?, last_heartbeat_at = ?
                     WHERE agent_id = ?
                     """,
                 tokens.hashPassword(nodeToken),
                 agent.agentVersion(),
+                agent.agentProtocolVersion(),
                 agent.status().name(),
                 json(agent.supportedCollectors()),
                 json(agent.metadata()),
@@ -179,15 +182,17 @@ public class JdbcRcaStore {
             jdbc.update(
                 """
                     INSERT INTO node_agents
-                        (agent_id, cluster_id, node_name, node_token_hash, agent_version, status,
+                        (agent_id, cluster_id, node_name, node_token_hash, agent_version,
+                         agent_protocol_version, status,
                          supported_collectors_json, metadata_json, health_json, registered_at, last_heartbeat_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 agent.agentId(),
                 agent.clusterId(),
                 agent.nodeName(),
                 tokens.hashPassword(nodeToken),
                 agent.agentVersion(),
+                agent.agentProtocolVersion(),
                 agent.status().name(),
                 json(agent.supportedCollectors()),
                 json(agent.metadata()),
@@ -202,6 +207,7 @@ public class JdbcRcaStore {
             agent.clusterId(),
             agent.nodeName(),
             agent.agentVersion(),
+            agent.agentProtocolVersion(),
             agent.status(),
             agent.supportedCollectors(),
             agent.metadata(),
@@ -222,13 +228,15 @@ public class JdbcRcaStore {
         Instant now = Instant.now();
         jdbc.update(
             """
-                UPDATE node_agents SET agent_version = ?, status = ?, supported_collectors_json = ?,
+                UPDATE node_agents SET agent_version = ?, agent_protocol_version = ?, status = ?,
+                    supported_collectors_json = ?,
                     health_json = ?, last_heartbeat_at = ?
                 WHERE cluster_id = ? AND node_name = ?
                 """,
             request.agentVersion() == null || request.agentVersion().isBlank()
                 ? current.agentVersion()
                 : request.agentVersion().trim(),
+            request.protocolVersionOrDefault(),
             request.statusOrDefault().name(),
             json(request.supportedCollectors() == null ? current.supportedCollectors() : request.supportedCollectors()),
             json(request.healthOrEmpty()),
@@ -245,6 +253,13 @@ public class JdbcRcaStore {
             "SELECT * FROM node_agents WHERE cluster_id = ? ORDER BY node_name ASC",
             this::mapAgent,
             clusterId
+        );
+    }
+
+    public List<NodeAgent> listAgents() {
+        return jdbc.query(
+            "SELECT * FROM node_agents ORDER BY cluster_id, node_name",
+            this::mapAgent
         );
     }
 
@@ -544,6 +559,15 @@ public class JdbcRcaStore {
             status.name(),
             safeLimit
         );
+    }
+
+    public long countAnalysisTasks(AnalysisTaskStatus status) {
+        Long count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM rca_analysis_tasks WHERE status = ?",
+            Long.class,
+            status.name()
+        );
+        return count == null ? 0 : count;
     }
 
     @Transactional
@@ -1013,6 +1037,17 @@ public class JdbcRcaStore {
         );
     }
 
+    @Transactional
+    public Optional<ActionRequest> completeManualActionRequest(String actionRequestId) {
+        int updated = jdbc.update(
+            "UPDATE action_requests SET status = ? WHERE action_request_id = ? AND status = ?",
+            ActionRequestStatus.completed.name(),
+            actionRequestId,
+            ActionRequestStatus.approved_manual.name()
+        );
+        return updated == 0 ? Optional.empty() : getActionRequest(actionRequestId);
+    }
+
     public List<ActionRequest> listActionRequests(String reportId) {
         if (reportId == null || reportId.isBlank()) {
             return jdbc.query("SELECT * FROM action_requests ORDER BY created_at DESC", this::mapActionRequest);
@@ -1022,77 +1057,6 @@ public class JdbcRcaStore {
             this::mapActionRequest,
             reportId
         );
-    }
-
-    public ActionExecution createActionExecution(
-        ActionRequest request,
-        RcaReport report,
-        String nodeName,
-        ActionPlan plan
-    ) {
-        if (plan == null || !plan.executable()) {
-            throw new IllegalArgumentException("action plan is not executable");
-        }
-        Instant now = databaseInstant();
-        ActionExecution execution = new ActionExecution(
-            id("execution"),
-            request.actionRequestId(),
-            request.reportId(),
-            report.clusterId(),
-            nodeName,
-            request.actionKey(),
-            plan.commandKey(),
-            plan.parametersOrEmpty(),
-            plan,
-            ActionExecutionStatus.pending_approval,
-            Math.max(1, Math.min(plan.timeoutSeconds(), 900)),
-            request.requestedBy(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            now,
-            null,
-            null,
-            null
-        );
-        jdbc.update(
-            """
-                INSERT INTO action_executions
-                    (execution_id, action_request_id, report_id, cluster_id, node_name, action_key,
-                     command_key, parameters_json, preview_json, status, timeout_seconds, requested_by,
-                     approved_by, lease_owner, lease_expires_at, exit_code, stdout_text, stderr_text,
-                     error_message, created_at, approved_at, started_at, completed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-            execution.executionId(),
-            execution.actionRequestId(),
-            execution.reportId(),
-            execution.clusterId(),
-            execution.nodeName(),
-            execution.actionKey(),
-            execution.commandKey(),
-            json(execution.parameters()),
-            json(execution.preview()),
-            execution.status().name(),
-            execution.timeoutSeconds(),
-            execution.requestedBy(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            timestamp(execution.createdAt()),
-            null,
-            null,
-            null
-        );
-        return execution;
     }
 
     public Optional<ActionExecution> getActionExecution(String executionId) {
@@ -1123,141 +1087,6 @@ public class JdbcRcaStore {
             this::mapActionExecution,
             reportId
         );
-    }
-
-    @Transactional
-    public Optional<ActionExecution> approveActionExecution(
-        String actionRequestId,
-        String approvedBy
-    ) {
-        Instant now = databaseInstant();
-        int updated = jdbc.update(
-            """
-                UPDATE action_executions
-                SET status = ?, approved_by = ?, approved_at = ?
-                WHERE action_request_id = ? AND status = ?
-                """,
-            ActionExecutionStatus.queued.name(),
-            approvedBy,
-            timestamp(now),
-            actionRequestId,
-            ActionExecutionStatus.pending_approval.name()
-        );
-        return updated == 0 ? Optional.empty() : getActionExecutionByRequest(actionRequestId);
-    }
-
-    public Optional<ActionExecution> rejectActionExecution(String actionRequestId) {
-        Instant now = databaseInstant();
-        int updated = jdbc.update(
-            """
-                UPDATE action_executions SET status = ?, completed_at = ?
-                WHERE action_request_id = ? AND status = ?
-                """,
-            ActionExecutionStatus.rejected.name(),
-            timestamp(now),
-            actionRequestId,
-            ActionExecutionStatus.pending_approval.name()
-        );
-        return updated == 0 ? Optional.empty() : getActionExecutionByRequest(actionRequestId);
-    }
-
-    @Transactional
-    public List<ActionExecution> claimActionExecutions(
-        String clusterId,
-        String nodeName,
-        String leaseOwner,
-        int limit,
-        Instant now,
-        Instant leaseExpiresAt
-    ) {
-        int safeLimit = Math.max(1, Math.min(limit, 10));
-        List<String> ids = jdbc.queryForList(
-            """
-                SELECT execution_id FROM action_executions
-                WHERE cluster_id = ? AND node_name = ?
-                  AND (status = ? OR (status = ? AND lease_expires_at < ?))
-                ORDER BY created_at
-                LIMIT ?
-                """,
-            String.class,
-            clusterId,
-            nodeName,
-            ActionExecutionStatus.queued.name(),
-            ActionExecutionStatus.leased.name(),
-            timestamp(now),
-            safeLimit * 2
-        );
-        List<ActionExecution> claimed = new ArrayList<>();
-        for (String executionId : ids) {
-            int updated = jdbc.update(
-                """
-                    UPDATE action_executions
-                    SET status = ?, lease_owner = ?, lease_expires_at = ?,
-                        started_at = COALESCE(started_at, ?)
-                    WHERE execution_id = ?
-                      AND (status = ? OR (status = ? AND lease_expires_at < ?))
-                    """,
-                ActionExecutionStatus.leased.name(),
-                leaseOwner,
-                timestamp(leaseExpiresAt),
-                timestamp(now),
-                executionId,
-                ActionExecutionStatus.queued.name(),
-                ActionExecutionStatus.leased.name(),
-                timestamp(now)
-            );
-            if (updated == 1) {
-                getActionExecution(executionId).ifPresent(claimed::add);
-            }
-            if (claimed.size() >= safeLimit) {
-                break;
-            }
-        }
-        return claimed;
-    }
-
-    @Transactional
-    public Optional<ActionExecution> completeActionExecution(
-        String executionId,
-        String leaseOwner,
-        ActionExecutionStatus status,
-        Integer exitCode,
-        String stdout,
-        String stderr,
-        String errorMessage
-    ) {
-        if (status != ActionExecutionStatus.completed && status != ActionExecutionStatus.failed) {
-            throw new IllegalArgumentException("action execution result status is invalid");
-        }
-        Instant now = databaseInstant();
-        int updated = jdbc.update(
-            """
-                UPDATE action_executions
-                SET status = ?, exit_code = ?, stdout_text = ?, stderr_text = ?, error_message = ?,
-                    lease_owner = NULL, lease_expires_at = NULL, completed_at = ?
-                WHERE execution_id = ? AND status = ? AND lease_owner = ?
-                """,
-            status.name(),
-            exitCode,
-            limitedText(SensitiveDataRedactor.redactText(stdout), 65535),
-            limitedText(SensitiveDataRedactor.redactText(stderr), 65535),
-            limitedText(SensitiveDataRedactor.redactText(errorMessage), 4000),
-            timestamp(now),
-            executionId,
-            ActionExecutionStatus.leased.name(),
-            leaseOwner
-        );
-        if (updated == 0) {
-            return Optional.empty();
-        }
-        getActionExecution(executionId).ifPresent(execution -> jdbc.update(
-            "UPDATE action_requests SET status = ? WHERE action_request_id = ?",
-            status == ActionExecutionStatus.completed
-                ? ActionRequestStatus.completed.name()
-                : ActionRequestStatus.failed.name(),
-            execution.actionRequestId()
-        ));
-        return getActionExecution(executionId);
     }
 
     public AuditEvent saveAuditEvent(
@@ -1511,6 +1340,7 @@ public class JdbcRcaStore {
             resultSet.getString("cluster_id"),
             resultSet.getString("node_name"),
             resultSet.getString("agent_version"),
+            resultSet.getString("agent_protocol_version"),
             AgentStatus.valueOf(resultSet.getString("status")),
             read(resultSet.getString("supported_collectors_json"), STRING_LIST, List.of()),
             read(resultSet.getString("metadata_json"), OBJECT_MAP, Map.of()),

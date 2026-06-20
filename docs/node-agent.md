@@ -43,8 +43,8 @@ collector degraded 상태 판단에 사용할 수 있습니다.
 - systemd/journal은 기본 file mode
 - backend 전송 실패 response는 local spool에 저장
 - 임의 shell 실행 금지
-- 승인 조치는 allowlist command key만 해석
-- eBPF와 승인 조치 실행은 Helm에서 기본 비활성
+- 승인 조치 실행 기능 없음
+- eBPF는 Helm에서 기본 비활성
 
 현재 `_legacy.py`는 기존 collector helper와 parser의 호환 구현을 보관합니다. public API와
 registry 경계는 분리되었으며, helper를 subsystem별 `common` 모듈로 더 이동하는 작업은

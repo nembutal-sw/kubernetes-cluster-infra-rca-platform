@@ -17,6 +17,9 @@ import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.time.Duration;
+import java.time.Instant;
+import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,19 +42,22 @@ public class AgentEvidenceController {
     private final EvidenceRepository evidence;
     private final AuditService audit;
     private final RcaConsoleProperties properties;
+    private final RcaMetrics metrics;
 
     public AgentEvidenceController(
         ClusterRepository clusters,
         AgentRepository agents,
         EvidenceRepository evidence,
         AuditService audit,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        RcaMetrics metrics
     ) {
         this.clusters = clusters;
         this.agents = agents;
         this.evidence = evidence;
         this.audit = audit;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     @PostMapping("/api/agents/register")
@@ -65,15 +71,20 @@ public class AgentEvidenceController {
             "cluster",
             request.clusterId(),
             "success",
-            java.util.Map.of("agent_version", request.agentVersion())
+            java.util.Map.of(
+                "agent_version", request.agentVersion(),
+                "agent_protocol_version", request.protocolVersionOrDefault()
+            )
         );
         return registered;
     }
 
     @PostMapping("/api/agents/heartbeat")
     public NodeAgent heartbeat(@Valid @RequestBody NodeAgentHeartbeatRequest request) {
-        return agents.heartbeat(request)
+        NodeAgent agent = agents.heartbeat(request)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "agent not registered"));
+        metrics.agentHeartbeat(agent.status().name());
+        return agent;
     }
 
     @PostMapping("/api/evidence/requests")
@@ -86,7 +97,9 @@ public class AgentEvidenceController {
         if (agents.find(request.clusterId(), request.nodeName()).isEmpty()) {
             throw new ResponseStatusException(NOT_FOUND, "agent not found");
         }
-        return evidence.createRequest(request);
+        EvidenceRequest created = evidence.createRequest(request);
+        metrics.evidenceRequest("api", "created", 1);
+        return created;
     }
 
     @GetMapping("/api/evidence/requests/{requestId}")
@@ -135,6 +148,10 @@ public class AgentEvidenceController {
             properties.getPipeline().getMaxAttempts()
         )
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "evidence request not found"));
+        metrics.evidenceCollection(
+            submitted.status().name(),
+            Duration.between(assigned.createdAt(), Instant.now())
+        );
         audit.record(
             "agent",
             request.nodeName(),

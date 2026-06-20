@@ -54,7 +54,7 @@ class PolicyEngineTests {
     @Test
     void mutatingSystemdCommandRequiresApproval() {
         RecommendedAction action = policy.classify(
-            "collect_more_evidence",
+            "restart_kubelet",
             "Run systemctl restart kubelet.",
             "Restore node reporting."
         );
@@ -62,6 +62,9 @@ class PolicyEngineTests {
         assertThat(action.policy()).isEqualTo(PolicyLevel.APPROVAL_REQUIRED);
         assertThat(action.requiresApproval()).isTrue();
         assertThat(action.automationAllowed()).isFalse();
+        assertThat(action.executionPlan()).isNotNull();
+        assertThat(action.executionPlan().executable()).isFalse();
+        assertThat(action.guardrails()).contains("direct_agent_mutation_disabled");
     }
 
     @Test

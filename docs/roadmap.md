@@ -21,6 +21,8 @@
 - 다중 Linux 배포판 Agent 검증 자동화
 - CodeQL, Trivy, secret scan, SBOM, image signing release workflow
 - DB 기반 durable RCA queue, lease, retry, dead-letter 처리
+- API v1 호환성 정보와 Agent protocol/minimum version 검증
+- Micrometer/Prometheus 운영 metric, SLO histogram, 보안 ServiceMonitor
 
 ## Next
 

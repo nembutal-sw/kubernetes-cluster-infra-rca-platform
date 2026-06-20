@@ -21,5 +21,4 @@ data:
   EBPF_ENABLED: {{ .Values.ebpf.enabled | quote }}
   EBPF_EVENT_QUEUE_SIZE: {{ .Values.ebpf.eventQueueSize | quote }}
   EBPF_DNS_LATENCY_THRESHOLD_MS: {{ .Values.ebpf.dnsLatencyThresholdMs | quote }}
-  APPROVED_ACTIONS_ENABLED: {{ .Values.approvedActions.enabled | quote }}
   AGENT_STATE_DIR: /var/lib/cluster-infra-rca-agent

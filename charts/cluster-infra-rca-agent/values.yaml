@@ -48,9 +48,6 @@ ebpf:
   eventQueueSize: 1000
   dnsLatencyThresholdMs: 1000
 
-approvedActions:
-  enabled: false
-
 tls:
   enabled: false
   existingSecret: ""

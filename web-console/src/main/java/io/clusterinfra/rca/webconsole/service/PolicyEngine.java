@@ -100,11 +100,14 @@ public class PolicyEngine {
         if ("llm".equals(normalizedSource)) {
             guardrails.add("llm_output_cannot_trigger_direct_automation");
         }
+        if (policy == PolicyLevel.APPROVAL_REQUIRED || policy == PolicyLevel.GITOPS_PR_ONLY) {
+            guardrails.add("direct_agent_mutation_disabled");
+        }
 
         boolean automationAllowed = policy == PolicyLevel.AUTO_SAFE
             && !"llm".equals(normalizedSource)
             && guardrails.isEmpty();
-        ActionPlan executionPlan = actionPlan(key, normalizedSource, policy);
+        ActionPlan executionPlan = actionPlan(key);
         return new RecommendedAction(
             action,
             policy,
@@ -121,28 +124,27 @@ public class PolicyEngine {
         );
     }
 
-    private ActionPlan actionPlan(String key, String source, PolicyLevel policy) {
-        boolean ruleBased = !"llm".equals(source);
+    private ActionPlan actionPlan(String key) {
         return switch (key) {
             case "restart_kubelet" -> plan(
                 "restart_systemd_unit",
                 Map.of("unit", "kubelet"),
                 List.of("systemctl restart kubelet", "systemctl is-active kubelet"),
-                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                false,
                 60
             );
             case "restart_containerd" -> plan(
                 "restart_systemd_unit",
                 Map.of("unit", "containerd"),
                 List.of("systemctl restart containerd", "systemctl is-active containerd"),
-                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                false,
                 90
             );
             case "restart_container_runtime" -> plan(
                 "restart_detected_runtime",
                 Map.of(),
                 List.of("systemctl restart <detected-runtime>", "systemctl is-active <detected-runtime>"),
-                ruleBased && policy == PolicyLevel.APPROVAL_REQUIRED,
+                false,
                 90
             );
             case "cordon_node" -> new ActionPlan(

@@ -27,6 +27,11 @@ Agent 요청 본문은 필터에서 한 번 캐시한 뒤 컨트롤러에 그대
 Mutation API는 `VIEWER`에게 허용하지 않습니다. 조치 승인 API는 `ADMIN`과 `APPROVER`,
 audit 조회 API는 `ADMIN`과 `AUDITOR`만 호출할 수 있습니다.
 
+보고서 JSON과 evidence bundle export는 `ADMIN`과 `OPERATOR`만 허용합니다.
+`VIEWER`와 `APPROVER`는 화면 조회는 가능하지만 다운로드 또는 원문 복사 기능을 사용할 수
+없습니다. 승인 완료 후 실제 처리는 `ADMIN` 또는 `OPERATOR`가 외부 runbook/GitOps 절차로
+수행하고 수동 완료를 기록합니다.
+
 ## Production Fail-fast
 
 `prod` 또는 `production` profile에서는 다음 설정이 안전하지 않으면 애플리케이션 시작을
@@ -56,3 +61,6 @@ RCA_DEMO_ENABLED=false
 
 Secret 값은 저장소나 Helm values 파일에 직접 넣지 말고 Kubernetes Secret 또는 External
 Secrets를 통해 주입합니다.
+
+Metrics endpoint는 사용자 session 또는 `RCA_METRICS_TOKEN`으로 인증합니다. 운영 profile에서
+observability가 활성화된 경우 metrics token이 비어 있거나 예제값이면 시작을 차단합니다.

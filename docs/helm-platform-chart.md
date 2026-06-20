@@ -55,8 +55,22 @@ platform:
 - `RCA_DEFAULT_ADMIN_USERNAME`
 - `RCA_DEFAULT_ADMIN_PASSWORD`
 - `RCA_WEBHOOK_TOKEN`
+- `RCA_METRICS_TOKEN`
 
 Spring AI provider key는 선택 사항입니다.
+
+## Metrics
+
+Prometheus Operator 환경에서는 ServiceMonitor를 선택적으로 생성할 수 있습니다.
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set platform.secret.metricsToken='<strong-token>' \
+  --set platform.serviceMonitor.enabled=true
+```
+
+ServiceMonitor는 같은 namespace의 Platform Secret에서 `RCA_METRICS_TOKEN`을 읽어
+`/actuator/prometheus`를 Bearer 인증으로 수집합니다.
 
 ## Image
 
