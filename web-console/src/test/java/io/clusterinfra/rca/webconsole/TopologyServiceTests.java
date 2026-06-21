@@ -62,7 +62,12 @@ class TopologyServiceTests {
             false,
             false
         );
-        when(repository.listRecent(eq("cluster-1"), any(Instant.class), eq(500)))
+        when(repository.listRange(
+            eq("cluster-1"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(500)
+        ))
             .thenReturn(List.of(newer, older));
 
         var topology = service.current("cluster-1");
@@ -102,7 +107,12 @@ class TopologyServiceTests {
             true,
             false
         );
-        when(repository.listRecent(eq("cluster-1"), any(Instant.class), eq(500)))
+        when(repository.listRange(
+            eq("cluster-1"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(500)
+        ))
             .thenReturn(List.of(partial, older));
 
         var partialTopology = service.current("cluster-1");
@@ -120,12 +130,62 @@ class TopologyServiceTests {
             true,
             true
         );
-        when(repository.listRecent(eq("cluster-1"), any(Instant.class), eq(500)))
+        when(repository.listRange(
+            eq("cluster-1"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(500)
+        ))
             .thenReturn(List.of(complete, older));
 
         var completeTopology = service.current("cluster-1");
         assertThat(completeTopology.services()).containsExactly("payments/new");
         assertThat(completeTopology.inventoryComplete()).isTrue();
+    }
+
+    @Test
+    void comparesEntityAndRelationshipChangesBetweenSnapshots() {
+        TopologyRepository repository = mock(TopologyRepository.class);
+        TopologyService service = service(repository);
+        TopologyObservation older = observation(
+            "older",
+            OLDER,
+            List.of(node("worker-a")),
+            List.of(),
+            true,
+            false,
+            false,
+            false
+        );
+        TopologyObservation newer = observation(
+            "newer",
+            NEWER,
+            List.of(node("worker-a"), service("service:payments/api", "api")),
+            List.of(relation("service:payments/api", "node:worker-a", "has_endpoint_on")),
+            false,
+            false,
+            true,
+            true
+        );
+        when(repository.listRange(
+            eq("cluster-1"),
+            any(Instant.class),
+            eq(OLDER),
+            eq(500)
+        )).thenReturn(List.of(older));
+        when(repository.listRange(
+            eq("cluster-1"),
+            any(Instant.class),
+            eq(NEWER),
+            eq(500)
+        )).thenReturn(List.of(newer, older));
+
+        Map<String, Object> comparison = service.compare("cluster-1", OLDER, NEWER);
+
+        assertThat(comparison.get("changed")).isEqualTo(true);
+        assertThat(comparison.get("added_entity_ids"))
+            .isEqualTo(List.of("service:payments/api"));
+        assertThat((List<?>) comparison.get("added_relations")).hasSize(1);
     }
 
     private TopologyService service(TopologyRepository repository) {

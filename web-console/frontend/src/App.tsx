@@ -752,7 +752,7 @@ import "./styles.css";
     }, [authHeaders, callApi, notify]);
 
     const loadAuditEvents = React.useCallback(async (silent) => {
-      if (currentUser?.role !== "admin") return;
+      if (!["admin", "auditor"].includes(currentUser?.role)) return;
       try {
         setLoading((value) => ({ ...value, audit: true }));
         const result = await callApi("/api/audit/events?limit=300", { headers: authHeaders() });
@@ -944,13 +944,28 @@ import "./styles.css";
     async function loadClusterData(clusterId) {
       setClusterData({ open: true, loading: true, clusterId });
       try {
-        const [cluster, agents, evidenceRequests, allReports, topology] = await Promise.all([
+        const [cluster, agents, evidenceRequests, allReports, topology, topologyHistory] = await Promise.all([
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}`, { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests`, { headers: authHeaders() }),
           callApi("/api/rca/reports", { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology`, { headers: authHeaders() }),
+          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology/history?limit=2`, { headers: authHeaders() }),
         ]);
+        const history = Array.isArray(topologyHistory) ? topologyHistory : [];
+        let topologyComparison = null;
+        if (history.length >= 2) {
+          const targetAt = history[0].observed_at;
+          const baselineAt = history[1].observed_at;
+          const query = new URLSearchParams({
+            baseline_at: baselineAt,
+            target_at: targetAt,
+          });
+          topologyComparison = await callApi(
+            `/api/clusters/${encodeURIComponent(clusterId)}/topology/compare?${query}`,
+            { headers: authHeaders() }
+          );
+        }
         setClusterData({
           open: true,
           loading: false,
@@ -960,6 +975,8 @@ import "./styles.css";
           evidenceRequests: Array.isArray(evidenceRequests) ? evidenceRequests : [],
           reports: (Array.isArray(allReports) ? allReports : []).filter((report) => report.cluster_id === clusterId),
           topology,
+          topologyHistory: history,
+          topologyComparison,
         });
       } catch (error) {
         setClusterData({ open: true, loading: false, clusterId, error: error.message });
@@ -1232,6 +1249,31 @@ import "./styles.css";
       );
     }
 
+    async function downloadAuditExport(format) {
+      await downloadApiFile(
+        `/api/audit/events/export?limit=5000&format=${encodeURIComponent(format)}`,
+        `audit-events.${format}`,
+        "Audit export downloaded."
+      );
+    }
+
+    async function rotateAgentToken(cluster) {
+      if (!window.confirm(
+        `Rotate the Agent bootstrap token for ${cluster.name}? Existing Agent Secrets will stop authenticating until updated.`
+      )) return;
+      try {
+        const result = await callApi(
+          `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`,
+          { method: "POST", headers: authHeaders() }
+        );
+        await navigator.clipboard.writeText(result.agent_token);
+        notify("Agent token rotated and copied. Update the Kubernetes Secret now.");
+        await loadInstallCommand(cluster.cluster_id);
+      } catch (error) {
+        notify(error.message);
+      }
+    }
+
     async function runDemoScenario(scenario) {
       if (!demoScenarios.enabled) {
         notify("Demo Scenario Mode is disabled.");
@@ -1344,8 +1386,10 @@ import "./styles.css";
           onOpenClusterData: loadClusterData,
           onCollectCluster: prepareClusterCollection,
           onDeleteCluster: prepareClusterDelete,
+          onRotateAgentToken: rotateAgentToken,
           onCopy: copyText,
           publicApiBase,
+          currentUser,
         }),
         activeView === "webhooks" && h(WebhooksView, {
           endpoint: webhookEndpoint,
@@ -1380,10 +1424,11 @@ import "./styles.css";
           onDecideAction: decideActionRequest,
           onCompleteManual: completeManualActionRequest,
         }),
-        activeView === "audit" && currentUser.role === "admin" && h(AuditView, {
+        activeView === "audit" && ["admin", "auditor"].includes(currentUser.role) && h(AuditView, {
           events: auditEvents,
           loading: loading.audit,
           onReload: () => loadAuditEvents(false),
+          onExport: downloadAuditExport,
         }),
         activeView === "demo" && h(DemoScenariosView, {
           state: demoScenarios,
@@ -1659,6 +1704,9 @@ import "./styles.css";
       h("button", { type: "button", className: secondaryClass, onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
       h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
       h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents")),
+      props.currentUser?.role === "admin"
+        ? h("button", { type: "button", className: secondaryClass, onClick: () => props.onRotateAgentToken(cluster) }, h(Icon, { name: "key" }), tr("Rotate token"))
+        : null,
       h("button", { type: "button", className: dangerClass, onClick: () => props.onDeleteCluster(cluster) }, h(Icon, { name: "trash3" }), tr("Delete"))
     );
   }
@@ -1782,12 +1830,18 @@ import "./styles.css";
     ) : h(EmptyState, { message: "No incidents loaded." }));
   }
 
-  function AuditView({ events, loading, onReload }) {
+  function AuditView({ events, loading, onReload, onExport }) {
     return h(Panel, {
       title: "Audit",
       subtitle: loading ? "Loading" : `${events.length} events`,
-      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
-        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+      action: h("div", { className: "btn-group btn-group-sm" },
+        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onReload },
+          h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
+        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => onExport("json") },
+          h(Icon, { name: "download" }), "JSON"),
+        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => onExport("csv") },
+          h(Icon, { name: "filetype-csv" }), "CSV")
+      ),
     }, events.length ? h("div", { className: "table-responsive" },
       h("table", { className: "table table-hover align-middle mb-0" },
         h("thead", null, h("tr", null,
@@ -2183,6 +2237,7 @@ import "./styles.css";
     const evidenceRequests = state.evidenceRequests || [];
     const reports = state.reports || [];
     const topology = state.topology || {};
+    const topologyComparison = state.topologyComparison || null;
     const topologyEntities = Array.isArray(topology.entities) ? topology.entities : [];
     const topologyRelations = Array.isArray(topology.relations) ? topology.relations : [];
     const topologyPods = topologyEntities.filter((entity) => entity.kind === "Pod").length;
@@ -2210,7 +2265,14 @@ import "./styles.css";
               h(SummaryBox, { label: "Services", value: topologyServices }),
               h(SummaryBox, { label: "Relations", value: topologyRelations.length })
             ),
-            h(TopologyGraph, { topology }),
+            h(TopologyGraph, { topology, comparison: topologyComparison }),
+            topologyComparison
+              ? h("div", { className: "topology-change-summary small mt-2" },
+                  h("strong", null, tr("Topology change")),
+                  h("span", null, `+${topologyComparison.added_entity_ids?.length || 0} / -${topologyComparison.removed_entity_ids?.length || 0} resources`),
+                  h("span", null, `+${topologyComparison.added_relations?.length || 0} / -${topologyComparison.removed_relations?.length || 0} relations`)
+                )
+              : null,
             h("div", { className: "small text-muted mt-2" },
               topology.inventory_complete
                 ? tr("Cluster-wide Service and EndpointSlice inventory is complete.")
@@ -2280,10 +2342,11 @@ import "./styles.css";
     );
   }
 
-  function TopologyGraph({ topology }) {
+  function TopologyGraph({ topology, comparison }) {
     const entities = Array.isArray(topology?.entities) ? topology.entities : [];
     const relations = Array.isArray(topology?.relations) ? topology.relations : [];
     const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+    const changedEntityIds = new Set(comparison?.added_entity_ids || []);
     const nodeByPod = new Map();
     relations
       .filter((relation) => relation.relationship === "hosts")
@@ -2381,7 +2444,7 @@ import "./styles.css";
           }),
           services.map((service) => h("g", { key: service.id },
             h("rect", {
-              className: "topology-resource-box service",
+              className: `topology-resource-box service ${changedEntityIds.has(service.id) ? "changed" : ""}`,
               x: 24,
               y: serviceY.get(service.id) - 22,
               width: 250,
@@ -2401,7 +2464,7 @@ import "./styles.css";
           )),
           nodes.map((node) => h("g", { key: node.id },
             h("rect", {
-              className: `topology-resource-box node ${node.attributes?.ready === false ? "not-ready" : ""}`,
+              className: `topology-resource-box node ${node.attributes?.ready === false ? "not-ready" : ""} ${changedEntityIds.has(node.id) ? "changed" : ""}`,
               x: 686,
               y: nodeY.get(node.id) - 22,
               width: 250,

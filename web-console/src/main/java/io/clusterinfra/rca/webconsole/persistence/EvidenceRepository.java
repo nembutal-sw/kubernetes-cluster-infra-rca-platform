@@ -33,6 +33,16 @@ public class EvidenceRepository {
         return store.listEvidenceRequests(clusterId, nodeName, status, limit);
     }
 
+    public List<EvidenceRequest> listRecentRequests(
+        String clusterId,
+        String nodeName,
+        EvidenceRequestStatus status,
+        Instant before,
+        int limit
+    ) {
+        return store.listRecentEvidenceRequests(clusterId, nodeName, status, before, limit);
+    }
+
     public Optional<EvidenceRequest> findRequest(String requestId) {
         return store.getEvidenceRequest(requestId);
     }

@@ -1,3 +1,7 @@
+{{- $mode := lower (required "mode is required" .Values.mode) -}}
+{{- if not (has $mode (list "safe" "node-diagnostics" "ebpf")) -}}
+{{- fail "mode must be one of: safe, node-diagnostics, ebpf" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -22,9 +26,14 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "cluster-infra-rca-agent.serviceAccountName" . }}
-      hostNetwork: {{ .Values.hostNetwork }}
-      hostPID: {{ .Values.hostPID }}
-      dnsPolicy: {{ .Values.dnsPolicy }}
+      {{- if eq $mode "safe" }}
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      {{- end }}
+      hostNetwork: {{ ne $mode "safe" }}
+      hostPID: {{ ne $mode "safe" }}
+      dnsPolicy: {{ ternary .Values.dnsPolicy "ClusterFirst" (ne $mode "safe") }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -58,6 +67,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: BACKEND_URL
+            - name: AGENT_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_MODE
             - name: CLUSTER_ID
               valueFrom:
                 secretKeyRef:
@@ -112,6 +126,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: KUBERNETES_API_CACHE_TTL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: KUBERNETES_API_CACHE_TTL_SECONDS
             - name: KUBERNETES_TOPOLOGY_ENABLED
               valueFrom:
                 configMapKeyRef:
@@ -122,6 +141,26 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: KUBERNETES_TOPOLOGY_MAX_ITEMS
+            - name: AGENT_EVIDENCE_MAX_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_EVIDENCE_MAX_BYTES
+            - name: HOST_LOG_MAX_FILES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: HOST_LOG_MAX_FILES
+            - name: HOST_LOG_MAX_BYTES_PER_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: HOST_LOG_MAX_BYTES_PER_FILE
+            - name: HOST_LOG_MAX_LINES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: HOST_LOG_MAX_LINES
             - name: CONTROL_PLANE_PROBE_PORTS
               valueFrom:
                 configMapKeyRef:
@@ -138,10 +177,7 @@ spec:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: SYSTEMD_COLLECTOR_MODE
             - name: EBPF_ENABLED
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
-                  key: EBPF_ENABLED
+              value: {{ and (eq $mode "ebpf") .Values.ebpf.enabled | quote }}
             - name: EBPF_EVENT_QUEUE_SIZE
               valueFrom:
                 configMapKeyRef:
@@ -166,8 +202,17 @@ spec:
               value: /var/run/cluster-infra-rca-tls/{{ .Values.tls.clientKeyKey }}
             {{- end }}
           securityContext:
+            {{- if eq $mode "safe" }}
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            {{- else }}
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-            {{- if .Values.ebpf.enabled }}
+            {{- if eq $mode "ebpf" }}
             capabilities:
               add:
                 - BPF
@@ -178,7 +223,9 @@ spec:
                 - SYS_ADMIN
                 {{- end }}
             {{- end }}
+            {{- end }}
           volumeMounts:
+            {{- if ne $mode "safe" }}
             - name: host-root
               mountPath: /host/root
               readOnly: true
@@ -197,7 +244,7 @@ spec:
             - name: host-sys
               mountPath: /host/sys
               readOnly: true
-            {{- if .Values.ebpf.enabled }}
+            {{- if eq $mode "ebpf" }}
             - name: host-debug
               mountPath: /sys/kernel/debug
             - name: host-bpf
@@ -205,6 +252,7 @@ spec:
             - name: host-modules
               mountPath: /lib/modules
               readOnly: true
+            {{- end }}
             {{- end }}
             - name: agent-state
               mountPath: /var/lib/cluster-infra-rca-agent
@@ -216,6 +264,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        {{- if ne $mode "safe" }}
         - name: host-root
           hostPath:
             path: {{ .Values.hostPaths.root | quote }}
@@ -234,7 +283,7 @@ spec:
         - name: host-sys
           hostPath:
             path: {{ .Values.hostPaths.sys | quote }}
-        {{- if .Values.ebpf.enabled }}
+        {{- if eq $mode "ebpf" }}
         - name: host-debug
           hostPath:
             path: {{ .Values.hostPaths.debug | quote }}
@@ -246,10 +295,15 @@ spec:
           hostPath:
             path: {{ .Values.hostPaths.modules | quote }}
         {{- end }}
+        {{- end }}
         - name: agent-state
+          {{- if eq $mode "safe" }}
+          emptyDir: {}
+          {{- else }}
           hostPath:
             path: {{ .Values.hostPaths.state | quote }}
             type: DirectoryOrCreate
+          {{- end }}
         {{- if .Values.tls.enabled }}
         - name: agent-tls
           secret:

@@ -24,6 +24,9 @@ public final class SensitiveDataRedactor {
         "apikey",
         "cookie",
         "set_cookie"
+        ,"client_certificate_data"
+        ,"client_key_data"
+        ,"certificate_authority_data"
     );
     private static final Pattern ASSIGNMENT = Pattern.compile(
         "(?i)(api[_-]?key|authorization|token|password|passwd|secret|cookie)(\\s*[:=]\\s*)[^\\s,;]+"
@@ -32,6 +35,14 @@ public final class SensitiveDataRedactor {
         Pattern.compile("(?i)bearer\\s+[a-z0-9._~+/-]+");
     private static final Pattern OPENAI_KEY =
         Pattern.compile("sk-[a-zA-Z0-9_-]{8,}");
+    private static final Pattern GITHUB_TOKEN =
+        Pattern.compile("gh[pousr]_[a-zA-Z0-9]{20,}");
+    private static final Pattern SLACK_TOKEN =
+        Pattern.compile("xox[baprs]-[a-zA-Z0-9-]{10,}");
+    private static final Pattern AWS_ACCESS_KEY =
+        Pattern.compile("(?:AKIA|ASIA)[A-Z0-9]{16}");
+    private static final Pattern CREDENTIAL_URL =
+        Pattern.compile("(?i)([a-z][a-z0-9+.-]*://[^\\s:/]+:)[^@\\s]+(@)");
 
     private SensitiveDataRedactor() {
     }
@@ -54,7 +65,11 @@ public final class SensitiveDataRedactor {
         }
         String redacted = ASSIGNMENT.matcher(value).replaceAll("$1$2" + REDACTED);
         redacted = BEARER.matcher(redacted).replaceAll("Bearer " + REDACTED);
-        return OPENAI_KEY.matcher(redacted).replaceAll("sk-" + REDACTED);
+        redacted = OPENAI_KEY.matcher(redacted).replaceAll("sk-" + REDACTED);
+        redacted = GITHUB_TOKEN.matcher(redacted).replaceAll("gh_" + REDACTED);
+        redacted = SLACK_TOKEN.matcher(redacted).replaceAll("xox-" + REDACTED);
+        redacted = AWS_ACCESS_KEY.matcher(redacted).replaceAll(REDACTED);
+        return CREDENTIAL_URL.matcher(redacted).replaceAll("$1" + REDACTED + "$2");
     }
 
     public static Map<String, Object> redactMap(Map<String, ?> value) {

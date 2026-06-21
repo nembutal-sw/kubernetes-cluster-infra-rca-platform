@@ -45,17 +45,83 @@ public class TopologyService {
     }
 
     public ClusterTopology current(String clusterId) {
+        return snapshot(clusterId, Instant.now());
+    }
+
+    public ClusterTopology snapshot(String clusterId, Instant at) {
         if (!properties.getTopology().isEnabled()) {
             return empty(clusterId);
         }
-        Instant from = Instant.now().minusSeconds(
+        Instant effectiveAt = at == null ? Instant.now() : at;
+        Instant from = effectiveAt.minusSeconds(
             Math.max(1, properties.getTopology().getLookbackHours()) * 3600L
         );
-        List<TopologyObservation> observations = repository.listRecent(
+        List<TopologyObservation> observations = repository.listRange(
             clusterId,
             from,
+            effectiveAt,
             properties.getTopology().getObservationLimit()
         );
+        return merge(clusterId, observations);
+    }
+
+    public List<TopologyObservation> history(
+        String clusterId,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        Instant effectiveTo = to == null ? Instant.now() : to;
+        Instant effectiveFrom = from == null
+            ? effectiveTo.minusSeconds(24 * 3600L)
+            : from;
+        return repository.listRange(clusterId, effectiveFrom, effectiveTo, limit);
+    }
+
+    public Map<String, Object> compare(
+        String clusterId,
+        Instant baselineAt,
+        Instant targetAt
+    ) {
+        ClusterTopology baseline = snapshot(clusterId, baselineAt);
+        ClusterTopology target = snapshot(clusterId, targetAt);
+        Set<String> baselineEntities = baseline.entities().stream()
+            .map(TopologyEntity::id)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> targetEntities = target.entities().stream()
+            .map(TopologyEntity::id)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> added = new LinkedHashSet<>(targetEntities);
+        added.removeAll(baselineEntities);
+        Set<String> removed = new LinkedHashSet<>(baselineEntities);
+        removed.removeAll(targetEntities);
+        Set<String> baselineRelations = baseline.relations().stream()
+            .map(this::relationKey)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> targetRelations = target.relations().stream()
+            .map(this::relationKey)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> addedRelations = new LinkedHashSet<>(targetRelations);
+        addedRelations.removeAll(baselineRelations);
+        Set<String> removedRelations = new LinkedHashSet<>(baselineRelations);
+        removedRelations.removeAll(targetRelations);
+        return Map.of(
+            "cluster_id", clusterId,
+            "baseline_at", baselineAt,
+            "target_at", targetAt,
+            "added_entity_ids", List.copyOf(added),
+            "removed_entity_ids", List.copyOf(removed),
+            "added_relations", List.copyOf(addedRelations),
+            "removed_relations", List.copyOf(removedRelations),
+            "changed", !added.isEmpty() || !removed.isEmpty()
+                || !addedRelations.isEmpty() || !removedRelations.isEmpty()
+        );
+    }
+
+    private ClusterTopology merge(
+        String clusterId,
+        List<TopologyObservation> observations
+    ) {
         Map<String, TopologyEntity> entities = new LinkedHashMap<>();
         Map<String, TopologyRelation> relations = new LinkedHashMap<>();
         boolean complete = false;

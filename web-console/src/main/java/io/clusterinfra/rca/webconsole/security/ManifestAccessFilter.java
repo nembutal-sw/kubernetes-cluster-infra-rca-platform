@@ -52,7 +52,7 @@ public class ManifestAccessFilter extends OncePerRequestFilter {
             access.verifyManifestAccess(
                 clusterId,
                 request.getHeader(HttpHeaders.AUTHORIZATION),
-                request.getParameter("agent_token"),
+                request.getParameter("manifest_token"),
                 SecurityContextHolder.getContext().getAuthentication()
             );
             filterChain.doFilter(request, response);

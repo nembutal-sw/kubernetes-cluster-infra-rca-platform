@@ -4,6 +4,7 @@ from __future__ import annotations
 # the sibling modules and registry.
 
 import os
+import copy
 import platform
 import re
 import json
@@ -13,6 +14,7 @@ import ssl
 import stat
 import subprocess
 import time
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -775,8 +777,17 @@ def collect_dns(paths: AgentPaths) -> dict[str, Any]:
 
 
 class _KubernetesApiClient:
+    _cache: dict[str, tuple[float, dict[str, Any]]] = {}
+    _cache_lock = threading.Lock()
+
     def __init__(self, timeout_seconds: float) -> None:
         self.timeout_seconds = timeout_seconds
+        self.cache_ttl_seconds = _bounded_float(
+            os.getenv("KUBERNETES_API_CACHE_TTL_SECONDS"),
+            default=10.0,
+            minimum=0.0,
+            maximum=30.0,
+        )
         host = os.getenv("KUBERNETES_SERVICE_HOST")
         port = os.getenv("KUBERNETES_SERVICE_PORT", "443")
         token_path = Path(os.getenv("KUBERNETES_SERVICEACCOUNT_TOKEN", "/var/run/secrets/kubernetes.io/serviceaccount/token"))
@@ -820,17 +831,23 @@ class _KubernetesApiClient:
 
     def get_text(self, path: str) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
+        cached = self._cached(url)
+        if cached is not None:
+            cached["cache_hit"] = True
+            return cached
         request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
         try:
             started_at = time.monotonic()
             with urllib.request.urlopen(request, timeout=self.timeout_seconds, context=self.context) as response:
                 body = response.read(512 * 1024).decode("utf-8", errors="replace")
-            return {
+            result = {
                 "ok": True,
                 "status_code": response.status,
                 "latency_ms": round((time.monotonic() - started_at) * 1000, 2),
                 "body": _clean_text(body, limit=20000),
             }
+            self._store_cache(url, result)
+            return result
         except urllib.error.HTTPError as exc:
             return {
                 "ok": False,
@@ -843,6 +860,28 @@ class _KubernetesApiClient:
                 "status_code": None,
                 "error": _clean_text(str(exc), limit=500),
             }
+
+    def _cached(self, key: str) -> dict[str, Any] | None:
+        if self.cache_ttl_seconds <= 0:
+            return None
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached is None:
+                return None
+            expires_at, value = cached
+            if expires_at <= time.monotonic():
+                self._cache.pop(key, None)
+                return None
+            return copy.deepcopy(value)
+
+    def _store_cache(self, key: str, value: dict[str, Any]) -> None:
+        if self.cache_ttl_seconds <= 0:
+            return
+        with self._cache_lock:
+            self._cache[key] = (
+                time.monotonic() + self.cache_ttl_seconds,
+                copy.deepcopy(value),
+            )
 
 
 def _summarize_kubernetes_node(node: dict[str, Any]) -> dict[str, Any]:
@@ -1237,13 +1276,31 @@ def _host_service_log_excerpts(paths: AgentPaths, service_names: list[str] | Non
         "error",
         "failed",
     ])]
-    for path in candidates[:12]:
+    max_files = _bounded_int(
+        os.getenv("HOST_LOG_MAX_FILES"),
+        default=12,
+        minimum=1,
+        maximum=50,
+    )
+    max_bytes = _bounded_int(
+        os.getenv("HOST_LOG_MAX_BYTES_PER_FILE"),
+        default=262144,
+        minimum=4096,
+        maximum=2 * 1024 * 1024,
+    )
+    max_lines = _bounded_int(
+        os.getenv("HOST_LOG_MAX_LINES"),
+        default=80,
+        minimum=10,
+        maximum=500,
+    )
+    for path in candidates[:max_files]:
         exists, exists_error = _safe_exists(path)
         if not exists:
             if exists_error:
                 excerpts.append({"path": str(path), "status": "error", "error": exists_error})
             continue
-        text = _read_text(path, max_bytes=262144)
+        text = _read_text(path, max_bytes=max_bytes)
         if not text:
             continue
         lines = text.splitlines()
@@ -1252,7 +1309,11 @@ def _host_service_log_excerpts(paths: AgentPaths, service_names: list[str] | Non
             for line in lines
             if any(token in line.lower() for token in filters)
         ]
-        selected_lines = matching[-80:] if matching else [_clean_text(line, limit=1000) for line in lines[-40:]]
+        selected_lines = (
+            matching[-max_lines:]
+            if matching
+            else [_clean_text(line, limit=1000) for line in lines[-max(10, max_lines // 2):]]
+        )
         excerpts.append(
             {
                 "path": str(path),

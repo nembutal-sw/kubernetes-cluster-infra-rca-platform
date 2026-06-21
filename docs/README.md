@@ -25,6 +25,10 @@
 | `backend-api.md` | Platform API, auth boundaries, reports, actions, demo, metrics |
 | `node-agent.md` | Python agent runtime, collectors, spool, protocol, safety boundary |
 | `security.md` | authentication filters, RBAC, production validation, export safety |
+| `threat-model.md` | assets, trust boundaries, abuse cases, mitigations |
+| `agent-permission-model.md` | safe, node-diagnostics, eBPF privilege profiles |
+| `performance-tuning.md` | pagination, cache, log and payload limits |
+| `operations.md` | backup, restore, RPO/RTO, HA and credential rotation |
 | `policy-engine.md` | action classification, guardrails, manual-only workflow |
 | `audit-and-actions.md` | audit events and manual action request lifecycle |
 | `report-schema.md` | RCA report fields, confidence score, impact scope, bundles |

@@ -29,4 +29,8 @@ public class ClusterRepository {
     public boolean delete(String clusterId) {
         return store.deleteCluster(clusterId);
     }
+
+    public Cluster rotateBootstrapToken(String clusterId) {
+        return store.rotateClusterBootstrapToken(clusterId);
+    }
 }

@@ -6,6 +6,7 @@ metadata:
   labels:
     {{- include "cluster-infra-rca-agent.labels" . | nindent 4 }}
 data:
+  AGENT_MODE: {{ required "mode is required" .Values.mode | quote }}
   BACKEND_URL: {{ required "backendUrl is required" .Values.backendUrl | trimSuffix "/" | quote }}
   POLL_INTERVAL_SECONDS: {{ .Values.pollIntervalSeconds | quote }}
   HTTP_TIMEOUT_SECONDS: {{ .Values.httpTimeoutSeconds | quote }}
@@ -15,8 +16,13 @@ data:
   AGENT_MAX_SPOOL_FILES: {{ int64 .Values.maxSpoolFiles | quote }}
   AGENT_MAX_SPOOL_BYTES: {{ int64 .Values.maxSpoolBytes | quote }}
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
+  KUBERNETES_API_CACHE_TTL_SECONDS: {{ .Values.kubernetesApiCacheTtlSeconds | quote }}
   KUBERNETES_TOPOLOGY_ENABLED: {{ .Values.kubernetesTopologyEnabled | quote }}
   KUBERNETES_TOPOLOGY_MAX_ITEMS: {{ .Values.kubernetesTopologyMaxItems | quote }}
+  AGENT_EVIDENCE_MAX_BYTES: {{ int64 .Values.evidenceMaxBytes | quote }}
+  HOST_LOG_MAX_FILES: {{ .Values.hostLogMaxFiles | quote }}
+  HOST_LOG_MAX_BYTES_PER_FILE: {{ int64 .Values.hostLogMaxBytesPerFile | quote }}
+  HOST_LOG_MAX_LINES: {{ .Values.hostLogMaxLines | quote }}
   CONTROL_PLANE_PROBE_PORTS: {{ .Values.controlPlaneProbePorts | quote }}
   CONTAINER_RUNTIME_SOCKET_PATHS: {{ .Values.runtimeSocketPaths | quote }}
   SYSTEMD_COLLECTOR_MODE: {{ .Values.systemdCollectorMode | quote }}

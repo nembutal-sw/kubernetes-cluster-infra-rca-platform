@@ -13,6 +13,7 @@ image:
 imagePullSecrets: []
 
 backendUrl: ""
+mode: safe
 
 secret:
   create: false
@@ -38,8 +39,13 @@ retryMaxSeconds: 120
 maxSpoolFiles: 1000
 maxSpoolBytes: 268435456
 kubernetesApiTimeoutSeconds: 5
+kubernetesApiCacheTtlSeconds: 10
 kubernetesTopologyEnabled: true
 kubernetesTopologyMaxItems: 500
+evidenceMaxBytes: 8388608
+hostLogMaxFiles: 12
+hostLogMaxBytesPerFile: 262144
+hostLogMaxLines: 80
 controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
 systemdCollectorMode: file

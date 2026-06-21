@@ -84,16 +84,18 @@ RCA_NOTIFICATION_MINIMUM_SEVERITY=critical
 
 ```powershell
 Copy-Item .env.example .env
+$env:RCA_DEFAULT_ADMIN_USERNAME = "platform-admin"
+$env:RCA_DEFAULT_ADMIN_PASSWORD = "change-this-password"
+$env:RCA_WEBHOOK_TOKEN = "change-this-webhook-token"
 docker compose up --build -d
 ```
 
 ```text
 Web/API: http://localhost:8080
-Username: admin
-Password: admin
 ```
 
-최초 로그인 후 기본 비밀번호를 변경해야 합니다.
+기본 관리자 계정은 제공하지 않습니다. `.env` 또는 외부 Secret으로 초기 관리자
+계정을 명시적으로 주입해야 합니다.
 
 Docker 없이 실행할 때는 Java 21과 Maven 3.9 이상이 필요합니다.
 
@@ -140,7 +142,8 @@ SPRING_AI_OPENAI_SDK_API_KEY=...
 
 DaemonSet Agent는 다음 안전장치를 사용합니다.
 
-- host 디렉터리는 상태 저장 경로를 제외하고 read-only mount
+- 기본 `safe` 모드는 비-root이며 hostPID, hostNetwork, hostPath를 사용하지 않음
+- `node-diagnostics` 모드는 명시적으로 활성화하며 host 경로는 read-only mount
 - systemd와 journal은 기본적으로 file mode 수집
 - node token을 노드별 상태 디렉터리에 저장
 - 전송 실패 evidence를 디스크에 spool한 뒤 재전송
@@ -169,6 +172,11 @@ Node-Pod-Workload-Service 관계를 구성합니다. 실패하거나 잘린 인�
 
 ```bash
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --namespace rca-system \
+  --create-namespace \
+  --set backendUrl=https://rca.example.com \
+  --set secret.existingSecret.name=agent-auth \
+  --set mode=ebpf \
   --set ebpf.enabled=true
 ```
 

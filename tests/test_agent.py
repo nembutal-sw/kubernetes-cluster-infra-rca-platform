@@ -13,9 +13,16 @@ from node_agent.ebpf import parse_event
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 from node_agent.collectors import collector_metadata
-from node_agent.collectors._legacy import _topology_collector_node
+from node_agent.collectors._legacy import _KubernetesApiClient, _topology_collector_node
 import node_agent.main as agent_main
 from node_agent.state import AgentStateStore
+from node_agent.payload import bounded_collectors_payload
+from node_agent.redaction import redact_value
+
+
+@pytest.fixture(autouse=True)
+def diagnostics_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MODE", "node-diagnostics")
 
 
 def test_ebpf_event_parsers_normalize_kernel_events(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -40,6 +47,25 @@ def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None
     assert by_name["systemd"]["requires_host_pid"] is True
     assert by_name["disk"]["risk_level"] == "read_only"
     assert by_name["disk"]["max_output_bytes"] == 1_048_576
+
+
+def test_safe_agent_mode_disables_host_level_collectors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MODE", "safe")
+    paths = _build_fake_host_paths(tmp_path)
+
+    evidence = collect_evidence(
+        ["node", "kubernetes", "kernel", "runtime"],
+        paths=paths,
+        runner=FakeRunner(),
+    )
+
+    assert evidence["node"]["status"] == "ok"
+    assert evidence["kubernetes"]["status"] == "ok"
+    assert evidence["kernel"]["status"] == "disabled"
+    assert evidence["runtime"]["status"] == "disabled"
 
 
 def test_topology_collector_prefers_control_plane_then_lexical_name() -> None:
@@ -340,6 +366,49 @@ def test_kubernetes_collector_reports_config_error_outside_cluster(
     assert "KUBERNETES_SERVICE_HOST" in evidence["kubernetes"]["api_error"]
 
 
+def test_kubernetes_api_client_reuses_successful_response_within_ttl(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("service-account-token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "443")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN", str(token_path))
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(tmp_path / "missing-ca.crt"))
+    monkeypatch.setenv("KUBERNETES_API_CACHE_TTL_SECONDS", "10")
+    _KubernetesApiClient._cache.clear()
+    calls = 0
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self, _: int) -> bytes:
+            return b'{"items":[]}'
+
+    def fake_urlopen(*_: object, **__: object) -> FakeResponse:
+        nonlocal calls
+        calls += 1
+        return FakeResponse()
+
+    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", fake_urlopen)
+    client = _KubernetesApiClient(timeout_seconds=1)
+
+    first = client.get_json("/api/v1/nodes")
+    second = client.get_json("/api/v1/nodes")
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert second["cache_hit"] is True
+    assert calls == 1
+
+
 def test_runtime_collector_uses_generic_cri_socket_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -429,6 +498,45 @@ def test_process_pending_requests_submits_failed_on_collection_error(
     assert submitted["request_id"] == "evidence-request-1"
     assert submitted["status"] == "failed"
     assert "forced collector failure" in submitted["error_message"]
+
+
+def test_large_collector_payload_is_reduced_to_configured_budget() -> None:
+    bounded = bounded_collectors_payload(
+        {
+            "kernel": {"log": "k" * 100_000},
+            "runtime": {"log": "r" * 100_000},
+            "node": {"status": "ok"},
+        },
+        64 * 1024,
+    )
+
+    assert bounded["_agent_payload"]["status"] == "truncated"
+    assert bounded["_agent_payload"]["truncated_collectors"]
+    assert any(
+        item.get("status") == "truncated"
+        for name, item in bounded.items()
+        if name != "_agent_payload"
+    )
+
+
+def test_agent_redaction_removes_secrets_from_nested_collector_output() -> None:
+    redacted = redact_value(
+        {
+            "headers": {"Authorization": "Bearer secret-token"},
+            "log": (
+                "github=" + "gh" + "p_abcdefghijklmnopqrstuvwxyz123456 "
+                "db=postgresql://rca:secret-password@db.internal/rca"
+            ),
+            "kubeconfig": {"client-certificate-data": "base64-secret"},
+        }
+    )
+
+    encoded = json.dumps(redacted)
+    assert "secret-token" not in encoded
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in encoded
+    assert "secret-password" not in encoded
+    assert "base64-secret" not in encoded
+    assert "[redacted]" in encoded
 
 
 def test_process_pending_requests_skips_malformed_request(tmp_path: Path) -> None:

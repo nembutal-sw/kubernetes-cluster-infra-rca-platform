@@ -53,6 +53,12 @@ class RbacAuthorizationTests {
             .andExpect(status().isOk());
         mockMvc.perform(get("/api/audit/events").with(authentication(user(UserRole.viewer))))
             .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/audit/events/export?format=json")
+                .with(authentication(user(UserRole.auditor))))
+            .andExpect(status().isOk());
+        mockMvc.perform(get("/api/audit/events/export?format=json")
+                .with(authentication(user(UserRole.viewer))))
+            .andExpect(status().isForbidden());
     }
 
     @Test

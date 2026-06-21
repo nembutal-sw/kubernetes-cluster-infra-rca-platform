@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.persistence.UserRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.service.RcaAnalysisWorker;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -66,6 +67,8 @@ class PlatformHttpTests {
         registry.add("spring.ai.model.chat", () -> "none");
         registry.add("rca.pipeline.initial-delay-ms", () -> "600000");
         registry.add("rca.observability.metrics-token", () -> "metrics-contract-token");
+        registry.add("rca.security.standard-request-max-bytes", () -> "1024");
+        registry.add("rca.security.evidence-request-max-bytes", () -> "4096");
     }
 
     @Test
@@ -218,9 +221,7 @@ class PlatformHttpTests {
         assertThat(request.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         evidenceRequestId = objectMapper.readTree(request.getBody()).path("request_id").asText();
 
-        ResponseEntity<String> submitted = restTemplate.postForEntity(
-            "/api/agents/evidence-responses",
-            Map.of(
+        Map<String, Object> evidenceResponse = Map.of(
                 "request_id", evidenceRequestId,
                 "cluster_id", clusterId,
                 "node_name", "worker-a",
@@ -232,10 +233,24 @@ class PlatformHttpTests {
                     "inode", Map.of("inode_usage_percent", 98.0),
                     "kernel", Map.of("messages", List.of("EXT4-fs error: I/O error"))
                 )
-            ),
+            );
+        ResponseEntity<String> submitted = restTemplate.postForEntity(
+            "/api/agents/evidence-responses",
+            evidenceResponse,
             String.class
         );
         assertThat(submitted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String submittedEvidenceId = objectMapper.readTree(submitted.getBody())
+            .path("evidence_id")
+            .asText();
+        ResponseEntity<String> duplicate = restTemplate.postForEntity(
+            "/api/agents/evidence-responses",
+            evidenceResponse,
+            String.class
+        );
+        assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(duplicate.getBody()).path("evidence_id").asText())
+            .isEqualTo(submittedEvidenceId);
         assertThat(analysisWorker.processAvailableTasks()).isEqualTo(1);
 
         ResponseEntity<String> reports = exchange("/api/rca/reports", HttpMethod.GET, null);
@@ -257,25 +272,45 @@ class PlatformHttpTests {
 
     @Test
     @Order(5)
-    void manifestRequiresUserOrBootstrapToken() {
+    void manifestRequiresUserOrOneTimeDownloadToken() throws Exception {
         String endpoint = "/api/clusters/" + clusterId + "/agent-manifest?backend_url=https://rca.example.com";
         ResponseEntity<String> anonymous = restTemplate.getForEntity(endpoint, String.class);
         assertThat(anonymous.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<String> invalidAgent = restTemplate.getForEntity(
-            endpoint + "&agent_token=wrong-token",
+        ResponseEntity<String> bootstrapTokenInQuery = restTemplate.getForEntity(
+            endpoint + "&agent_token=" + bootstrapToken,
             String.class
         );
-        assertThat(invalidAgent.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(bootstrapTokenInQuery.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> install = exchange(
+            "/api/clusters/" + clusterId
+                + "/install-command?backend_url=https://rca.example.com",
+            HttpMethod.GET,
+            null
+        );
+        JsonNode installBody = objectMapper.readTree(install.getBody());
+        String manifestCommand = installBody.path("commands").get(2).asText();
+        String encodedToken = manifestCommand.replaceAll(
+            ".*[?&]manifest_token=([^&\\\"]+).*",
+            "$1"
+        );
+        String manifestToken = URLDecoder.decode(encodedToken, StandardCharsets.UTF_8);
 
         ResponseEntity<String> authorized = restTemplate.getForEntity(
-            endpoint + "&agent_token=" + bootstrapToken,
+            endpoint + "&manifest_token=" + manifestToken,
             String.class
         );
         assertThat(authorized.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(authorized.getBody()).contains("\"kind\":\"DaemonSet\"");
         assertThat(authorized.getBody()).contains("KUBERNETES_TOPOLOGY_ENABLED");
         assertThat(authorized.getBody()).contains("endpointslices");
+
+        ResponseEntity<String> reused = restTemplate.getForEntity(
+            endpoint + "&manifest_token=" + manifestToken,
+            String.class
+        );
+        assertThat(reused.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
         ResponseEntity<String> authorizedUser = exchange(endpoint, HttpMethod.GET, null);
         assertThat(authorizedUser.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -287,6 +322,22 @@ class PlatformHttpTests {
         );
         assertThat(topology.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(topology.getBody()).contains("\"cluster_id\":\"" + clusterId + "\"");
+    }
+
+    @Test
+    @Order(50)
+    void oversizedRequestBodiesAreRejectedBeforeAuthentication() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String oversized = "{\"value\":\"" + "x".repeat(5000) + "\"}";
+        ResponseEntity<String> response = restTemplate.exchange(
+            "/api/auth/login",
+            HttpMethod.POST,
+            new HttpEntity<>(oversized, headers),
+            String.class
+        );
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(response.getBody()).contains("request body exceeds 1024 bytes");
     }
 
     @Test
@@ -563,6 +614,91 @@ class PlatformHttpTests {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody()).contains("login required");
+    }
+
+    @Test
+    @Order(12)
+    void paginatedEvidenceAndAuditExportsUseBoundedOperationalApis() throws Exception {
+        ResponseEntity<String> requests = exchange(
+            "/api/clusters/" + clusterId + "/evidence-requests?limit=1",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(requests.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(requests.getBody())).hasSize(1);
+
+        ResponseEntity<String> invalidLimit = exchange(
+            "/api/clusters/" + clusterId + "/evidence-requests?limit=201",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(invalidLimit.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<String> jsonExport = exchange(
+            "/api/audit/events/export?format=json&limit=100",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(jsonExport.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jsonExport.getHeaders().getContentDisposition().isAttachment()).isTrue();
+        assertThat(objectMapper.readTree(jsonExport.getBody()).path("events").isArray()).isTrue();
+
+        ResponseEntity<String> csvExport = exchange(
+            "/api/audit/events/export?format=csv&limit=100",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(csvExport.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(csvExport.getBody()).startsWith("created_at,actor_type");
+
+        ResponseEntity<String> invalidExport = exchange(
+            "/api/audit/events/export?format=xml&limit=100",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(invalidExport.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    @Test
+    @Order(13)
+    void adminCanRotateAgentBootstrapTokenAndOldTokenStopsWorking() throws Exception {
+        ResponseEntity<String> rotation = exchange(
+            "/api/clusters/" + clusterId + "/agent-token/rotate",
+            HttpMethod.POST,
+            null
+        );
+        assertThat(rotation.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String rotatedToken = objectMapper.readTree(rotation.getBody())
+            .path("agent_token")
+            .asText();
+        assertThat(rotatedToken).isNotBlank().isNotEqualTo(bootstrapToken);
+
+        ResponseEntity<String> oldToken = restTemplate.postForEntity(
+            "/api/agents/register",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "rotation-test",
+                "agent_token", bootstrapToken,
+                "agent_version", "0.1.0",
+                "supported_collectors", List.of("node")
+            ),
+            String.class
+        );
+        assertThat(oldToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> newToken = restTemplate.postForEntity(
+            "/api/agents/register",
+            Map.of(
+                "cluster_id", clusterId,
+                "node_name", "rotation-test",
+                "agent_token", rotatedToken,
+                "agent_version", "0.1.0",
+                "supported_collectors", List.of("node")
+            ),
+            String.class
+        );
+        assertThat(newToken.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        bootstrapToken = rotatedToken;
     }
 
     private int actionIndex(JsonNode actions, String policy) {

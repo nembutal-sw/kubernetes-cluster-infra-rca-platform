@@ -14,6 +14,7 @@ from node_agent.collectors.kernel import collect_kernel
 from node_agent.collectors.kubelet import collect_kubelet
 from node_agent.collectors.kubernetes import collect_kubernetes
 from node_agent.collectors.memory import collect_memory
+from node_agent.collectors.modes import AGENT_MODES, agent_mode, allowed_collectors
 from node_agent.collectors.network import collect_network
 from node_agent.collectors.node import collect_node
 from node_agent.collectors.process import collect_process
@@ -47,9 +48,14 @@ def collect_evidence(
     for collector_name in _legacy._dedupe(selected):
         collector = available.get(collector_name)
         if collector is None:
+            known = collector_name in build_registry(paths, runner, "node-diagnostics")
             evidence[collector_name] = {
-                "status": "unsupported",
-                "error": f"collector is not supported: {collector_name}",
+                "status": "disabled" if known else "unsupported",
+                "error": (
+                    f"collector is not available in AGENT_MODE={agent_mode()}: {collector_name}"
+                    if known
+                    else f"collector is not supported: {collector_name}"
+                ),
             }
             continue
         evidence[collector_name] = _legacy._safe_collect(collector)
@@ -58,12 +64,15 @@ def collect_evidence(
 
 __all__ = [
     "AgentPaths",
+    "AGENT_MODES",
     "Collector",
     "CollectorDefinition",
     "CollectorMetadata",
     "CommandRunner",
     "DEFAULT_COLLECTORS",
     "build_registry",
+    "agent_mode",
+    "allowed_collectors",
     "collect_cni",
     "collect_conntrack",
     "collect_disk",

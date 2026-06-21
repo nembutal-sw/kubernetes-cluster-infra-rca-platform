@@ -804,6 +804,18 @@ pre,
   stroke: #b56f67;
 }
 
+.topology-resource-box.changed {
+  stroke: #d97706;
+  stroke-width: 3;
+}
+
+.topology-change-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: #5f4b32;
+}
+
 .topology-resource-name {
   fill: #253039;
   font-size: 13px;

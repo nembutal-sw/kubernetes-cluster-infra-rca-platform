@@ -6,6 +6,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
+import io.clusterinfra.rca.webconsole.service.ManifestTokenService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpHeaders;
@@ -22,17 +23,20 @@ public class AccessService {
     private final AgentRepository agents;
     private final UserSessionRepository sessions;
     private final RcaConsoleProperties properties;
+    private final ManifestTokenService manifestTokens;
 
     public AccessService(
         ClusterRepository clusters,
         AgentRepository agents,
         UserSessionRepository sessions,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        ManifestTokenService manifestTokens
     ) {
         this.clusters = clusters;
         this.agents = agents;
         this.sessions = sessions;
         this.properties = properties;
+        this.manifestTokens = manifestTokens;
     }
 
     public UserAccount currentUser(Authentication authentication) {
@@ -60,7 +64,7 @@ public class AccessService {
     public void verifyManifestAccess(
         String clusterId,
         String authorization,
-        String agentToken,
+        String manifestToken,
         Authentication authentication
     ) {
         if (authentication != null
@@ -68,8 +72,8 @@ public class AccessService {
             && authentication.getPrincipal() instanceof UserAccount) {
             return;
         }
-        if (agentToken != null && !agentToken.isBlank()) {
-            verifyBootstrapToken(clusterId, agentToken);
+        if (manifestToken != null && !manifestToken.isBlank()
+            && manifestTokens.consume(clusterId, manifestToken)) {
             return;
         }
         String bearer = PlatformAuthenticationFilter.bearerToken(authorization);
@@ -82,7 +86,7 @@ public class AccessService {
     public void verifyWebhookToken(String authorization, String webhookHeader) {
         String expected = properties.getWebhookToken();
         if (expected == null || expected.isBlank()) {
-            return;
+            throw new ResponseStatusException(UNAUTHORIZED, "webhook token is not configured");
         }
         String bearer = PlatformAuthenticationFilter.bearerToken(authorization);
         String supplied = webhookHeader == null || webhookHeader.isBlank() ? bearer : webhookHeader.trim();

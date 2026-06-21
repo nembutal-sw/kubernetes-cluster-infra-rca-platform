@@ -32,6 +32,16 @@ public class AuditRepository {
         return store.listAuditEvents(limit);
     }
 
+    public List<AuditEvent> search(
+        String eventType,
+        String outcome,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        return store.searchAuditEvents(eventType, outcome, from, to, limit);
+    }
+
     public int deleteBefore(Instant cutoff) {
         return store.deleteAuditEventsBefore(cutoff);
     }

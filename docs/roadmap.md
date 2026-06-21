@@ -24,6 +24,11 @@
 - scheduled retention cleanup
 - cluster topology inventory
 - topology-aware cross-node correlation
+- one-time manifest download token
+- Agent permission modes and payload limits
+- topology history comparison
+- audit event export
+- Agent credential rotation and optional mTLS
 
 앞으로의 방향은 기능을 무리하게 늘리는 것이 아니라, 문서화, 테스트, 운영 안정성, 엔터프라이즈 확장 기반을 정리하는 것입니다.
 
@@ -93,6 +98,22 @@
 - strict cross-node correlation for cluster-global signal families
 - multi-node incident visibility
 
+### Phase 7: Security And Operational Hardening
+
+- explicit initial administrator provisioning
+- mandatory webhook authentication
+- short-lived, single-use Agent manifest download token
+- request body, log collection, and Agent payload limits
+- `safe`, `node-diagnostics`, and `ebpf` Agent permission modes
+- idempotent evidence response handling
+- evidence request pagination and query indexes
+- Kubernetes API response cache
+- PostgreSQL and MariaDB backup/restore validation
+- Agent bootstrap token rotation
+- optional Agent mTLS enforcement
+- topology history comparison and change highlighting
+- role-restricted audit JSON/CSV export
+
 ---
 
 ## Near-Term Priorities
@@ -118,10 +139,10 @@
 ## Enterprise Readiness
 
 - Expand RBAC into a permission matrix.
-- Add topology history comparison and incident-focused graph highlighting.
-- Add backup and restore runbook.
+- Extend topology comparison with long-term trend storage.
+- Exercise backup and restore runbook for every release candidate.
 - Improve on-prem and private registry documentation.
-- Add audit export and compliance-oriented reports.
+- Add SIEM delivery and signed compliance reports.
 
 ## Portfolio Positioning
 

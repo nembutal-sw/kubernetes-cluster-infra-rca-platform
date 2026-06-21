@@ -21,6 +21,19 @@ Agent는 운영 환경을 직접 변경하지 않습니다. 승인 조치 실행
 
 ## Runtime Modes
 
+### Permission Modes
+
+`AGENT_MODE` controls collector availability and Kubernetes permissions.
+
+```text
+safe
+node-diagnostics
+ebpf
+```
+
+`safe` is the default. Details are documented in
+[Agent Permission Model](agent-permission-model.md).
+
 ### Daemon Mode
 
 The default mode registers the agent and continuously polls the platform.
@@ -98,6 +111,12 @@ AGENT_STATE_DIR
 POLL_INTERVAL_SECONDS
 AGENT_MAX_SPOOL_FILES
 AGENT_MAX_SPOOL_BYTES
+AGENT_MODE
+AGENT_EVIDENCE_MAX_BYTES
+KUBERNETES_API_CACHE_TTL_SECONDS
+HOST_LOG_MAX_FILES
+HOST_LOG_MAX_BYTES_PER_FILE
+HOST_LOG_MAX_LINES
 AGENT_CA_BUNDLE
 AGENT_CLIENT_CERT
 AGENT_CLIENT_KEY

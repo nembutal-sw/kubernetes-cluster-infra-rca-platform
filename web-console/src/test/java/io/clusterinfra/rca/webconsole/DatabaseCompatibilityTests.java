@@ -64,6 +64,8 @@ class DatabaseCompatibilityTests {
         "rca_reports",
         "incidents",
         "realtime_events",
+        "topology_observations",
+        "manifest_download_tokens",
         "evidence_bundles",
         "node_agents",
         "user_accounts",
@@ -116,7 +118,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(10);
+        assertThat(migration.migrationsExecuted).isEqualTo(12);
 
         JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -485,7 +487,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(6);
+        assertThat(migration.migrationsExecuted).isEqualTo(11);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

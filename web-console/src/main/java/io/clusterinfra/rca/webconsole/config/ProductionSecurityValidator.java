@@ -48,9 +48,15 @@ public class ProductionSecurityValidator implements InitializingBean {
     void validateProductionConfiguration() {
         List<String> violations = new ArrayList<>();
         rejectUnsafe(
+            properties.getDefaultAdminUsername(),
+            Set.of(""),
+            "RCA_DEFAULT_ADMIN_USERNAME is required for initial production bootstrap",
+            violations
+        );
+        rejectUnsafe(
             properties.getDefaultAdminPassword(),
             Set.of("", "admin"),
-            "RCA_DEFAULT_ADMIN_PASSWORD must not use the default admin password",
+            "RCA_DEFAULT_ADMIN_PASSWORD is required and must not use a default password",
             violations
         );
         rejectUnsafe(
@@ -95,6 +101,15 @@ public class ProductionSecurityValidator implements InitializingBean {
             "RCA_ENCRYPTION_SECRET must be a non-default secret",
             violations
         );
+        if (properties.getSecurity().getStandardRequestMaxBytes() < 1024
+            || properties.getSecurity().getEvidenceRequestMaxBytes()
+                < properties.getSecurity().getStandardRequestMaxBytes()) {
+            violations.add("request body size limits are invalid");
+        }
+        if (properties.getSecurity().getManifestTokenTtlSeconds() < 30
+            || properties.getSecurity().getManifestTokenTtlSeconds() > 900) {
+            violations.add("RCA_MANIFEST_TOKEN_TTL_SECONDS must be between 30 and 900");
+        }
         if (!violations.isEmpty()) {
             throw new IllegalStateException(
                 "Unsafe production configuration:\n - " + String.join("\n - ", violations)

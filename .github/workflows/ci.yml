@@ -89,6 +89,7 @@ jobs:
           helm template rca charts/cluster-infra-rca-platform \
             --set platform.config.springProfiles=prod \
             --set platform.config.publicApiBaseUrl=https://rca.example.com \
+            --set-string platform.secret.defaultAdminUsername=platform-admin \
             --set-string platform.secret.defaultAdminPassword=non-default-admin-password \
             --set-string platform.secret.webhookToken=non-default-webhook-token \
             --set-string platform.secret.encryptionSecret=non-default-encryption-secret \
@@ -104,6 +105,11 @@ jobs:
             --set backendUrl=https://rca.example.com \
             --set tls.enabled=true \
             --set tls.existingSecret=agent-mtls \
+            --set secret.existingSecret.name=agent-auth > /dev/null
+          helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set mode=ebpf \
+            --set ebpf.enabled=true \
             --set secret.existingSecret.name=agent-auth > /dev/null
 
   docker-build:

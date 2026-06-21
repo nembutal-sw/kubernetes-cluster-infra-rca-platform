@@ -43,6 +43,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -282,6 +283,72 @@ public class RcaController {
         @RequestParam(name = "limit", defaultValue = "200") Integer limit
     ) {
         return audits.list(limit);
+    }
+
+    @GetMapping("/api/audit/events/export")
+    @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
+    public ResponseEntity<byte[]> exportAuditEvents(
+        @RequestParam(name = "event_type", required = false) String eventType,
+        @RequestParam(required = false) String outcome,
+        @RequestParam(required = false) Instant from,
+        @RequestParam(required = false) Instant to,
+        @RequestParam(defaultValue = "1000") int limit,
+        @RequestParam(defaultValue = "json") String format,
+        Authentication authentication
+    ) {
+        if (limit < 1 || limit > 5000) {
+            throw new ResponseStatusException(BAD_REQUEST, "limit must be between 1 and 5000");
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ResponseStatusException(BAD_REQUEST, "from must not be after to");
+        }
+        String normalizedFormat = format == null ? "" : format.trim().toLowerCase();
+        if (!Set.of("json", "csv").contains(normalizedFormat)) {
+            throw new ResponseStatusException(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                "format must be json or csv"
+            );
+        }
+        List<AuditEvent> events = audits.search(eventType, outcome, from, to, limit);
+        UserAccount user = access.currentUser(authentication);
+        audit.user(
+            user,
+            "audit.export",
+            "audit_event",
+            "bulk",
+            "success",
+            Map.of("format", normalizedFormat, "event_count", events.size())
+        );
+        if ("csv".equals(normalizedFormat)) {
+            StringBuilder csv = new StringBuilder(
+                "created_at,actor_type,actor_id,event_type,resource_type,resource_id,outcome,details\n"
+            );
+            for (AuditEvent event : events) {
+                csv.append(csv(event.createdAt())).append(',')
+                    .append(csv(event.actorType())).append(',')
+                    .append(csv(event.actorId())).append(',')
+                    .append(csv(event.eventType())).append(',')
+                    .append(csv(event.resourceType())).append(',')
+                    .append(csv(event.resourceId())).append(',')
+                    .append(csv(event.outcome())).append(',')
+                    .append(csv(jsonText(event.details()))).append('\n');
+            }
+            return attachment(
+                csv.toString().getBytes(StandardCharsets.UTF_8),
+                "text/csv",
+                "audit-events",
+                "csv"
+            );
+        }
+        return attachment(
+            Map.of(
+                "schema_version", "1.0",
+                "exported_at", Instant.now(),
+                "event_count", events.size(),
+                "events", events
+            ),
+            "audit-events"
+        );
     }
 
     @GetMapping("/api/rca/reports/export")
@@ -645,6 +712,37 @@ public class RcaController {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("report export serialization failed", exception);
         }
+    }
+
+    private ResponseEntity<byte[]> attachment(
+        byte[] body,
+        String mediaType,
+        String prefix,
+        String extension
+    ) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mediaType + ";charset=UTF-8"));
+        headers.setContentDisposition(ContentDisposition.attachment()
+            .filename(
+                prefix + "-" + FILE_TIME.format(Instant.now()) + "." + extension,
+                StandardCharsets.UTF_8
+            )
+            .build());
+        headers.setCacheControl("no-store");
+        return new ResponseEntity<>(body, headers, HttpStatus.OK);
+    }
+
+    private String jsonText(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            return "{}";
+        }
+    }
+
+    private String csv(Object value) {
+        String text = value == null ? "" : String.valueOf(value);
+        return "\"" + text.replace("\"", "\"\"") + "\"";
     }
 
     private String safeFilename(String value) {

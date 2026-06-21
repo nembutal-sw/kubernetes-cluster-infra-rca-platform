@@ -24,8 +24,9 @@ RCA_DB_PASSWORD=change-me
 
 Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니다.
 
-`V7__incident_lifecycle_and_recurrence.sql`은 종료 시각·종료 사유와 재발 incident 링크를
-추가합니다. PostgreSQL, MariaDB, H2에서 동일한 migration 순서를 사용합니다.
+현재 스키마는 Flyway version 12입니다. `V11`은 1회용 Agent manifest download token을,
+`V12`는 evidence request 목록 조회용 복합 인덱스를 추가합니다. PostgreSQL, MariaDB,
+H2에서 동일한 migration 순서를 사용합니다.
 
 기존 Python/Alembic DB를 연결하면 `baseline-on-migrate`가 기존 스키마를 version 1로 등록합니다. 새 DB에서는 version 1 스키마를 직접 생성합니다. 기존 데이터를 연결하기 전에 DB 백업을 권장합니다.
 
@@ -45,6 +46,8 @@ Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니�
 - `action_executions`
 - `realtime_events`
 - `audit_events`
+- `topology_observations`
+- `manifest_download_tokens`
 
 JSON 데이터는 DB별 JSON 타입 대신 `TEXT`로 저장해 PostgreSQL과 MariaDB의 동작을 동일하게 유지합니다.
 
@@ -73,3 +76,11 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
 ```
 
 복구 전에는 플랫폼 쓰기를 중지하고 대상 DB를 별도 인스턴스에 복구한 뒤 무결성을 검증합니다. 운영 환경에서는 chart의 단일 DB보다 관리형 DB와 provider snapshot을 우선합니다.
+
+PostgreSQL과 MariaDB의 실제 dump/restore 검증은 다음 명령으로 실행합니다.
+
+```bash
+bash scripts/validate-database-backup.sh
+```
+
+자세한 복구 순서와 RPO/RTO 기준은 [Operations](operations.md)를 참고합니다.

@@ -24,6 +24,11 @@
 - incident inactivity resolution, approval-work protection, and recurrence lineage
 - curated correlation false-positive dataset
 - topology extraction, authoritative snapshot expiry, graph rendering, confirmed Service impact, and cross-node false-positive guards
+- one-time manifest token consumption and replay rejection
+- request body and Agent payload limits
+- duplicate evidence response idempotency
+- Agent mTLS enforcement and token rotation
+- topology history comparison and audit export
 - production configuration validation
 - agent protocol configuration
 
@@ -60,8 +65,16 @@ Helm charts:
 ```text
 helm lint charts/cluster-infra-rca-platform
 helm template rca-platform charts/cluster-infra-rca-platform
-helm lint charts/cluster-infra-rca-agent
-helm template rca-agent charts/cluster-infra-rca-agent
+helm lint charts/cluster-infra-rca-agent --set backendUrl=https://rca.example.com
+helm template rca-agent charts/cluster-infra-rca-agent \
+  --set backendUrl=https://rca.example.com \
+  --set secret.existingSecret.name=agent-auth
+```
+
+Backup and restore:
+
+```text
+bash scripts/validate-database-backup.sh
 ```
 
 Docker image:
@@ -89,6 +102,9 @@ docker build -f Dockerfile.web-console .
 | Incident correlation | `IncidentCorrelationServiceTests`, `IncidentCorrelationDatasetTests`, `IncidentTimelineServiceTests` |
 | Incident lifecycle | `IncidentLifecycleRepositoryTests`, `DatabaseCompatibilityTests` |
 | Cluster topology | `TopologyExtractorTests`, `TopologyServiceTests`, `IncidentCorrelationServiceTests`, `PlatformHttpTests` |
+| Agent mTLS | `AgentMtlsFilterTests` |
+| Manifest token and request limits | `PlatformHttpTests` |
+| Audit export and token rotation | `PlatformHttpTests`, `RbacAuthorizationTests` |
 | LLM fallback | `LlmAnalysisServiceTests` |
 
 ## CI Intent

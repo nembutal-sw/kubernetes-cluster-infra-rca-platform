@@ -39,8 +39,8 @@ Request:
 
 ```json
 {
-  "username": "admin",
-  "password": "admin"
+  "username": "platform-admin",
+  "password": "<configured-password>"
 }
 ```
 
@@ -92,11 +92,28 @@ GET    /api/clusters/{cluster_id}
 DELETE /api/clusters/{cluster_id}
 GET    /api/clusters/{cluster_id}/install-command
 GET    /api/clusters/{cluster_id}/agent-manifest
+POST   /api/clusters/{cluster_id}/agent-token/rotate
+GET    /api/clusters/{cluster_id}/topology/history
+GET    /api/clusters/{cluster_id}/topology/compare
 GET    /api/clusters/{cluster_id}/agent-health
 GET    /api/clusters/{cluster_id}/topology
 ```
 
 `agent-manifest` is guarded by manifest access credentials. Agent health classifies agents as:
+
+The install-command response uses a short-lived, single-use `manifest_token`. The cluster
+bootstrap token is not accepted as a manifest query parameter. Production manifest URLs must use
+HTTPS.
+
+Evidence request lists support `node_name`, `status`, `before`, and `limit` filters.
+The default limit is 100 and the maximum is 200.
+
+Audit users can export JSON or CSV:
+
+```text
+GET /api/audit/events/export?format=json
+GET /api/audit/events/export?format=csv
+```
 
 ```text
 healthy
@@ -226,6 +243,6 @@ Common response codes:
 404 resource not found
 409 state conflict
 410 deprecated endpoint disabled
-413 export bundle too large
+413 request body or export bundle too large
 422 unsupported format or invalid status
 ```

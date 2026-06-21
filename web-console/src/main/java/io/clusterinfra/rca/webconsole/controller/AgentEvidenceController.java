@@ -141,7 +141,7 @@ public class AgentEvidenceController {
             throw new ResponseStatusException(FORBIDDEN, "evidence request is assigned to another agent");
         }
         if (assigned.status() != EvidenceRequestStatus.pending) {
-            throw new ResponseStatusException(CONFLICT, "evidence request is already closed");
+            return assigned;
         }
         EvidenceRequest submitted = evidence.submitResponse(
             request,

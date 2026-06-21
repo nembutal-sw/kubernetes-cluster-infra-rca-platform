@@ -116,6 +116,19 @@ public class JdbcRcaStore {
         return optionalQuery("SELECT * FROM clusters WHERE cluster_id = ?", this::mapCluster, clusterId);
     }
 
+    public Cluster rotateClusterBootstrapToken(String clusterId) {
+        String token = tokens.generateToken();
+        int updated = jdbc.update(
+            "UPDATE clusters SET bootstrap_token = ? WHERE cluster_id = ?",
+            token,
+            clusterId
+        );
+        if (updated != 1) {
+            throw new IllegalArgumentException("cluster not found: " + clusterId);
+        }
+        return getCluster(clusterId).orElseThrow();
+    }
+
     @Transactional
     public boolean deleteCluster(String clusterId) {
         if (getCluster(clusterId).isEmpty()) {
@@ -140,6 +153,7 @@ public class JdbcRcaStore {
         jdbc.update("DELETE FROM incidents WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM realtime_events WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM topology_observations WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM manifest_download_tokens WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM node_agents WHERE cluster_id = ?", clusterId);
         return jdbc.update("DELETE FROM clusters WHERE cluster_id = ?", clusterId) == 1;
@@ -359,9 +373,46 @@ public class JdbcRcaStore {
         return jdbc.query(sql.toString(), this::mapEvidenceRequest, parameters.toArray());
     }
 
+    public List<EvidenceRequest> listRecentEvidenceRequests(
+        String clusterId,
+        String nodeName,
+        EvidenceRequestStatus status,
+        Instant before,
+        int limit
+    ) {
+        StringBuilder sql = new StringBuilder(
+            "SELECT * FROM evidence_requests WHERE cluster_id = ?"
+        );
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(clusterId);
+        if (nodeName != null && !nodeName.isBlank()) {
+            sql.append(" AND node_name = ?");
+            parameters.add(nodeName);
+        }
+        if (status != null) {
+            sql.append(" AND status = ?");
+            parameters.add(status.name());
+        }
+        if (before != null) {
+            sql.append(" AND created_at < ?");
+            parameters.add(timestamp(before));
+        }
+        sql.append(" ORDER BY created_at DESC, request_id DESC LIMIT ?");
+        parameters.add(Math.max(1, Math.min(200, limit)));
+        return jdbc.query(sql.toString(), this::mapEvidenceRequest, parameters.toArray());
+    }
+
     public Optional<EvidenceRequest> getEvidenceRequest(String requestId) {
         return optionalQuery(
             "SELECT * FROM evidence_requests WHERE request_id = ?",
+            this::mapEvidenceRequest,
+            requestId
+        );
+    }
+
+    private Optional<EvidenceRequest> getEvidenceRequestForUpdate(String requestId) {
+        return optionalQuery(
+            "SELECT * FROM evidence_requests WHERE request_id = ? FOR UPDATE",
             this::mapEvidenceRequest,
             requestId
         );
@@ -391,9 +442,12 @@ public class JdbcRcaStore {
         AgentEvidenceSubmitRequest request,
         int analysisMaxAttempts
     ) {
-        Optional<EvidenceRequest> existing = getEvidenceRequest(request.requestId());
+        Optional<EvidenceRequest> existing = getEvidenceRequestForUpdate(request.requestId());
         if (existing.isEmpty()) {
             return Optional.empty();
+        }
+        if (existing.get().status() != EvidenceRequestStatus.pending) {
+            return existing;
         }
         Instant completedAt = Instant.now();
         String evidenceId = null;
@@ -419,7 +473,7 @@ public class JdbcRcaStore {
             """
                 UPDATE evidence_requests
                 SET status = ?, evidence_id = ?, error_message = ?, completed_at = ?
-                WHERE request_id = ?
+                WHERE request_id = ? AND status = ?
                 """,
             request.statusOrDefault().name(),
             evidenceId,
@@ -427,7 +481,8 @@ public class JdbcRcaStore {
                 ? SensitiveDataRedactor.redactText(request.errorMessage())
                 : null,
             timestamp(completedAt),
-            request.requestId()
+            request.requestId(),
+            EvidenceRequestStatus.pending.name()
         );
         markClusterActive(request.clusterId());
         return getEvidenceRequest(request.requestId());
@@ -1410,6 +1465,36 @@ public class JdbcRcaStore {
             this::mapAuditEvent,
             safeLimit
         );
+    }
+
+    public List<AuditEvent> searchAuditEvents(
+        String eventType,
+        String outcome,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM audit_events WHERE 1 = 1");
+        List<Object> parameters = new ArrayList<>();
+        if (eventType != null && !eventType.isBlank()) {
+            sql.append(" AND event_type = ?");
+            parameters.add(eventType.trim());
+        }
+        if (outcome != null && !outcome.isBlank()) {
+            sql.append(" AND outcome = ?");
+            parameters.add(outcome.trim());
+        }
+        if (from != null) {
+            sql.append(" AND created_at >= ?");
+            parameters.add(timestamp(from));
+        }
+        if (to != null) {
+            sql.append(" AND created_at <= ?");
+            parameters.add(timestamp(to));
+        }
+        sql.append(" ORDER BY created_at DESC LIMIT ?");
+        parameters.add(Math.max(1, Math.min(limit, 5000)));
+        return jdbc.query(sql.toString(), this::mapAuditEvent, parameters.toArray());
     }
 
     public int deleteAuditEventsBefore(Instant cutoff) {

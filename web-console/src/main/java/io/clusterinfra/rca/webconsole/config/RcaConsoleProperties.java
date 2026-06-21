@@ -5,8 +5,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "rca")
 public class RcaConsoleProperties {
     private String publicApiBaseUrl = "";
-    private String defaultAdminUsername = "admin";
-    private String defaultAdminPassword = "admin";
+    private String defaultAdminUsername = "";
+    private String defaultAdminPassword = "";
     private String webhookToken = "";
     private int sessionTtlHours = 12;
     private int agentOfflineAfterSeconds = 180;
@@ -559,6 +559,10 @@ public class RcaConsoleProperties {
 
     public static class Security {
         private String encryptionSecret = "";
+        private long standardRequestMaxBytes = 1024 * 1024;
+        private long evidenceRequestMaxBytes = 10 * 1024 * 1024;
+        private int manifestTokenTtlSeconds = 300;
+        private boolean agentMtlsRequired;
 
         public String getEncryptionSecret() {
             return encryptionSecret;
@@ -566,6 +570,38 @@ public class RcaConsoleProperties {
 
         public void setEncryptionSecret(String encryptionSecret) {
             this.encryptionSecret = encryptionSecret;
+        }
+
+        public long getStandardRequestMaxBytes() {
+            return standardRequestMaxBytes;
+        }
+
+        public void setStandardRequestMaxBytes(long standardRequestMaxBytes) {
+            this.standardRequestMaxBytes = standardRequestMaxBytes;
+        }
+
+        public long getEvidenceRequestMaxBytes() {
+            return evidenceRequestMaxBytes;
+        }
+
+        public void setEvidenceRequestMaxBytes(long evidenceRequestMaxBytes) {
+            this.evidenceRequestMaxBytes = evidenceRequestMaxBytes;
+        }
+
+        public int getManifestTokenTtlSeconds() {
+            return manifestTokenTtlSeconds;
+        }
+
+        public void setManifestTokenTtlSeconds(int manifestTokenTtlSeconds) {
+            this.manifestTokenTtlSeconds = manifestTokenTtlSeconds;
+        }
+
+        public boolean isAgentMtlsRequired() {
+            return agentMtlsRequired;
+        }
+
+        public void setAgentMtlsRequired(boolean agentMtlsRequired) {
+            this.agentMtlsRequired = agentMtlsRequired;
         }
     }
 

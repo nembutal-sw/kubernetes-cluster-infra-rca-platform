@@ -14,6 +14,7 @@ from node_agent.collectors.kernel import collect_kernel
 from node_agent.collectors.kubelet import collect_kubelet
 from node_agent.collectors.kubernetes import collect_kubernetes
 from node_agent.collectors.memory import collect_memory
+from node_agent.collectors.modes import allowed_collectors
 from node_agent.collectors.network import collect_network
 from node_agent.collectors.node import collect_node
 from node_agent.collectors.process import collect_process
@@ -64,12 +65,31 @@ def definitions(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collector
     }
 
 
-def build_registry(paths: AgentPaths, runner: CommandRunner) -> dict[str, Collector]:
-    return {name: definition.collect for name, definition in definitions(paths, runner).items()}
+def build_registry(
+    paths: AgentPaths,
+    runner: CommandRunner,
+    mode: str | None = None,
+) -> dict[str, Collector]:
+    enabled = allowed_collectors(mode)
+    return {
+        name: definition.collect
+        for name, definition in definitions(paths, runner).items()
+        if name in enabled
+    }
 
 
-def collector_metadata(paths: AgentPaths, runner: CommandRunner) -> list[dict[str, Any]]:
-    return [item.metadata.as_dict() for item in definitions(paths, runner).values()]
+def collector_metadata(
+    paths: AgentPaths,
+    runner: CommandRunner,
+    mode: str | None = None,
+) -> list[dict[str, Any]]:
+    enabled = allowed_collectors(mode)
+    result: list[dict[str, Any]] = []
+    for name, item in definitions(paths, runner).items():
+        metadata = item.metadata.as_dict()
+        metadata["enabled_by_default"] = name in enabled
+        result.append(metadata)
+    return result
 
 
 def _definition(

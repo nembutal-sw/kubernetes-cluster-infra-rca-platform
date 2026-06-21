@@ -79,6 +79,28 @@ public class TopologyRepository {
         );
     }
 
+    public List<TopologyObservation> listRange(
+        String clusterId,
+        Instant from,
+        Instant to,
+        int requestedLimit
+    ) {
+        int limit = Math.max(1, Math.min(requestedLimit, 2000));
+        return jdbc.query(
+            """
+                SELECT * FROM topology_observations
+                WHERE cluster_id = ? AND observed_at >= ? AND observed_at <= ?
+                ORDER BY observed_at DESC
+                LIMIT ?
+                """,
+            this::map,
+            clusterId,
+            Timestamp.from(from),
+            Timestamp.from(to),
+            limit
+        );
+    }
+
     public java.util.Optional<TopologyObservation> findByEvidence(String evidenceId) {
         List<TopologyObservation> results = jdbc.query(
             "SELECT * FROM topology_observations WHERE source_evidence_id = ?",

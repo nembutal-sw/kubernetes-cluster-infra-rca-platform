@@ -56,6 +56,14 @@ spec:
               value: {{ .Values.platform.config.publicApiBaseUrl | quote }}
             - name: RCA_SESSION_TTL_HOURS
               value: {{ .Values.platform.config.sessionTtlHours | quote }}
+            - name: RCA_STANDARD_REQUEST_MAX_BYTES
+              value: {{ .Values.platform.config.standardRequestMaxBytes | quote }}
+            - name: RCA_EVIDENCE_REQUEST_MAX_BYTES
+              value: {{ .Values.platform.config.evidenceRequestMaxBytes | quote }}
+            - name: RCA_MANIFEST_TOKEN_TTL_SECONDS
+              value: {{ .Values.platform.config.manifestTokenTtlSeconds | quote }}
+            - name: RCA_AGENT_MTLS_REQUIRED
+              value: {{ .Values.platform.config.agentMtlsRequired | quote }}
             - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
             - name: RCA_AGENT_EXPECTED_VERSION

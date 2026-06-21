@@ -2,9 +2,11 @@ package io.clusterinfra.rca.webconsole.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.security.AgentAuthenticationFilter;
+import io.clusterinfra.rca.webconsole.security.AgentMtlsFilter;
 import io.clusterinfra.rca.webconsole.security.ManifestAccessFilter;
 import io.clusterinfra.rca.webconsole.security.MetricsAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
+import io.clusterinfra.rca.webconsole.security.RequestBodyLimitFilter;
 import io.clusterinfra.rca.webconsole.security.SameOriginMutationFilter;
 import io.clusterinfra.rca.webconsole.security.WebhookAuthenticationFilter;
 import java.util.Map;
@@ -26,6 +28,8 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         PlatformAuthenticationFilter authenticationFilter,
+        RequestBodyLimitFilter requestBodyLimitFilter,
+        AgentMtlsFilter agentMtlsFilter,
         AgentAuthenticationFilter agentAuthenticationFilter,
         WebhookAuthenticationFilter webhookAuthenticationFilter,
         ManifestAccessFilter manifestAccessFilter,
@@ -80,7 +84,9 @@ public class SecurityConfig {
                 })
             )
             .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(agentAuthenticationFilter, PlatformAuthenticationFilter.class)
+            .addFilterBefore(requestBodyLimitFilter, PlatformAuthenticationFilter.class)
+            .addFilterAfter(agentMtlsFilter, PlatformAuthenticationFilter.class)
+            .addFilterAfter(agentAuthenticationFilter, AgentMtlsFilter.class)
             .addFilterAfter(webhookAuthenticationFilter, AgentAuthenticationFilter.class)
             .addFilterAfter(manifestAccessFilter, WebhookAuthenticationFilter.class)
             .addFilterAfter(metricsAuthenticationFilter, ManifestAccessFilter.class)
@@ -92,6 +98,18 @@ public class SecurityConfig {
     FilterRegistrationBean<PlatformAuthenticationFilter> platformAuthenticationRegistration(
         PlatformAuthenticationFilter filter
     ) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<RequestBodyLimitFilter> requestBodyLimitRegistration(
+        RequestBodyLimitFilter filter
+    ) {
+        return securityOnly(filter);
+    }
+
+    @Bean
+    FilterRegistrationBean<AgentMtlsFilter> agentMtlsRegistration(AgentMtlsFilter filter) {
         return securityOnly(filter);
     }
 

@@ -8,8 +8,10 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionResponse
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterView;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterTopology;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.TopologyObservation;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.InstallCommandResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
@@ -122,6 +124,38 @@ public class ClusterController {
         return topology.current(clusterId);
     }
 
+    @GetMapping("/{clusterId}/topology/history")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public List<TopologyObservation> topologyHistory(
+        @PathVariable String clusterId,
+        @RequestParam(required = false) Instant from,
+        @RequestParam(required = false) Instant to,
+        @RequestParam(defaultValue = "100") int limit
+    ) {
+        requireCluster(clusterId);
+        if (limit < 1 || limit > 500) {
+            throw new ResponseStatusException(BAD_REQUEST, "limit must be between 1 and 500");
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ResponseStatusException(BAD_REQUEST, "from must not be after to");
+        }
+        return topology.history(clusterId, from, to, limit);
+    }
+
+    @GetMapping("/{clusterId}/topology/compare")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public Map<String, Object> compareTopology(
+        @PathVariable String clusterId,
+        @RequestParam(name = "baseline_at") Instant baselineAt,
+        @RequestParam(name = "target_at") Instant targetAt
+    ) {
+        requireCluster(clusterId);
+        if (baselineAt.isAfter(targetAt)) {
+            throw new ResponseStatusException(BAD_REQUEST, "baseline_at must not be after target_at");
+        }
+        return topology.compare(clusterId, baselineAt, targetAt);
+    }
+
     @DeleteMapping("/{clusterId}")
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String, Object> delete(
@@ -146,15 +180,48 @@ public class ClusterController {
         return Map.of("deleted", true, "cluster_id", clusterId, "name", cluster.name());
     }
 
+    @PostMapping("/{clusterId}/agent-token/rotate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> rotateAgentToken(
+        @PathVariable String clusterId,
+        Authentication authentication
+    ) {
+        requireCluster(clusterId);
+        UserAccount user = access.currentUser(authentication);
+        Cluster cluster = clusters.rotateBootstrapToken(clusterId);
+        audit.user(
+            user,
+            "cluster.agent_token_rotated",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of("requires_agent_secret_update", true)
+        );
+        return Map.of(
+            "cluster_id", clusterId,
+            "agent_token", cluster.bootstrapToken(),
+            "issued_at", Instant.now(),
+            "note", "This token is shown once. Update the Agent Secret and restart the DaemonSet."
+        );
+    }
+
     @GetMapping("/{clusterId}/install-command")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public InstallCommandResponse installCommand(
         @PathVariable String clusterId,
         @RequestParam(name = "backend_url", required = false) String backendUrl,
         @RequestParam(required = false) String image,
-        @RequestParam(required = false) String namespace
+        @RequestParam(required = false) String namespace,
+        Authentication authentication
     ) {
-        return manifests.installCommand(requireCluster(clusterId), backendUrl, image, namespace);
+        UserAccount user = access.currentUser(authentication);
+        return manifests.installCommand(
+            requireCluster(clusterId),
+            backendUrl,
+            image,
+            namespace,
+            user.email()
+        );
     }
 
     @GetMapping("/{clusterId}/agent-manifest")
@@ -169,7 +236,8 @@ public class ClusterController {
         @RequestParam(name = "kubernetes_api_timeout_seconds", required = false) Integer kubernetesApiTimeoutSeconds,
         @RequestParam(name = "control_plane_probe_ports", required = false) String controlPlaneProbePorts,
         @RequestParam(name = "runtime_socket_paths", required = false) String runtimeSocketPaths,
-        @RequestParam(name = "systemd_collector_mode", required = false) String systemdCollectorMode
+        @RequestParam(name = "systemd_collector_mode", required = false) String systemdCollectorMode,
+        @RequestParam(name = "agent_mode", required = false) String agentMode
     ) {
         Cluster cluster = requireCluster(clusterId);
         return manifests.manifest(cluster, new ManifestOptions(
@@ -182,7 +250,8 @@ public class ClusterController {
             kubernetesApiTimeoutSeconds == null ? 5 : kubernetesApiTimeoutSeconds,
             controlPlaneProbePorts,
             runtimeSocketPaths,
-            systemdCollectorMode
+            systemdCollectorMode,
+            agentMode
         ));
     }
 
@@ -268,9 +337,18 @@ public class ClusterController {
 
     @GetMapping("/{clusterId}/evidence-requests")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
-    public List<EvidenceRequest> evidenceRequests(@PathVariable String clusterId) {
+    public List<EvidenceRequest> evidenceRequests(
+        @PathVariable String clusterId,
+        @RequestParam(name = "node_name", required = false) String nodeName,
+        @RequestParam(required = false) EvidenceRequestStatus status,
+        @RequestParam(required = false) Instant before,
+        @RequestParam(defaultValue = "100") int limit
+    ) {
         requireCluster(clusterId);
-        return evidence.listRequests(clusterId, null, null, null);
+        if (limit < 1 || limit > 200) {
+            throw new ResponseStatusException(BAD_REQUEST, "limit must be between 1 and 200");
+        }
+        return evidence.listRecentRequests(clusterId, nodeName, status, before, limit);
     }
 
     private Cluster requireCluster(String clusterId) {

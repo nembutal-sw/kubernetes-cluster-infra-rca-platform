@@ -48,6 +48,7 @@ metadata:
   name: cluster-infra-rca-agent-config
   namespace: rca-system
 data:
+  AGENT_MODE: "safe"
   BACKEND_URL: "https://rca.example.com"
   POLL_INTERVAL_SECONDS: "15"
   HTTP_TIMEOUT_SECONDS: "10"
@@ -57,8 +58,14 @@ data:
   AGENT_MAX_SPOOL_FILES: "1000"
   AGENT_MAX_SPOOL_BYTES: "268435456"
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
+  KUBERNETES_API_CACHE_TTL_SECONDS: "10"
   KUBERNETES_TOPOLOGY_ENABLED: "true"
   KUBERNETES_TOPOLOGY_MAX_ITEMS: "500"
+  AGENT_EVIDENCE_MAX_BYTES: "8388608"
+  HOST_LOG_MAX_FILES: "12"
+  HOST_LOG_MAX_BYTES_PER_FILE: "262144"
+  HOST_LOG_MAX_LINES: "80"
+  EBPF_ENABLED: "false"
   CONTROL_PLANE_PROBE_PORTS: "6443,9345"
   CONTAINER_RUNTIME_SOCKET_PATHS: ""
   SYSTEMD_COLLECTOR_MODE: "file"
@@ -83,9 +90,12 @@ spec:
         app.kubernetes.io/part-of: cluster-infra-rca
     spec:
       serviceAccountName: cluster-infra-rca-agent
-      hostNetwork: true
-      hostPID: true
-      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      hostNetwork: false
+      hostPID: false
+      dnsPolicy: ClusterFirst
       terminationGracePeriodSeconds: 20
       tolerations:
         - operator: Exists
@@ -104,6 +114,11 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: BACKEND_URL
+            - name: AGENT_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: AGENT_MODE
             - name: CLUSTER_ID
               valueFrom:
                 secretKeyRef:
@@ -158,6 +173,11 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: KUBERNETES_API_CACHE_TTL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_API_CACHE_TTL_SECONDS
             - name: KUBERNETES_TOPOLOGY_ENABLED
               valueFrom:
                 configMapKeyRef:
@@ -168,6 +188,31 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: KUBERNETES_TOPOLOGY_MAX_ITEMS
+            - name: AGENT_EVIDENCE_MAX_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: AGENT_EVIDENCE_MAX_BYTES
+            - name: HOST_LOG_MAX_FILES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: HOST_LOG_MAX_FILES
+            - name: HOST_LOG_MAX_BYTES_PER_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: HOST_LOG_MAX_BYTES_PER_FILE
+            - name: HOST_LOG_MAX_LINES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: HOST_LOG_MAX_LINES
+            - name: EBPF_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: EBPF_ENABLED
             - name: CONTROL_PLANE_PROBE_PORTS
               valueFrom:
                 configMapKeyRef:
@@ -189,29 +234,14 @@ spec:
                   name: cluster-infra-rca-agent-config
                   key: AGENT_STATE_DIR
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
-            - name: host-root
-              mountPath: /host/root
-              readOnly: true
-            - name: host-var-log
-              mountPath: /host/var/log
-              readOnly: true
-            - name: host-run
-              mountPath: /host/run
-              readOnly: true
-            - name: host-etc
-              mountPath: /host/etc
-              readOnly: true
-            - name: host-proc
-              mountPath: /host/proc
-              readOnly: true
-            - name: host-sys
-              mountPath: /host/sys
-              readOnly: true
             - name: agent-state
               mountPath: /var/lib/cluster-infra-rca-agent
           resources:
@@ -222,25 +252,5 @@ spec:
               cpu: 500m
               memory: 256Mi
       volumes:
-        - name: host-root
-          hostPath:
-            path: /
-        - name: host-var-log
-          hostPath:
-            path: /var/log
-        - name: host-run
-          hostPath:
-            path: /run
-        - name: host-etc
-          hostPath:
-            path: /etc
-        - name: host-proc
-          hostPath:
-            path: /proc
-        - name: host-sys
-          hostPath:
-            path: /sys
         - name: agent-state
-          hostPath:
-            path: /var/lib/cluster-infra-rca-agent
-            type: DirectoryOrCreate
+          emptyDir: {}

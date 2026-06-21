@@ -23,6 +23,7 @@ class ProductionSecurityValidatorTests {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure())
                 .hasStackTraceContaining("Unsafe production configuration")
+                .hasStackTraceContaining("RCA_DEFAULT_ADMIN_USERNAME")
                 .hasStackTraceContaining("RCA_DEFAULT_ADMIN_PASSWORD")
                 .hasStackTraceContaining("RCA_WEBHOOK_TOKEN")
                 .hasStackTraceContaining("RCA_DB_PASSWORD")
@@ -36,6 +37,7 @@ class ProductionSecurityValidatorTests {
     void safeProductionConfigurationLoads() {
         contextRunner
             .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
                 "rca.default-admin-password=a-strong-admin-password",
                 "rca.webhook-token=a-strong-webhook-token",
                 "spring.datasource.password=a-strong-database-password",
@@ -57,6 +59,7 @@ class ProductionSecurityValidatorTests {
     void enabledLlmRequiresProviderModelChatModelAndCredential() {
         contextRunner
             .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
                 "rca.default-admin-password=a-strong-admin-password",
                 "rca.webhook-token=a-strong-webhook-token",
                 "spring.datasource.password=a-strong-database-password",

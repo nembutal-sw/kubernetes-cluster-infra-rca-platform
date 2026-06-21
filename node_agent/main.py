@@ -18,11 +18,15 @@ from node_agent.client import AgentClient, AgentClientError
 from node_agent.collectors import (
     AgentPaths,
     CommandRunner,
+    agent_mode,
+    allowed_collectors,
     collect_evidence,
     collect_node,
     collector_metadata,
 )
 from node_agent.ebpf import EbpfEventManager
+from node_agent.payload import bounded_collectors_payload
+from node_agent.redaction import redact_value
 from node_agent.state import AgentStateStore
 
 
@@ -52,6 +56,14 @@ def process_pending_requests(
 
         try:
             collectors = collect_evidence(item.get("requested_collectors") or [], paths=paths, runner=runner)
+            collectors = bounded_collectors_payload(
+                redact_value(collectors),
+                _positive_int_env(
+                    "AGENT_EVIDENCE_MAX_BYTES",
+                    8 * 1024 * 1024,
+                    minimum=64 * 1024,
+                ),
+            )
             response_payload = {
                 "request_id": request_id,
                 "status": "completed",
@@ -178,6 +190,7 @@ def run_agent(args: argparse.Namespace) -> int:
 
     paths = AgentPaths.from_env()
     runner = CommandRunner(timeout_seconds=args.command_timeout_seconds)
+    mode = agent_mode()
     if args.collect_local:
         evidence = collect_local_evidence(
             paths=paths,
@@ -190,11 +203,11 @@ def run_agent(args: argparse.Namespace) -> int:
     client = build_client_from_env(timeout_seconds=args.http_timeout_seconds)
     metadata = _agent_metadata(paths, runner)
     ebpf = EbpfEventManager(
-        enabled=_boolean_env("EBPF_ENABLED", False),
+        enabled=mode == "ebpf" and _boolean_env("EBPF_ENABLED", False),
         queue_size=_positive_int_env("EBPF_EVENT_QUEUE_SIZE", 1000),
     )
-    supported_collectors = list(SUPPORTED_COLLECTORS)
-    if ebpf.enabled:
+    supported_collectors = sorted(allowed_collectors(mode))
+    if mode == "ebpf" and ebpf.enabled:
         supported_collectors.append("ebpf")
     state = AgentStateStore(
         Path(os.getenv("AGENT_STATE_DIR", "/tmp/cluster-infra-rca-agent")),
@@ -225,6 +238,7 @@ def run_agent(args: argparse.Namespace) -> int:
                 supported_collectors=supported_collectors,
                 health={
                     "agent": "running",
+                    "mode": mode,
                     "ebpf": "enabled" if ebpf.enabled else "disabled",
                 },
             )
@@ -371,13 +385,15 @@ def _register_with_retry(
 
 
 def _agent_metadata(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
+    mode = agent_mode()
     try:
         node = collect_node(paths)
         return {
             "host_name": node.get("host_name"),
             "kernel_version": node.get("kernel_version"),
             "os_release": node.get("os_release"),
-            "collectors": collector_metadata(paths, runner),
+            "agent_mode": mode,
+            "collectors": collector_metadata(paths, runner, mode),
         }
     except Exception as exc:  # noqa: BLE001 - metadata is useful but not required.
         return {"metadata_error": str(exc)}

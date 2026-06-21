@@ -17,6 +17,12 @@ public class PlatformBootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        if (properties.getDefaultAdminUsername() == null
+            || properties.getDefaultAdminUsername().isBlank()
+            || properties.getDefaultAdminPassword() == null
+            || properties.getDefaultAdminPassword().isBlank()) {
+            return;
+        }
         users.ensureDefaultAdmin(
             properties.getDefaultAdminUsername(),
             properties.getDefaultAdminPassword()

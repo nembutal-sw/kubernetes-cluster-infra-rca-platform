@@ -30,6 +30,8 @@ Authentication is handled at the Spring Security filter chain boundary.
 | Agent API | `AgentAuthenticationFilter` |
 | Webhook API | `WebhookAuthenticationFilter` |
 | Manifest access | `ManifestAccessFilter` |
+| Agent mTLS | `AgentMtlsFilter` |
+| Request size | `RequestBodyLimitFilter` |
 | Metrics access | `MetricsAuthenticationFilter` |
 | Browser mutation guard | `SameOriginMutationFilter` |
 
@@ -66,9 +68,18 @@ Subsequent agent calls must identify:
 
 The platform verifies these fields before processing heartbeat, evidence, and realtime event calls.
 
+Administrators can rotate the cluster credential. The old credential becomes invalid immediately,
+and the replacement value is returned once for Kubernetes Secret update.
+
 ## Webhook Authentication
 
-Alertmanager webhook ingestion requires the configured webhook credential. In production, blank or known development values fail startup validation.
+Alertmanager webhook ingestion requires the configured webhook credential. A blank credential never
+authenticates a request. In production, blank or known development values fail startup validation.
+
+## Manifest Download
+
+The cluster bootstrap credential is not accepted in the manifest URL. The install-command API issues
+a short-lived, single-use manifest token whose SHA-256 hash is stored in the database.
 
 ## Metrics Authentication
 
@@ -125,15 +136,17 @@ Action approval records human decision-making. Approval does not cause the platf
 
 ## mTLS And Private CA
 
-Agent client supports private CA and client certificate configuration for mTLS-style deployments. Certificate and key must be configured together.
+Agent client supports private CA and client certificate configuration. When
+`RCA_AGENT_MTLS_REQUIRED=true`, Agent API requests must include a client certificate accepted by
+the servlet container or upstream TLS termination configuration.
 
 ## Future Enterprise Security Work
 
 - tenant-aware access scope
 - permission matrix
-- credential rotation
+- node-token rotation
 - strict agent protocol mode
-- audit export
+- external SIEM delivery
 - retention policy enforcement
 - external identity provider integration
 - customer-managed encryption key support

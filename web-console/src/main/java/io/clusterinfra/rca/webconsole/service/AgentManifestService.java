@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 
 @Service
 public class AgentManifestService {
@@ -22,16 +24,25 @@ public class AgentManifestService {
     private static final String APP_NAME = "cluster-infra-rca-agent";
 
     private final RcaConsoleProperties properties;
+    private final ManifestTokenService manifestTokens;
+    private final Environment environment;
 
-    public AgentManifestService(RcaConsoleProperties properties) {
+    public AgentManifestService(
+        RcaConsoleProperties properties,
+        ManifestTokenService manifestTokens,
+        Environment environment
+    ) {
         this.properties = properties;
+        this.manifestTokens = manifestTokens;
+        this.environment = environment;
     }
 
     public InstallCommandResponse installCommand(
         Cluster cluster,
         String backendUrl,
         String image,
-        String namespace
+        String namespace,
+        String requestedBy
     ) {
         String validatedImage = validateImage(defaultIfBlank(image, properties.getAgent().getImage()));
         String validatedNamespace = validateKubernetesName(
@@ -45,18 +56,22 @@ public class AgentManifestService {
         );
         if (backendUrl != null && !backendUrl.isBlank()) {
             String baseUrl = validateBackendUrl(backendUrl);
+            ManifestTokenService.IssuedManifestToken manifestToken =
+                manifestTokens.issue(cluster.clusterId(), requestedBy);
             String query = query(Map.of(
                 "backend_url", baseUrl,
                 "image", validatedImage,
                 "namespace", validatedNamespace,
+                "agent_mode", "safe",
                 "systemd_collector_mode", "file",
-                "agent_token", cluster.bootstrapToken()
+                "manifest_token", manifestToken.token()
             ));
             manifestCommand = "kubectl apply -f \"" + baseUrl + "/api/clusters/" + cluster.clusterId()
                 + "/agent-manifest?" + query + "\"";
             notes = List.of(
-                "The generated command contains the cluster bootstrap token and must be treated as sensitive.",
-                "The DaemonSet uses read-only host mounts and file-based systemd or journal evidence collection."
+                "The manifest URL contains a short-lived, one-time download token.",
+                "The download token expires at " + manifestToken.expiresAt() + ".",
+                "The default safe mode runs without host namespaces or hostPath mounts."
             );
         }
         return new InstallCommandResponse(
@@ -111,8 +126,15 @@ public class AgentManifestService {
                 "AGENT_MAX_SPOOL_FILES", "1000",
                 "AGENT_MAX_SPOOL_BYTES", "268435456",
                 "KUBERNETES_API_TIMEOUT_SECONDS", Integer.toString(options.kubernetesApiTimeoutSeconds()),
+                "KUBERNETES_API_CACHE_TTL_SECONDS", "10",
                 "KUBERNETES_TOPOLOGY_ENABLED", "true",
                 "KUBERNETES_TOPOLOGY_MAX_ITEMS", "500",
+                "AGENT_MODE", options.agentMode(),
+                "AGENT_EVIDENCE_MAX_BYTES", "8388608",
+                "HOST_LOG_MAX_FILES", "12",
+                "HOST_LOG_MAX_BYTES_PER_FILE", "262144",
+                "HOST_LOG_MAX_LINES", "80",
+                "EBPF_ENABLED", Boolean.toString("ebpf".equals(options.agentMode())),
                 "CONTROL_PLANE_PROBE_PORTS", options.controlPlaneProbePorts(),
                 "CONTAINER_RUNTIME_SOCKET_PATHS", options.runtimeSocketPaths(),
                 "SYSTEMD_COLLECTOR_MODE", options.systemdCollectorMode(),
@@ -166,6 +188,55 @@ public class AgentManifestService {
             "app.kubernetes.io/name", APP_NAME,
             "app.kubernetes.io/part-of", "cluster-infra-rca"
         );
+        boolean diagnostics = !"safe".equals(options.agentMode());
+        boolean ebpf = "ebpf".equals(options.agentMode());
+        Map<String, Object> securityContext = diagnostics
+            ? map(
+                "runAsUser", 0,
+                "runAsGroup", 0,
+                "readOnlyRootFilesystem", true,
+                "allowPrivilegeEscalation", false
+            )
+            : map(
+                "runAsNonRoot", true,
+                "runAsUser", 65532,
+                "runAsGroup", 65532,
+                "readOnlyRootFilesystem", true,
+                "allowPrivilegeEscalation", false,
+                "capabilities", map("drop", List.of("ALL"))
+            );
+        if (ebpf) {
+            securityContext.put(
+                "capabilities",
+                map("add", List.of("BPF", "PERFMON", "NET_ADMIN", "SYS_RESOURCE"))
+            );
+        }
+        Map<String, Object> container = map(
+            "name", "agent",
+            "image", options.image(),
+            "imagePullPolicy", "IfNotPresent",
+            "command", List.of("python", "-m", "node_agent.main"),
+            "env", environment(configMapName),
+            "securityContext", securityContext,
+            "volumeMounts", volumeMounts(options.agentMode()),
+            "resources", map(
+                "requests", map("cpu", "50m", "memory", "64Mi"),
+                "limits", map("cpu", "500m", "memory", "256Mi")
+            )
+        );
+        Map<String, Object> podSpec = map(
+            "serviceAccountName", APP_NAME,
+            "securityContext", diagnostics
+                ? map()
+                : map("fsGroup", 65532, "fsGroupChangePolicy", "OnRootMismatch"),
+            "hostNetwork", diagnostics,
+            "hostPID", diagnostics,
+            "dnsPolicy", diagnostics ? "ClusterFirstWithHostNet" : "ClusterFirst",
+            "terminationGracePeriodSeconds", 20,
+            "tolerations", List.of(map("operator", "Exists")),
+            "containers", List.of(container),
+            "volumes", volumes(options.agentMode())
+        );
         return map(
             "apiVersion", "apps/v1",
             "kind", "DaemonSet",
@@ -174,33 +245,7 @@ public class AgentManifestService {
                 "selector", map("matchLabels", selector),
                 "template", map(
                     "metadata", map("labels", labels),
-                    "spec", map(
-                        "serviceAccountName", APP_NAME,
-                        "hostNetwork", true,
-                        "hostPID", true,
-                        "dnsPolicy", "ClusterFirstWithHostNet",
-                        "terminationGracePeriodSeconds", 20,
-                        "tolerations", List.of(map("operator", "Exists")),
-                        "containers", List.of(map(
-                            "name", "agent",
-                            "image", options.image(),
-                            "imagePullPolicy", "IfNotPresent",
-                            "command", List.of("python", "-m", "node_agent.main"),
-                            "env", environment(configMapName),
-                            "securityContext", map(
-                                "runAsUser", 0,
-                                "runAsGroup", 0,
-                                "readOnlyRootFilesystem", true,
-                                "allowPrivilegeEscalation", false
-                            ),
-                            "volumeMounts", volumeMounts(),
-                            "resources", map(
-                                "requests", map("cpu", "50m", "memory", "64Mi"),
-                                "limits", map("cpu", "500m", "memory", "256Mi")
-                            )
-                        )),
-                        "volumes", volumes()
-                    )
+                    "spec", podSpec
                 )
             )
         );
@@ -220,8 +265,15 @@ public class AgentManifestService {
             "AGENT_MAX_SPOOL_FILES",
             "AGENT_MAX_SPOOL_BYTES",
             "KUBERNETES_API_TIMEOUT_SECONDS",
+            "KUBERNETES_API_CACHE_TTL_SECONDS",
             "KUBERNETES_TOPOLOGY_ENABLED",
             "KUBERNETES_TOPOLOGY_MAX_ITEMS",
+            "AGENT_MODE",
+            "AGENT_EVIDENCE_MAX_BYTES",
+            "HOST_LOG_MAX_FILES",
+            "HOST_LOG_MAX_BYTES_PER_FILE",
+            "HOST_LOG_MAX_LINES",
+            "EBPF_ENABLED",
             "CONTROL_PLANE_PROBE_PORTS",
             "CONTAINER_RUNTIME_SOCKET_PATHS",
             "SYSTEMD_COLLECTOR_MODE",
@@ -247,35 +299,54 @@ public class AgentManifestService {
         return environment;
     }
 
-    private List<Object> volumeMounts() {
-        return List.of(
-            mount("host-root", "/host/root"),
-            mount("host-var-log", "/host/var/log"),
-            mount("host-run", "/host/run"),
-            mount("host-etc", "/host/etc"),
-            mount("host-proc", "/host/proc"),
-            mount("host-sys", "/host/sys"),
-            map("name", "agent-state", "mountPath", "/var/lib/cluster-infra-rca-agent")
-        );
+    private List<Object> volumeMounts(String mode) {
+        List<Object> mounts = new ArrayList<>();
+        if (!"safe".equals(mode)) {
+            mounts.add(mount("host-root", "/host/root"));
+            mounts.add(mount("host-var-log", "/host/var/log"));
+            mounts.add(mount("host-run", "/host/run"));
+            mounts.add(mount("host-etc", "/host/etc"));
+            mounts.add(mount("host-proc", "/host/proc"));
+            mounts.add(mount("host-sys", "/host/sys"));
+        }
+        if ("ebpf".equals(mode)) {
+            mounts.add(map("name", "host-debug", "mountPath", "/sys/kernel/debug"));
+            mounts.add(map("name", "host-bpf", "mountPath", "/sys/fs/bpf"));
+            mounts.add(mount("host-modules", "/lib/modules"));
+        }
+        mounts.add(map("name", "agent-state", "mountPath", "/var/lib/cluster-infra-rca-agent"));
+        return mounts;
     }
 
     private Map<String, Object> mount(String name, String path) {
         return map("name", name, "mountPath", path, "readOnly", true);
     }
 
-    private List<Object> volumes() {
-        return List.of(
-            volume("host-root", "/"),
-            volume("host-var-log", "/var/log"),
-            volume("host-run", "/run"),
-            volume("host-etc", "/etc"),
-            volume("host-proc", "/proc"),
-            volume("host-sys", "/sys"),
-            map(
+    private List<Object> volumes(String mode) {
+        List<Object> volumes = new ArrayList<>();
+        if (!"safe".equals(mode)) {
+            volumes.add(volume("host-root", "/"));
+            volumes.add(volume("host-var-log", "/var/log"));
+            volumes.add(volume("host-run", "/run"));
+            volumes.add(volume("host-etc", "/etc"));
+            volumes.add(volume("host-proc", "/proc"));
+            volumes.add(volume("host-sys", "/sys"));
+        }
+        if ("ebpf".equals(mode)) {
+            volumes.add(volume("host-debug", "/sys/kernel/debug"));
+            volumes.add(map(
+                "name", "host-bpf",
+                "hostPath", map("path", "/sys/fs/bpf", "type", "DirectoryOrCreate")
+            ));
+            volumes.add(volume("host-modules", "/lib/modules"));
+        }
+        volumes.add("safe".equals(mode)
+            ? map("name", "agent-state", "emptyDir", map())
+            : map(
                 "name", "agent-state",
                 "hostPath", map("path", "/var/lib/cluster-infra-rca-agent", "type", "DirectoryOrCreate")
-            )
-        );
+            ));
+        return volumes;
     }
 
     private Map<String, Object> volume(String name, String path) {
@@ -297,6 +368,10 @@ public class AgentManifestService {
         if (!Set.of("auto", "command", "file").contains(systemdMode)) {
             throw new IllegalArgumentException("systemd_collector_mode must be one of: auto, command, file");
         }
+        String agentMode = defaultIfBlank(requested.agentMode(), "safe").toLowerCase();
+        if (!Set.of("safe", "node-diagnostics", "ebpf").contains(agentMode)) {
+            throw new IllegalArgumentException("agent_mode must be one of: safe, node-diagnostics, ebpf");
+        }
         return new ManifestOptions(
             backendUrl,
             image,
@@ -307,7 +382,8 @@ public class AgentManifestService {
             apiTimeout,
             validatePorts(requested.controlPlaneProbePorts()),
             validateSocketPaths(requested.runtimeSocketPaths()),
-            systemdMode
+            systemdMode,
+            agentMode
         );
     }
 
@@ -317,6 +393,10 @@ public class AgentManifestService {
             URI uri = URI.create(normalized);
             if (!Set.of("http", "https").contains(uri.getScheme()) || uri.getHost() == null) {
                 throw new IllegalArgumentException("backend_url must be an absolute http or https URL");
+            }
+            if (environment.acceptsProfiles(Profiles.of("prod", "production"))
+                && !"https".equalsIgnoreCase(uri.getScheme())) {
+                throw new IllegalArgumentException("backend_url must use HTTPS in production");
             }
             return normalized;
         } catch (RuntimeException exception) {
@@ -414,7 +494,8 @@ public class AgentManifestService {
         Integer kubernetesApiTimeoutSeconds,
         String controlPlaneProbePorts,
         String runtimeSocketPaths,
-        String systemdCollectorMode
+        String systemdCollectorMode,
+        String agentMode
     ) {
     }
 }
