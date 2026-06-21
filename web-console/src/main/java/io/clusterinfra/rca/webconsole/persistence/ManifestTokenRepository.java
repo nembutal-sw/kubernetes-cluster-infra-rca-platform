@@ -1,5 +1,6 @@
 package io.clusterinfra.rca.webconsole.persistence;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -30,8 +31,8 @@ public class ManifestTokenRepository {
             clusterId,
             tokenHash,
             createdBy,
-            createdAt,
-            expiresAt
+            timestamp(createdAt),
+            timestamp(expiresAt)
         );
     }
 
@@ -45,17 +46,21 @@ public class ManifestTokenRepository {
               AND consumed_at IS NULL
               AND expires_at > ?
             """,
-            consumedAt,
+            timestamp(consumedAt),
             clusterId,
             tokenHash,
-            consumedAt
+            timestamp(consumedAt)
         ) == 1;
     }
 
     public int deleteExpired(Instant now) {
         return jdbc.update(
             "DELETE FROM manifest_download_tokens WHERE expires_at <= ?",
-            now
+            timestamp(now)
         );
+    }
+
+    private Timestamp timestamp(Instant value) {
+        return Timestamp.from(value);
     }
 }
