@@ -112,6 +112,12 @@ spec:
               value: {{ .Values.platform.config.incidentLifecycleBatchSize | quote }}
             - name: RCA_INCIDENT_RECURRENCE_LOOKBACK_HOURS
               value: {{ .Values.platform.config.incidentRecurrenceLookbackHours | quote }}
+            - name: RCA_TOPOLOGY_ENABLED
+              value: {{ .Values.platform.config.topologyEnabled | quote }}
+            - name: RCA_TOPOLOGY_LOOKBACK_HOURS
+              value: {{ .Values.platform.config.topologyLookbackHours | quote }}
+            - name: RCA_TOPOLOGY_OBSERVATION_LIMIT
+              value: {{ .Values.platform.config.topologyObservationLimit | quote }}
             - name: RCA_AUDIT_ENABLED
               value: {{ .Values.platform.config.auditEnabled | quote }}
             - name: RCA_AUDIT_RETENTION_DAYS
@@ -130,6 +136,8 @@ spec:
               value: {{ .Values.platform.config.analysisTaskRetentionDays | quote }}
             - name: RCA_REALTIME_EVENT_RETENTION_DAYS
               value: {{ .Values.platform.config.realtimeEventRetentionDays | quote }}
+            - name: RCA_TOPOLOGY_OBSERVATION_RETENTION_DAYS
+              value: {{ .Values.platform.config.topologyObservationRetentionDays | quote }}
             - name: RCA_REPORT_RETENTION_DAYS
               value: {{ .Values.platform.config.reportRetentionDays | quote }}
             - name: RCA_DEMO_ENABLED

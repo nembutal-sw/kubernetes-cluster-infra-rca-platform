@@ -93,6 +93,7 @@ DELETE /api/clusters/{cluster_id}
 GET    /api/clusters/{cluster_id}/install-command
 GET    /api/clusters/{cluster_id}/agent-manifest
 GET    /api/clusters/{cluster_id}/agent-health
+GET    /api/clusters/{cluster_id}/topology
 ```
 
 `agent-manifest` is guarded by manifest access credentials. Agent health classifies agents as:
@@ -105,6 +106,11 @@ unauthorized
 version_mismatch
 collector_degraded
 ```
+
+The topology response merges recent Node, Pod, workload, Service, and EndpointSlice observations.
+Successful node-local Pod snapshots replace only that node's previous Pods. A complete elected-agent
+snapshot replaces cluster-wide Service and Endpoint relationships. Partial or failed snapshots are
+merged without expiring previously confirmed resources.
 
 ## Evidence APIs
 

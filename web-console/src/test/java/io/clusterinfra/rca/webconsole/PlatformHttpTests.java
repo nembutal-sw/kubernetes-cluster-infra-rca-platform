@@ -274,9 +274,19 @@ class PlatformHttpTests {
         );
         assertThat(authorized.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(authorized.getBody()).contains("\"kind\":\"DaemonSet\"");
+        assertThat(authorized.getBody()).contains("KUBERNETES_TOPOLOGY_ENABLED");
+        assertThat(authorized.getBody()).contains("endpointslices");
 
         ResponseEntity<String> authorizedUser = exchange(endpoint, HttpMethod.GET, null);
         assertThat(authorizedUser.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> topology = exchange(
+            "/api/clusters/" + clusterId + "/topology",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(topology.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(topology.getBody()).contains("\"cluster_id\":\"" + clusterId + "\"");
     }
 
     @Test

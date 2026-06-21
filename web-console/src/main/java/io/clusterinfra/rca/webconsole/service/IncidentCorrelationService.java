@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -24,19 +25,30 @@ public class IncidentCorrelationService {
     private final RcaConsoleProperties properties;
     private final TokenService tokens;
     private final IncidentCausalityRules causality;
+    private final TopologyService topology;
+    private static final Set<String> CROSS_NODE_FAMILIES = Set.of(
+        "dns",
+        "cni",
+        "network",
+        "conntrack",
+        "etcd",
+        "api_server"
+    );
 
     public IncidentCorrelationService(
         IncidentRepository incidents,
         ReportRepository reports,
         RcaConsoleProperties properties,
         TokenService tokens,
-        IncidentCausalityRules causality
+        IncidentCausalityRules causality,
+        TopologyService topology
     ) {
         this.incidents = incidents;
         this.reports = reports;
         this.properties = properties;
         this.tokens = tokens;
         this.causality = causality;
+        this.topology = topology;
     }
 
     public CorrelationDecision decide(RcaReport report, EvidenceBundle evidence) {
@@ -56,12 +68,42 @@ public class IncidentCorrelationService {
         );
 
         Candidate best = candidates.stream()
-            .map(incident -> candidate(incident, incoming, report, evidence.collectedAt(), windowSeconds))
+            .map(incident -> candidate(
+                incident,
+                incoming,
+                report,
+                evidence.collectedAt(),
+                windowSeconds,
+                false,
+                TopologyService.NodeConnection.none()
+            ))
             .flatMap(Optional::stream)
             .filter(candidate -> candidate.score() >= properties.getIncident().getMinimumScore())
             .max(Comparator.comparingInt(Candidate::score)
                 .thenComparing(candidate -> candidate.incident().lastSeenAt()))
             .orElse(null);
+
+        if (best == null && CROSS_NODE_FAMILIES.contains(incoming.primaryFamily())) {
+            best = incidents.findRecentOpenCluster(
+                    evidence.clusterId(),
+                    from,
+                    to,
+                    properties.getIncident().getCandidateLimit()
+                ).stream()
+                .filter(incident -> !incident.nodeNames().contains(evidence.nodeName()))
+                .map(incident -> crossNodeCandidate(
+                    incident,
+                    incoming,
+                    report,
+                    evidence,
+                    windowSeconds
+                ))
+                .flatMap(Optional::stream)
+                .filter(candidate -> candidate.score() >= properties.getIncident().getMinimumScore())
+                .max(Comparator.comparingInt(Candidate::score)
+                    .thenComparing(candidate -> candidate.incident().lastSeenAt()))
+                .orElse(null);
+        }
 
         long bucket = evidence.collectedAt().getEpochSecond() / windowSeconds;
         String dedupKey = tokens.sha256(String.join(
@@ -88,7 +130,10 @@ public class IncidentCorrelationService {
                     false,
                     incoming.primaryFamily(),
                     recurrence.incident().incidentId(),
-                    recurrence.incident().recurrenceSequence() + 1
+                    recurrence.incident().recurrenceSequence() + 1,
+                    false,
+                    "same_node",
+                    List.of()
                 );
             }
             return new CorrelationDecision(
@@ -100,7 +145,10 @@ public class IncidentCorrelationService {
                 false,
                 incoming.primaryFamily(),
                 null,
-                0
+                0,
+                false,
+                "none",
+                List.of()
             );
         }
         return new CorrelationDecision(
@@ -112,7 +160,10 @@ public class IncidentCorrelationService {
             best.promoteRootCause(),
             incoming.primaryFamily(),
             null,
-            0
+            0,
+            best.crossNode(),
+            best.connection().ruleId(),
+            best.connection().sharedServices()
         );
     }
 
@@ -152,7 +203,9 @@ public class IncidentCorrelationService {
                     1.0
                 ),
                 100,
-                false
+                false,
+                false,
+                TopologyService.NodeConnection.none()
             ));
         }
         RcaReport previousReport = incident.latestReportId() == null
@@ -170,7 +223,9 @@ public class IncidentCorrelationService {
                 0.9
             ),
             90,
-            false
+            false,
+            false,
+            TopologyService.NodeConnection.none()
         ));
     }
 
@@ -179,7 +234,9 @@ public class IncidentCorrelationService {
         SignalProfile incoming,
         RcaReport incomingReport,
         Instant observedAt,
-        long windowSeconds
+        long windowSeconds,
+        boolean crossNode,
+        TopologyService.NodeConnection connection
     ) {
         RcaReport currentReport = incident.latestReportId() == null
             ? null
@@ -219,7 +276,59 @@ public class IncidentCorrelationService {
         long distance = Math.abs(Duration.between(incident.lastSeenAt(), observedAt).getSeconds());
         int timeScore = (int) Math.max(0, 14 - ((distance * 14) / Math.max(1, windowSeconds)));
         int score = Math.min(100, baseScore + timeScore);
-        return Optional.of(new Candidate(incident, relation, score, promote));
+        return Optional.of(new Candidate(
+            incident,
+            relation,
+            score,
+            promote,
+            crossNode,
+            connection
+        ));
+    }
+
+    private Optional<Candidate> crossNodeCandidate(
+        Incident incident,
+        SignalProfile incoming,
+        RcaReport incomingReport,
+        EvidenceBundle evidence,
+        long windowSeconds
+    ) {
+        RcaReport currentReport = incident.latestReportId() == null
+            ? null
+            : reports.findReport(incident.latestReportId()).orElse(null);
+        SignalProfile current = causality.profile(incident, currentReport);
+        if (!CROSS_NODE_FAMILIES.contains(current.primaryFamily())) {
+            return Optional.empty();
+        }
+        TopologyService.NodeConnection connection = incident.nodeNames().stream()
+            .filter(nodeName -> !nodeName.equals(evidence.nodeName()))
+            .map(nodeName -> topology.connection(
+                evidence.clusterId(),
+                nodeName,
+                evidence.nodeName()
+            ))
+            .filter(TopologyService.NodeConnection::related)
+            .max(Comparator.comparingDouble(TopologyService.NodeConnection::confidence))
+            .orElseGet(TopologyService.NodeConnection::none);
+        if (!connection.related() || connection.confidence() < 0.8) {
+            return Optional.empty();
+        }
+        return candidate(
+            incident,
+            incoming,
+            incomingReport,
+            evidence.collectedAt(),
+            windowSeconds,
+            true,
+            connection
+        ).map(candidate -> new Candidate(
+            candidate.incident(),
+            candidate.relation(),
+            Math.max(0, candidate.score() - 6),
+            candidate.promoteRootCause(),
+            true,
+            connection
+        ));
     }
 
     private boolean sameAlert(Incident incident, RcaReport report) {
@@ -239,7 +348,10 @@ public class IncidentCorrelationService {
         boolean promoteRootCause,
         String primaryFamily,
         String recurrenceOfIncidentId,
-        int recurrenceSequence
+        int recurrenceSequence,
+        boolean crossNode,
+        String topologyRule,
+        List<String> sharedServices
     ) {
         public boolean matched() {
             return matchedIncidentId != null;
@@ -254,7 +366,9 @@ public class IncidentCorrelationService {
         Incident incident,
         CausalRelation relation,
         int score,
-        boolean promoteRootCause
+        boolean promoteRootCause,
+        boolean crossNode,
+        TopologyService.NodeConnection connection
     ) {
     }
 }

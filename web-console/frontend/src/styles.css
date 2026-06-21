@@ -715,6 +715,121 @@ pre,
   gap: .75rem;
 }
 
+.topology-graph-shell {
+  overflow: hidden;
+  border: 1px solid var(--console-line);
+  border-radius: .5rem;
+  background: #fff;
+}
+
+.topology-graph-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--console-line);
+  background: #f8fafb;
+}
+
+.topology-graph-legend {
+  display: flex;
+  gap: 1rem;
+  color: var(--console-muted);
+  font-size: .75rem;
+}
+
+.topology-graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.topology-legend-line {
+  display: inline-block;
+  width: 1.5rem;
+  border-top: 2px solid #477a66;
+}
+
+.topology-legend-line.inferred {
+  border-top-color: #7c8791;
+  border-top-style: dashed;
+}
+
+.topology-graph-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.topology-graph {
+  display: block;
+  width: 100%;
+  min-width: 47.5rem;
+  height: auto;
+}
+
+.topology-edge {
+  fill: none;
+  stroke: #7c8791;
+  stroke-width: 1.6;
+  opacity: .72;
+}
+
+.topology-edge.direct {
+  stroke: #477a66;
+  stroke-width: 2.2;
+  opacity: .9;
+}
+
+.topology-edge.inferred {
+  stroke-dasharray: 6 5;
+}
+
+.topology-resource-box {
+  stroke-width: 1.2;
+}
+
+.topology-resource-box.service {
+  fill: #f2f8f4;
+  stroke: #6a927f;
+}
+
+.topology-resource-box.node {
+  fill: #f3f7fb;
+  stroke: #6e89a5;
+}
+
+.topology-resource-box.node.not-ready {
+  fill: #fff3f1;
+  stroke: #b56f67;
+}
+
+.topology-resource-name {
+  fill: #253039;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.topology-resource-meta,
+.topology-column-label {
+  fill: #68747d;
+  font-size: 11px;
+}
+
+.topology-column-label {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.topology-graph-empty {
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px dashed var(--console-line);
+  border-radius: .5rem;
+  color: var(--console-muted);
+  text-align: center;
+}
+
 .summary-box {
   min-height: 4.75rem;
   border: 1px solid var(--console-line);
@@ -938,6 +1053,17 @@ pre,
 
   .console-panel-body {
     padding: .85rem;
+  }
+
+  .topology-graph-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topology-graph-legend {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: .55rem 1rem;
   }
 
   .input-group .form-control {

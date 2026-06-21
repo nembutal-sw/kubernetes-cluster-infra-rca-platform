@@ -2,8 +2,7 @@
 
 ## 한국어 요약
 
-Incident Correlation v2는 동일 alert의 반복뿐 아니라, 같은 노드에서 짧은 시간 안에 발생한
-서로 다른 인프라 신호를 방향성 규칙으로 연결합니다.
+Incident Correlation v3는 동일 노드의 방향성 규칙에 Kubernetes 토폴로지 관계를 추가합니다.
 
 대표 규칙:
 
@@ -17,6 +16,10 @@ etcd -> API server
 예를 들어 `NodeNotReady`가 먼저 보이고 뒤늦게 Disk I/O evidence가 수집되더라도, storage
 신호를 더 상위 원인으로 판단하면 기존 incident의 canonical report와 root cause를 승격합니다.
 무관한 subsystem은 같은 시간 구간에 있어도 병합하지 않습니다.
+
+노드 간 병합은 DNS, CNI, network, conntrack, etcd, API Server 계열로 제한합니다. 두 노드가
+같은 Service endpoint를 제공하거나 control-plane peer인 경우에만 후보가 됩니다. 디스크,
+메모리, PID, runtime, kubelet 같은 노드 로컬 장애는 다른 노드 incident와 병합하지 않습니다.
 
 열린 incident에 일정 시간 동안 새 evidence가 없고 승인 대기 또는 수동 처리 중인 조치가
 없으면 자동으로 `resolved` 처리합니다. 이후 같은 노드에서 같은 alert 또는 같은 주 신호
@@ -37,6 +40,7 @@ The correlation engine uses:
 - directed causal rules
 - current incident canonical report
 - temporal distance score
+- Service endpoint and control-plane peer relationships
 
 Known signal families:
 
@@ -51,7 +55,8 @@ to a known family.
 
 ## Decision Model
 
-Candidates are open incidents for the same cluster and node within the configured time window.
+The engine checks same-node candidates first. Cross-node candidates are considered only for
+cluster-global signal families with a confirmed topology relationship.
 
 The engine scores:
 
@@ -97,6 +102,9 @@ RCA_INCIDENT_INACTIVITY_MINUTES=60
 RCA_INCIDENT_LIFECYCLE_SCAN_INTERVAL_MS=60000
 RCA_INCIDENT_LIFECYCLE_BATCH_SIZE=100
 RCA_INCIDENT_RECURRENCE_LOOKBACK_HOURS=168
+RCA_TOPOLOGY_ENABLED=true
+RCA_TOPOLOGY_LOOKBACK_HOURS=24
+RCA_TOPOLOGY_OBSERVATION_LIMIT=500
 ```
 
 ## Timeline
@@ -116,6 +124,7 @@ The timeline is an RCA model, not an audit trail.
 ```text
 GET  /api/rca/incidents
 GET  /api/rca/incidents/{incident_id}/timeline
+GET  /api/clusters/{cluster_id}/topology
 POST /api/rca/incidents/{incident_id}/resolve
 POST /api/rca/incidents/{incident_id}/reopen
 ```

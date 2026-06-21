@@ -23,6 +23,7 @@
 - multi-signal incident correlation and causal timeline
 - incident inactivity resolution, approval-work protection, and recurrence lineage
 - curated correlation false-positive dataset
+- topology extraction, authoritative snapshot expiry, graph rendering, confirmed Service impact, and cross-node false-positive guards
 - production configuration validation
 - agent protocol configuration
 
@@ -87,6 +88,7 @@ docker build -f Dockerfile.web-console .
 | Retention | `RetentionRepositoryTests`, `DatabaseCompatibilityTests` |
 | Incident correlation | `IncidentCorrelationServiceTests`, `IncidentCorrelationDatasetTests`, `IncidentTimelineServiceTests` |
 | Incident lifecycle | `IncidentLifecycleRepositoryTests`, `DatabaseCompatibilityTests` |
+| Cluster topology | `TopologyExtractorTests`, `TopologyServiceTests`, `IncidentCorrelationServiceTests`, `PlatformHttpTests` |
 | LLM fallback | `LlmAnalysisServiceTests` |
 
 ## CI Intent

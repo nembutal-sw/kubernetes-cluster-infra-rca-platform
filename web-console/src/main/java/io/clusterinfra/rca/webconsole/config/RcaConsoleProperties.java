@@ -13,6 +13,7 @@ public class RcaConsoleProperties {
     private final Agent agent = new Agent();
     private final Llm llm = new Llm();
     private final Incident incident = new Incident();
+    private final Topology topology = new Topology();
     private final Audit audit = new Audit();
     private final Maintenance maintenance = new Maintenance();
     private final Security security = new Security();
@@ -82,6 +83,10 @@ public class RcaConsoleProperties {
 
     public Incident getIncident() {
         return incident;
+    }
+
+    public Topology getTopology() {
+        return topology;
     }
 
     public Audit getAudit() {
@@ -417,6 +422,36 @@ public class RcaConsoleProperties {
         }
     }
 
+    public static class Topology {
+        private boolean enabled = true;
+        private int lookbackHours = 24;
+        private int observationLimit = 500;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getLookbackHours() {
+            return lookbackHours;
+        }
+
+        public void setLookbackHours(int lookbackHours) {
+            this.lookbackHours = lookbackHours;
+        }
+
+        public int getObservationLimit() {
+            return observationLimit;
+        }
+
+        public void setObservationLimit(int observationLimit) {
+            this.observationLimit = observationLimit;
+        }
+    }
+
     public static class Audit {
         private boolean enabled = true;
         private int retentionDays = 180;
@@ -446,6 +481,7 @@ public class RcaConsoleProperties {
         private int evidenceRequestRetentionDays = 30;
         private int analysisTaskRetentionDays = 30;
         private int realtimeEventRetentionDays = 14;
+        private int topologyObservationRetentionDays = 30;
         private int reportRetentionDays = 365;
 
         public boolean isEnabled() {
@@ -502,6 +538,14 @@ public class RcaConsoleProperties {
 
         public void setRealtimeEventRetentionDays(int realtimeEventRetentionDays) {
             this.realtimeEventRetentionDays = realtimeEventRetentionDays;
+        }
+
+        public int getTopologyObservationRetentionDays() {
+            return topologyObservationRetentionDays;
+        }
+
+        public void setTopologyObservationRetentionDays(int topologyObservationRetentionDays) {
+            this.topologyObservationRetentionDays = topologyObservationRetentionDays;
         }
 
         public int getReportRetentionDays() {

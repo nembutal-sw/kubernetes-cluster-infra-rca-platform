@@ -22,6 +22,7 @@ import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService;
+import io.clusterinfra.rca.webconsole.service.TopologyService;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
@@ -58,7 +59,8 @@ class IncidentCorrelationDatasetTests {
             reports,
             properties,
             new TokenService(),
-            new IncidentCausalityRules()
+            new IncidentCausalityRules(),
+            mock(TopologyService.class)
         );
         RcaReport currentReport = report(
             "report-current",

@@ -22,6 +22,8 @@
 - manual approval workflow
 - production configuration validation
 - scheduled retention cleanup
+- cluster topology inventory
+- topology-aware cross-node correlation
 
 앞으로의 방향은 기능을 무리하게 늘리는 것이 아니라, 문서화, 테스트, 운영 안정성, 엔터프라이즈 확장 기반을 정리하는 것입니다.
 
@@ -80,6 +82,17 @@
 - Incident Correlation v2 causal rules
 - causal timeline edge confidence and rule visibility
 
+### Phase 6: Topology Correlation
+
+- Node, Pod, workload, Service, EndpointSlice inventory
+- deterministic topology collector election
+- topology observation persistence and API
+- stale Node/Pod/Service expiry from authoritative snapshots
+- responsive Service-to-Node topology graph
+- confirmed Service impact scope
+- strict cross-node correlation for cluster-global signal families
+- multi-node incident visibility
+
 ---
 
 ## Near-Term Priorities
@@ -105,7 +118,7 @@
 ## Enterprise Readiness
 
 - Expand RBAC into a permission matrix.
-- Extend correlation from single-node chains to cross-node and control-plane topology.
+- Add topology history comparison and incident-focused graph highlighting.
 - Add backup and restore runbook.
 - Improve on-prem and private registry documentation.
 - Add audit export and compliance-oriented reports.

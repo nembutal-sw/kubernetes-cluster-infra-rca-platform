@@ -111,6 +111,10 @@ rca:
     lifecycle-initial-delay-ms: ${RCA_INCIDENT_LIFECYCLE_INITIAL_DELAY_MS:30000}
     lifecycle-batch-size: ${RCA_INCIDENT_LIFECYCLE_BATCH_SIZE:100}
     recurrence-lookback-hours: ${RCA_INCIDENT_RECURRENCE_LOOKBACK_HOURS:168}
+  topology:
+    enabled: ${RCA_TOPOLOGY_ENABLED:true}
+    lookback-hours: ${RCA_TOPOLOGY_LOOKBACK_HOURS:24}
+    observation-limit: ${RCA_TOPOLOGY_OBSERVATION_LIMIT:500}
   audit:
     enabled: ${RCA_AUDIT_ENABLED:true}
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}
@@ -122,6 +126,7 @@ rca:
     evidence-request-retention-days: ${RCA_EVIDENCE_REQUEST_RETENTION_DAYS:30}
     analysis-task-retention-days: ${RCA_ANALYSIS_TASK_RETENTION_DAYS:30}
     realtime-event-retention-days: ${RCA_REALTIME_EVENT_RETENTION_DAYS:14}
+    topology-observation-retention-days: ${RCA_TOPOLOGY_OBSERVATION_RETENTION_DAYS:30}
     report-retention-days: ${RCA_REPORT_RETENTION_DAYS:365}
   security:
     encryption-secret: ${RCA_ENCRYPTION_SECRET:}

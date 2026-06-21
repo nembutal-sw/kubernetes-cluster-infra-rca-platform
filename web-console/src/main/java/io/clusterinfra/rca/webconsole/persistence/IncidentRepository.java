@@ -76,6 +76,15 @@ public class IncidentRepository {
         return store.listRecentOpenIncidents(clusterId, nodeName, from, to, limit);
     }
 
+    public List<Incident> findRecentOpenCluster(
+        String clusterId,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        return store.listRecentOpenClusterIncidents(clusterId, from, to, limit);
+    }
+
     public List<Incident> findRecentResolved(
         String clusterId,
         String nodeName,

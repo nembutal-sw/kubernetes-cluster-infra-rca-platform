@@ -112,6 +112,16 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: KUBERNETES_TOPOLOGY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: KUBERNETES_TOPOLOGY_ENABLED
+            - name: KUBERNETES_TOPOLOGY_MAX_ITEMS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: KUBERNETES_TOPOLOGY_MAX_ITEMS
             - name: CONTROL_PLANE_PROBE_PORTS
               valueFrom:
                 configMapKeyRef:

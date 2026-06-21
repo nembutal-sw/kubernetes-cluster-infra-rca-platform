@@ -19,6 +19,7 @@ import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService;
+import io.clusterinfra.rca.webconsole.service.TopologyService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,7 @@ class IncidentCorrelationServiceTests {
     private IncidentRepository incidents;
     private ReportRepository reports;
     private IncidentCorrelationService service;
+    private TopologyService topology;
     private Instant observedAt;
 
     @BeforeEach
@@ -40,12 +42,14 @@ class IncidentCorrelationServiceTests {
         properties.getIncident().setCorrelationWindowMinutes(15);
         properties.getIncident().setMinimumScore(70);
         properties.getIncident().setCandidateLimit(20);
+        topology = mock(TopologyService.class);
         service = new IncidentCorrelationService(
             incidents,
             reports,
             properties,
             new TokenService(),
-            new IncidentCausalityRules()
+            new IncidentCausalityRules(),
+            topology
         );
         observedAt = Instant.parse("2026-06-21T02:10:00Z");
     }
@@ -196,10 +200,76 @@ class IncidentCorrelationServiceTests {
         assertThat(decision.ruleId()).isEqualTo("incident_recurrence_same_alert");
     }
 
+    @Test
+    void correlatesDnsFailuresAcrossNodesThatServeTheSameService() {
+        Incident existing = incident("CoreDNSLatencyHigh", "DNS requests are timing out", "report-dns");
+        prepareCrossNode(existing, report(
+            "report-dns",
+            "CoreDNSLatencyHigh",
+            "DNS requests are timing out",
+            List.of("dns")
+        ));
+        when(topology.connection("cluster-1", "worker-a", "worker-b")).thenReturn(
+            new TopologyService.NodeConnection(
+                true,
+                "topology_shared_service",
+                "nodes host endpoints for the same Service",
+                0.95,
+                List.of("kube-system/kube-dns")
+            )
+        );
+
+        var decision = service.decide(
+            report("report-dns-b", "CoreDNSLatencyHigh", "DNS requests are timing out", List.of("dns")),
+            evidence("worker-b", "CoreDNSLatencyHigh")
+        );
+
+        assertThat(decision.matchedIncidentId()).isEqualTo(existing.incidentId());
+        assertThat(decision.crossNode()).isTrue();
+        assertThat(decision.topologyRule()).isEqualTo("topology_shared_service");
+        assertThat(decision.sharedServices()).containsExactly("kube-system/kube-dns");
+    }
+
+    @Test
+    void doesNotMergeNodeLocalStorageFailuresAcrossNodes() {
+        Incident existing = incident("DiskPressure", "Filesystem usage critical", "report-disk");
+        prepareCrossNode(existing, report(
+            "report-disk",
+            "DiskPressure",
+            "Filesystem usage critical",
+            List.of("disk")
+        ));
+
+        var decision = service.decide(
+            report("report-disk-b", "DiskPressure", "Filesystem usage critical", List.of("disk")),
+            evidence("worker-b", "DiskPressure")
+        );
+
+        assertThat(decision.matched()).isFalse();
+        assertThat(decision.crossNode()).isFalse();
+    }
+
     private void prepare(Incident incident, RcaReport report) {
         when(incidents.findRecentOpen(
             eq("cluster-1"),
             eq("worker-a"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(20)
+        )).thenReturn(List.of(incident));
+        when(reports.findReport(report.reportId())).thenReturn(Optional.of(report));
+    }
+
+    private void prepareCrossNode(Incident incident, RcaReport report) {
+        when(incidents.findRecentOpen(
+            eq("cluster-1"),
+            eq("worker-b"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(20)
+        )).thenReturn(List.of());
+        when(incidents.findRecentOpenCluster(
+            eq("cluster-1"),
             any(Instant.class),
             any(Instant.class),
             eq(20)
@@ -246,10 +316,14 @@ class IncidentCorrelationServiceTests {
     }
 
     private EvidenceBundle evidence(String alertName) {
+        return evidence("worker-a", alertName);
+    }
+
+    private EvidenceBundle evidence(String nodeName, String alertName) {
         return new EvidenceBundle(
             "evidence-new",
             "cluster-1",
-            "worker-a",
+            nodeName,
             alertName,
             observedAt,
             Map.of()

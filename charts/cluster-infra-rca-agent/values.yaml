@@ -38,6 +38,8 @@ retryMaxSeconds: 120
 maxSpoolFiles: 1000
 maxSpoolBytes: 268435456
 kubernetesApiTimeoutSeconds: 5
+kubernetesTopologyEnabled: true
+kubernetesTopologyMaxItems: 500
 controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
 systemdCollectorMode: file

@@ -46,6 +46,11 @@ Node Agent evidence는 두 종류의 값을 구분합니다.
 | `conntrack` | `available`, `near_limit` | conntrack 잔여량과 80% 이상 사용 여부 |
 | `cni` | `config_count`, `plugin_types`, `mtu`, `mtu_values`, `parse_errors` | CNI config JSON 파싱 결과 |
 | `dns` | `nameservers`, `dns_configured`, `ndots`, `timeout_seconds`, `attempts` | `resolv.conf` 파싱 결과 |
+| `kubernetes` | `nodes`, `pods` | Node와 현재 노드에 배치된 Pod 원문 |
+| `kubernetes` | `services`, `endpoint_slices` | 선정된 topology collector가 수집한 클러스터 인벤토리 |
+| `kubernetes` | `topology_inventory_collector_node` | Service/EndpointSlice 수집을 담당하는 결정적 Agent |
+| `kubernetes` | `topology_inventory_collected`, `topology_inventory_truncated` | 인벤토리 수집 성공 및 pagination 초과 여부 |
+| `kubernetes` | `topology_inventory_complete` | Service와 EndpointSlice가 모두 성공하고 잘리지 않았는지 |
 
 ## 의도적으로 비워두는 필드
 

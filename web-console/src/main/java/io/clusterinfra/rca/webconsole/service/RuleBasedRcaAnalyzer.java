@@ -38,6 +38,7 @@ public class RuleBasedRcaAnalyzer {
     private final ConfidenceScorer confidenceScorer;
     private final RootCauseCandidateBuilder candidateBuilder;
     private final ImpactScopeAnalyzer impactScopeAnalyzer;
+    private final TopologyService topology;
 
     public RuleBasedRcaAnalyzer(
         PolicyEngine policyEngine,
@@ -47,7 +48,8 @@ public class RuleBasedRcaAnalyzer {
         SignalDetectionEngine detectionEngine,
         ConfidenceScorer confidenceScorer,
         RootCauseCandidateBuilder candidateBuilder,
-        ImpactScopeAnalyzer impactScopeAnalyzer
+        ImpactScopeAnalyzer impactScopeAnalyzer,
+        TopologyService topology
     ) {
         this.policyEngine = policyEngine;
         this.llm = llm;
@@ -57,6 +59,7 @@ public class RuleBasedRcaAnalyzer {
         this.confidenceScorer = confidenceScorer;
         this.candidateBuilder = candidateBuilder;
         this.impactScopeAnalyzer = impactScopeAnalyzer;
+        this.topology = topology;
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
@@ -102,6 +105,11 @@ public class RuleBasedRcaAnalyzer {
         scope.put("nodes", List.of(evidence.nodeName()));
         scope.put("components", List.copyOf(components));
         scope.putAll(impactScopeAnalyzer.analyze(evidence.collectors(), evidence.nodeName()));
+        scope = new LinkedHashMap<>(topology.enrichScope(
+            evidence.clusterId(),
+            evidence.nodeName(),
+            scope
+        ));
 
         boolean demo = isDemoEvidence(evidence.collectors());
         Map<String, Object> trigger = new LinkedHashMap<>();

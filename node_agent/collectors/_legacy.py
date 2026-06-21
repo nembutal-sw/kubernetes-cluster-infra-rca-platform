@@ -290,6 +290,10 @@ def collect_kubernetes() -> dict[str, Any]:
         "control_plane_peer_connectivity": [],
         "failed_peer_probe_count": 0,
         "certificate_expiration_warnings": [],
+        "topology_inventory_collected": False,
+        "topology_inventory_collector_node": None,
+        "topology_inventory_truncated": False,
+        "topology_inventory_complete": False,
     }
 
     if not client.configured:
@@ -336,13 +340,40 @@ def collect_kubernetes() -> dict[str, Any]:
     nodes_response = client.get_json("/api/v1/nodes")
     base["nodes"] = nodes_response
     if nodes_response.get("ok"):
+        nodes = _list_items(nodes_response.get("data"))
         peer_results = _probe_control_plane_peers(
-            nodes=_list_items(nodes_response.get("data")),
+            nodes=nodes,
             current_node_name=node_name,
             timeout_seconds=timeout_seconds,
         )
         base["control_plane_peer_connectivity"] = peer_results
         base["failed_peer_probe_count"] = sum(1 for item in peer_results if item.get("ok") is False)
+        topology_collector = _topology_collector_node(nodes)
+        base["topology_inventory_collector_node"] = topology_collector
+        if _env_bool("KUBERNETES_TOPOLOGY_ENABLED", default=True) and topology_collector == node_name:
+            topology_limit = _bounded_int(
+                os.getenv("KUBERNETES_TOPOLOGY_MAX_ITEMS"),
+                default=500,
+                minimum=50,
+                maximum=5000,
+            )
+            services_response = client.get_json(f"/api/v1/services?limit={topology_limit}")
+            endpoint_slices_response = client.get_json(
+                f"/apis/discovery.k8s.io/v1/endpointslices?limit={topology_limit}"
+            )
+            base["services"] = services_response
+            base["endpoint_slices"] = endpoint_slices_response
+            base["topology_inventory_collected"] = True
+            base["topology_inventory_truncated"] = any(
+                bool(_dict_value(response.get("data")).get("metadata", {}).get("continue"))
+                for response in (services_response, endpoint_slices_response)
+                if response.get("ok") is True
+            )
+            base["topology_inventory_complete"] = (
+                services_response.get("ok") is True
+                and endpoint_slices_response.get("ok") is True
+                and not base["topology_inventory_truncated"]
+            )
 
     return base
 
@@ -898,6 +929,17 @@ def _probe_control_plane_peers(
         for port in ports:
             results.append({"node": node_name, "address": address, "port": port, **_probe_tcp(address, port, timeout_seconds)})
     return results[:60]
+
+
+def _topology_collector_node(nodes: list[dict[str, Any]]) -> str | None:
+    candidates = []
+    for node in nodes:
+        metadata = _dict_value(node.get("metadata"))
+        name = str(metadata.get("name") or "").strip()
+        if not name:
+            continue
+        candidates.append((0 if _is_control_plane_node(metadata) else 1, name))
+    return min(candidates)[1] if candidates else None
 
 
 def _probe_ports() -> list[int]:
@@ -2037,6 +2079,13 @@ def _bounded_int(value: object, default: int, minimum: int, maximum: int) -> int
     if parsed is None:
         return default
     return min(max(parsed, minimum), maximum)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _per_hour(value: object, uptime_seconds: object) -> float | None:

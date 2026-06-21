@@ -40,6 +40,7 @@ public class RcaService {
     private final AuditService audit;
     private final IncidentNotificationService notifications;
     private final RcaMetrics metrics;
+    private final TopologyService topology;
 
     public RcaService(
         ClusterRepository clusters,
@@ -53,7 +54,8 @@ public class RcaService {
         RcaConsoleProperties properties,
         AuditService audit,
         IncidentNotificationService notifications,
-        RcaMetrics metrics
+        RcaMetrics metrics,
+        TopologyService topology
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -67,6 +69,7 @@ public class RcaService {
         this.audit = audit;
         this.notifications = notifications;
         this.metrics = metrics;
+        this.topology = topology;
     }
 
     public WebhookIngestResponse ingestAlertmanager(AlertmanagerPayload payload) {
@@ -164,6 +167,7 @@ public class RcaService {
         if (evidence == null) {
             throw new IllegalStateException("analysis evidence not found: " + task.evidenceId());
         }
+        topology.observe(evidence);
         if (task.skipIfHealthy() && !analyzer.hasActionableSignals(evidence.collectors())) {
             return null;
         }
@@ -220,6 +224,9 @@ public class RcaService {
             auditDetails.put("correlation_relationship", decision.relationship());
             auditDetails.put("correlation_score", decision.score());
             auditDetails.put("signal_family", decision.primaryFamily());
+            auditDetails.put("cross_node", decision.crossNode());
+            auditDetails.put("topology_rule", decision.topologyRule());
+            auditDetails.put("shared_services", decision.sharedServices());
             if (decision.recurrence()) {
                 auditDetails.put("recurrence_of_incident_id", decision.recurrenceOfIncidentId());
                 auditDetails.put("recurrence_sequence", decision.recurrenceSequence());

@@ -7,7 +7,10 @@ metadata:
     {{- include "cluster-infra-rca-agent.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "events"]
+    resources: ["nodes", "pods", "events", "services", "endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
     verbs: ["get", "list"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]

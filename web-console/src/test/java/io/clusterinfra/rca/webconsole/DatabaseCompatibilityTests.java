@@ -116,7 +116,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(7);
+        assertThat(migration.migrationsExecuted).isEqualTo(10);
 
         JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -235,6 +235,7 @@ class DatabaseCompatibilityTests {
         var retentionResult = new RetentionRepository(new JdbcTemplate(dataSource)).cleanup(
             new RetentionCutoffs(
                 Instant.now(),
+                retentionCutoff,
                 retentionCutoff,
                 retentionCutoff,
                 retentionCutoff,

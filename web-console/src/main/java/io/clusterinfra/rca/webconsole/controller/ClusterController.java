@@ -7,6 +7,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterView;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterTopology;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.InstallCommandResponse;
@@ -21,6 +22,7 @@ import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptio
 import io.clusterinfra.rca.webconsole.service.RcaService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.clusterinfra.rca.webconsole.service.AuditService;
+import io.clusterinfra.rca.webconsole.service.TopologyService;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
@@ -58,6 +60,7 @@ public class ClusterController {
     private final RcaConsoleProperties properties;
     private final AuditService audit;
     private final RcaMetrics metrics;
+    private final TopologyService topology;
 
     public ClusterController(
         ClusterRepository clusters,
@@ -68,7 +71,8 @@ public class ClusterController {
         RcaService rcaService,
         RcaConsoleProperties properties,
         AuditService audit,
-        RcaMetrics metrics
+        RcaMetrics metrics,
+        TopologyService topology
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -79,6 +83,7 @@ public class ClusterController {
         this.properties = properties;
         this.audit = audit;
         this.metrics = metrics;
+        this.topology = topology;
     }
 
     @PostMapping
@@ -108,6 +113,13 @@ public class ClusterController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public ClusterView get(@PathVariable String clusterId) {
         return ClusterView.from(requireCluster(clusterId));
+    }
+
+    @GetMapping("/{clusterId}/topology")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public ClusterTopology topology(@PathVariable String clusterId) {
+        requireCluster(clusterId);
+        return topology.current(clusterId);
     }
 
     @DeleteMapping("/{clusterId}")

@@ -79,6 +79,7 @@ public class MaintenanceService {
             subtractDays(now, maintenance.getEvidenceRequestRetentionDays()),
             subtractDays(now, maintenance.getAnalysisTaskRetentionDays()),
             subtractDays(now, maintenance.getRealtimeEventRetentionDays()),
+            subtractDays(now, maintenance.getTopologyObservationRetentionDays()),
             subtractDays(now, maintenance.getReportRetentionDays())
         );
     }

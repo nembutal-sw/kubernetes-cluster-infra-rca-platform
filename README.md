@@ -8,12 +8,15 @@ LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `a
 
 Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=true`로 플랫폼 주기 수집을 활성화할 수 있습니다. 정상 evidence는 저장만 하고, 장애 signal이 감지될 때만 RCA 보고서를 생성합니다.
 
-동일 노드에서 시간상 인접하고 causal rule로 연결되는 storage, runtime, kubelet, network,
-DNS, control-plane 신호는 하나의 incident로 묶습니다. 더 상위 원인 evidence가 뒤늦게
-수집되면 canonical root cause를 승격합니다. 조치 요청, 승인, 거절, 로그인, 클러스터 변경은
-audit event로 기록됩니다.
+시간상 인접하고 causal rule로 연결되는 storage, runtime, kubelet, network, DNS,
+control-plane 신호는 하나의 incident로 묶습니다. DNS, CNI, network, conntrack, etcd,
+API Server 신호는 Service endpoint 또는 control-plane peer 관계가 확인될 때만 노드 간
+상관분석을 허용합니다. 더 상위 원인 evidence가 뒤늦게 수집되면 canonical root cause를
+승격합니다.
 
-Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태 분류와 수집된 pod/workload 영향 범위를 확인할 수 있습니다. 보고서 또는 incident의 분석 근거는 redaction된 ZIP bundle로 내려받을 수 있습니다.
+Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태, Service-Node
+토폴로지 그래프와 확인된 pod/workload/Service 영향 범위를 볼 수 있습니다. 완전한 최신
+인벤토리가 수집되면 사라진 Node, Pod, Service 관계를 자동으로 만료합니다.
 
 운영 metric은 Micrometer/Actuator로 제공하며 Prometheus는 선택 사항입니다. Agent offline,
 heartbeat lag, analysis queue/dead-letter, evidence 수집, report 생성 시간, LLM과 알림 결과를
@@ -32,7 +35,8 @@ Alertmanager 또는 수동 수집 요청
   -> 전처리 및 Rule-based RCA
   -> 선택적 Spring AI 분석
   -> Policy Engine 검증
-  -> 다중 신호 Incident Correlation
+  -> Kubernetes topology inventory
+  -> 다중 신호 및 cross-node Incident Correlation
   -> inactivity 기반 자동 종료 및 재발 계보
   -> RCA 보고서, causal timeline, 승인 기반 조치
 ```
@@ -157,6 +161,11 @@ protocol `1`로 처리하며, 지원 범위를 벗어나거나 최소 Agent 버�
 - `RCA_PLATFORM_VERSION`: Platform 표시 버전
 
 eBPF 실시간 수집을 활성화하면 OOM kill, TCP retransmit, DNS 지연 이벤트가 Evidence로 전송됩니다.
+
+Kubernetes collector는 모든 노드에서 로컬 pod를 수집하고, control-plane 우선으로 선정된
+하나의 Agent가 Service와 EndpointSlice 인벤토리를 수집합니다. Platform은 이를 합쳐
+Node-Pod-Workload-Service 관계를 구성합니다. 실패하거나 잘린 인벤토리는 기존 관계를
+삭제하지 않으며, 완전한 스냅샷만 이전 상태를 대체합니다.
 
 ```bash
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \

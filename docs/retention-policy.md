@@ -20,6 +20,7 @@ The default cleanup schedule is `03:17` every day.
 | Data | Default retention |
 | --- | --- |
 | Realtime/eBPF events | 14 days |
+| Topology observations | 30 days |
 | Evidence bundles | 30 days |
 | Completed or failed evidence requests | 30 days |
 | Terminal analysis tasks | 30 days |
@@ -60,6 +61,7 @@ RCA_MAINTENANCE_ENABLED=true
 RCA_MAINTENANCE_CRON="0 17 3 * * *"
 RCA_MAINTENANCE_BATCH_SIZE=250
 RCA_REALTIME_EVENT_RETENTION_DAYS=14
+RCA_TOPOLOGY_OBSERVATION_RETENTION_DAYS=30
 RCA_EVIDENCE_RETENTION_DAYS=30
 RCA_EVIDENCE_REQUEST_RETENTION_DAYS=30
 RCA_ANALYSIS_TASK_RETENTION_DAYS=30

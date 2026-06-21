@@ -15,7 +15,10 @@ metadata:
   name: cluster-infra-rca-agent
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods", "events"]
+    resources: ["nodes", "pods", "events", "services", "endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
     verbs: ["get", "list"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -54,6 +57,8 @@ data:
   AGENT_MAX_SPOOL_FILES: "1000"
   AGENT_MAX_SPOOL_BYTES: "268435456"
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
+  KUBERNETES_TOPOLOGY_ENABLED: "true"
+  KUBERNETES_TOPOLOGY_MAX_ITEMS: "500"
   CONTROL_PLANE_PROBE_PORTS: "6443,9345"
   CONTAINER_RUNTIME_SOCKET_PATHS: ""
   SYSTEMD_COLLECTOR_MODE: "file"
@@ -153,6 +158,16 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: KUBERNETES_TOPOLOGY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_TOPOLOGY_ENABLED
+            - name: KUBERNETES_TOPOLOGY_MAX_ITEMS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_TOPOLOGY_MAX_ITEMS
             - name: CONTROL_PLANE_PROBE_PORTS
               valueFrom:
                 configMapKeyRef:

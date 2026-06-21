@@ -111,6 +111,8 @@ public class AgentManifestService {
                 "AGENT_MAX_SPOOL_FILES", "1000",
                 "AGENT_MAX_SPOOL_BYTES", "268435456",
                 "KUBERNETES_API_TIMEOUT_SECONDS", Integer.toString(options.kubernetesApiTimeoutSeconds()),
+                "KUBERNETES_TOPOLOGY_ENABLED", "true",
+                "KUBERNETES_TOPOLOGY_MAX_ITEMS", "500",
                 "CONTROL_PLANE_PROBE_PORTS", options.controlPlaneProbePorts(),
                 "CONTAINER_RUNTIME_SOCKET_PATHS", options.runtimeSocketPaths(),
                 "SYSTEMD_COLLECTOR_MODE", options.systemdCollectorMode(),
@@ -127,7 +129,16 @@ public class AgentManifestService {
             "kind", "ClusterRole",
             "metadata", map("name", APP_NAME),
             "rules", List.of(
-                map("apiGroups", List.of(""), "resources", List.of("nodes", "pods", "events"), "verbs", List.of("get", "list")),
+                map(
+                    "apiGroups", List.of(""),
+                    "resources", List.of("nodes", "pods", "events", "services", "endpoints"),
+                    "verbs", List.of("get", "list")
+                ),
+                map(
+                    "apiGroups", List.of("discovery.k8s.io"),
+                    "resources", List.of("endpointslices"),
+                    "verbs", List.of("get", "list")
+                ),
                 map("apiGroups", List.of("coordination.k8s.io"), "resources", List.of("leases"), "verbs", List.of("get", "list")),
                 map("apiGroups", List.of("metrics.k8s.io"), "resources", List.of("nodes", "pods"), "verbs", List.of("get", "list")),
                 map("nonResourceURLs", List.of("/readyz", "/readyz/*", "/livez", "/livez/*"), "verbs", List.of("get"))
@@ -209,6 +220,8 @@ public class AgentManifestService {
             "AGENT_MAX_SPOOL_FILES",
             "AGENT_MAX_SPOOL_BYTES",
             "KUBERNETES_API_TIMEOUT_SECONDS",
+            "KUBERNETES_TOPOLOGY_ENABLED",
+            "KUBERNETES_TOPOLOGY_MAX_ITEMS",
             "CONTROL_PLANE_PROBE_PORTS",
             "CONTAINER_RUNTIME_SOCKET_PATHS",
             "SYSTEMD_COLLECTOR_MODE",

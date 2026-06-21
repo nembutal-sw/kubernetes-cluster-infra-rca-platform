@@ -139,6 +139,7 @@ public class JdbcRcaStore {
         );
         jdbc.update("DELETE FROM incidents WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM realtime_events WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM topology_observations WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM node_agents WHERE cluster_id = ?", clusterId);
         return jdbc.update("DELETE FROM clusters WHERE cluster_id = ?", clusterId) == 1;
@@ -845,8 +846,8 @@ public class JdbcRcaStore {
                     INSERT INTO incidents
                         (incident_id, dedup_key, cluster_id, node_name, alert_name, root_cause, status,
                          occurrence_count, first_seen_at, last_seen_at, latest_evidence_id, latest_report_id,
-                         recurrence_of_incident_id, recurrence_sequence)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         recurrence_of_incident_id, recurrence_sequence, node_names_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 created.incidentId(),
                 dedupKey,
@@ -861,7 +862,8 @@ public class JdbcRcaStore {
                 created.latestEvidenceId(),
                 null,
                 created.recurrenceOfIncidentId(),
-                created.recurrenceSequence()
+                created.recurrenceSequence(),
+                json(created.nodeNames())
             );
             return created;
         });
@@ -881,6 +883,7 @@ public class JdbcRcaStore {
             String latestEvidenceId = evidence.collectedAt().isBefore(locked.lastSeenAt())
                 ? locked.latestEvidenceId()
                 : evidence.evidenceId();
+            List<String> nodeNames = appendNode(locked.nodeNames(), evidence.nodeName());
             if (promoteRootCause) {
                 RcaReport promotedReport = report.withIncidentId(locked.incidentId());
                 saveReport(promotedReport);
@@ -889,7 +892,8 @@ public class JdbcRcaStore {
                     """
                         UPDATE incidents SET occurrence_count = occurrence_count + 1,
                             first_seen_at = ?, last_seen_at = ?, latest_evidence_id = ?,
-                            latest_report_id = ?, alert_name = ?, root_cause = ?
+                            latest_report_id = ?, alert_name = ?, root_cause = ?,
+                            node_names_json = ?
                         WHERE incident_id = ?
                         """,
                     timestamp(firstSeen),
@@ -898,6 +902,7 @@ public class JdbcRcaStore {
                     report.reportId(),
                     evidence.alertName(),
                     report.summary().mostLikelyCause(),
+                    json(nodeNames),
                     locked.incidentId()
                 );
                 return job;
@@ -905,12 +910,14 @@ public class JdbcRcaStore {
             jdbc.update(
                 """
                     UPDATE incidents SET occurrence_count = occurrence_count + 1,
-                        first_seen_at = ?, last_seen_at = ?, latest_evidence_id = ?
+                        first_seen_at = ?, last_seen_at = ?, latest_evidence_id = ?,
+                        node_names_json = ?
                     WHERE incident_id = ?
                     """,
                 timestamp(firstSeen),
                 timestamp(lastSeen),
                 latestEvidenceId,
+                json(nodeNames),
                 locked.incidentId()
             );
             return getLatestJobForIncident(locked.incidentId()).orElseThrow();
@@ -922,12 +929,13 @@ public class JdbcRcaStore {
         jdbc.update(
             """
                 UPDATE incidents SET occurrence_count = 1, last_seen_at = ?, latest_evidence_id = ?,
-                    latest_report_id = ?
+                    latest_report_id = ?, node_names_json = ?
                 WHERE incident_id = ?
                 """,
             timestamp(evidence.collectedAt()),
             evidence.evidenceId(),
             report.reportId(),
+            json(appendNode(locked.nodeNames(), evidence.nodeName())),
             locked.incidentId()
         );
         return job;
@@ -1053,6 +1061,30 @@ public class JdbcRcaStore {
             this::mapIncident,
             clusterId,
             nodeName,
+            IncidentStatus.open.name(),
+            timestamp(from),
+            timestamp(to),
+            limit
+        );
+    }
+
+    public List<Incident> listRecentOpenClusterIncidents(
+        String clusterId,
+        Instant from,
+        Instant to,
+        int requestedLimit
+    ) {
+        int limit = Math.max(1, Math.min(requestedLimit, 100));
+        return jdbc.query(
+            """
+                SELECT * FROM incidents
+                WHERE cluster_id = ? AND status = ?
+                  AND last_seen_at BETWEEN ? AND ?
+                ORDER BY last_seen_at DESC
+                LIMIT ?
+                """,
+            this::mapIncident,
+            clusterId,
             IncidentStatus.open.name(),
             timestamp(from),
             timestamp(to),
@@ -1638,8 +1670,23 @@ public class JdbcRcaStore {
             resultSet.getString("resolution_source"),
             resultSet.getString("resolution_note"),
             resultSet.getString("recurrence_of_incident_id"),
-            resultSet.getInt("recurrence_sequence")
+            resultSet.getInt("recurrence_sequence"),
+            read(
+                resultSet.getString("node_names_json"),
+                STRING_LIST,
+                List.of(resultSet.getString("node_name"))
+            )
         );
+    }
+
+    private List<String> appendNode(List<String> existing, String nodeName) {
+        java.util.LinkedHashSet<String> nodes = new java.util.LinkedHashSet<>(
+            existing == null ? List.of() : existing
+        );
+        if (nodeName != null && !nodeName.isBlank()) {
+            nodes.add(nodeName);
+        }
+        return List.copyOf(nodes);
     }
 
     private AnalysisTask mapAnalysisTask(ResultSet resultSet, int rowNumber) throws SQLException {

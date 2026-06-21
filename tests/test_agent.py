@@ -13,6 +13,7 @@ from node_agent.ebpf import parse_event
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 from node_agent.collectors import collector_metadata
+from node_agent.collectors._legacy import _topology_collector_node
 import node_agent.main as agent_main
 from node_agent.state import AgentStateStore
 
@@ -39,6 +40,101 @@ def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None
     assert by_name["systemd"]["requires_host_pid"] is True
     assert by_name["disk"]["risk_level"] == "read_only"
     assert by_name["disk"]["max_output_bytes"] == 1_048_576
+
+
+def test_topology_collector_prefers_control_plane_then_lexical_name() -> None:
+    nodes = [
+        {"metadata": {"name": "worker-b", "labels": {}}},
+        {
+            "metadata": {
+                "name": "control-b",
+                "labels": {"node-role.kubernetes.io/control-plane": ""},
+            }
+        },
+        {
+            "metadata": {
+                "name": "control-a",
+                "labels": {"node-role.kubernetes.io/master": ""},
+            }
+        },
+        {"metadata": {"name": "worker-a", "labels": {}}},
+    ]
+
+    assert _topology_collector_node(nodes) == "control-a"
+    assert _topology_collector_node(nodes[:1] + nodes[-1:]) == "worker-a"
+    assert _topology_collector_node([]) is None
+
+
+@pytest.mark.parametrize(
+    ("endpoint_ok", "expected_complete"),
+    [(True, True), (False, False)],
+)
+def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint_ok: bool,
+    expected_complete: bool,
+) -> None:
+    class FakeKubernetesClient:
+        configured = True
+        config_error = None
+
+        def __init__(self, timeout_seconds: float) -> None:
+            self.timeout_seconds = timeout_seconds
+
+        def get_json(self, path: str) -> dict[str, Any]:
+            if path == "/api/v1/nodes/control-a":
+                return {
+                    "ok": True,
+                    "data": {
+                        "metadata": {
+                            "name": "control-a",
+                            "labels": {"node-role.kubernetes.io/control-plane": ""},
+                        },
+                        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+                    },
+                }
+            if path.startswith("/api/v1/pods?"):
+                return {"ok": True, "data": {"items": []}}
+            if path.startswith("/api/v1/events?"):
+                return {"ok": True, "data": {"items": []}}
+            if path.startswith("/apis/metrics.k8s.io/"):
+                return {"ok": False, "error": "metrics unavailable"}
+            if path == "/api/v1/nodes":
+                return {
+                    "ok": True,
+                    "data": {
+                        "items": [
+                            {
+                                "metadata": {
+                                    "name": "control-a",
+                                    "labels": {"node-role.kubernetes.io/control-plane": ""},
+                                }
+                            }
+                        ]
+                    },
+                }
+            if path.startswith("/api/v1/services?"):
+                return {"ok": True, "data": {"metadata": {}, "items": []}}
+            if path.startswith("/apis/discovery.k8s.io/v1/endpointslices?"):
+                return (
+                    {"ok": True, "data": {"metadata": {}, "items": []}}
+                    if endpoint_ok
+                    else {"ok": False, "error": "forbidden"}
+                )
+            raise AssertionError(f"unexpected Kubernetes API path: {path}")
+
+        def get_text(self, path: str) -> dict[str, Any]:
+            assert path == "/readyz?verbose"
+            return {"ok": True, "body": "ok"}
+
+    monkeypatch.setenv("NODE_NAME", "control-a")
+    monkeypatch.setattr(collectors._legacy, "_KubernetesApiClient", FakeKubernetesClient)
+    monkeypatch.setattr(collectors._legacy, "_probe_control_plane_peers", lambda **_: [])
+
+    evidence = collectors.collect_kubernetes()
+
+    assert evidence["topology_inventory_collected"] is True
+    assert evidence["topology_inventory_complete"] is expected_complete
 
 
 class FakeRunner:

@@ -105,6 +105,38 @@ class RetentionRepositoryTests {
         assertThat(count("rca_reports")).isEqualTo(1);
     }
 
+    @Test
+    void deletesExpiredTopologyObservationsWithoutRemovingCluster() {
+        Timestamp timestamp = Timestamp.from(old);
+        jdbc.update(
+            """
+                INSERT INTO clusters
+                    (cluster_id, name, environment, description, status, bootstrap_token,
+                     created_at, last_seen_at)
+                VALUES ('cluster-topology', 'topology', 'test', '', 'active', 'token', ?, ?)
+                """,
+            timestamp,
+            timestamp
+        );
+        jdbc.update(
+            """
+                INSERT INTO topology_observations
+                    (observation_id, cluster_id, source_evidence_id, source_node_name,
+                     observed_at, entities_json, relations_json, inventory_complete,
+                     inventory_collected, node_inventory_collected, pod_inventory_collected)
+                VALUES ('topology-old', 'cluster-topology', 'evidence-topology', 'node-1',
+                        ?, '[]', '[]', 1, 1, 1, 1)
+                """,
+            timestamp
+        );
+
+        var result = repository.cleanup(cutoffs(), 100);
+
+        assertThat(result.topologyObservations()).isEqualTo(1);
+        assertThat(count("topology_observations")).isZero();
+        assertThat(count("clusters")).isEqualTo(1);
+    }
+
     private void seedIncidentChain(
         String incidentStatus,
         String actionRequestStatus,
@@ -264,7 +296,16 @@ class RetentionRepositoryTests {
 
     private RetentionCutoffs cutoffs() {
         Instant cutoff = now.minus(30, ChronoUnit.DAYS);
-        return new RetentionCutoffs(now, cutoff, cutoff, cutoff, cutoff, cutoff, cutoff);
+        return new RetentionCutoffs(
+            now,
+            cutoff,
+            cutoff,
+            cutoff,
+            cutoff,
+            cutoff,
+            cutoff,
+            cutoff
+        );
     }
 
     private int count(String table) {

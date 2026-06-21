@@ -41,6 +41,7 @@ public class RetentionRepository {
             cleanupStandaloneReports(cutoffs.reportCutoff(), remainingReportBudget, result);
         }
         cleanupRealtimeEvents(cutoffs.realtimeEventCutoff(), batchSize, result);
+        cleanupTopologyObservations(cutoffs.topologyObservationCutoff(), batchSize, result);
         cleanupTerminalAnalysisTasks(cutoffs.analysisTaskCutoff(), batchSize, result);
         cleanupEvidenceRequests(cutoffs.evidenceRequestCutoff(), batchSize, result);
         cleanupOrphanEvidence(cutoffs.evidenceCutoff(), batchSize, result);
@@ -217,6 +218,24 @@ public class RetentionRepository {
         }
     }
 
+    private void cleanupTopologyObservations(Instant cutoff, int limit, MutableResult result) {
+        for (String observationId : ids(
+            """
+                SELECT observation_id FROM topology_observations
+                WHERE observed_at < ?
+                ORDER BY observed_at
+                LIMIT ?
+                """,
+            timestamp(cutoff),
+            limit
+        )) {
+            result.topologyObservations += jdbc.update(
+                "DELETE FROM topology_observations WHERE observation_id = ?",
+                observationId
+            );
+        }
+    }
+
     private void cleanupEvidenceRequests(Instant cutoff, int limit, MutableResult result) {
         for (String requestId : ids(
             """
@@ -326,6 +345,7 @@ public class RetentionRepository {
         Instant evidenceRequestCutoff,
         Instant analysisTaskCutoff,
         Instant realtimeEventCutoff,
+        Instant topologyObservationCutoff,
         Instant reportCutoff
     ) {
     }
@@ -334,6 +354,7 @@ public class RetentionRepository {
         int userSessions,
         int auditEvents,
         int realtimeEvents,
+        int topologyObservations,
         int analysisTasks,
         int evidenceRequests,
         int evidenceBundles,
@@ -352,6 +373,7 @@ public class RetentionRepository {
             counts.put("user_sessions", userSessions);
             counts.put("audit_events", auditEvents);
             counts.put("realtime_events", realtimeEvents);
+            counts.put("topology_observations", topologyObservations);
             counts.put("analysis_tasks", analysisTasks);
             counts.put("evidence_requests", evidenceRequests);
             counts.put("evidence_bundles", evidenceBundles);
@@ -368,6 +390,7 @@ public class RetentionRepository {
         private int userSessions;
         private int auditEvents;
         private int realtimeEvents;
+        private int topologyObservations;
         private int analysisTasks;
         private int evidenceRequests;
         private int evidenceBundles;
@@ -382,6 +405,7 @@ public class RetentionRepository {
                 userSessions,
                 auditEvents,
                 realtimeEvents,
+                topologyObservations,
                 analysisTasks,
                 evidenceRequests,
                 evidenceBundles,

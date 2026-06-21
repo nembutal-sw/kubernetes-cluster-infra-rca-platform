@@ -103,6 +103,9 @@ platform:
     incidentLifecycleInitialDelayMs: 30000
     incidentLifecycleBatchSize: 100
     incidentRecurrenceLookbackHours: 168
+    topologyEnabled: true
+    topologyLookbackHours: 24
+    topologyObservationLimit: 500
     auditEnabled: true
     auditRetentionDays: 180
     maintenanceEnabled: true
@@ -112,6 +115,7 @@ platform:
     evidenceRequestRetentionDays: 30
     analysisTaskRetentionDays: 30
     realtimeEventRetentionDays: 14
+    topologyObservationRetentionDays: 30
     reportRetentionDays: 365
     demoEnabled: false
     exportMaxBundleBytes: 10485760

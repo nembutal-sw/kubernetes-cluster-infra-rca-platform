@@ -155,6 +155,19 @@ import "./styles.css";
       "high confidence": "높은 신뢰도",
       "HttpOnly session": "HttpOnly 세션",
       "Cluster Snapshot": "클러스터 스냅샷",
+      "Cluster Topology": "클러스터 토폴로지",
+      "Topology Relationship Graph": "토폴로지 관계 그래프",
+      "Service to node endpoint and selector relationships": "Service와 노드 사이의 endpoint 및 selector 관계",
+      "No topology relationships observed.": "관측된 토폴로지 관계가 없습니다.",
+      "Endpoint relationship": "Endpoint 관계",
+      "Selector-derived relationship": "Selector 기반 관계",
+      "Graph is limited to the most connected resources.": "그래프는 연결이 많은 주요 리소스만 표시합니다.",
+      "Pods": "파드",
+      "Services": "서비스",
+      "Relations": "관계",
+      "Not observed": "관측되지 않음",
+      "Cluster-wide Service and EndpointSlice inventory is complete.": "클러스터 전체 Service 및 EndpointSlice 인벤토리 수집이 완료되었습니다.",
+      "Topology is partial until the elected agent collects Service and EndpointSlice inventory.": "선정된 Agent가 Service 및 EndpointSlice 인벤토리를 수집하기 전까지 토폴로지는 일부 정보만 표시됩니다.",
       "Latest registered clusters": "최근 등록된 클러스터",
       "Open": "열기",
       "Recent Reports": "최근 보고서",
@@ -931,11 +944,12 @@ import "./styles.css";
     async function loadClusterData(clusterId) {
       setClusterData({ open: true, loading: true, clusterId });
       try {
-        const [cluster, agents, evidenceRequests, allReports] = await Promise.all([
+        const [cluster, agents, evidenceRequests, allReports, topology] = await Promise.all([
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}`, { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, { headers: authHeaders() }),
           callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests`, { headers: authHeaders() }),
           callApi("/api/rca/reports", { headers: authHeaders() }),
+          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology`, { headers: authHeaders() }),
         ]);
         setClusterData({
           open: true,
@@ -945,6 +959,7 @@ import "./styles.css";
           agents: Array.isArray(agents) ? agents : [],
           evidenceRequests: Array.isArray(evidenceRequests) ? evidenceRequests : [],
           reports: (Array.isArray(allReports) ? allReports : []).filter((report) => report.cluster_id === clusterId),
+          topology,
         });
       } catch (error) {
         setClusterData({ open: true, loading: false, clusterId, error: error.message });
@@ -1733,7 +1748,11 @@ import "./styles.css";
               : null
           ),
           h("td", { className: "font-monospace small" }, incident.cluster_id),
-          h("td", null, incident.node_name),
+          h("td", null, listValue(
+            Array.isArray(incident.node_names) && incident.node_names.length
+              ? incident.node_names
+              : [incident.node_name]
+          )),
           h("td", null, displayText(incident.root_cause)),
           h("td", null, incident.occurrence_count),
           h("td", null,
@@ -2163,6 +2182,11 @@ import "./styles.css";
     const agents = state.agents || [];
     const evidenceRequests = state.evidenceRequests || [];
     const reports = state.reports || [];
+    const topology = state.topology || {};
+    const topologyEntities = Array.isArray(topology.entities) ? topology.entities : [];
+    const topologyRelations = Array.isArray(topology.relations) ? topology.relations : [];
+    const topologyPods = topologyEntities.filter((entity) => entity.kind === "Pod").length;
+    const topologyServices = topologyEntities.filter((entity) => entity.kind === "Service").length;
     const body = state.loading
       ? h(EmptyState, { message: "Loading cluster data." })
       : state.error
@@ -2173,6 +2197,24 @@ import "./styles.css";
             h(SummaryBox, { label: "Environment", value: cluster.environment || "n/a" }),
             h(SummaryBox, { label: "Agents", value: agents.length }),
             h(SummaryBox, { label: "Evidence requests", value: evidenceRequests.length })
+          ),
+          h("div", null,
+            h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
+              h("h3", { className: "h6 mb-0" }, tr("Cluster Topology")),
+              h("span", { className: "small text-muted" },
+                topology.observed_at ? formatDate(topology.observed_at) : tr("Not observed"))
+            ),
+            h("div", { className: "summary-grid" },
+              h(SummaryBox, { label: "Nodes", value: (topology.nodes || []).length }),
+              h(SummaryBox, { label: "Pods", value: topologyPods }),
+              h(SummaryBox, { label: "Services", value: topologyServices }),
+              h(SummaryBox, { label: "Relations", value: topologyRelations.length })
+            ),
+            h(TopologyGraph, { topology }),
+            h("div", { className: "small text-muted mt-2" },
+              topology.inventory_complete
+                ? tr("Cluster-wide Service and EndpointSlice inventory is complete.")
+                : tr("Topology is partial until the elected agent collects Service and EndpointSlice inventory."))
           ),
           h("div", null,
             h("h3", { className: "h6 mb-2" }, tr("Node Agents")),
@@ -2236,6 +2278,170 @@ import "./styles.css";
       h("div", { className: "small text-muted fw-semibold" }, tr(label)),
       h("div", { className: "summary-value" }, value)
     );
+  }
+
+  function TopologyGraph({ topology }) {
+    const entities = Array.isArray(topology?.entities) ? topology.entities : [];
+    const relations = Array.isArray(topology?.relations) ? topology.relations : [];
+    const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+    const nodeByPod = new Map();
+    relations
+      .filter((relation) => relation.relationship === "hosts")
+      .forEach((relation) => nodeByPod.set(relation.target, relation.source));
+
+    const pairMap = new Map();
+    function addPair(serviceId, nodeId, relationship) {
+      if (entityById.get(serviceId)?.kind !== "Service" || entityById.get(nodeId)?.kind !== "Node") return;
+      const key = `${serviceId}|${nodeId}`;
+      const current = pairMap.get(key);
+      const direct = relationship === "has_endpoint_on";
+      pairMap.set(key, {
+        serviceId,
+        nodeId,
+        direct: direct || current?.direct === true,
+      });
+    }
+    relations.forEach((relation) => {
+      if (relation.relationship === "has_endpoint_on") {
+        addPair(relation.source, relation.target, relation.relationship);
+      }
+      if (relation.relationship === "routes_to" || relation.relationship === "selects") {
+        const nodeId = nodeByPod.get(relation.target);
+        if (nodeId) addPair(relation.source, nodeId, relation.relationship);
+      }
+    });
+
+    const pairs = Array.from(pairMap.values());
+    const connectionCount = new Map();
+    pairs.forEach((pair) => {
+      connectionCount.set(pair.serviceId, (connectionCount.get(pair.serviceId) || 0) + 1);
+      connectionCount.set(pair.nodeId, (connectionCount.get(pair.nodeId) || 0) + 1);
+    });
+    const services = entities
+      .filter((entity) => entity.kind === "Service")
+      .sort((left, right) =>
+        (connectionCount.get(right.id) || 0) - (connectionCount.get(left.id) || 0)
+          || topologyLabel(left).localeCompare(topologyLabel(right)))
+      .slice(0, 8);
+    const nodes = entities
+      .filter((entity) => entity.kind === "Node")
+      .sort((left, right) =>
+        (connectionCount.get(right.id) || 0) - (connectionCount.get(left.id) || 0)
+          || left.name.localeCompare(right.name))
+      .slice(0, 10);
+    if (!services.length && !nodes.length) {
+      return h("div", { className: "topology-graph-empty" }, tr("No topology relationships observed."));
+    }
+
+    const serviceIds = new Set(services.map((entity) => entity.id));
+    const nodeIds = new Set(nodes.map((entity) => entity.id));
+    const visiblePairs = pairs.filter((pair) =>
+      serviceIds.has(pair.serviceId) && nodeIds.has(pair.nodeId));
+    const height = Math.max(240, Math.max(services.length, nodes.length, 1) * 58 + 50);
+    const serviceY = new Map(services.map((entity, index) => [
+      entity.id,
+      graphPosition(index, services.length, height),
+    ]));
+    const nodeY = new Map(nodes.map((entity, index) => [
+      entity.id,
+      graphPosition(index, nodes.length, height),
+    ]));
+    const limited = services.length < entities.filter((entity) => entity.kind === "Service").length
+      || nodes.length < entities.filter((entity) => entity.kind === "Node").length;
+
+    return h("section", { className: "topology-graph-shell mt-3" },
+      h("div", { className: "topology-graph-header" },
+        h("div", null,
+          h("div", { className: "fw-semibold small" }, tr("Topology Relationship Graph")),
+          h("div", { className: "small text-muted" },
+            tr("Service to node endpoint and selector relationships"))
+        ),
+        h("div", { className: "topology-graph-legend" },
+          h("span", null, h("i", { className: "topology-legend-line direct" }), tr("Endpoint relationship")),
+          h("span", null, h("i", { className: "topology-legend-line inferred" }), tr("Selector-derived relationship"))
+        )
+      ),
+      h("div", { className: "topology-graph-scroll" },
+        h("svg", {
+          className: "topology-graph",
+          viewBox: `0 0 960 ${height}`,
+          role: "img",
+          "aria-label": tr("Topology Relationship Graph"),
+        },
+          h("text", { x: 28, y: 24, className: "topology-column-label" }, tr("Services")),
+          h("text", { x: 702, y: 24, className: "topology-column-label" }, tr("Nodes")),
+          visiblePairs.map((pair) => {
+            const startY = serviceY.get(pair.serviceId);
+            const endY = nodeY.get(pair.nodeId);
+            return h("path", {
+              key: `${pair.serviceId}-${pair.nodeId}`,
+              className: `topology-edge ${pair.direct ? "direct" : "inferred"}`,
+              d: `M 274 ${startY} C 420 ${startY}, 540 ${endY}, 686 ${endY}`,
+            });
+          }),
+          services.map((service) => h("g", { key: service.id },
+            h("rect", {
+              className: "topology-resource-box service",
+              x: 24,
+              y: serviceY.get(service.id) - 22,
+              width: 250,
+              height: 44,
+              rx: 6,
+            }),
+            h("text", {
+              className: "topology-resource-name",
+              x: 38,
+              y: serviceY.get(service.id) - 3,
+            }, shortTopologyLabel(topologyLabel(service), 32)),
+            h("text", {
+              className: "topology-resource-meta",
+              x: 38,
+              y: serviceY.get(service.id) + 13,
+            }, `${connectionCount.get(service.id) || 0} node(s)`)
+          )),
+          nodes.map((node) => h("g", { key: node.id },
+            h("rect", {
+              className: `topology-resource-box node ${node.attributes?.ready === false ? "not-ready" : ""}`,
+              x: 686,
+              y: nodeY.get(node.id) - 22,
+              width: 250,
+              height: 44,
+              rx: 6,
+            }),
+            h("text", {
+              className: "topology-resource-name",
+              x: 700,
+              y: nodeY.get(node.id) - 3,
+            }, shortTopologyLabel(node.name, 32)),
+            h("text", {
+              className: "topology-resource-meta",
+              x: 700,
+              y: nodeY.get(node.id) + 13,
+            }, `${(node.roles || []).join(", ") || "worker"} / ${node.attributes?.ready === false ? "NotReady" : "Ready"}`)
+          ))
+        )
+      ),
+      limited
+        ? h("div", { className: "small text-muted px-3 pb-2" },
+            tr("Graph is limited to the most connected resources."))
+        : null
+    );
+  }
+
+  function graphPosition(index, count, height) {
+    if (count <= 1) return height / 2;
+    return 48 + (index * (height - 82)) / (count - 1);
+  }
+
+  function topologyLabel(entity) {
+    return entity.namespace
+      ? `${entity.namespace}/${entity.name}`
+      : entity.name;
+  }
+
+  function shortTopologyLabel(value, maxLength) {
+    const text = String(value || "");
+    return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}…`;
   }
 
   function EvidenceRequestTable({ items, onLoadEvidence }) {

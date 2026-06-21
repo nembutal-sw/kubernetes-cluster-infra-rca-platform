@@ -607,8 +607,48 @@ public final class RcaModels {
         String resolutionSource,
         String resolutionNote,
         String recurrenceOfIncidentId,
-        int recurrenceSequence
+        int recurrenceSequence,
+        List<String> nodeNames
     ) {
+        public Incident(
+            String incidentId,
+            String clusterId,
+            String nodeName,
+            String alertName,
+            String rootCause,
+            IncidentStatus status,
+            int occurrenceCount,
+            Instant firstSeenAt,
+            Instant lastSeenAt,
+            String latestEvidenceId,
+            String latestReportId,
+            Instant resolvedAt,
+            String resolutionSource,
+            String resolutionNote,
+            String recurrenceOfIncidentId,
+            int recurrenceSequence
+        ) {
+            this(
+                incidentId,
+                clusterId,
+                nodeName,
+                alertName,
+                rootCause,
+                status,
+                occurrenceCount,
+                firstSeenAt,
+                lastSeenAt,
+                latestEvidenceId,
+                latestReportId,
+                resolvedAt,
+                resolutionSource,
+                resolutionNote,
+                recurrenceOfIncidentId,
+                recurrenceSequence,
+                nodeName == null ? List.of() : List.of(nodeName)
+            );
+        }
+
         public Incident(
             String incidentId,
             String clusterId,
@@ -638,8 +678,15 @@ public final class RcaModels {
                 null,
                 null,
                 null,
-                0
+                0,
+                nodeName == null ? List.of() : List.of(nodeName)
             );
+        }
+
+        public Incident {
+            nodeNames = nodeNames == null || nodeNames.isEmpty()
+                ? nodeName == null ? List.of() : List.of(nodeName)
+                : List.copyOf(nodeNames);
         }
     }
 
@@ -793,6 +840,68 @@ public final class RcaModels {
         List<TimelineNode> nodes,
         List<TimelineEdge> edges
     ) {
+    }
+
+    public record TopologyEntity(
+        String id,
+        String kind,
+        String namespace,
+        String name,
+        String nodeName,
+        List<String> roles,
+        Map<String, String> labels,
+        Map<String, Object> attributes
+    ) {
+        public TopologyEntity {
+            roles = roles == null ? List.of() : List.copyOf(roles);
+            labels = labels == null ? Map.of() : Map.copyOf(labels);
+            attributes = attributes == null ? Map.of() : Map.copyOf(attributes);
+        }
+    }
+
+    public record TopologyRelation(
+        String source,
+        String target,
+        String relationship,
+        double confidence,
+        String evidencePath
+    ) {
+    }
+
+    public record TopologyObservation(
+        String observationId,
+        String clusterId,
+        String sourceEvidenceId,
+        String sourceNodeName,
+        Instant observedAt,
+        List<TopologyEntity> entities,
+        List<TopologyRelation> relations,
+        boolean nodeInventoryCollected,
+        boolean podInventoryCollected,
+        boolean inventoryCollected,
+        boolean inventoryComplete
+    ) {
+        public TopologyObservation {
+            entities = entities == null ? List.of() : List.copyOf(entities);
+            relations = relations == null ? List.of() : List.copyOf(relations);
+        }
+    }
+
+    public record ClusterTopology(
+        String clusterId,
+        Instant observedAt,
+        List<TopologyEntity> entities,
+        List<TopologyRelation> relations,
+        List<String> nodes,
+        List<String> services,
+        boolean inventoryComplete
+    ) {
+        public ClusterTopology {
+            entities = entities == null ? List.of() : List.copyOf(entities);
+            relations = relations == null ? List.of() : List.copyOf(relations);
+            nodes = nodes == null ? List.of() : List.copyOf(nodes);
+            services = services == null ? List.of() : List.copyOf(services);
+        }
     }
 
     public record AuditEvent(
