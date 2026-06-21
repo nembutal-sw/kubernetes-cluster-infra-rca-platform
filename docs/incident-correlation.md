@@ -18,6 +18,10 @@ etcd -> API server
 신호를 더 상위 원인으로 판단하면 기존 incident의 canonical report와 root cause를 승격합니다.
 무관한 subsystem은 같은 시간 구간에 있어도 병합하지 않습니다.
 
+열린 incident에 일정 시간 동안 새 evidence가 없고 승인 대기 또는 수동 처리 중인 조치가
+없으면 자동으로 `resolved` 처리합니다. 이후 같은 노드에서 같은 alert 또는 같은 주 신호
+계열이 다시 발생하면 이전 incident를 다시 열지 않고 새 incident를 생성해 재발 관계를 남깁니다.
+
 ---
 
 ## English Reference
@@ -67,12 +71,32 @@ If an incoming signal is more upstream than the current canonical report, the pl
 
 Downstream or repeated signals update occurrence and latest evidence without creating another report.
 
+## Lifecycle And Recurrence
+
+An open incident is automatically resolved when:
+
+- no correlated evidence arrived before the inactivity cutoff
+- no action request is pending approval, queued, executing, or waiting for manual completion
+- automatic resolution is enabled
+
+Alertmanager `resolved` notifications close matching open incidents immediately. Manual resolve and
+reopen endpoints remain available.
+
+A later signal creates a new incident linked through `recurrence_of_incident_id` only when the
+resolved incident has the same alert or the same primary signal family. This intentionally uses a
+stricter rule than open-incident correlation.
+
 ## Configuration
 
 ```text
 RCA_INCIDENT_CORRELATION_WINDOW_MINUTES=15
 RCA_INCIDENT_CORRELATION_MINIMUM_SCORE=70
 RCA_INCIDENT_CORRELATION_CANDIDATE_LIMIT=20
+RCA_INCIDENT_AUTO_RESOLVE_ENABLED=true
+RCA_INCIDENT_INACTIVITY_MINUTES=60
+RCA_INCIDENT_LIFECYCLE_SCAN_INTERVAL_MS=60000
+RCA_INCIDENT_LIFECYCLE_BATCH_SIZE=100
+RCA_INCIDENT_RECURRENCE_LOOKBACK_HOURS=168
 ```
 
 ## Timeline

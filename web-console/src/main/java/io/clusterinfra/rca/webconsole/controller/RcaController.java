@@ -241,7 +241,13 @@ public class RcaController {
             throw new ResponseStatusException(BAD_REQUEST, "incident status confirmation is required");
         }
         UserAccount user = access.currentUser(authentication);
-        Incident incident = incidents.updateStatus(incidentId, status)
+        Incident incident = incidents.updateStatus(
+            incidentId,
+            status,
+            "manual",
+            request.note() == null ? "" : request.note(),
+            java.time.Instant.now()
+        )
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "incident not found"));
         audit.user(
             user,

@@ -116,7 +116,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(6);
+        assertThat(migration.migrationsExecuted).isEqualTo(7);
 
         JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -344,6 +344,55 @@ class DatabaseCompatibilityTests {
         assertThat(promotedIncident.latestReportId()).isEqualTo(promotedReport.reportId());
         assertThat(promotedIncident.rootCause()).isEqualTo("Kernel I/O error");
         assertThat(promotedIncident.occurrenceCount()).isEqualTo(2);
+        var resolvedIncident = repository.updateIncidentStatus(
+            storedIncident.incidentId(),
+            io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus.resolved,
+            "automatic",
+            "database compatibility lifecycle",
+            now.plusSeconds(2)
+        ).orElseThrow();
+        assertThat(resolvedIncident.resolvedAt()).isEqualTo(now.plusSeconds(2));
+        assertThat(resolvedIncident.resolutionSource()).isEqualTo("automatic");
+
+        RcaReport recurrenceReport = new RcaReport(
+            "report-db-recurrence",
+            cluster.clusterId(),
+            null,
+            RcaJobStatus.completed,
+            Map.of("alert_name", "DiskPressure"),
+            Map.of("node_name", "worker-a", "components", List.of("disk")),
+            new RcaSummary("DiskPressure", "Disk pressure recurred", Confidence.high),
+            List.of(Map.of("evidence_id", completed.evidenceId())),
+            List.of(new RootCauseCandidate("Disk pressure recurred", Confidence.high, List.of("disk=96%"))),
+            List.of(action),
+            List.of(action),
+            now.plusSeconds(3)
+        );
+        RcaJob recurrenceJob = new RcaJob(
+            "job-db-recurrence",
+            cluster.clusterId(),
+            "DiskPressure",
+            "worker-a",
+            RcaJobStatus.completed,
+            recurrenceReport.reportId(),
+            completed.evidenceId(),
+            now.plusSeconds(3)
+        );
+        repository.saveCorrelatedReportAndJob(
+            recurrenceReport,
+            recurrenceJob,
+            "database-compatibility-recurrence-key",
+            null,
+            false,
+            storedIncident.incidentId(),
+            1,
+            repository.getEvidence(completed.evidenceId()).orElseThrow()
+        );
+        var recurrenceIncident = repository.getIncident(
+            repository.getReport(recurrenceReport.reportId()).orElseThrow().incidentId()
+        ).orElseThrow();
+        assertThat(recurrenceIncident.recurrenceOfIncidentId()).isEqualTo(storedIncident.incidentId());
+        assertThat(recurrenceIncident.recurrenceSequence()).isEqualTo(1);
 
         var actionRequest = repository.createActionRequest(
             report.reportId(),
@@ -435,7 +484,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(5);
+        assertThat(migration.migrationsExecuted).isEqualTo(6);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

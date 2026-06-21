@@ -45,6 +45,10 @@ import "./styles.css";
       "Observed sequence": "관측 순서",
       "observed next in the incident window": "인시던트 구간에서 다음으로 관측됨",
       "Occurrences": "발생 횟수",
+      "Recurrence": "재발",
+      "Previous incident": "이전 인시던트",
+      "Resolved at": "종료 시각",
+      "Resolution source": "종료 주체",
       "Action History": "조치 이력",
       "Approval and execution attempts": "승인 및 실행 요청 이력",
       "Approval and manual handling history": "승인 및 수동 처리 이력",
@@ -1717,13 +1721,32 @@ import "./styles.css";
         h("tbody", null, incidents.map((incident) => h("tr", { key: incident.incident_id },
           h("td", null,
             h(StatusBadge, { value: incident.status, tone: incident.status === "open" ? "red" : "green" }),
-            h("div", { className: "small font-monospace mt-1" }, incident.incident_id)
+            incident.recurrence_sequence > 0
+              ? h("span", { className: "badge text-bg-warning ms-2" },
+                  `${tr("Recurrence")} #${incident.recurrence_sequence}`)
+              : null,
+            h("div", { className: "small font-monospace mt-1" }, incident.incident_id),
+            incident.recurrence_of_incident_id
+              ? h("div", { className: "small text-secondary mt-1" },
+                  `${tr("Previous incident")}: `,
+                  h("span", { className: "font-monospace" }, incident.recurrence_of_incident_id))
+              : null
           ),
           h("td", { className: "font-monospace small" }, incident.cluster_id),
           h("td", null, incident.node_name),
           h("td", null, displayText(incident.root_cause)),
           h("td", null, incident.occurrence_count),
-          h("td", null, formatDate(incident.last_seen_at)),
+          h("td", null,
+            h("div", null, formatDate(incident.last_seen_at)),
+            incident.resolved_at
+              ? h("div", { className: "small text-secondary mt-1" },
+                  `${tr("Resolved at")}: ${formatDate(incident.resolved_at)}`)
+              : null,
+            incident.resolution_source
+              ? h("div", { className: "small text-secondary" },
+                  `${tr("Resolution source")}: ${displayText(incident.resolution_source)}`)
+              : null
+          ),
           h("td", { className: "text-end" },
             ["admin", "operator"].includes(currentUser?.role)
               ? h("button", {

@@ -97,6 +97,12 @@ platform:
     incidentCorrelationWindowMinutes: 15
     incidentCorrelationMinimumScore: 70
     incidentCorrelationCandidateLimit: 20
+    incidentAutoResolveEnabled: true
+    incidentInactivityMinutes: 60
+    incidentLifecycleScanIntervalMs: 60000
+    incidentLifecycleInitialDelayMs: 30000
+    incidentLifecycleBatchSize: 100
+    incidentRecurrenceLookbackHours: 168
     auditEnabled: true
     auditRetentionDays: 180
     maintenanceEnabled: true

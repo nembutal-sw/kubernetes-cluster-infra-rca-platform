@@ -105,6 +105,12 @@ rca:
     correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
     minimum-score: ${RCA_INCIDENT_CORRELATION_MINIMUM_SCORE:70}
     candidate-limit: ${RCA_INCIDENT_CORRELATION_CANDIDATE_LIMIT:20}
+    auto-resolve-enabled: ${RCA_INCIDENT_AUTO_RESOLVE_ENABLED:true}
+    inactivity-minutes: ${RCA_INCIDENT_INACTIVITY_MINUTES:60}
+    lifecycle-scan-interval-ms: ${RCA_INCIDENT_LIFECYCLE_SCAN_INTERVAL_MS:60000}
+    lifecycle-initial-delay-ms: ${RCA_INCIDENT_LIFECYCLE_INITIAL_DELAY_MS:30000}
+    lifecycle-batch-size: ${RCA_INCIDENT_LIFECYCLE_BATCH_SIZE:100}
+    recurrence-lookback-hours: ${RCA_INCIDENT_RECURRENCE_LOOKBACK_HOURS:168}
   audit:
     enabled: ${RCA_AUDIT_ENABLED:true}
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}

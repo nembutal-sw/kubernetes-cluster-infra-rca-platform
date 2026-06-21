@@ -33,6 +33,7 @@ Alertmanager 또는 수동 수집 요청
   -> 선택적 Spring AI 분석
   -> Policy Engine 검증
   -> 다중 신호 Incident Correlation
+  -> inactivity 기반 자동 종료 및 재발 계보
   -> RCA 보고서, causal timeline, 승인 기반 조치
 ```
 

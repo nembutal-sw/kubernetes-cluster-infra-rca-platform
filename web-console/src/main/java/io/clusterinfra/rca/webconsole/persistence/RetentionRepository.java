@@ -71,6 +71,11 @@ public class RetentionRepository {
                       WHERE r.incident_id = i.incident_id
                         AND x.status IN (?, ?, ?)
                   )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM incidents child
+                      WHERE child.recurrence_of_incident_id = i.incident_id
+                  )
                 ORDER BY i.last_seen_at
                 LIMIT ?
                 """,

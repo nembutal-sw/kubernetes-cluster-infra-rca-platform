@@ -28,7 +28,7 @@
 | `policy-engine.md` | action classification, guardrails, manual-only workflow |
 | `audit-and-actions.md` | audit events and manual action request lifecycle |
 | `report-schema.md` | RCA report fields, confidence score, impact scope, bundles |
-| `incident-correlation.md` | multi-signal correlation, root-cause promotion, causal timeline |
+| `incident-correlation.md` | multi-signal correlation, root-cause promotion, lifecycle, recurrence, causal timeline |
 | `observability.md` | metrics, Actuator, ServiceMonitor, operational gauges |
 | `retention-policy.md` | scheduled cleanup, retention periods, deletion safety |
 | `helm-platform-chart.md` | platform Helm values, production notes, ServiceMonitor |

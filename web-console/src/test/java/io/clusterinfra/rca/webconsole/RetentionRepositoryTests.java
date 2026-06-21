@@ -81,6 +81,30 @@ class RetentionRepositoryTests {
         assertThat(count("rca_reports")).isEqualTo(1);
     }
 
+    @Test
+    void preservesResolvedIncidentReferencedByRecurrence() {
+        seedIncidentChain("resolved", "completed", "completed");
+        Timestamp timestamp = Timestamp.from(old.plus(1, ChronoUnit.DAYS));
+        jdbc.update(
+            """
+                INSERT INTO incidents
+                    (incident_id, dedup_key, cluster_id, node_name, alert_name, root_cause, status,
+                     occurrence_count, first_seen_at, last_seen_at, recurrence_of_incident_id,
+                     recurrence_sequence)
+                VALUES ('incident-2', 'dedup-2', 'cluster-1', 'node-1', 'DiskPressure',
+                        'disk full again', 'open', 1, ?, ?, 'incident-1', 1)
+                """,
+            timestamp,
+            timestamp
+        );
+
+        var result = repository.cleanup(cutoffs(), 100);
+
+        assertThat(result.incidents()).isZero();
+        assertThat(count("incidents")).isEqualTo(2);
+        assertThat(count("rca_reports")).isEqualTo(1);
+    }
+
     private void seedIncidentChain(
         String incidentStatus,
         String actionRequestStatus,

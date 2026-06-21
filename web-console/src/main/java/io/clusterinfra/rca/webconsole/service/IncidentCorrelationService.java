@@ -72,6 +72,25 @@ public class IncidentCorrelationService {
             Long.toString(bucket)
         ));
         if (best == null) {
+            Candidate recurrence = recurrenceCandidate(
+                report,
+                incoming,
+                evidence,
+                properties.getIncident().getRecurrenceLookbackHours()
+            ).orElse(null);
+            if (recurrence != null) {
+                return new CorrelationDecision(
+                    dedupKey,
+                    null,
+                    recurrence.relation().ruleId(),
+                    recurrence.relation().relationship(),
+                    recurrence.score(),
+                    false,
+                    incoming.primaryFamily(),
+                    recurrence.incident().incidentId(),
+                    recurrence.incident().recurrenceSequence() + 1
+                );
+            }
             return new CorrelationDecision(
                 dedupKey,
                 null,
@@ -79,7 +98,9 @@ public class IncidentCorrelationService {
                 "new incident root signal",
                 100,
                 false,
-                incoming.primaryFamily()
+                incoming.primaryFamily(),
+                null,
+                0
             );
         }
         return new CorrelationDecision(
@@ -89,8 +110,68 @@ public class IncidentCorrelationService {
             best.relation().relationship(),
             best.score(),
             best.promoteRootCause(),
-            incoming.primaryFamily()
+            incoming.primaryFamily(),
+            null,
+            0
         );
+    }
+
+    private Optional<Candidate> recurrenceCandidate(
+        RcaReport incomingReport,
+        SignalProfile incoming,
+        EvidenceBundle evidence,
+        int lookbackHours
+    ) {
+        long hours = Math.max(1, lookbackHours);
+        List<Incident> resolved = incidents.findRecentResolved(
+            evidence.clusterId(),
+            evidence.nodeName(),
+            evidence.collectedAt().minusSeconds(hours * 3600L),
+            evidence.collectedAt(),
+            properties.getIncident().getCandidateLimit()
+        );
+        return resolved.stream()
+            .map(incident -> strictRecurrenceCandidate(incident, incomingReport, incoming))
+            .flatMap(Optional::stream)
+            .max(Comparator.comparingInt(Candidate::score)
+                .thenComparing(candidate -> Optional.ofNullable(candidate.incident().resolvedAt())
+                    .orElse(Instant.EPOCH)));
+    }
+
+    private Optional<Candidate> strictRecurrenceCandidate(
+        Incident incident,
+        RcaReport incomingReport,
+        SignalProfile incoming
+    ) {
+        if (sameAlert(incident, incomingReport)) {
+            return Optional.of(new Candidate(
+                incident,
+                new CausalRelation(
+                    "incident_recurrence_same_alert",
+                    "the same alert recurred after resolution",
+                    1.0
+                ),
+                100,
+                false
+            ));
+        }
+        RcaReport previousReport = incident.latestReportId() == null
+            ? null
+            : reports.findReport(incident.latestReportId()).orElse(null);
+        SignalProfile previous = causality.profile(incident, previousReport);
+        if (!previous.primaryFamily().equals(incoming.primaryFamily())) {
+            return Optional.empty();
+        }
+        return Optional.of(new Candidate(
+            incident,
+            new CausalRelation(
+                "incident_recurrence_same_family",
+                "the same infrastructure signal family recurred after resolution",
+                0.9
+            ),
+            90,
+            false
+        ));
     }
 
     private Optional<Candidate> candidate(
@@ -156,10 +237,16 @@ public class IncidentCorrelationService {
         String relationship,
         int score,
         boolean promoteRootCause,
-        String primaryFamily
+        String primaryFamily,
+        String recurrenceOfIncidentId,
+        int recurrenceSequence
     ) {
         public boolean matched() {
             return matchedIncidentId != null;
+        }
+
+        public boolean recurrence() {
+            return recurrenceOfIncidentId != null;
         }
     }
 

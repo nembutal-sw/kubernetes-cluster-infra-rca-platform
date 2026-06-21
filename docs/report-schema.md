@@ -162,6 +162,23 @@ Timeline nodes and edges are additive API fields.
 `inferred=true` means the edge was selected from a Rule-based causal relation. A
 `temporal_sequence` edge only records observation order and uses lower confidence.
 
+## Incident Lifecycle Fields
+
+Incident responses include additive lifecycle fields:
+
+```json
+{
+  "status": "resolved",
+  "resolved_at": "2026-06-21T03:00:00Z",
+  "resolution_source": "automatic",
+  "resolution_note": "No correlated evidence was observed before the inactivity threshold.",
+  "recurrence_of_incident_id": "incident-previous",
+  "recurrence_sequence": 1
+}
+```
+
+`last_seen_at` remains the last evidence time. It is not overwritten by a later resolution time.
+
 ## Compatibility Notes
 
 The schema is intended to remain stable for UI and export consumers. When adding fields:

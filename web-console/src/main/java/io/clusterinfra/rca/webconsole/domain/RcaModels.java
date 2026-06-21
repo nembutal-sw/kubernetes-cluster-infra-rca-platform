@@ -602,8 +602,45 @@ public final class RcaModels {
         Instant firstSeenAt,
         Instant lastSeenAt,
         String latestEvidenceId,
-        String latestReportId
+        String latestReportId,
+        Instant resolvedAt,
+        String resolutionSource,
+        String resolutionNote,
+        String recurrenceOfIncidentId,
+        int recurrenceSequence
     ) {
+        public Incident(
+            String incidentId,
+            String clusterId,
+            String nodeName,
+            String alertName,
+            String rootCause,
+            IncidentStatus status,
+            int occurrenceCount,
+            Instant firstSeenAt,
+            Instant lastSeenAt,
+            String latestEvidenceId,
+            String latestReportId
+        ) {
+            this(
+                incidentId,
+                clusterId,
+                nodeName,
+                alertName,
+                rootCause,
+                status,
+                occurrenceCount,
+                firstSeenAt,
+                lastSeenAt,
+                latestEvidenceId,
+                latestReportId,
+                null,
+                null,
+                null,
+                null,
+                0
+            );
+        }
     }
 
     public record ActionRequest(

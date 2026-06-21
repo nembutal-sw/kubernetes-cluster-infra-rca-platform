@@ -337,6 +337,12 @@ public class RcaConsoleProperties {
         private int correlationWindowMinutes = 15;
         private int minimumScore = 70;
         private int candidateLimit = 20;
+        private boolean autoResolveEnabled = true;
+        private int inactivityMinutes = 60;
+        private long lifecycleScanIntervalMs = 60_000;
+        private long lifecycleInitialDelayMs = 30_000;
+        private int lifecycleBatchSize = 100;
+        private int recurrenceLookbackHours = 168;
 
         public int getCorrelationWindowMinutes() {
             return correlationWindowMinutes;
@@ -360,6 +366,54 @@ public class RcaConsoleProperties {
 
         public void setCandidateLimit(int candidateLimit) {
             this.candidateLimit = candidateLimit;
+        }
+
+        public boolean isAutoResolveEnabled() {
+            return autoResolveEnabled;
+        }
+
+        public void setAutoResolveEnabled(boolean autoResolveEnabled) {
+            this.autoResolveEnabled = autoResolveEnabled;
+        }
+
+        public int getInactivityMinutes() {
+            return inactivityMinutes;
+        }
+
+        public void setInactivityMinutes(int inactivityMinutes) {
+            this.inactivityMinutes = inactivityMinutes;
+        }
+
+        public long getLifecycleScanIntervalMs() {
+            return lifecycleScanIntervalMs;
+        }
+
+        public void setLifecycleScanIntervalMs(long lifecycleScanIntervalMs) {
+            this.lifecycleScanIntervalMs = lifecycleScanIntervalMs;
+        }
+
+        public long getLifecycleInitialDelayMs() {
+            return lifecycleInitialDelayMs;
+        }
+
+        public void setLifecycleInitialDelayMs(long lifecycleInitialDelayMs) {
+            this.lifecycleInitialDelayMs = lifecycleInitialDelayMs;
+        }
+
+        public int getLifecycleBatchSize() {
+            return lifecycleBatchSize;
+        }
+
+        public void setLifecycleBatchSize(int lifecycleBatchSize) {
+            this.lifecycleBatchSize = lifecycleBatchSize;
+        }
+
+        public int getRecurrenceLookbackHours() {
+            return recurrenceLookbackHours;
+        }
+
+        public void setRecurrenceLookbackHours(int recurrenceLookbackHours) {
+            this.recurrenceLookbackHours = recurrenceLookbackHours;
         }
     }
 

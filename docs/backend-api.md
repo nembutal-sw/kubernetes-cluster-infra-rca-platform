@@ -147,11 +147,17 @@ GET /api/rca/incidents
 GET /api/rca/incidents/{incident_id}
 GET /api/rca/incidents/{incident_id}/timeline
 GET /api/rca/incidents/{incident_id}/bundle
+POST /api/rca/incidents/{incident_id}/resolve
+POST /api/rca/incidents/{incident_id}/reopen
 ```
 
 Timeline is an RCA analysis flow, not an audit trail. Each node exposes `signal_family`; each edge
 exposes `rule_id`, `relationship`, `confidence`, and `inferred`. Audit events record user/system
 actions, including `incident.root_cause_promoted`.
+
+Incident responses also expose resolution metadata and recurrence lineage. Alertmanager `resolved`
+events may close a matching incident, while the lifecycle scheduler resolves inactive incidents that
+have no pending approval or manual-completion work.
 
 ## Analysis Task APIs
 

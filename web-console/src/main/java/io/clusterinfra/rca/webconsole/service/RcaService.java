@@ -35,6 +35,7 @@ public class RcaService {
     private final ReportRepository reports;
     private final RuleBasedRcaAnalyzer analyzer;
     private final IncidentCorrelationService correlation;
+    private final IncidentLifecycleService lifecycle;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
     private final IncidentNotificationService notifications;
@@ -48,6 +49,7 @@ public class RcaService {
         ReportRepository reports,
         RuleBasedRcaAnalyzer analyzer,
         IncidentCorrelationService correlation,
+        IncidentLifecycleService lifecycle,
         RcaConsoleProperties properties,
         AuditService audit,
         IncidentNotificationService notifications,
@@ -60,6 +62,7 @@ public class RcaService {
         this.reports = reports;
         this.analyzer = analyzer;
         this.correlation = correlation;
+        this.lifecycle = lifecycle;
         this.properties = properties;
         this.audit = audit;
         this.notifications = notifications;
@@ -74,10 +77,6 @@ public class RcaService {
         List<String> skipped = new ArrayList<>();
         for (AlertmanagerAlert alert : payload.alertsOrEmpty()) {
             String alertName = alert.labelsOrEmpty().getOrDefault("alertname", "UnknownAlert");
-            if (!"firing".equalsIgnoreCase(alert.statusOrDefault())) {
-                skipped.add(alertName + ": alert is not firing");
-                continue;
-            }
             String clusterId = firstNonBlank(
                 alert.labelsOrEmpty().get("cluster_id"),
                 value(payload.commonLabels(), "cluster_id"),
@@ -96,6 +95,20 @@ public class RcaService {
                 alert.labelsOrEmpty().get("nodename"),
                 alert.labelsOrEmpty().get("instance")
             );
+            if (!"firing".equalsIgnoreCase(alert.statusOrDefault())) {
+                if ("resolved".equalsIgnoreCase(alert.statusOrDefault()) && nodeName != null) {
+                    lifecycle.resolveSignal(
+                        clusterId,
+                        nodeName,
+                        alertName,
+                        alert.endsAt(),
+                        "alertmanager"
+                    );
+                } else {
+                    skipped.add(alertName + ": unsupported alert status " + alert.statusOrDefault());
+                }
+                continue;
+            }
             if (nodeName != null && agents.find(clusterId, nodeName).isPresent()) {
                 EvidenceRequest request = evidence.createRequest(new EvidenceRequestCreateRequest(
                     clusterId,
@@ -179,6 +192,8 @@ public class RcaService {
                 decision.dedupKey(),
                 decision.matchedIncidentId(),
                 decision.promoteRootCause(),
+                decision.recurrenceOfIncidentId(),
+                decision.recurrenceSequence(),
                 evidence
             );
             boolean duplicate = !saved.reportId().equals(reportId);
@@ -189,31 +204,41 @@ public class RcaService {
                 && decision.promoteRootCause()
                 && !duplicate
                 && decision.matchedIncidentId().equals(savedIncidentId);
-            String correlationResult = promoted
+            String correlationResult = decision.recurrence()
+                ? "recurred"
+                : promoted
                 ? "root_cause_promoted"
                 : duplicate ? "correlated" : "created";
             metrics.incident(correlationResult);
+            Map<String, Object> auditDetails = new LinkedHashMap<>();
+            auditDetails.put("cluster_id", evidence.clusterId());
+            auditDetails.put("node_name", evidence.nodeName());
+            auditDetails.put("alert_name", evidence.alertName());
+            auditDetails.put("evidence_id", evidence.evidenceId());
+            auditDetails.put("report_id", saved.reportId());
+            auditDetails.put("correlation_rule", decision.ruleId());
+            auditDetails.put("correlation_relationship", decision.relationship());
+            auditDetails.put("correlation_score", decision.score());
+            auditDetails.put("signal_family", decision.primaryFamily());
+            if (decision.recurrence()) {
+                auditDetails.put("recurrence_of_incident_id", decision.recurrenceOfIncidentId());
+                auditDetails.put("recurrence_sequence", decision.recurrenceSequence());
+            }
             audit.system(
                 "rca-pipeline",
-                promoted
+                decision.recurrence()
+                    ? "incident.recurred"
+                    : promoted
                     ? "incident.root_cause_promoted"
                     : duplicate ? "incident.correlated" : "incident.created",
                 "incident",
                 savedIncidentId,
-                promoted
+                decision.recurrence()
+                    ? "new_incident_linked_to_resolved_incident"
+                    : promoted
                     ? "canonical_report_replaced"
                     : duplicate ? "suppressed_duplicate_report" : "report_created",
-                Map.of(
-                    "cluster_id", evidence.clusterId(),
-                    "node_name", evidence.nodeName(),
-                    "alert_name", evidence.alertName(),
-                    "evidence_id", evidence.evidenceId(),
-                    "report_id", saved.reportId(),
-                    "correlation_rule", decision.ruleId(),
-                    "correlation_relationship", decision.relationship(),
-                    "correlation_score", decision.score(),
-                    "signal_family", decision.primaryFamily()
-                )
+                auditDetails
             );
             if (!duplicate) {
                 reports.findReport(saved.reportId()).ifPresent(savedReport ->

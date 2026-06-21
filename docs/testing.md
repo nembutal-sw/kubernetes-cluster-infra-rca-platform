@@ -21,6 +21,8 @@
 - metrics registration
 - retention cleanup and FK-safe deletion order
 - multi-signal incident correlation and causal timeline
+- incident inactivity resolution, approval-work protection, and recurrence lineage
+- curated correlation false-positive dataset
 - production configuration validation
 - agent protocol configuration
 
@@ -83,7 +85,8 @@ docker build -f Dockerfile.web-console .
 | Notification | `IncidentNotificationServiceTests` |
 | Metrics | `RcaMetricsTests` |
 | Retention | `RetentionRepositoryTests`, `DatabaseCompatibilityTests` |
-| Incident correlation | `IncidentCorrelationServiceTests`, `IncidentTimelineServiceTests` |
+| Incident correlation | `IncidentCorrelationServiceTests`, `IncidentCorrelationDatasetTests`, `IncidentTimelineServiceTests` |
+| Incident lifecycle | `IncidentLifecycleRepositoryTests`, `DatabaseCompatibilityTests` |
 | LLM fallback | `LlmAnalysisServiceTests` |
 
 ## CI Intent

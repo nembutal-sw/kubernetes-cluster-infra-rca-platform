@@ -57,6 +57,11 @@ platform:
     incidentCorrelationWindowMinutes: 15
     incidentCorrelationMinimumScore: 70
     incidentCorrelationCandidateLimit: 20
+    incidentAutoResolveEnabled: true
+    incidentInactivityMinutes: 60
+    incidentLifecycleScanIntervalMs: 60000
+    incidentLifecycleBatchSize: 100
+    incidentRecurrenceLookbackHours: 168
     maintenanceEnabled: true
     maintenanceCron: "0 17 3 * * *"
     maintenanceBatchSize: 250

@@ -24,6 +24,8 @@ public class IncidentRepository {
         String dedupKey,
         String matchedIncidentId,
         boolean promoteRootCause,
+        String recurrenceOfIncidentId,
+        int recurrenceSequence,
         EvidenceBundle evidence
     ) {
         return store.saveCorrelatedReportAndJob(
@@ -32,6 +34,8 @@ public class IncidentRepository {
             dedupKey,
             matchedIncidentId,
             promoteRootCause,
+            recurrenceOfIncidentId,
+            recurrenceSequence,
             evidence
         );
     }
@@ -48,6 +52,16 @@ public class IncidentRepository {
         return store.updateIncidentStatus(incidentId, status);
     }
 
+    public Optional<Incident> updateStatus(
+        String incidentId,
+        IncidentStatus status,
+        String source,
+        String note,
+        Instant changedAt
+    ) {
+        return store.updateIncidentStatus(incidentId, status, source, note, changedAt);
+    }
+
     public Optional<Incident> findByDedupKey(String dedupKey) {
         return store.findIncidentByDedupKey(dedupKey);
     }
@@ -60,6 +74,38 @@ public class IncidentRepository {
         int limit
     ) {
         return store.listRecentOpenIncidents(clusterId, nodeName, from, to, limit);
+    }
+
+    public List<Incident> findRecentResolved(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        return store.listRecentResolvedIncidents(clusterId, nodeName, from, to, limit);
+    }
+
+    public List<Incident> resolveInactive(Instant inactiveBefore, Instant resolvedAt, int limit) {
+        return store.resolveInactiveIncidents(inactiveBefore, resolvedAt, limit);
+    }
+
+    public List<Incident> resolveBySignal(
+        String clusterId,
+        String nodeName,
+        String alertName,
+        Instant resolvedAt,
+        String source,
+        String note
+    ) {
+        return store.resolveOpenIncidentsBySignal(
+            clusterId,
+            nodeName,
+            alertName,
+            resolvedAt,
+            source,
+            note
+        );
     }
 
     public Optional<RcaJob> latestJob(String incidentId) {

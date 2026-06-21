@@ -324,6 +324,34 @@ class PlatformHttpTests {
         );
         assertThat(incidents).hasSize(1);
         assertThat(incidents.get(0).path("occurrence_count").asInt()).isEqualTo(2);
+
+        HttpHeaders webhookHeaders = new HttpHeaders();
+        webhookHeaders.setContentType(MediaType.APPLICATION_JSON);
+        webhookHeaders.set("X-Webhook-Token", "test-webhook-token");
+        ResponseEntity<String> resolvedWebhook = restTemplate.exchange(
+            "/api/webhooks/alertmanager",
+            HttpMethod.POST,
+            new HttpEntity<>(Map.of(
+                "status", "resolved",
+                "alerts", List.of(Map.of(
+                    "status", "resolved",
+                    "labels", Map.of(
+                        "alertname", "DiskPressure",
+                        "cluster_id", clusterId,
+                        "node", "worker-a"
+                    ),
+                    "endsAt", Instant.now().toString()
+                ))
+            ), webhookHeaders),
+            String.class
+        );
+        assertThat(resolvedWebhook.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode resolvedIncident = objectMapper.readTree(
+            exchange("/api/rca/incidents", HttpMethod.GET, null).getBody()
+        ).get(0);
+        assertThat(resolvedIncident.path("status").asText()).isEqualTo("resolved");
+        assertThat(resolvedIncident.path("resolution_source").asText()).isEqualTo("alertmanager");
+        assertThat(resolvedIncident.path("resolved_at").asText()).isNotBlank();
     }
 
     @Test

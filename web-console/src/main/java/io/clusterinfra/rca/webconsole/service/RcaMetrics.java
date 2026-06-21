@@ -151,6 +151,16 @@ public class RcaMetrics {
         );
     }
 
+    public void incidentLifecycle(String result, int count) {
+        increment(
+            "rca.incident.lifecycle",
+            "Incident lifecycle transitions performed by the platform",
+            count,
+            "result",
+            result
+        );
+    }
+
     public void llmAnalysis(String result, String provider, Duration duration) {
         increment(
             "rca.llm.analysis",

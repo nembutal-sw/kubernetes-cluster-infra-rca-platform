@@ -143,6 +143,59 @@ class IncidentCorrelationServiceTests {
         assertThat(decision.ruleId()).isEqualTo("new_incident");
     }
 
+    @Test
+    void linksNewIncidentToStrictResolvedRecurrence() {
+        Incident resolved = new Incident(
+            "incident-resolved",
+            "cluster-1",
+            "worker-a",
+            "DiskPressure",
+            "Filesystem usage critical",
+            IncidentStatus.resolved,
+            2,
+            observedAt.minusSeconds(7200),
+            observedAt.minusSeconds(3600),
+            "evidence-existing",
+            "report-disk",
+            observedAt.minusSeconds(3500),
+            "automatic",
+            "inactive",
+            null,
+            0
+        );
+        when(incidents.findRecentOpen(
+            eq("cluster-1"),
+            eq("worker-a"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(20)
+        )).thenReturn(List.of());
+        when(incidents.findRecentResolved(
+            eq("cluster-1"),
+            eq("worker-a"),
+            any(Instant.class),
+            any(Instant.class),
+            eq(20)
+        )).thenReturn(List.of(resolved));
+        when(reports.findReport("report-disk")).thenReturn(Optional.of(report(
+            "report-disk",
+            "DiskPressure",
+            "Filesystem usage critical",
+            List.of("disk")
+        )));
+
+        var decision = service.decide(
+            report("report-recurrence", "DiskPressure", "Disk usage critical again", List.of("disk")),
+            evidence("DiskPressure")
+        );
+
+        assertThat(decision.matched()).isFalse();
+        assertThat(decision.recurrence()).isTrue();
+        assertThat(decision.recurrenceOfIncidentId()).isEqualTo(resolved.incidentId());
+        assertThat(decision.recurrenceSequence()).isEqualTo(1);
+        assertThat(decision.ruleId()).isEqualTo("incident_recurrence_same_alert");
+    }
+
     private void prepare(Incident incident, RcaReport report) {
         when(incidents.findRecentOpen(
             eq("cluster-1"),

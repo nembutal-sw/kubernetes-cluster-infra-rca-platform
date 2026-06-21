@@ -133,6 +133,10 @@ public class JdbcRcaStore {
         jdbc.update("DELETE FROM rca_jobs WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_requests WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM rca_reports WHERE cluster_id = ?", clusterId);
+        jdbc.update(
+            "UPDATE incidents SET recurrence_of_incident_id = NULL WHERE cluster_id = ?",
+            clusterId
+        );
         jdbc.update("DELETE FROM incidents WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM realtime_events WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
@@ -785,6 +789,29 @@ public class JdbcRcaStore {
         boolean promoteRootCause,
         EvidenceBundle evidence
     ) {
+        return saveCorrelatedReportAndJob(
+            report,
+            job,
+            dedupKey,
+            matchedIncidentId,
+            promoteRootCause,
+            null,
+            0,
+            evidence
+        );
+    }
+
+    @Transactional
+    public RcaJob saveCorrelatedReportAndJob(
+        RcaReport report,
+        RcaJob job,
+        String dedupKey,
+        String matchedIncidentId,
+        boolean promoteRootCause,
+        String recurrenceOfIncidentId,
+        int recurrenceSequence,
+        EvidenceBundle evidence
+    ) {
         jdbc.queryForObject(
             "SELECT cluster_id FROM clusters WHERE cluster_id = ? FOR UPDATE",
             String.class,
@@ -806,14 +833,20 @@ public class JdbcRcaStore {
                 evidence.collectedAt(),
                 evidence.collectedAt(),
                 evidence.evidenceId(),
-                null
+                null,
+                null,
+                null,
+                null,
+                recurrenceOfIncidentId,
+                Math.max(0, recurrenceSequence)
             );
             jdbc.update(
                 """
                     INSERT INTO incidents
                         (incident_id, dedup_key, cluster_id, node_name, alert_name, root_cause, status,
-                         occurrence_count, first_seen_at, last_seen_at, latest_evidence_id, latest_report_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         occurrence_count, first_seen_at, last_seen_at, latest_evidence_id, latest_report_id,
+                         recurrence_of_incident_id, recurrence_sequence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 created.incidentId(),
                 dedupKey,
@@ -826,7 +859,9 @@ public class JdbcRcaStore {
                 timestamp(created.firstSeenAt()),
                 timestamp(created.lastSeenAt()),
                 created.latestEvidenceId(),
-                null
+                null,
+                created.recurrenceOfIncidentId(),
+                created.recurrenceSequence()
             );
             return created;
         });
@@ -956,18 +991,40 @@ public class JdbcRcaStore {
     }
 
     public Optional<Incident> updateIncidentStatus(String incidentId, IncidentStatus status) {
+        return updateIncidentStatus(incidentId, status, "manual", "", Instant.now());
+    }
+
+    public Optional<Incident> updateIncidentStatus(
+        String incidentId,
+        IncidentStatus status,
+        String source,
+        String note,
+        Instant changedAt
+    ) {
+        Instant effectiveChangedAt = changedAt == null ? Instant.now() : changedAt;
         int updated = status == IncidentStatus.resolved
             ? jdbc.update(
-                "UPDATE incidents SET status = ?, dedup_key = ?, last_seen_at = ? WHERE incident_id = ?",
+                """
+                    UPDATE incidents
+                    SET status = ?, dedup_key = ?, resolved_at = ?,
+                        resolution_source = ?, resolution_note = ?
+                    WHERE incident_id = ?
+                    """,
                 status.name(),
                 id("resolved"),
-                timestamp(Instant.now()),
+                timestamp(effectiveChangedAt),
+                normalizedLifecycleValue(source, "manual"),
+                note == null ? "" : note,
                 incidentId
             )
             : jdbc.update(
-                "UPDATE incidents SET status = ?, last_seen_at = ? WHERE incident_id = ?",
+                """
+                    UPDATE incidents
+                    SET status = ?, resolved_at = NULL,
+                        resolution_source = NULL, resolution_note = NULL
+                    WHERE incident_id = ?
+                    """,
                 status.name(),
-                timestamp(Instant.now()),
                 incidentId
             );
         return updated == 0 ? Optional.empty() : getIncident(incidentId);
@@ -1001,6 +1058,128 @@ public class JdbcRcaStore {
             timestamp(to),
             limit
         );
+    }
+
+    public List<Incident> listRecentResolvedIncidents(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to,
+        int requestedLimit
+    ) {
+        int limit = Math.max(1, Math.min(requestedLimit, 100));
+        return jdbc.query(
+            """
+                SELECT * FROM incidents
+                WHERE cluster_id = ? AND node_name = ? AND status = ?
+                  AND resolved_at BETWEEN ? AND ?
+                ORDER BY resolved_at DESC
+                LIMIT ?
+                """,
+            this::mapIncident,
+            clusterId,
+            nodeName,
+            IncidentStatus.resolved.name(),
+            timestamp(from),
+            timestamp(to),
+            limit
+        );
+    }
+
+    @Transactional
+    public List<Incident> resolveInactiveIncidents(
+        Instant inactiveBefore,
+        Instant resolvedAt,
+        int requestedLimit
+    ) {
+        int limit = Math.max(1, Math.min(requestedLimit, 500));
+        List<Incident> candidates = jdbc.query(
+            """
+                SELECT i.* FROM incidents i
+                WHERE i.status = ? AND i.last_seen_at < ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM rca_reports r
+                      JOIN action_requests ar ON ar.report_id = r.report_id
+                      WHERE r.incident_id = i.incident_id
+                        AND ar.status IN ('pending_approval', 'approved_manual', 'queued', 'executing')
+                  )
+                ORDER BY i.last_seen_at
+                LIMIT ?
+                """,
+            this::mapIncident,
+            IncidentStatus.open.name(),
+            timestamp(inactiveBefore),
+            limit
+        );
+        List<Incident> resolved = new java.util.ArrayList<>();
+        for (Incident candidate : candidates) {
+            int updated = jdbc.update(
+                """
+                    UPDATE incidents
+                    SET status = ?, dedup_key = ?, resolved_at = ?,
+                        resolution_source = ?, resolution_note = ?
+                    WHERE incident_id = ? AND status = ? AND last_seen_at = ?
+                    """,
+                IncidentStatus.resolved.name(),
+                id("resolved"),
+                timestamp(resolvedAt),
+                "automatic",
+                "No correlated evidence was observed before the inactivity threshold.",
+                candidate.incidentId(),
+                IncidentStatus.open.name(),
+                timestamp(candidate.lastSeenAt())
+            );
+            if (updated == 1) {
+                getIncident(candidate.incidentId()).ifPresent(resolved::add);
+            }
+        }
+        return List.copyOf(resolved);
+    }
+
+    @Transactional
+    public List<Incident> resolveOpenIncidentsBySignal(
+        String clusterId,
+        String nodeName,
+        String alertName,
+        Instant resolvedAt,
+        String source,
+        String note
+    ) {
+        List<Incident> candidates = jdbc.query(
+            """
+                SELECT * FROM incidents
+                WHERE cluster_id = ? AND node_name = ? AND alert_name = ? AND status = ?
+                ORDER BY last_seen_at DESC
+                """,
+            this::mapIncident,
+            clusterId,
+            nodeName,
+            alertName,
+            IncidentStatus.open.name()
+        );
+        List<Incident> resolved = new java.util.ArrayList<>();
+        for (Incident candidate : candidates) {
+            int updated = jdbc.update(
+                """
+                    UPDATE incidents
+                    SET status = ?, dedup_key = ?, resolved_at = ?,
+                        resolution_source = ?, resolution_note = ?
+                    WHERE incident_id = ? AND status = ?
+                    """,
+                IncidentStatus.resolved.name(),
+                id("resolved"),
+                timestamp(resolvedAt),
+                normalizedLifecycleValue(source, "external"),
+                note == null ? "" : note,
+                candidate.incidentId(),
+                IncidentStatus.open.name()
+            );
+            if (updated == 1) {
+                getIncident(candidate.incidentId()).ifPresent(resolved::add);
+            }
+        }
+        return List.copyOf(resolved);
     }
 
     public Optional<RcaJob> getLatestJobForIncident(String incidentId) {
@@ -1454,7 +1633,12 @@ public class JdbcRcaStore {
             instant(resultSet, "first_seen_at"),
             instant(resultSet, "last_seen_at"),
             resultSet.getString("latest_evidence_id"),
-            resultSet.getString("latest_report_id")
+            resultSet.getString("latest_report_id"),
+            instant(resultSet, "resolved_at"),
+            resultSet.getString("resolution_source"),
+            resultSet.getString("resolution_note"),
+            resultSet.getString("recurrence_of_incident_id"),
+            resultSet.getInt("recurrence_sequence")
         );
     }
 
@@ -1655,6 +1839,11 @@ public class JdbcRcaStore {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String normalizedLifecycleValue(String value, String fallback) {
+        String normalized = blankToNull(value);
+        return normalized == null ? fallback : limitedText(normalized, 32);
     }
 
     private static String limitedText(String value, int maxLength) {
