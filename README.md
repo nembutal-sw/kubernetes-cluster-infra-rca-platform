@@ -16,6 +16,10 @@ Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Age
 heartbeat lag, analysis queue/dead-letter, evidence 수집, report 생성 시간, LLM과 알림 결과를
 확인할 수 있습니다. 자세한 내용은 [Observability And SLO](docs/observability.md)를 참고합니다.
 
+운영 데이터는 설정된 보존 기간에 따라 작은 배치로 정리합니다. 열린 incident와 승인 처리 중인
+조치는 삭제하지 않으며, 참조가 남은 evidence도 보존합니다. 자세한 기준은
+[Retention Policy](docs/retention-policy.md)를 참고합니다.
+
 ## Architecture
 
 ```text
@@ -221,6 +225,7 @@ bash scripts/linux-dev-check.sh --full
 - Helm HA, NetworkPolicy, External Secrets, DB backup 렌더링
 - 인증, 클러스터, 에이전트, evidence, RCA report 흐름
 - 분석 queue lease, retry, dead-letter 및 수동 재처리
+- retention cleanup의 FK-safe 삭제 순서와 활성 incident/action 보존
 
 ## Production Security
 

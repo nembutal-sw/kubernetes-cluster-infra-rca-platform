@@ -29,6 +29,7 @@
 | `audit-and-actions.md` | audit events and manual action request lifecycle |
 | `report-schema.md` | RCA report fields, confidence score, impact scope, bundles |
 | `observability.md` | metrics, Actuator, ServiceMonitor, operational gauges |
+| `retention-policy.md` | scheduled cleanup, retention periods, deletion safety |
 | `helm-platform-chart.md` | platform Helm values, production notes, ServiceMonitor |
 | `web-console.md` | UI views and product/portfolio messaging |
 | `testing.md` | validation commands and regression focus areas |
@@ -37,7 +38,7 @@
 ## Current Architecture Summary
 
 ```text
-Alertmanager or Demo Scenario
+Alertmanager, Platform Scheduler, or Demo Scenario
   -> Platform API
   -> Evidence Request or Demo Evidence
   -> Node Agent read-only collection
@@ -58,6 +59,7 @@ Alertmanager or Demo Scenario
 - Approval records manual handling, not automatic operation.
 - LLM suggestions remain diagnostic.
 - Report and evidence bundle export are role-restricted and audited.
+- Retention cleanup preserves open incidents, active action workflows, and referenced evidence.
 - Production profile performs fail-fast validation.
 
 ## Suggested Reading Order
@@ -71,4 +73,5 @@ Alertmanager or Demo Scenario
 7. `docs/security.md`
 8. `docs/observability.md`
 9. `docs/testing.md`
-10. `docs/roadmap.md`
+10. `docs/retention-policy.md`
+11. `docs/roadmap.md`

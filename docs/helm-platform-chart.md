@@ -54,6 +54,14 @@ platform:
     platformVersion: "0.1.0"
     monitoringEnabled: false
     observabilityEnabled: true
+    maintenanceEnabled: true
+    maintenanceCron: "0 17 3 * * *"
+    maintenanceBatchSize: 250
+    evidenceRetentionDays: 30
+    evidenceRequestRetentionDays: 30
+    analysisTaskRetentionDays: 30
+    realtimeEventRetentionDays: 14
+    reportRetentionDays: 365
   secret:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
@@ -73,6 +81,7 @@ For production-like deployments:
 - keep audit enabled
 - configure strong secret values outside source control
 - configure a metrics token when observability is enabled
+- review retention periods before connecting production data
 - validate rendered manifests before applying
 
 The application performs production fail-fast validation. Unsafe production settings should stop startup instead of creating a weak deployment.

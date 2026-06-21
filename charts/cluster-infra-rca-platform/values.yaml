@@ -97,6 +97,14 @@ platform:
     incidentCorrelationWindowMinutes: 15
     auditEnabled: true
     auditRetentionDays: 180
+    maintenanceEnabled: true
+    maintenanceCron: "0 17 3 * * *"
+    maintenanceBatchSize: 250
+    evidenceRetentionDays: 30
+    evidenceRequestRetentionDays: 30
+    analysisTaskRetentionDays: 30
+    realtimeEventRetentionDays: 14
+    reportRetentionDays: 365
     demoEnabled: false
     exportMaxBundleBytes: 10485760
     notificationEnabled: false

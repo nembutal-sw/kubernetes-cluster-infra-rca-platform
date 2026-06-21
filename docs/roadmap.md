@@ -21,6 +21,7 @@
 - agent protocol/version compatibility
 - manual approval workflow
 - production configuration validation
+- scheduled retention cleanup
 
 앞으로의 방향은 기능을 무리하게 늘리는 것이 아니라, 문서화, 테스트, 운영 안정성, 엔터프라이즈 확장 기반을 정리하는 것입니다.
 
@@ -74,6 +75,8 @@
 - agent protocol compatibility
 - platform info endpoint
 - manual-only action lifecycle
+- FK-safe operational data retention
+- retention audit events and maintenance metrics
 
 ---
 
@@ -100,7 +103,7 @@
 ## Enterprise Readiness
 
 - Expand RBAC into a permission matrix.
-- Add retention policy implementation.
+- Validate retention behavior against production-like PostgreSQL and MariaDB datasets.
 - Add backup and restore runbook.
 - Improve on-prem and private registry documentation.
 - Add audit export and compliance-oriented reports.

@@ -38,7 +38,7 @@ blocked
 pending_approval
 approved_manual
 rejected
-completed_manual
+completed
 accepted
 ```
 
@@ -50,7 +50,7 @@ RCA Report
   -> Action Request
   -> pending_approval
   -> approved_manual or rejected
-  -> completed_manual after external handling
+  -> completed after external handling
 ```
 
 For read-only action confirmation, the platform may create an evidence request for additional collection. This is not host mutation.
@@ -88,6 +88,7 @@ Audit events should be generated for:
 - action approval/rejection
 - manual completion
 - notification sent/failed
+- retention maintenance completed/failed
 
 ## Audit Event Shape
 

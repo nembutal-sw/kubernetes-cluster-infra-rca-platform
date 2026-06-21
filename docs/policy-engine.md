@@ -78,7 +78,7 @@ recommended action
   -> pending approval
   -> approved_manual or rejected
   -> external runbook / GitOps workflow
-  -> completed_manual
+  -> completed
 ```
 
 For `GITOPS_PR_ONLY` actions, the platform may show a YAML preview, but the actual change should happen through an external GitOps review process.

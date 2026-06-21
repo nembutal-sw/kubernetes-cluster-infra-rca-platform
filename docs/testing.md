@@ -19,6 +19,7 @@
 - impact scope caveat
 - notification fallback
 - metrics registration
+- retention cleanup and FK-safe deletion order
 - production configuration validation
 - agent protocol configuration
 
@@ -80,6 +81,7 @@ docker build -f Dockerfile.web-console .
 | Impact scope | `ImpactScopeAnalyzerTests` |
 | Notification | `IncidentNotificationServiceTests` |
 | Metrics | `RcaMetricsTests` |
+| Retention | `RetentionRepositoryTests`, `DatabaseCompatibilityTests` |
 | LLM fallback | `LlmAnalysisServiceTests` |
 
 ## CI Intent
@@ -108,3 +110,4 @@ The image build should depend on test and chart validation jobs.
 8. Verify lower-privilege roles have limited access.
 9. Create an action request and verify the manual workflow.
 10. Check metrics endpoint with an authorized identity.
+11. Verify retention is disabled or uses non-destructive test cutoffs during smoke tests.

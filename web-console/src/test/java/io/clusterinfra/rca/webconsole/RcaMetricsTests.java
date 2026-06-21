@@ -29,6 +29,8 @@ class RcaMetricsTests {
         metrics.incident("created");
         metrics.llmAnalysis("completed", "openai", Duration.ofMillis(500));
         metrics.notification("sent", "critical");
+        metrics.retentionCleanup("evidence_bundles", 3);
+        metrics.maintenanceRun("completed", Duration.ofSeconds(1));
         metrics.refreshOperationalGauges(
             List.of(
                 agent("fresh", Instant.now().minusSeconds(10)),
@@ -48,6 +50,10 @@ class RcaMetricsTests {
         assertThat(registry.get("rca.report.generation.duration")
             .tag("result", "created").timer().count()).isEqualTo(1);
         assertThat(registry.get("rca.analysis.task.dead.letter").counter().count()).isEqualTo(1);
+        assertThat(registry.get("rca.maintenance.retention.deleted")
+            .tag("data_type", "evidence_bundles").counter().count()).isEqualTo(3);
+        assertThat(registry.get("rca.maintenance.duration")
+            .tag("result", "completed").timer().count()).isEqualTo(1);
         assertThat(registry.get("rca.agent.offline.count").gauge().value()).isEqualTo(2);
         assertThat(registry.get("rca.analysis.queue.depth").gauge().value()).isEqualTo(7);
         assertThat(registry.get("rca.analysis.dead.letter.count").gauge().value()).isEqualTo(2);

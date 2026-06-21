@@ -66,11 +66,13 @@ management:
         rca.analysis.task.duration: true
         rca.evidence.collection.duration: true
         rca.llm.analysis.duration: true
+        rca.maintenance.duration: true
       slo:
         rca.report.generation.duration: 1s,5s,15s,30s
         rca.analysis.task.duration: 5s,15s,30s,60s,300s
         rca.evidence.collection.duration: 10s,30s,60s,180s,300s
         rca.llm.analysis.duration: 1s,5s,15s,30s,60s
+        rca.maintenance.duration: 1s,5s,15s,30s,60s
 
 rca:
   public-api-base-url: ${RCA_PUBLIC_API_BASE_URL:}
@@ -104,6 +106,15 @@ rca:
   audit:
     enabled: ${RCA_AUDIT_ENABLED:true}
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}
+  maintenance:
+    enabled: ${RCA_MAINTENANCE_ENABLED:true}
+    cron: ${RCA_MAINTENANCE_CRON:0 17 3 * * *}
+    batch-size: ${RCA_MAINTENANCE_BATCH_SIZE:250}
+    evidence-retention-days: ${RCA_EVIDENCE_RETENTION_DAYS:30}
+    evidence-request-retention-days: ${RCA_EVIDENCE_REQUEST_RETENTION_DAYS:30}
+    analysis-task-retention-days: ${RCA_ANALYSIS_TASK_RETENTION_DAYS:30}
+    realtime-event-retention-days: ${RCA_REALTIME_EVENT_RETENTION_DAYS:14}
+    report-retention-days: ${RCA_REPORT_RETENTION_DAYS:365}
   security:
     encryption-secret: ${RCA_ENCRYPTION_SECRET:}
   demo:

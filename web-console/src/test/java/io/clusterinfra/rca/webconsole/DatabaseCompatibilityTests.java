@@ -25,6 +25,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
 import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore;
+import io.clusterinfra.rca.webconsole.persistence.RetentionRepository;
+import io.clusterinfra.rca.webconsole.persistence.RetentionRepository.RetentionCutoffs;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -114,7 +116,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(4);
+        assertThat(migration.migrationsExecuted).isEqualTo(6);
 
         JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -228,6 +230,21 @@ class DatabaseCompatibilityTests {
             .isEqualTo(AnalysisTaskStatus.dead_letter);
         assertThat(repository.retryAnalysisTask(queuedTask.taskId()).orElseThrow().status())
             .isEqualTo(AnalysisTaskStatus.queued);
+
+        Instant retentionCutoff = Instant.now().minus(3650, ChronoUnit.DAYS);
+        var retentionResult = new RetentionRepository(new JdbcTemplate(dataSource)).cleanup(
+            new RetentionCutoffs(
+                Instant.now(),
+                retentionCutoff,
+                retentionCutoff,
+                retentionCutoff,
+                retentionCutoff,
+                retentionCutoff,
+                retentionCutoff
+            ),
+            10
+        );
+        assertThat(retentionResult.totalDeleted()).isZero();
 
         RecommendedAction action = new RecommendedAction(
             "Inspect filesystem consumers",
@@ -370,7 +387,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(3);
+        assertThat(migration.migrationsExecuted).isEqualTo(5);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

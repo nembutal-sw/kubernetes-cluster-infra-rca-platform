@@ -14,6 +14,7 @@ public class RcaConsoleProperties {
     private final Llm llm = new Llm();
     private final Incident incident = new Incident();
     private final Audit audit = new Audit();
+    private final Maintenance maintenance = new Maintenance();
     private final Security security = new Security();
     private final Demo demo = new Demo();
     private final Export export = new Export();
@@ -85,6 +86,10 @@ public class RcaConsoleProperties {
 
     public Audit getAudit() {
         return audit;
+    }
+
+    public Maintenance getMaintenance() {
+        return maintenance;
     }
 
     public Security getSecurity() {
@@ -358,6 +363,81 @@ public class RcaConsoleProperties {
 
         public void setRetentionDays(int retentionDays) {
             this.retentionDays = retentionDays;
+        }
+    }
+
+    public static class Maintenance {
+        private boolean enabled = true;
+        private String cron = "0 17 3 * * *";
+        private int batchSize = 250;
+        private int evidenceRetentionDays = 30;
+        private int evidenceRequestRetentionDays = 30;
+        private int analysisTaskRetentionDays = 30;
+        private int realtimeEventRetentionDays = 14;
+        private int reportRetentionDays = 365;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getCron() {
+            return cron;
+        }
+
+        public void setCron(String cron) {
+            this.cron = cron;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public int getEvidenceRetentionDays() {
+            return evidenceRetentionDays;
+        }
+
+        public void setEvidenceRetentionDays(int evidenceRetentionDays) {
+            this.evidenceRetentionDays = evidenceRetentionDays;
+        }
+
+        public int getEvidenceRequestRetentionDays() {
+            return evidenceRequestRetentionDays;
+        }
+
+        public void setEvidenceRequestRetentionDays(int evidenceRequestRetentionDays) {
+            this.evidenceRequestRetentionDays = evidenceRequestRetentionDays;
+        }
+
+        public int getAnalysisTaskRetentionDays() {
+            return analysisTaskRetentionDays;
+        }
+
+        public void setAnalysisTaskRetentionDays(int analysisTaskRetentionDays) {
+            this.analysisTaskRetentionDays = analysisTaskRetentionDays;
+        }
+
+        public int getRealtimeEventRetentionDays() {
+            return realtimeEventRetentionDays;
+        }
+
+        public void setRealtimeEventRetentionDays(int realtimeEventRetentionDays) {
+            this.realtimeEventRetentionDays = realtimeEventRetentionDays;
+        }
+
+        public int getReportRetentionDays() {
+            return reportRetentionDays;
+        }
+
+        public void setReportRetentionDays(int reportRetentionDays) {
+            this.reportRetentionDays = reportRetentionDays;
         }
     }
 

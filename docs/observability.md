@@ -4,7 +4,10 @@
 
 Platform 자체도 운영 대상이기 때문에 RCA 결과뿐 아니라 Platform의 상태도 관측 가능해야 합니다.
 
-현재 프로젝트는 Micrometer와 Spring Actuator를 사용해 Agent heartbeat, analysis queue, dead-letter, evidence collection, report generation, LLM analysis, notification outcome 등을 metric으로 노출합니다. Prometheus 연동은 선택 사항이며, Helm chart에서 ServiceMonitor를 켤 수 있습니다.
+현재 프로젝트는 Micrometer와 Spring Actuator를 사용해 Agent heartbeat, analysis queue,
+dead-letter, evidence collection, report generation, LLM analysis, notification outcome,
+retention maintenance 등을 metric으로 노출합니다. Prometheus 연동은 선택 사항이며,
+Helm chart에서 ServiceMonitor를 켤 수 있습니다.
 
 운영 metric은 공개 API가 아니며, 운영 권한 또는 별도 metric 전용 인증이 필요합니다.
 
@@ -59,6 +62,9 @@ When observability is enabled in production, configure a non-default metric cred
 | `rca.llm.analysis` | LLM analysis outcomes |
 | `rca.llm.analysis.duration` | LLM analysis duration |
 | `rca.notification` | incident notification outcomes |
+| `rca.maintenance.run` | scheduled maintenance outcomes |
+| `rca.maintenance.duration` | scheduled maintenance duration |
+| `rca.maintenance.retention.deleted` | deleted records by bounded data type |
 
 ## Operational Gauge Refresh
 
@@ -80,6 +86,7 @@ Evidence collection p95 < 300s
 LLM analysis p95 < 60s
 Dead-letter task count = 0
 Agent offline count = 0 for required nodes
+Retention maintenance failures = 0
 ```
 
 ## Prometheus Operator
@@ -106,3 +113,4 @@ The ServiceMonitor scrapes:
 - Use low-cardinality tags only.
 - Notification failures should be observable but should not fail RCA report generation.
 - Gauge refresh is intentionally separated from incident processing.
+- Retention metrics use bounded data-type tags and never include cluster, node, or resource IDs.

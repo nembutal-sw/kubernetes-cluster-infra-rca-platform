@@ -183,6 +183,32 @@ public class RcaMetrics {
         );
     }
 
+    public void retentionCleanup(String dataType, int count) {
+        incrementIncludingZero(
+            "rca.maintenance.retention.deleted",
+            "Records deleted by the configured retention policy",
+            count,
+            "data_type",
+            dataType
+        );
+    }
+
+    public void maintenanceRun(String result, Duration duration) {
+        increment(
+            "rca.maintenance.run",
+            "Scheduled platform maintenance runs",
+            1,
+            "result",
+            result
+        );
+        timer(
+            "rca.maintenance.duration",
+            "Scheduled platform maintenance duration",
+            "result",
+            result
+        ).record(nonNegative(duration));
+    }
+
     public void refreshOperationalGauges(
         List<NodeAgent> agents,
         long offlineAfterSeconds,
@@ -211,11 +237,15 @@ public class RcaMetrics {
         if (amount <= 0) {
             return;
         }
+        incrementIncludingZero(name, description, amount, tags);
+    }
+
+    private void incrementIncludingZero(String name, String description, int amount, String... tags) {
         Counter.builder(name)
             .description(description)
             .tags(normalizedTags(tags))
             .register(registry)
-            .increment(amount);
+            .increment(Math.max(0, amount));
     }
 
     private Timer timer(String name, String description, String... tags) {
