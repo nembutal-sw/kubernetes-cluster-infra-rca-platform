@@ -781,6 +781,8 @@ public class JdbcRcaStore {
         RcaReport report,
         RcaJob job,
         String dedupKey,
+        String matchedIncidentId,
+        boolean promoteRootCause,
         EvidenceBundle evidence
     ) {
         jdbc.queryForObject(
@@ -788,7 +790,11 @@ public class JdbcRcaStore {
             String.class,
             evidence.clusterId()
         );
-        Incident incident = findIncidentByDedupKey(dedupKey).orElseGet(() -> {
+        Incident incident = Optional.ofNullable(matchedIncidentId)
+            .flatMap(this::getIncident)
+            .filter(candidate -> candidate.status() == IncidentStatus.open)
+            .or(() -> findIncidentByDedupKey(dedupKey))
+            .orElseGet(() -> {
             Incident created = new Incident(
                 id("incident"),
                 evidence.clusterId(),
@@ -831,14 +837,45 @@ public class JdbcRcaStore {
             incident.incidentId()
         ).orElseThrow();
         if (locked.latestReportId() != null) {
+            Instant firstSeen = evidence.collectedAt().isBefore(locked.firstSeenAt())
+                ? evidence.collectedAt()
+                : locked.firstSeenAt();
+            Instant lastSeen = evidence.collectedAt().isAfter(locked.lastSeenAt())
+                ? evidence.collectedAt()
+                : locked.lastSeenAt();
+            String latestEvidenceId = evidence.collectedAt().isBefore(locked.lastSeenAt())
+                ? locked.latestEvidenceId()
+                : evidence.evidenceId();
+            if (promoteRootCause) {
+                RcaReport promotedReport = report.withIncidentId(locked.incidentId());
+                saveReport(promotedReport);
+                insertJob(job);
+                jdbc.update(
+                    """
+                        UPDATE incidents SET occurrence_count = occurrence_count + 1,
+                            first_seen_at = ?, last_seen_at = ?, latest_evidence_id = ?,
+                            latest_report_id = ?, alert_name = ?, root_cause = ?
+                        WHERE incident_id = ?
+                        """,
+                    timestamp(firstSeen),
+                    timestamp(lastSeen),
+                    latestEvidenceId,
+                    report.reportId(),
+                    evidence.alertName(),
+                    report.summary().mostLikelyCause(),
+                    locked.incidentId()
+                );
+                return job;
+            }
             jdbc.update(
                 """
                     UPDATE incidents SET occurrence_count = occurrence_count + 1,
-                        last_seen_at = ?, latest_evidence_id = ?
+                        first_seen_at = ?, last_seen_at = ?, latest_evidence_id = ?
                     WHERE incident_id = ?
                     """,
-                timestamp(evidence.collectedAt()),
-                evidence.evidenceId(),
+                timestamp(firstSeen),
+                timestamp(lastSeen),
+                latestEvidenceId,
                 locked.incidentId()
             );
             return getLatestJobForIncident(locked.incidentId()).orElseThrow();
@@ -938,6 +975,32 @@ public class JdbcRcaStore {
 
     public Optional<Incident> findIncidentByDedupKey(String dedupKey) {
         return optionalQuery("SELECT * FROM incidents WHERE dedup_key = ?", this::mapIncident, dedupKey);
+    }
+
+    public List<Incident> listRecentOpenIncidents(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to,
+        int requestedLimit
+    ) {
+        int limit = Math.max(1, Math.min(requestedLimit, 100));
+        return jdbc.query(
+            """
+                SELECT * FROM incidents
+                WHERE cluster_id = ? AND node_name = ? AND status = ?
+                  AND last_seen_at BETWEEN ? AND ?
+                ORDER BY last_seen_at DESC
+                LIMIT ?
+                """,
+            this::mapIncident,
+            clusterId,
+            nodeName,
+            IncidentStatus.open.name(),
+            timestamp(from),
+            timestamp(to),
+            limit
+        );
     }
 
     public Optional<RcaJob> getLatestJobForIncident(String incidentId) {

@@ -289,14 +289,62 @@ class DatabaseCompatibilityTests {
             report,
             job,
             "database-compatibility-dedup-key",
+            null,
+            false,
             repository.getEvidence(completed.evidenceId()).orElseThrow()
         );
 
         RcaReport storedReport = repository.getReport(report.reportId()).orElseThrow();
         assertThat(storedReport.summary().mostLikelyCause()).isEqualTo("Inode exhaustion");
         assertThat(storedReport.incidentId()).startsWith("incident-");
-        assertThat(repository.getIncident(storedReport.incidentId()).orElseThrow().occurrenceCount()).isEqualTo(1);
+        var storedIncident = repository.getIncident(storedReport.incidentId()).orElseThrow();
+        assertThat(storedIncident.occurrenceCount()).isEqualTo(1);
+        assertThat(repository.listRecentOpenIncidents(
+            cluster.clusterId(),
+            "worker-a",
+            now.minus(1, ChronoUnit.HOURS),
+            now.plus(1, ChronoUnit.HOURS),
+            10
+        )).extracting(incident -> incident.incidentId()).contains(storedIncident.incidentId());
         assertThat(repository.getJob(job.jobId())).contains(job);
+
+        RcaReport promotedReport = new RcaReport(
+            "report-db-promoted",
+            cluster.clusterId(),
+            null,
+            RcaJobStatus.completed,
+            Map.of("alert_name", "DiskPressure"),
+            Map.of("node_name", "worker-a", "components", List.of("disk")),
+            new RcaSummary("DiskPressure", "Kernel I/O error", Confidence.high),
+            List.of(Map.of("evidence_id", completed.evidenceId())),
+            List.of(new RootCauseCandidate("Kernel I/O error", Confidence.high, List.of("I/O error"))),
+            List.of(action),
+            List.of(action),
+            now.plusSeconds(1)
+        );
+        RcaJob promotedJob = new RcaJob(
+            "job-db-promoted",
+            cluster.clusterId(),
+            "DiskPressure",
+            "worker-a",
+            RcaJobStatus.completed,
+            promotedReport.reportId(),
+            completed.evidenceId(),
+            now.plusSeconds(1)
+        );
+        repository.saveCorrelatedReportAndJob(
+            promotedReport,
+            promotedJob,
+            "unused-when-matched",
+            storedIncident.incidentId(),
+            true,
+            repository.getEvidence(completed.evidenceId()).orElseThrow()
+        );
+        var promotedIncident = repository.getIncident(storedIncident.incidentId()).orElseThrow();
+        assertThat(promotedIncident.latestReportId()).isEqualTo(promotedReport.reportId());
+        assertThat(promotedIncident.rootCause()).isEqualTo("Kernel I/O error");
+        assertThat(promotedIncident.occurrenceCount()).isEqualTo(2);
+
         var actionRequest = repository.createActionRequest(
             report.reportId(),
             0,

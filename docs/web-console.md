@@ -8,7 +8,7 @@ Web Console은 RCA Platform을 시각적으로 보여주는 포트폴리오 핵�
 
 - Cluster 등록과 Agent install manifest 확인
 - RCA report 목록과 상세 조회
-- Incident timeline
+- causal incident timeline with signal family, rule ID, and confidence
 - RCA confidence score
 - Impact scope
 - Agent health dashboard

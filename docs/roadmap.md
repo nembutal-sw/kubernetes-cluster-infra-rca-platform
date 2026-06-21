@@ -9,7 +9,7 @@
 - Node/Linux level RCA
 - Rule-based detector 구조
 - durable analysis queue
-- incident correlation
+- multi-signal incident correlation and root-cause promotion
 - evidence bundle export
 - incident timeline
 - confidence score
@@ -77,6 +77,8 @@
 - manual-only action lifecycle
 - FK-safe operational data retention
 - retention audit events and maintenance metrics
+- Incident Correlation v2 causal rules
+- causal timeline edge confidence and rule visibility
 
 ---
 
@@ -103,7 +105,7 @@
 ## Enterprise Readiness
 
 - Expand RBAC into a permission matrix.
-- Validate retention behavior against production-like PostgreSQL and MariaDB datasets.
+- Extend correlation from single-node chains to cross-node and control-plane topology.
 - Add backup and restore runbook.
 - Improve on-prem and private registry documentation.
 - Add audit export and compliance-oriented reports.

@@ -335,6 +335,8 @@ public class RcaConsoleProperties {
 
     public static class Incident {
         private int correlationWindowMinutes = 15;
+        private int minimumScore = 70;
+        private int candidateLimit = 20;
 
         public int getCorrelationWindowMinutes() {
             return correlationWindowMinutes;
@@ -342,6 +344,22 @@ public class RcaConsoleProperties {
 
         public void setCorrelationWindowMinutes(int correlationWindowMinutes) {
             this.correlationWindowMinutes = correlationWindowMinutes;
+        }
+
+        public int getMinimumScore() {
+            return minimumScore;
+        }
+
+        public void setMinimumScore(int minimumScore) {
+            this.minimumScore = minimumScore;
+        }
+
+        public int getCandidateLimit() {
+            return candidateLimit;
+        }
+
+        public void setCandidateLimit(int candidateLimit) {
+            this.candidateLimit = candidateLimit;
         }
     }
 

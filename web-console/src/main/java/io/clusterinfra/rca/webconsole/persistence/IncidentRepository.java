@@ -7,6 +7,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -21,9 +22,18 @@ public class IncidentRepository {
         RcaReport report,
         RcaJob job,
         String dedupKey,
+        String matchedIncidentId,
+        boolean promoteRootCause,
         EvidenceBundle evidence
     ) {
-        return store.saveCorrelatedReportAndJob(report, job, dedupKey, evidence);
+        return store.saveCorrelatedReportAndJob(
+            report,
+            job,
+            dedupKey,
+            matchedIncidentId,
+            promoteRootCause,
+            evidence
+        );
     }
 
     public List<Incident> list(String clusterId) {
@@ -40,6 +50,16 @@ public class IncidentRepository {
 
     public Optional<Incident> findByDedupKey(String dedupKey) {
         return store.findIncidentByDedupKey(dedupKey);
+    }
+
+    public List<Incident> findRecentOpen(
+        String clusterId,
+        String nodeName,
+        Instant from,
+        Instant to,
+        int limit
+    ) {
+        return store.listRecentOpenIncidents(clusterId, nodeName, from, to, limit);
     }
 
     public Optional<RcaJob> latestJob(String incidentId) {

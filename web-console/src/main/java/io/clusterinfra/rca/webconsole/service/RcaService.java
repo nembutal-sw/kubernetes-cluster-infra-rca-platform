@@ -16,7 +16,7 @@ import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService.CorrelationDecision;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -24,7 +24,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.Locale;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -35,8 +34,8 @@ public class RcaService {
     private final IncidentRepository incidents;
     private final ReportRepository reports;
     private final RuleBasedRcaAnalyzer analyzer;
+    private final IncidentCorrelationService correlation;
     private final RcaConsoleProperties properties;
-    private final TokenService tokens;
     private final AuditService audit;
     private final IncidentNotificationService notifications;
     private final RcaMetrics metrics;
@@ -48,8 +47,8 @@ public class RcaService {
         IncidentRepository incidents,
         ReportRepository reports,
         RuleBasedRcaAnalyzer analyzer,
+        IncidentCorrelationService correlation,
         RcaConsoleProperties properties,
-        TokenService tokens,
         AuditService audit,
         IncidentNotificationService notifications,
         RcaMetrics metrics
@@ -60,8 +59,8 @@ public class RcaService {
         this.incidents = incidents;
         this.reports = reports;
         this.analyzer = analyzer;
+        this.correlation = correlation;
         this.properties = properties;
-        this.tokens = tokens;
         this.audit = audit;
         this.notifications = notifications;
         this.metrics = metrics;
@@ -173,22 +172,47 @@ public class RcaService {
                 evidence.evidenceId(),
                 Instant.now()
             );
-            String dedupKey = incidentDedupKey(report, evidence);
-            RcaJob saved = incidents.saveCorrelated(report, job, dedupKey, evidence);
+            CorrelationDecision decision = correlation.decide(report, evidence);
+            RcaJob saved = incidents.saveCorrelated(
+                report,
+                job,
+                decision.dedupKey(),
+                decision.matchedIncidentId(),
+                decision.promoteRootCause(),
+                evidence
+            );
             boolean duplicate = !saved.reportId().equals(reportId);
-            metrics.incident(duplicate ? "correlated" : "created");
+            String savedIncidentId = reports.findReport(saved.reportId())
+                .map(RcaReport::incidentId)
+                .orElse(null);
+            boolean promoted = decision.matched()
+                && decision.promoteRootCause()
+                && !duplicate
+                && decision.matchedIncidentId().equals(savedIncidentId);
+            String correlationResult = promoted
+                ? "root_cause_promoted"
+                : duplicate ? "correlated" : "created";
+            metrics.incident(correlationResult);
             audit.system(
                 "rca-pipeline",
-                duplicate ? "incident.correlated" : "incident.created",
+                promoted
+                    ? "incident.root_cause_promoted"
+                    : duplicate ? "incident.correlated" : "incident.created",
                 "incident",
-                reports.findReport(saved.reportId()).map(RcaReport::incidentId).orElse(null),
-                duplicate ? "suppressed_duplicate_report" : "report_created",
+                savedIncidentId,
+                promoted
+                    ? "canonical_report_replaced"
+                    : duplicate ? "suppressed_duplicate_report" : "report_created",
                 Map.of(
                     "cluster_id", evidence.clusterId(),
                     "node_name", evidence.nodeName(),
                     "alert_name", evidence.alertName(),
                     "evidence_id", evidence.evidenceId(),
-                    "report_id", saved.reportId()
+                    "report_id", saved.reportId(),
+                    "correlation_rule", decision.ruleId(),
+                    "correlation_relationship", decision.relationship(),
+                    "correlation_score", decision.score(),
+                    "signal_family", decision.primaryFamily()
                 )
             );
             if (!duplicate) {
@@ -197,7 +221,7 @@ public class RcaService {
                 );
             }
             metrics.reportGenerated(
-                duplicate ? "correlated" : "created",
+                correlationResult,
                 Duration.between(startedAt, Instant.now())
             );
             return saved;
@@ -205,23 +229,6 @@ public class RcaService {
             metrics.reportGenerated("failed", Duration.between(startedAt, Instant.now()));
             throw exception;
         }
-    }
-
-    private String incidentDedupKey(RcaReport report, EvidenceBundle evidence) {
-        long windowSeconds = Math.max(60L, properties.getIncident().getCorrelationWindowMinutes() * 60L);
-        long bucket = evidence.collectedAt().getEpochSecond() / windowSeconds;
-        String cause = report.summary().mostLikelyCause()
-            .toLowerCase(Locale.ROOT)
-            .replaceAll("[^a-z0-9]+", " ")
-            .trim();
-        return tokens.sha256(String.join(
-            "|",
-            evidence.clusterId(),
-            evidence.nodeName(),
-            evidence.alertName().toLowerCase(Locale.ROOT),
-            cause,
-            Long.toString(bucket)
-        ));
     }
 
     public List<String> collectorsFor(String alertName) {

@@ -103,6 +103,8 @@ rca:
     cooldown-seconds: ${RCA_LLM_COOLDOWN_SECONDS:60}
   incident:
     correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
+    minimum-score: ${RCA_INCIDENT_CORRELATION_MINIMUM_SCORE:70}
+    candidate-limit: ${RCA_INCIDENT_CORRELATION_CANDIDATE_LIMIT:20}
   audit:
     enabled: ${RCA_AUDIT_ENABLED:true}
     retention-days: ${RCA_AUDIT_RETENTION_DAYS:180}

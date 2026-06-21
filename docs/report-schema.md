@@ -129,6 +129,39 @@ rca-report.md
 
 Sensitive values are redacted before export, and the export action is audited.
 
+## Incident Timeline
+
+Timeline nodes and edges are additive API fields.
+
+```json
+{
+  "nodes": [
+    {
+      "id": "timeline-1",
+      "timestamp": "2026-06-21T02:00:00Z",
+      "component": "disk",
+      "event_type": "disk_io_latency_high",
+      "signal_family": "storage",
+      "severity": "critical",
+      "root_trigger": true
+    }
+  ],
+  "edges": [
+    {
+      "source": "timeline-1",
+      "target": "timeline-2",
+      "relationship": "storage pressure propagated to node readiness",
+      "rule_id": "storage_node",
+      "confidence": 0.94,
+      "inferred": true
+    }
+  ]
+}
+```
+
+`inferred=true` means the edge was selected from a Rule-based causal relation. A
+`temporal_sequence` edge only records observation order and uses lower confidence.
+
 ## Compatibility Notes
 
 The schema is intended to remain stable for UI and export consumers. When adding fields:

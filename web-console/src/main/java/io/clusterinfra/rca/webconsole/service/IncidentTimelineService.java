@@ -1,20 +1,27 @@
 package io.clusterinfra.rca.webconsole.service;
 
+import io.clusterinfra.rca.webconsole.analysis.IncidentCausalityRules;
+import io.clusterinfra.rca.webconsole.analysis.IncidentCausalityRules.CausalRelation;
+import io.clusterinfra.rca.webconsole.analysis.IncidentCausalityRules.SignalProfile;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentTimeline;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RealtimeEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.TimelineEdge;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.TimelineNode;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
+import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Service;
@@ -23,10 +30,19 @@ import org.springframework.stereotype.Service;
 public class IncidentTimelineService {
     private final EvidenceRepository evidence;
     private final RuleBasedRcaAnalyzer analyzer;
+    private final ReportRepository reports;
+    private final IncidentCausalityRules causality;
 
-    public IncidentTimelineService(EvidenceRepository evidence, RuleBasedRcaAnalyzer analyzer) {
+    public IncidentTimelineService(
+        EvidenceRepository evidence,
+        RuleBasedRcaAnalyzer analyzer,
+        ReportRepository reports,
+        IncidentCausalityRules causality
+    ) {
         this.evidence = evidence;
         this.analyzer = analyzer;
+        this.reports = reports;
+        this.causality = causality;
     }
 
     public IncidentTimeline build(Incident incident) {
@@ -35,16 +51,25 @@ public class IncidentTimelineService {
         List<TimelineNode> nodes = new ArrayList<>();
         Set<String> realtimeEvidence = new HashSet<>();
         AtomicInteger sequence = new AtomicInteger();
+        RcaReport canonicalReport = incident.latestReportId() == null
+            ? null
+            : reports.findReport(incident.latestReportId()).orElse(null);
+        SignalProfile incidentProfile = causality.profile(incident, canonicalReport);
 
         for (RealtimeEvent event : evidence.listRealtimeEvents(
             incident.clusterId(), incident.nodeName(), from, to
         )) {
+            String family = causality.familyForEvent(event.component(), event.eventType());
+            if (!causality.connected(family, incidentProfile.families())) {
+                continue;
+            }
             realtimeEvidence.add(event.evidenceId());
             nodes.add(new TimelineNode(
                 "timeline-" + sequence.incrementAndGet(),
                 event.observedAt(),
                 event.component(),
                 event.eventType(),
+                family,
                 event.severity(),
                 title(event.eventType()),
                 detail(event.payload()),
@@ -60,11 +85,16 @@ public class IncidentTimelineService {
             }
             List<Map<String, Object>> signals = analyzer.deriveTimelineSignals(bundle.collectors());
             if (signals.isEmpty()) {
+                String family = causality.familyForEvent("kubernetes", bundle.alertName());
+                if (!causality.connected(family, incidentProfile.families())) {
+                    continue;
+                }
                 nodes.add(new TimelineNode(
                     "timeline-" + sequence.incrementAndGet(),
                     bundle.collectedAt(),
                     "kubernetes",
                     bundle.alertName(),
+                    family,
                     "info",
                     bundle.alertName(),
                     "Evidence was collected for this incident.",
@@ -74,13 +104,20 @@ public class IncidentTimelineService {
                 continue;
             }
             for (Map<String, Object> signal : signals) {
+                String component = String.valueOf(signal.getOrDefault("component", "node"));
+                String signalName = String.valueOf(signal.getOrDefault("signal", bundle.alertName()));
+                String family = causality.familyForEvent(component, signalName);
+                if (!causality.connected(family, incidentProfile.families())) {
+                    continue;
+                }
                 nodes.add(new TimelineNode(
                     "timeline-" + sequence.incrementAndGet(),
                     bundle.collectedAt(),
-                    String.valueOf(signal.getOrDefault("component", "node")),
-                    String.valueOf(signal.getOrDefault("signal", bundle.alertName())),
+                    component,
+                    signalName,
+                    family,
                     String.valueOf(signal.getOrDefault("severity", "warning")),
-                    title(String.valueOf(signal.getOrDefault("signal", bundle.alertName()))),
+                    title(signalName),
                     String.valueOf(signal.getOrDefault("interpretation", "")),
                     bundle.evidenceId(),
                     false
@@ -88,36 +125,107 @@ public class IncidentTimelineService {
             }
         }
         nodes.sort(Comparator.comparing(TimelineNode::timestamp).thenComparing(TimelineNode::id));
+        Map<String, TimelineEdge> causalIncoming = causalEdges(nodes);
+        int rootIndex = rootIndex(nodes, causalIncoming);
+        String rootId = null;
         if (!nodes.isEmpty()) {
-            int rootIndex = -1;
-            for (int index = 0; index < nodes.size(); index++) {
-                if (Objects.equals(incident.latestEvidenceId(), nodes.get(index).evidenceId())) {
-                    rootIndex = index;
-                    break;
-                }
-            }
-            if (rootIndex < 0) {
-                rootIndex = 0;
-                for (int index = 0; index < nodes.size(); index++) {
-                    if ("critical".equalsIgnoreCase(nodes.get(index).severity())) {
-                        rootIndex = index;
-                        break;
-                    }
-                }
-            }
             TimelineNode root = nodes.get(rootIndex);
-            nodes.set(rootIndex, new TimelineNode(
-                root.id(), root.timestamp(), root.component(), root.eventType(), root.severity(),
+            TimelineNode markedRoot = new TimelineNode(
+                root.id(), root.timestamp(), root.component(), root.eventType(), root.signalFamily(), root.severity(),
                 root.title(), root.detail(), root.evidenceId(), true
-            ));
+            );
+            rootId = markedRoot.id();
+            nodes.set(rootIndex, markedRoot);
+            if (rootIndex > 0) {
+                nodes.remove(rootIndex);
+                nodes.add(0, markedRoot);
+            }
         }
         List<TimelineEdge> edges = new ArrayList<>();
-        for (int index = 1; index < nodes.size(); index++) {
-            TimelineNode source = nodes.get(index - 1);
+        for (int index = 0; index < nodes.size(); index++) {
             TimelineNode target = nodes.get(index);
-            edges.add(new TimelineEdge(source.id(), target.id(), relationship(source, target)));
+            if (target.id().equals(rootId)) {
+                continue;
+            }
+            TimelineEdge causalEdge = causalIncoming.get(target.id());
+            if (causalEdge != null) {
+                edges.add(causalEdge);
+                continue;
+            }
+            TimelineNode source = nodes.get(Math.max(0, index - 1));
+            if (!source.id().equals(target.id())) {
+                edges.add(new TimelineEdge(
+                    source.id(),
+                    target.id(),
+                    "observed next in the incident window",
+                    "temporal_sequence",
+                    0.35,
+                    false
+                ));
+            }
         }
         return new IncidentTimeline(incident.incidentId(), from, to, List.copyOf(nodes), List.copyOf(edges));
+    }
+
+    private Map<String, TimelineEdge> causalEdges(List<TimelineNode> nodes) {
+        Map<String, TimelineEdge> incoming = new LinkedHashMap<>();
+        for (TimelineNode target : nodes) {
+            EdgeCandidate best = null;
+            for (TimelineNode source : nodes) {
+                if (source.id().equals(target.id())) {
+                    continue;
+                }
+                if (source.signalFamily().equals(target.signalFamily())
+                    && !source.timestamp().isBefore(target.timestamp())) {
+                    continue;
+                }
+                Optional<CausalRelation> relation = causality.relation(
+                    source.signalFamily(),
+                    target.signalFamily()
+                );
+                if (relation.isEmpty()) {
+                    continue;
+                }
+                long distance = Math.abs(Duration.between(source.timestamp(), target.timestamp()).toMillis());
+                EdgeCandidate candidate = new EdgeCandidate(source, target, relation.get(), distance);
+                if (best == null
+                    || candidate.relation().confidence() > best.relation().confidence()
+                    || (candidate.relation().confidence() == best.relation().confidence()
+                        && candidate.distanceMillis() < best.distanceMillis())) {
+                    best = candidate;
+                }
+            }
+            if (best != null) {
+                incoming.put(target.id(), new TimelineEdge(
+                    best.source().id(),
+                    target.id(),
+                    best.relation().relationship(),
+                    best.relation().ruleId(),
+                    best.relation().confidence(),
+                    true
+                ));
+            }
+        }
+        return incoming;
+    }
+
+    private int rootIndex(List<TimelineNode> nodes, Map<String, TimelineEdge> causalIncoming) {
+        if (nodes.isEmpty()) {
+            return -1;
+        }
+        return java.util.stream.IntStream.range(0, nodes.size())
+            .boxed()
+            .filter(index -> !causalIncoming.containsKey(nodes.get(index).id()))
+            .min(Comparator
+                .comparingInt((Integer index) -> causality.rootRank(nodes.get(index).signalFamily()))
+                .thenComparingInt(index -> severityRank(nodes.get(index).severity()))
+                .thenComparing(index -> nodes.get(index).timestamp()))
+            .orElseGet(() -> java.util.stream.IntStream.range(0, nodes.size())
+                .boxed()
+                .min(Comparator
+                    .comparingInt((Integer index) -> causality.rootRank(nodes.get(index).signalFamily()))
+                    .thenComparing(index -> nodes.get(index).timestamp()))
+                .orElse(0));
     }
 
     private static String title(String value) {
@@ -129,16 +237,19 @@ public class IncidentTimelineService {
         return summary == null ? payload.toString() : String.valueOf(summary);
     }
 
-    private static String relationship(TimelineNode source, TimelineNode target) {
-        if ("disk".equals(source.component()) && Set.of("kubelet", "kubernetes").contains(target.component())) {
-            return "storage pressure propagated to node control";
-        }
-        if ("memory".equals(source.component())) {
-            return "memory pressure propagated";
-        }
-        if (Set.of("network", "dns", "conntrack", "cni").contains(source.component())) {
-            return "network path degradation propagated";
-        }
-        return "followed by";
+    private static int severityRank(String severity) {
+        return switch (severity == null ? "" : severity.toLowerCase()) {
+            case "critical" -> 0;
+            case "warning" -> 1;
+            default -> 2;
+        };
+    }
+
+    private record EdgeCandidate(
+        TimelineNode source,
+        TimelineNode target,
+        CausalRelation relation,
+        long distanceMillis
+    ) {
     }
 }

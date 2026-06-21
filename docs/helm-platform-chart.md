@@ -54,6 +54,9 @@ platform:
     platformVersion: "0.1.0"
     monitoringEnabled: false
     observabilityEnabled: true
+    incidentCorrelationWindowMinutes: 15
+    incidentCorrelationMinimumScore: 70
+    incidentCorrelationCandidateLimit: 20
     maintenanceEnabled: true
     maintenanceCron: "0 17 3 * * *"
     maintenanceBatchSize: 250

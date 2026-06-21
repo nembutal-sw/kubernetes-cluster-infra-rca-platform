@@ -730,6 +730,7 @@ public final class RcaModels {
         Instant timestamp,
         String component,
         String eventType,
+        String signalFamily,
         String severity,
         String title,
         String detail,
@@ -741,7 +742,10 @@ public final class RcaModels {
     public record TimelineEdge(
         String source,
         String target,
-        String relationship
+        String relationship,
+        String ruleId,
+        double confidence,
+        boolean inferred
     ) {
     }
 

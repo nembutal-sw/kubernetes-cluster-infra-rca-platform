@@ -40,6 +40,10 @@ import "./styles.css";
       "Resource": "대상",
       "Outcome": "결과",
       "Root Cause": "근본 원인",
+      "Root trigger": "최초 원인 신호",
+      "Causal inference": "인과 추론",
+      "Observed sequence": "관측 순서",
+      "observed next in the incident window": "인시던트 구간에서 다음으로 관측됨",
       "Occurrences": "발생 횟수",
       "Action History": "조치 이력",
       "Approval and execution attempts": "승인 및 실행 요청 이력",
@@ -2603,28 +2607,46 @@ import "./styles.css";
 
   function TimelineGraph({ timeline }) {
     const nodes = timeline.nodes || [];
+    const edges = timeline.edges || [];
     if (!nodes.length) return h(EmptyState, { message: "No timeline evidence." });
     return h("div", { className: "timeline-scroll" },
-      h("div", { className: "failure-timeline" }, nodes.map((node, index) =>
-        h("div", { key: node.id, className: "timeline-step" },
+      h("div", { className: "failure-timeline" }, nodes.map((node, index) => {
+        const incoming = edges.find((edge) => edge.target === node.id);
+        const nextNode = nodes[index + 1];
+        const nextEdge = nextNode ? edges.find((edge) => edge.target === nextNode.id) : null;
+        const sourceNode = incoming ? nodes.find((item) => item.id === incoming.source) : null;
+        return h("div", { key: node.id, className: "timeline-step" },
           h("article", { className: `timeline-node severity-${node.severity} ${node.root_trigger ? "root-trigger" : ""}` },
             h("div", { className: "d-flex justify-content-between gap-2" },
-              h("span", { className: "timeline-component" }, node.component),
+              h("span", { className: "timeline-component" },
+                `${node.component} / ${node.signal_family || "unknown"}`
+              ),
               h(StatusBadge, { value: node.severity, tone: severityTone(node.severity) })
             ),
             h("strong", null, displayText(node.title)),
             h("span", { className: "small text-muted" }, formatDate(node.timestamp)),
             h("p", { className: "small mb-0" }, displayText(node.detail)),
+            incoming ? h("div", { className: "causal-edge-meta" },
+              h("span", null,
+                `${sourceNode?.signal_family || sourceNode?.component || "signal"} → ${node.signal_family || node.component}`
+              ),
+              h("span", null,
+                `${incoming.rule_id} · ${Math.round((incoming.confidence || 0) * 100)}%`
+              )
+            ) : null,
             node.root_trigger ? h("span", { className: "root-label" }, tr("Root trigger")) : null
           ),
           index < nodes.length - 1
             ? h("div", { className: "timeline-link" },
                 h(Icon, { name: "arrow-right" }),
-                h("span", null, timeline.edges?.[index]?.relationship || tr("followed by"))
+                h("span", null, displayText(nextEdge?.relationship || "observed next in the incident window")),
+                nextEdge ? h("small", null,
+                  `${nextEdge.inferred ? tr("Causal inference") : tr("Observed sequence")} · ${Math.round((nextEdge.confidence || 0) * 100)}%`
+                ) : null
               )
             : null
-        )
-      ))
+        );
+      }))
     );
   }
 

@@ -96,6 +96,10 @@ spec:
               value: {{ .Values.platform.config.llmCooldownSeconds | quote }}
             - name: RCA_INCIDENT_CORRELATION_WINDOW_MINUTES
               value: {{ .Values.platform.config.incidentCorrelationWindowMinutes | quote }}
+            - name: RCA_INCIDENT_CORRELATION_MINIMUM_SCORE
+              value: {{ .Values.platform.config.incidentCorrelationMinimumScore | quote }}
+            - name: RCA_INCIDENT_CORRELATION_CANDIDATE_LIMIT
+              value: {{ .Values.platform.config.incidentCorrelationCandidateLimit | quote }}
             - name: RCA_AUDIT_ENABLED
               value: {{ .Values.platform.config.auditEnabled | quote }}
             - name: RCA_AUDIT_RETENTION_DAYS

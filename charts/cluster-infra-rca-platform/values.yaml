@@ -95,6 +95,8 @@ platform:
     llmFailureThreshold: 3
     llmCooldownSeconds: 60
     incidentCorrelationWindowMinutes: 15
+    incidentCorrelationMinimumScore: 70
+    incidentCorrelationCandidateLimit: 20
     auditEnabled: true
     auditRetentionDays: 180
     maintenanceEnabled: true

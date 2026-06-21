@@ -8,7 +8,10 @@ LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `a
 
 Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=true`로 플랫폼 주기 수집을 활성화할 수 있습니다. 정상 evidence는 저장만 하고, 장애 signal이 감지될 때만 RCA 보고서를 생성합니다.
 
-동일 노드·경보·원인으로 반복되는 evidence는 설정된 시간 구간 안에서 하나의 incident로 묶습니다. 조치 요청, 승인, 거절, 로그인, 클러스터 변경은 audit event로 기록됩니다.
+동일 노드에서 시간상 인접하고 causal rule로 연결되는 storage, runtime, kubelet, network,
+DNS, control-plane 신호는 하나의 incident로 묶습니다. 더 상위 원인 evidence가 뒤늦게
+수집되면 canonical root cause를 승격합니다. 조치 요청, 승인, 거절, 로그인, 클러스터 변경은
+audit event로 기록됩니다.
 
 Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태 분류와 수집된 pod/workload 영향 범위를 확인할 수 있습니다. 보고서 또는 incident의 분석 근거는 redaction된 ZIP bundle로 내려받을 수 있습니다.
 
@@ -29,7 +32,8 @@ Alertmanager 또는 수동 수집 요청
   -> 전처리 및 Rule-based RCA
   -> 선택적 Spring AI 분석
   -> Policy Engine 검증
-  -> RCA 보고서, 장애 전파 타임라인, 승인 기반 조치
+  -> 다중 신호 Incident Correlation
+  -> RCA 보고서, causal timeline, 승인 기반 조치
 ```
 
 | Component | Stack | Role |

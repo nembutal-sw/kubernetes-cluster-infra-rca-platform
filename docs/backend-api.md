@@ -149,7 +149,9 @@ GET /api/rca/incidents/{incident_id}/timeline
 GET /api/rca/incidents/{incident_id}/bundle
 ```
 
-Timeline is an RCA analysis flow, not an audit trail. Audit events record user/system actions.
+Timeline is an RCA analysis flow, not an audit trail. Each node exposes `signal_family`; each edge
+exposes `rule_id`, `relationship`, `confidence`, and `inferred`. Audit events record user/system
+actions, including `incident.root_cause_promoted`.
 
 ## Analysis Task APIs
 
