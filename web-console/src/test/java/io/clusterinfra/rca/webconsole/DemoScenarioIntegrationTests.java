@@ -112,6 +112,8 @@ class DemoScenarioIntegrationTests {
                 .isNotEmpty()
                 .containsAnyElementsOf(expectedSignals(scenario.key()));
             assertThat(report.rootCauseCandidates()).as(scenario.key()).isNotEmpty();
+            assertThat(report.rootCauseCandidates().getFirst().confidenceScore()).as(scenario.key())
+                .isGreaterThanOrEqualTo(50);
             assertThat(report.rootCauseCandidates().getFirst().evidencePaths()).as(scenario.key()).isNotEmpty();
             assertThat(report.recommendedActions()).as(scenario.key()).isNotEmpty();
             assertThat(report.recommendedActions()).as(scenario.key()).allSatisfy(action -> {
