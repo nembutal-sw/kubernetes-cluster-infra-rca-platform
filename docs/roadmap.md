@@ -1,64 +1,32 @@
 # Roadmap
 
-## 한국어 요약
-
-현재 프로젝트는 단순 MVP에서 벗어나 운영 가능한 RCA 플랫폼 형태로 확장되었습니다.
-
-완료된 핵심 기능은 다음입니다.
-
-- Node/Linux level RCA
-- Rule-based detector 구조
-- durable analysis queue
-- multi-signal incident correlation and root-cause promotion
-- evidence bundle export
-- incident timeline
-- confidence score
-- demo scenario mode
-- agent health dashboard
-- impact scope analysis
-- notification service
-- observability metrics
-- agent protocol/version compatibility
-- manual approval workflow
-- production configuration validation
-- scheduled retention cleanup
-- cluster topology inventory
-- topology-aware cross-node correlation
-- one-time manifest download token
-- Agent permission modes and payload limits
-- topology history comparison
-- audit event export
-- Agent credential rotation and optional mTLS
-
-앞으로의 방향은 기능을 무리하게 늘리는 것이 아니라, 문서화, 테스트, 운영 안정성, 엔터프라이즈 확장 기반을 정리하는 것입니다.
-
----
+현재 프로젝트는 단순 MVP를 넘어 운영 가능한 RCA 플랫폼의 기반을 갖춘 상태입니다. 다음 단계는 기능을 무리하게 늘리는 것보다, 실제 클러스터 검증과 운영 품질을 반복적으로 높이는 방향입니다.
 
 ## Completed Phases
 
 ### Phase 1: Platform Foundation
 
-- Spring Boot platform consolidation
+- Spring Boot platform 통합
 - JDBC/Flyway persistence
 - cluster registry
 - user/session authentication
 - role-based authorization
-- CI validation pipeline
+- 기본 CI validation pipeline
 
 ### Phase 2: RCA Pipeline
 
 - Alertmanager webhook ingest
 - evidence request lifecycle
-- analysis task queue
-- worker retry and dead-letter handling
+- durable analysis task queue
+- worker retry/dead-letter
 - incident correlation
 - RCA report generation
 
 ### Phase 3: Security And Structure
 
-- Agent, webhook, manifest, and metrics filters
+- Agent, webhook, manifest, metrics 인증 필터
 - production fail-fast validation
-- repository façade split
+- repository facade split
 - detector-based signal analysis
 - sensitive data redaction
 - regression tests
@@ -91,7 +59,7 @@
 
 - Node, Pod, workload, Service, EndpointSlice inventory
 - deterministic topology collector election
-- topology observation persistence and API
+- topology observation persistence/API
 - stale Node/Pod/Service expiry from authoritative snapshots
 - responsive Service-to-Node topology graph
 - confirmed Service impact scope
@@ -102,48 +70,58 @@
 
 - explicit initial administrator provisioning
 - mandatory webhook authentication
-- short-lived, single-use Agent manifest download token
-- request body, log collection, and Agent payload limits
-- `safe`, `node-diagnostics`, and `ebpf` Agent permission modes
+- short-lived one-time Agent manifest download token
+- request body, log collection, Agent payload limits
+- `safe`, `node-diagnostics`, `ebpf` Agent permission modes
 - idempotent evidence response handling
-- evidence request pagination and query indexes
+- evidence request pagination/query indexes
 - Kubernetes API response cache
-- PostgreSQL and MariaDB backup/restore validation
+- PostgreSQL/MariaDB backup and restore validation
 - Agent bootstrap token rotation
 - optional Agent mTLS enforcement
-- topology history comparison and change highlighting
+- topology history comparison
 - role-restricted audit JSON/CSV export
 
----
+### Phase 8: Operational Validation
+
+- expanded demo scenario catalog
+- live API scenario validation runner
+- read-only DaemonSet operational checker
+- UTF-8 Korean documentation cleanup for key docs
+- regression test for demo scenario report quality and unsafe action guardrails
 
 ## Near-Term Priorities
 
-## Documentation
+### Real Cluster Validation
 
-- Keep Korean summary sections for portfolio and interview readability.
-- Keep English reference sections for API and operations usage.
-- Keep action workflow documentation aligned with manual-only behavior.
+- Agent DaemonSet을 실제 Kubernetes 클러스터에 canary로 배포
+- 배포판별 collector 차이 확인: kubeadm, k3s/RKE2, EKS/AKS/GKE, OpenShift 계열
+- runtime socket 자동 탐지와 override 검증
+- hostPath와 ServiceAccount 권한 최소화 검증
+- evidence payload 크기와 redaction 품질 확인
 
-## CI And Validation
+### Scenario Quality
 
-- Confirm latest GitHub Actions run.
-- Keep Java, Python, frontend, Helm, and Docker checks separated.
-- Add workflow badge after stable validation.
+- DiskPressure, inode, MemoryPressure, PIDPressure, NetworkUnavailable 계열 반복 검증
+- kubelet/container runtime/systemd/kernel/network/DNS/CNI/conntrack 신호 오탐 반례 추가
+- report confidence와 root cause ranking 기준 보강
+- timeline edge가 실제 장애 전파 흐름을 설명하는지 검증
 
-## API And Agent Compatibility
+### LLM Integration
 
-- Expand `/api/v1` gradually.
-- Add compatibility tests for agent protocol changes.
-- Consider strict compatibility mode later.
+- provider별 timeout, retry, fallback 검증
+- OpenAI, Gemini, Claude, Ollama/local model 설정 문서화
+- LLM 결과 schema validation 강화
+- LLM 장애 시 Rule-based report 단독 동작 확인
 
-## Enterprise Readiness
+### Enterprise Readiness
 
-- Expand RBAC into a permission matrix.
-- Extend topology comparison with long-term trend storage.
-- Exercise backup and restore runbook for every release candidate.
-- Improve on-prem and private registry documentation.
-- Add SIEM delivery and signed compliance reports.
+- RBAC permission matrix 확장
+- SIEM/webhook delivery 옵션 검토
+- signed report 또는 감사용 export bundle 검토
+- private registry/on-prem 배포 문서 보강
+- backup/restore runbook을 release candidate마다 재검증
 
-## Portfolio Positioning
+## Positioning
 
-> This project is an enterprise-ready direction portfolio, not a full commercial enterprise product. It focuses on safe RCA, evidence traceability, policy guardrails, auditability, and operational foundations.
+이 프로젝트는 완제품 상용 솔루션이라기보다, 엔터프라이즈 RCA 플랫폼 방향성을 보여주는 구현체입니다. 핵심은 안전한 evidence 수집, 근거 기반 RCA, policy guardrail, auditability, 운영 확장 기반입니다.

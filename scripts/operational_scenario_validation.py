@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""Run operational RCA scenario validation against a live platform.
+
+The script uses the public API only:
+  login -> list demo scenarios -> run selected scenarios -> wait for analysis
+  -> fetch report and timeline -> validate the report quality gate.
+
+Required environment for non-interactive use:
+  RCA_ADMIN_PASSWORD or RCA_PASSWORD
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+EXPECTED_SIGNALS: dict[str, set[str]] = {
+    "node-not-ready": {"node_not_ready"},
+    "disk-pressure": {"disk_usage_critical", "disk_io_latency_high"},
+    "inode-exhaustion": {"inode_usage_critical"},
+    "memory-pressure": {"memory_pressure_critical", "kernel_oom_detected"},
+    "pid-pressure": {"pid_usage_high"},
+    "kubelet-failure": {"kubelet_unit_unhealthy", "systemd_failed_units"},
+    "runtime-failure": {"containerd_unit_unhealthy", "container_runtime_unit_unhealthy"},
+    "coredns-latency": {"dns_latency_high"},
+    "cni-mtu-mismatch": {"cni_mtu_values_inconsistent"},
+    "conntrack-exhaustion": {"conntrack_near_limit"},
+    "etcd-latency": {"etcd_latency_high", "disk_io_latency_high"},
+    "api-server-latency": {"api_server_latency_high"},
+    "kernel-io-error": {"kernel_io_error", "disk_io_latency_high"},
+    "network-link-flap": {"nic_link_flap"},
+    "systemd-restart-loop": {"systemd_failed_units", "kubelet_unit_unhealthy"},
+}
+
+UNSAFE_ACTION_KEYS = {
+    "restart_kubelet",
+    "restart_containerd",
+    "restart_container_runtime",
+    "cleanup_disk",
+    "cordon_node",
+    "reboot_node",
+    "open_gitops_pr",
+}
+
+
+class ApiError(RuntimeError):
+    def __init__(self, method: str, url: str, status: int, body: str) -> None:
+        self.method = method
+        self.url = url
+        self.status = status
+        self.body = body
+        super().__init__(f"{method} {url} failed with HTTP {status}: {body[:500]}")
+
+
+class Client:
+    def __init__(self, base_url: str, timeout_seconds: int) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.token: str | None = None
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        token_required: bool = True,
+    ) -> Any:
+        url = self.base_url + path
+        data = None
+        headers = {"Accept": "application/json"}
+        if body is not None:
+            data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        if token_required and self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raise ApiError(method, url, exc.code, exc.read().decode("utf-8", "replace")) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"{method} {url} failed: {exc}") from exc
+        if not raw:
+            return None
+        return json.loads(raw.decode("utf-8"))
+
+    def login(self, username: str, password: str) -> dict[str, Any]:
+        response = self.request(
+            "POST",
+            "/api/auth/login",
+            {"username": username, "password": password},
+            token_required=False,
+        )
+        token = response.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("login response did not include access_token")
+        self.token = token
+        return response
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Validate RCA demo scenarios against a running platform API."
+    )
+    parser.add_argument("--base-url", default=os.getenv("RCA_BASE_URL", "http://127.0.0.1:18080"))
+    parser.add_argument("--username", default=os.getenv("RCA_ADMIN_USERNAME", os.getenv("RCA_USERNAME", "admin")))
+    parser.add_argument("--password", default=os.getenv("RCA_ADMIN_PASSWORD", os.getenv("RCA_PASSWORD", "")))
+    parser.add_argument("--cluster-id", default=os.getenv("RCA_VALIDATION_CLUSTER_ID", ""))
+    parser.add_argument(
+        "--cluster-prefix",
+        default=os.getenv("RCA_VALIDATION_CLUSTER_PREFIX", "Operational Validation"),
+        help="Name prefix for isolated validation clusters when --cluster-id is not set.",
+    )
+    parser.add_argument("--node-name", default=os.getenv("RCA_VALIDATION_NODE_NAME", "validation-node-01"))
+    parser.add_argument(
+        "--scenarios",
+        default=os.getenv("RCA_SCENARIOS", "all"),
+        help="Comma-separated scenario keys or 'all'.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=os.getenv("RCA_OUTPUT_DIR", "validation-results/operational-scenarios"),
+    )
+    parser.add_argument(
+        "--task-timeout-seconds",
+        type=int,
+        default=int(os.getenv("RCA_TASK_TIMEOUT_SECONDS", "180")),
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=float(os.getenv("RCA_POLL_SECONDS", "2")),
+    )
+    parser.add_argument(
+        "--http-timeout-seconds",
+        type=int,
+        default=int(os.getenv("RCA_HTTP_TIMEOUT_SECONDS", "20")),
+    )
+    parser.add_argument(
+        "--min-confidence-score",
+        type=int,
+        default=int(os.getenv("RCA_MIN_CONFIDENCE_SCORE", "50")),
+    )
+    return parser.parse_args()
+
+
+def choose_scenarios(requested: str, available: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_key = {scenario.get("key"): scenario for scenario in available}
+    if requested.strip().lower() == "all":
+        return available
+    selected = []
+    for key in [item.strip() for item in requested.split(",") if item.strip()]:
+        scenario = by_key.get(key)
+        if scenario is None:
+            raise RuntimeError(f"unknown scenario '{key}'. Available: {', '.join(sorted(by_key))}")
+        selected.append(scenario)
+    if not selected:
+        raise RuntimeError("no scenarios were selected")
+    return selected
+
+
+def wait_for_task(client: Client, task_id: str, timeout_seconds: int, poll_seconds: float) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    last_task: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        task = client.request("GET", f"/api/rca/analysis-tasks/{urllib.parse.quote(task_id)}")
+        last_task = task
+        if task.get("status") in {"completed", "skipped", "dead_letter"}:
+            return task
+        time.sleep(poll_seconds)
+    status = last_task.get("status") if last_task else "unknown"
+    raise RuntimeError(f"analysis task {task_id} did not finish within {timeout_seconds}s; last status={status}")
+
+
+def create_validation_cluster(client: Client, prefix: str, scenario_key: str, run_id: str) -> dict[str, Any]:
+    safe_key = scenario_key.replace("_", "-")
+    return client.request(
+        "POST",
+        "/api/clusters",
+        {
+            "name": f"{prefix} {safe_key} {run_id}",
+            "environment": "validation",
+            "description": "Created by operational_scenario_validation.py for isolated RCA validation.",
+        },
+    )
+
+
+def derived_signals(report: dict[str, Any]) -> list[dict[str, Any]]:
+    for section in report.get("evidence", []):
+        if section.get("type") == "derived_signals":
+            signals = section.get("signals", [])
+            return signals if isinstance(signals, list) else []
+    return []
+
+
+def validate_report(
+    scenario_key: str,
+    report: dict[str, Any],
+    timeline: dict[str, Any] | None,
+    min_confidence_score: int,
+) -> list[str]:
+    errors: list[str] = []
+    candidates = report.get("root_cause_candidates") or []
+    actions = report.get("recommended_actions") or []
+    signals = derived_signals(report)
+    signal_names = {str(signal.get("signal")) for signal in signals}
+    expected = EXPECTED_SIGNALS.get(scenario_key, set())
+
+    if not candidates:
+        errors.append("root_cause_candidates is empty")
+    else:
+        score = int(candidates[0].get("confidence_score") or 0)
+        if score < min_confidence_score:
+            errors.append(f"top confidence_score {score} is below {min_confidence_score}")
+        if not candidates[0].get("evidence_paths"):
+            errors.append("top root cause candidate has no evidence_paths")
+
+    if not actions:
+        errors.append("recommended_actions is empty")
+
+    if not signals:
+        errors.append("derived_signals is empty")
+    elif expected and not signal_names.intersection(expected):
+        errors.append(
+            "expected signal missing; expected one of "
+            + ",".join(sorted(expected))
+            + f", actual={','.join(sorted(signal_names))}"
+        )
+
+    for action in actions:
+        action_key = str(action.get("action_key") or "")
+        source = str(action.get("source") or "")
+        automation_allowed = bool(action.get("automation_allowed"))
+        execution_plan = action.get("execution_plan") or {}
+        executable = bool(execution_plan.get("executable"))
+        if source == "llm" and automation_allowed:
+            errors.append(f"LLM action {action_key} has automation_allowed=true")
+        if action_key in UNSAFE_ACTION_KEYS and (automation_allowed or executable):
+            errors.append(
+                f"unsafe action {action_key} is executable or automation_allowed "
+                f"(automation_allowed={automation_allowed}, executable={executable})"
+            )
+
+    if timeline is None:
+        errors.append("incident timeline is missing")
+    elif not timeline.get("nodes"):
+        errors.append("incident timeline has no nodes")
+
+    return errors
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    args = parse_args()
+    if not args.password:
+        print("RCA_ADMIN_PASSWORD or RCA_PASSWORD is required", file=sys.stderr)
+        return 2
+    if args.task_timeout_seconds < 1:
+        print("--task-timeout-seconds must be positive", file=sys.stderr)
+        return 2
+
+    started_at = datetime.now(timezone.utc)
+    output_dir = Path(args.output_dir)
+    run_id = started_at.strftime("%Y%m%d-%H%M%S")
+    run_dir = output_dir / run_id
+    client = Client(args.base_url, args.http_timeout_seconds)
+
+    print(f"Logging in to {args.base_url} as {args.username}")
+    client.login(args.username, args.password)
+    scenario_response = client.request("GET", "/api/demo/scenarios")
+    if not scenario_response.get("enabled"):
+        raise RuntimeError("demo scenario mode is disabled on the target platform")
+
+    selected = choose_scenarios(args.scenarios, scenario_response.get("scenarios", []))
+    print("Selected scenarios: " + ", ".join(str(scenario["key"]) for scenario in selected))
+
+    results: list[dict[str, Any]] = []
+    for scenario in selected:
+        key = str(scenario["key"])
+        scenario_cluster = (
+            {"cluster_id": args.cluster_id}
+            if args.cluster_id
+            else create_validation_cluster(client, args.cluster_prefix, key, run_id)
+        )
+        scenario_cluster_id = str(scenario_cluster["cluster_id"])
+        print(f"Running scenario: {key}")
+        run_response = client.request(
+            "POST",
+            f"/api/demo/scenarios/{urllib.parse.quote(key)}/run",
+            {
+                "confirmed": True,
+                "cluster_id": scenario_cluster_id,
+                "node_name": args.node_name,
+            },
+        )
+        task_id = run_response["analysis_task"]["task_id"]
+        task = wait_for_task(client, task_id, args.task_timeout_seconds, args.poll_seconds)
+        report_id = task.get("report_id")
+        report = None
+        timeline = None
+        errors: list[str] = []
+        if task.get("status") != "completed":
+            errors.append(f"analysis task ended with status={task.get('status')}")
+        elif not report_id:
+            errors.append("completed task has no report_id")
+        else:
+            report = client.request("GET", f"/api/rca/reports/{urllib.parse.quote(str(report_id))}")
+            incident_id = report.get("incident_id")
+            if incident_id:
+                timeline = client.request(
+                    "GET",
+                    f"/api/rca/incidents/{urllib.parse.quote(str(incident_id))}/timeline",
+                )
+            errors.extend(validate_report(key, report, timeline, args.min_confidence_score))
+
+        signal_names = [signal.get("signal") for signal in derived_signals(report or {})]
+        result = {
+            "scenario_key": key,
+            "scenario_name": scenario.get("name"),
+            "cluster_id": scenario_cluster_id,
+            "task_id": task_id,
+            "task_status": task.get("status"),
+            "report_id": report_id,
+            "incident_id": None if report is None else report.get("incident_id"),
+            "signal_names": signal_names,
+            "root_cause_count": len((report or {}).get("root_cause_candidates") or []),
+            "recommended_action_count": len((report or {}).get("recommended_actions") or []),
+            "timeline_node_count": 0 if timeline is None else len(timeline.get("nodes") or []),
+            "passed": not errors,
+            "errors": errors,
+        }
+        results.append(result)
+        write_json(run_dir / "reports" / f"{key}.json", report or {"error": errors})
+        if timeline is not None:
+            write_json(run_dir / "timelines" / f"{key}.json", timeline)
+        print(("PASS" if result["passed"] else "FAIL") + f" {key}: " + "; ".join(errors or ["ok"]))
+
+    summary = {
+        "schema_version": "1.0",
+        "started_at": started_at.isoformat(),
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "base_url": args.base_url,
+        "node_name": args.node_name,
+        "cluster_id": args.cluster_id,
+        "cluster_isolation": "provided_cluster_id" if args.cluster_id else "cluster_per_scenario",
+        "scenario_count": len(results),
+        "passed_count": sum(1 for result in results if result["passed"]),
+        "failed_count": sum(1 for result in results if not result["passed"]),
+        "results": results,
+    }
+    write_json(run_dir / "summary.json", summary)
+    print(f"Validation summary written to {run_dir / 'summary.json'}")
+    return 0 if summary["failed_count"] == 0 else 1
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        raise SystemExit(130)
+    except Exception as exc:
+        print(f"Validation failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)

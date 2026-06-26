@@ -23,10 +23,16 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class DemoScenarioService {
     private static final List<DemoScenario> SCENARIOS = List.of(
+        new DemoScenario("node-not-ready", "Node Not Ready", "NodeNotReady",
+            "Kubernetes node readiness is false and should be correlated with node-local evidence."),
         new DemoScenario("disk-pressure", "Disk Pressure", "DiskPressure",
             "Filesystem usage and block I/O latency exceed safe thresholds."),
+        new DemoScenario("inode-exhaustion", "Inode Exhaustion", "DiskPressure",
+            "Filesystem inode usage is near exhaustion even when byte capacity is not full."),
         new DemoScenario("memory-pressure", "Memory Pressure", "MemoryPressure",
             "Node memory usage reaches a critical level."),
+        new DemoScenario("pid-pressure", "PID Pressure", "PIDPressure",
+            "Process and thread count approaches the node PID limit."),
         new DemoScenario("kubelet-failure", "Kubelet Failure", "KubeletDown",
             "The kubelet service is inactive and cannot report node state."),
         new DemoScenario("runtime-failure", "Container Runtime Failure", "ContainerdDown",
@@ -41,6 +47,10 @@ public class DemoScenarioService {
             "Etcd request and fsync latency affect the control plane."),
         new DemoScenario("api-server-latency", "API Server Latency", "APIServerLatencyHigh",
             "Kubernetes API server response latency is elevated."),
+        new DemoScenario("kernel-io-error", "Kernel I/O Error", "DiskPressure",
+            "Kernel logs contain filesystem or block device I/O errors."),
+        new DemoScenario("network-link-flap", "Network Link Flap", "NetworkUnavailable",
+            "NIC carrier or link state changes during the incident window."),
         new DemoScenario("systemd-restart-loop", "Systemd Restart Loop", "NodeNotReady",
             "A critical systemd unit repeatedly enters auto-restart.")
     );
@@ -142,6 +152,19 @@ public class DemoScenarioService {
 
     private Map<String, Object> evidenceFor(String scenarioKey, String nodeName) {
         return switch (scenarioKey) {
+            case "node-not-ready" -> Map.of(
+                "node", Map.of("ready", false, "status", "not_ready"),
+                "kubernetes", Map.of(
+                    "node_ready", false,
+                    "conditions", List.of(Map.of(
+                        "type", "Ready",
+                        "status", "False",
+                        "reason", "KubeletNotReady",
+                        "message", "container runtime network not ready"
+                    ))
+                ),
+                "kubelet", Map.of("status", "running", "ready", false)
+            );
             case "disk-pressure" -> Map.of(
                 "disk", Map.of("root_usage_percent", 96.0, "await_ms", 48.0),
                 "inode", Map.of("root_usage_percent", 87.0),
@@ -163,9 +186,22 @@ public class DemoScenarioService {
                     )))
                 ))
             );
+            case "inode-exhaustion" -> Map.of(
+                "disk", Map.of("root_usage_percent", 72.0, "await_ms", 8.0),
+                "inode", Map.of("inode_usage_percent", 98.5, "root_usage_percent", 98.5),
+                "kernel", Map.of("messages", List.of("No space left on device while creating inode"))
+            );
             case "memory-pressure" -> Map.of(
                 "memory", Map.of("usage_percent", 94.0, "available_bytes", 268_435_456),
                 "kernel", Map.of("messages", List.of("Memory cgroup out of memory: Killed process 4242"))
+            );
+            case "pid-pressure" -> Map.of(
+                "process", Map.of(
+                    "pid_usage_percent", 96.0,
+                    "process_count", 31_900,
+                    "pid_max", 32_768,
+                    "zombie_processes", 42
+                )
             );
             case "kubelet-failure" -> Map.of(
                 "kubelet", Map.of("status", "failed", "ready", false),
@@ -195,6 +231,25 @@ public class DemoScenarioService {
             case "api-server-latency" -> Map.of(
                 "kubernetes", Map.of("api_server_latency_ms", 2_180.0, "ready", true),
                 "network", Map.of("control_plane_rtt_ms", 420.0)
+            );
+            case "kernel-io-error" -> Map.of(
+                "disk", Map.of("root_usage_percent", 79.0, "await_ms", 62.0),
+                "kernel", Map.of("messages", List.of(
+                    "blk_update_request: I/O error, dev sda, sector 1048576",
+                    "EXT4-fs error (device sda1): ext4_find_entry: reading directory block"
+                ))
+            );
+            case "network-link-flap" -> Map.of(
+                "network", Map.of(
+                    "interface", "eth0",
+                    "carrier_changes", 7,
+                    "rx_dropped", 180,
+                    "tx_errors", 12
+                ),
+                "kernel", Map.of("messages", List.of(
+                    "eth0: Link is Down",
+                    "eth0: Link is Up - 1000Mbps/Full"
+                ))
             );
             case "systemd-restart-loop" -> Map.of(
                 "systemd", Map.of(

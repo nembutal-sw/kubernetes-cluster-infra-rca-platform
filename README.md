@@ -1,84 +1,77 @@
 # Kubernetes Cluster Infra RCA Platform
 
-Kubernetes 클러스터의 노드와 Linux 시스템 장애를 진단하는 RCA 플랫폼입니다.
+Kubernetes 애플리케이션 장애가 아니라 **클러스터 노드와 Linux 시스템 레벨 장애**를 진단하는 RCA 플랫폼입니다.
 
-노드 에이전트가 커널, systemd, 디스크, inode, 메모리, PID, 네트워크, conntrack, 컨테이너 런타임, kubelet, CNI, DNS 정보를 수집합니다. 중앙 플랫폼은 증거를 전처리하고 Rule-based 분석, 선택적 LLM 분석, Policy Engine 분류를 거쳐 RCA 보고서를 생성합니다.
+Node Agent가 커널 로그, systemd, 디스크, inode, 메모리, PID, 네트워크, conntrack, 컨테이너 런타임, kubelet, CNI, DNS 정보를 수집합니다. Platform은 evidence를 전처리하고 Rule-based 분석, 선택적 LLM 분석, Policy Engine 분류를 거쳐 RCA 보고서를 생성합니다.
 
-LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `automation_allowed=false`이며 직접 실행되지 않습니다.
+LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 항상 `automation_allowed=false`이며 Platform이나 Agent가 직접 실행하지 않습니다.
 
-Prometheus나 Alertmanager가 없는 환경에서는 `RCA_MONITORING_ENABLED=true`로 플랫폼 주기 수집을 활성화할 수 있습니다. 정상 evidence는 저장만 하고, 장애 signal이 감지될 때만 RCA 보고서를 생성합니다.
+## Scope
 
-시간상 인접하고 causal rule로 연결되는 storage, runtime, kubelet, network, DNS,
-control-plane 신호는 하나의 incident로 묶습니다. DNS, CNI, network, conntrack, etcd,
-API Server 신호는 Service endpoint 또는 control-plane peer 관계가 확인될 때만 노드 간
-상관분석을 허용합니다. 더 상위 원인 evidence가 뒤늦게 수집되면 canonical root cause를
-승격합니다.
+주요 진단 대상:
 
-Web Console에서는 장애 전파 타임라인, 후보별 신뢰도 점수, Agent 상태, Service-Node
-토폴로지 그래프와 확인된 pod/workload/Service 영향 범위를 볼 수 있습니다. 완전한 최신
-인벤토리가 수집되면 사라진 Node, Pod, Service 관계를 자동으로 만료합니다.
+- `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
+- kubelet, containerd, CRI runtime 장애
+- CNI, DNS, CoreDNS, API Server, etcd latency
+- 디스크 용량, inode 고갈, I/O latency, kernel I/O error
+- systemd unit 실패와 restart loop
+- NIC link flap, conntrack 고갈, 노드 네트워크 장애
 
-운영 metric은 Micrometer/Actuator로 제공하며 Prometheus는 선택 사항입니다. Agent offline,
-heartbeat lag, analysis queue/dead-letter, evidence 수집, report 생성 시간, LLM과 알림 결과를
-확인할 수 있습니다. 자세한 내용은 [Observability And SLO](docs/observability.md)를 참고합니다.
+보조 evidence:
 
-운영 데이터는 설정된 보존 기간에 따라 작은 배치로 정리합니다. 열린 incident와 승인 처리 중인
-조치는 삭제하지 않으며, 참조가 남은 evidence도 보존합니다. 자세한 기준은
-[Retention Policy](docs/retention-policy.md)를 참고합니다.
+- `CrashLoopBackOff`
+- `ImagePullBackOff`
+- Pod `OOMKilled`
+- HTTP 5xx 증가
+- Service endpoint 없음
+- Ingress 설정 오류
 
 ## Architecture
 
 ```text
-Alertmanager 또는 수동 수집 요청
-  -> Node Agent 증거 수집
-  -> DB 기반 durable analysis queue
-  -> 전처리 및 Rule-based RCA
-  -> 선택적 Spring AI 분석
-  -> Policy Engine 검증
-  -> Kubernetes topology inventory
-  -> 다중 신호 및 cross-node Incident Correlation
-  -> inactivity 기반 자동 종료 및 재발 계보
-  -> RCA 보고서, causal timeline, 승인 기반 조치
+Alertmanager / Platform Scheduler / Demo Scenario
+  -> Evidence Request
+  -> Node Agent read-only collection
+  -> Durable Analysis Queue
+  -> Evidence preprocessing
+  -> Rule-based RCA
+  -> Optional LLM explanation
+  -> Policy Engine
+  -> Incident correlation
+  -> RCA Report / Timeline / Audit / Manual Action Workflow
 ```
 
 | Component | Stack | Role |
 | --- | --- | --- |
-| Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
-| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 클러스터, 에이전트, 증거, 보고서 관리 |
-| Node Agent | Python 3.10+ | Linux/Kubernetes 증거 수집, 선택적 eBPF 트레이싱 |
-| Database | PostgreSQL 또는 MariaDB | 플랫폼 데이터 저장 |
-| Migration | Flyway | 공통 DB 스키마 관리 |
-
-## Main Targets
-
-- `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
-- kubelet, containerd 및 CRI runtime 장애
-- CNI, DNS, CoreDNS, API Server, etcd 지연
-- 디스크 용량, inode, I/O latency, kernel I/O error
-- systemd unit 실패 및 재시작 반복
-- NIC link flap, conntrack 고갈, 노드 네트워크 장애
-
-`CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`, HTTP 5xx 등은 보조 증거로 취급합니다.
+| Platform | Spring Boot 3.5.x, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
+| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 클러스터, Agent, evidence, report 관리 |
+| Node Agent | Python 3.10+ | 노드 evidence 수집, optional eBPF event |
+| Database | PostgreSQL 또는 MariaDB | 운영 데이터 저장 |
+| Migration | Flyway | DB 스키마 관리 |
 
 ## Demo Scenario
 
-개발 환경에서는 `RCA_DEMO_ENABLED=true`로 10개 대표 장애 시나리오를 실행할 수 있습니다. 생성된 evidence는 실제 Agent evidence와 같은 queue, Rule-based 분석, incident/report 흐름을 사용합니다. 운영 profile에서는 Demo Mode가 활성화되면 시작 단계에서 차단됩니다.
+개발 환경에서는 `RCA_DEMO_ENABLED=true`로 대표 장애 시나리오를 실행할 수 있습니다. 생성된 evidence는 실제 Agent evidence와 같은 queue, Rule-based 분석, incident/report 흐름을 사용합니다.
 
-주요 설정:
+현재 포함된 시나리오:
 
-```text
-RCA_DEMO_ENABLED=false
-RCA_EXPORT_MAX_BUNDLE_BYTES=10485760
-RCA_AGENT_EXPECTED_VERSION=
-```
+- node-not-ready
+- disk-pressure
+- inode-exhaustion
+- memory-pressure
+- pid-pressure
+- kubelet-failure
+- runtime-failure
+- coredns-latency
+- cni-mtu-mismatch
+- conntrack-exhaustion
+- etcd-latency
+- api-server-latency
+- kernel-io-error
+- network-link-flap
+- systemd-restart-loop
 
-중요 incident를 Slack으로 알리려면 다음 값을 설정합니다. 알림 실패는 보고서 생성을 실패시키지 않으며 audit event로 남습니다.
-
-```text
-RCA_NOTIFICATION_ENABLED=true
-RCA_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-RCA_NOTIFICATION_MINIMUM_SEVERITY=critical
-```
+운영 profile에서는 Demo Mode가 켜져 있으면 애플리케이션 시작 단계에서 차단됩니다.
 
 ## Quick Start
 
@@ -94,17 +87,20 @@ docker compose up --build -d
 Web/API: http://localhost:8080
 ```
 
-기본 관리자 계정은 제공하지 않습니다. `.env` 또는 외부 Secret으로 초기 관리자
-계정을 명시적으로 주입해야 합니다.
+기본 관리자 계정은 코드에 고정하지 않습니다. `.env` 또는 외부 Secret으로 초기 관리자 계정을 명시적으로 주입해야 합니다.
 
-Docker 없이 실행할 때는 Java 21과 Maven 3.9 이상이 필요합니다.
+Docker 없이 실행할 경우 Java 21과 Maven 3.9 이상이 필요합니다.
 
 ```powershell
 cd web-console
 mvn spring-boot:run
 ```
 
-기본 개발 DB는 H2 파일 DB입니다. PostgreSQL 또는 MariaDB를 사용할 때는 JDBC 설정을 지정합니다.
+## Database
+
+기본 개발 DB는 H2 file DB입니다. 운영 검증은 PostgreSQL과 MariaDB를 모두 지원하도록 유지합니다.
+
+PostgreSQL:
 
 ```powershell
 $env:RCA_JDBC_URL = "jdbc:postgresql://localhost:5432/rca"
@@ -112,13 +108,17 @@ $env:RCA_DB_USERNAME = "rca"
 $env:RCA_DB_PASSWORD = "rca_password"
 ```
 
+MariaDB:
+
 ```powershell
 $env:RCA_JDBC_URL = "jdbc:mariadb://localhost:3306/rca"
+$env:RCA_DB_USERNAME = "rca"
+$env:RCA_DB_PASSWORD = "rca_password"
 ```
 
-## Spring AI
+## Spring AI / LLM
 
-기본값은 비활성화입니다. 지원 대상은 OpenAI SDK, Anthropic, Google GenAI, Ollama입니다.
+LLM은 선택 기능입니다. 기본값은 비활성화입니다.
 
 ```text
 RCA_LLM_ENABLED=true
@@ -128,47 +128,33 @@ RCA_SPRING_AI_CHAT_MODEL=openai-sdk
 SPRING_AI_OPENAI_SDK_API_KEY=...
 ```
 
-다른 provider는 `anthropic`, `google-genai`, `ollama`를 `RCA_SPRING_AI_CHAT_MODEL`에 지정합니다.
+지원 방향:
+
+- OpenAI
+- Anthropic Claude
+- Google Gemini
+- Ollama/local model
+
+LLM 실패는 RCA report 생성을 실패시키지 않습니다. Rule-based 분석은 계속 동작합니다.
 
 ## Node Agent
 
-로컬 증거 수집:
+로컬 수집:
 
 ```powershell
-.venv\Scripts\python.exe -m node_agent.main `
-  --collect-local `
-  --output evidence.json
+python -m node_agent.main --collect-local --output evidence.json
 ```
 
-DaemonSet Agent는 다음 안전장치를 사용합니다.
+DaemonSet 운영 기준:
 
-- 기본 `safe` 모드는 비-root이며 hostPID, hostNetwork, hostPath를 사용하지 않음
-- `node-diagnostics` 모드는 명시적으로 활성화하며 host 경로는 read-only mount
-- systemd와 journal은 기본적으로 file mode 수집
-- node token을 노드별 상태 디렉터리에 저장
-- 전송 실패 evidence를 디스크에 spool한 뒤 재전송
-- 지수 backoff 및 선택적 CA bundle/mTLS 지원
-- eBPF는 기본 비활성
-- 승인 조치는 Agent에서 실행하지 않고 수동 runbook 또는 GitOps PR로 처리
+- 기본 `safe` mode는 hostPath를 사용하지 않습니다.
+- `node-diagnostics` mode는 `/proc`, `/sys`, `/run`, `/var/log`, `/etc`를 read-only로 mount합니다.
+- systemd/journal 직접 접근보다 `systemdCollectorMode=file`을 기본 권장합니다.
+- evidence 전송 실패 시 spool 후 재전송합니다.
+- eBPF event 수집은 선택 기능입니다.
+- Agent-side action execution은 사용하지 않습니다.
 
-Agent 등록과 heartbeat에는 `agent_protocol_version`이 포함됩니다. 누락된 기존 Agent는
-protocol `1`로 처리하며, 지원 범위를 벗어나거나 최소 Agent 버전보다 낮으면 Web Console에서
-`version_mismatch`로 분류합니다. 현재 호환성 정보는 인증 후
-`GET /api/v1/platform/info`에서 확인할 수 있습니다.
-
-주요 설정:
-
-- `RCA_AGENT_PROTOCOL_VERSION`: Platform이 지원하는 최신 protocol
-- `RCA_AGENT_MINIMUM_SUPPORTED_PROTOCOL_VERSION`: 지원하는 최소 protocol
-- `RCA_AGENT_MINIMUM_SUPPORTED_VERSION`: 지원하는 최소 Agent 버전
-- `RCA_PLATFORM_VERSION`: Platform 표시 버전
-
-eBPF 실시간 수집을 활성화하면 OOM kill, TCP retransmit, DNS 지연 이벤트가 Evidence로 전송됩니다.
-
-Kubernetes collector는 모든 노드에서 로컬 pod를 수집하고, control-plane 우선으로 선정된
-하나의 Agent가 Service와 EndpointSlice 인벤토리를 수집합니다. Platform은 이를 합쳐
-Node-Pod-Workload-Service 관계를 구성합니다. 실패하거나 잘린 인벤토리는 기존 관계를
-삭제하지 않으며, 완전한 스냅샷만 이전 상태를 대체합니다.
+Agent Helm 예시:
 
 ```bash
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
@@ -176,20 +162,24 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --create-namespace \
   --set backendUrl=https://rca.example.com \
   --set secret.existingSecret.name=agent-auth \
+  --set mode=node-diagnostics \
+  --set systemdCollectorMode=file
+```
+
+eBPF 실험:
+
+```bash
+helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --namespace rca-system \
+  --set backendUrl=https://rca.example.com \
+  --set secret.existingSecret.name=agent-auth \
   --set mode=ebpf \
   --set ebpf.enabled=true
 ```
 
-Linux 5.8 이전 커널처럼 legacy BPF 권한이 필요한 환경에서만
-`--set ebpf.legacySysAdmin=true`를 추가합니다.
-
-승인 workflow는 요청, 승인/거절, audit, 수동 처리 완료 기록으로 구성됩니다.
-명령과 YAML은 runbook 또는 GitOps PR 안내로만 제공되며 Platform과 Agent가 직접 실행하지 않습니다.
-LLM 제안은 항상 `automation_allowed=false`입니다.
-
 ## Helm
 
-중앙 플랫폼과 DB:
+Platform과 DB:
 
 ```bash
 helm upgrade --install rca charts/cluster-infra-rca-platform
@@ -212,21 +202,11 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set-string platform.secret.databasePassword='change-me'
 ```
 
-Agent:
-
-```bash
-helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
-  --namespace rca-system \
-  --create-namespace \
-  --set backendUrl=https://rca.example.com \
-  --set secret.create=true \
-  --set secret.clusterId=cluster-xxx \
-  --set secret.agentToken=token-xxx
-```
-
-Helm 이미지 repository 값은 예시 placeholder입니다. 실제 배포 시 사용하는 registry로 지정해야 합니다.
+이미지 repository 값은 placeholder입니다. 실제 배포 전 사용하는 registry로 바꿔야 합니다.
 
 ## Validation
+
+개발 검증:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
@@ -237,40 +217,48 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 bash scripts/linux-dev-check.sh --full
 ```
 
-검증 범위:
+운영 시나리오 검증:
 
-- Node Agent pytest 및 Python compile
-- React/TypeScript/Vite production build
-- Spring Boot API/UI 통합 테스트
-- PostgreSQL/MariaDB Testcontainers 호환성 및 기존 Alembic DB 승계
-- Ubuntu, Debian, Rocky Linux, openSUSE Agent 수집 호환성
-- Helm HA, NetworkPolicy, External Secrets, DB backup 렌더링
-- 인증, 클러스터, 에이전트, evidence, RCA report 흐름
-- 분석 queue lease, retry, dead-letter 및 수동 재처리
-- retention cleanup의 FK-safe 삭제 순서와 활성 incident/action 보존
+```bash
+export RCA_BASE_URL=http://127.0.0.1:18080
+export RCA_ADMIN_USERNAME=admin
+export RCA_ADMIN_PASSWORD='<admin-password>'
 
-## Production Security
+python3 scripts/operational_scenario_validation.py
+```
 
-운영 환경은 `SPRING_PROFILES_ACTIVE=prod`로 실행합니다. 기본 admin 비밀번호, 개발용
-webhook token, 예제 DB 비밀번호, HTTP public URL, 빈 encryption secret 등이 남아 있으면
-애플리케이션이 시작되지 않습니다.
+`--cluster-id`를 주지 않으면 시나리오별 validation cluster를 자동 생성해 incident correlation 간섭을 피합니다.
 
-필수 설정과 역할별 권한은 [docs/security.md](docs/security.md)에 정리되어 있습니다.
+DaemonSet read-only 검증:
 
-CI 검증 구조와 동시성, spool, redaction 테스트는
-[docs/phase3-testing-ci.md](docs/phase3-testing-ci.md)에 정리되어 있습니다.
+```bash
+python3 scripts/daemonset_operational_check.py \
+  --namespace rca-system \
+  --output validation-results/daemonset-check.json
+```
+
+자세한 기준은 [docs/testing.md](docs/testing.md)와 [docs/daemonset-operations-checklist.md](docs/daemonset-operations-checklist.md)를 참고합니다.
+
+## Security Position
+
+- API 로그인은 session token 기반입니다.
+- Agent는 cluster token과 node token을 함께 검증합니다.
+- Webhook, manifest, metrics endpoint는 별도 인증 경계를 갖습니다.
+- report/evidence export는 운영 역할로 제한하고 audit을 남깁니다.
+- 승인 workflow는 실행이 아니라 수동 처리 기록, runbook, GitOps PR 안내로 끝납니다.
+- production profile은 기본 비밀번호, 빈 webhook token, 개발용 secret을 fail-fast로 차단합니다.
 
 ## Repository
 
 ```text
-web-console/  Spring Boot platform and Web Console
+web-console/  Spring Boot platform and React Web Console
 node_agent/   Python node evidence collector
 charts/       Platform and Agent Helm charts
 manifests/    Agent example manifest
 tests/        Node Agent tests
 docs/         Design and operation documents
-scripts/      Local validation scripts
+scripts/      Local and operational validation scripts
 examples/     Sample webhook and report payloads
 ```
 
-세부 문서는 [docs](docs/)에서 확인할 수 있습니다.
+상세 문서는 [docs](docs/)에서 확인합니다.
