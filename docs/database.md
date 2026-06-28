@@ -24,9 +24,9 @@ RCA_DB_PASSWORD=change-me
 
 Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니다.
 
-현재 스키마는 Flyway version 12입니다. `V11`은 1회용 Agent manifest download token을,
-`V12`는 evidence request 목록 조회용 복합 인덱스를 추가합니다. PostgreSQL, MariaDB,
-H2에서 동일한 migration 순서를 사용합니다.
+현재 스키마는 Flyway version 13입니다. `V11`은 1회용 Agent manifest download token을,
+`V12`는 evidence request 목록 조회용 복합 인덱스를, `V13`은 audit event 검색용 인덱스를
+추가합니다. PostgreSQL, MariaDB, H2에서 동일한 migration 순서를 사용합니다.
 
 기존 Python/Alembic DB를 연결하면 `baseline-on-migrate`가 기존 스키마를 version 1로 등록합니다. 새 DB에서는 version 1 스키마를 직접 생성합니다. 기존 데이터를 연결하기 전에 DB 백업을 권장합니다.
 

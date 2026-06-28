@@ -118,7 +118,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(12);
+        assertThat(migration.migrationsExecuted).isEqualTo(13);
 
         JdbcRcaStore repository = repository(dataSource);
         var admin = repository.ensureDefaultAdmin("admin", "admin");
@@ -487,7 +487,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(11);
+        assertThat(migration.migrationsExecuted).isEqualTo(12);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class
