@@ -25,6 +25,7 @@ import io.clusterinfra.rca.webconsole.service.RcaService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.TopologyService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
@@ -91,7 +92,11 @@ public class ClusterController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
-    public Cluster create(@Valid @RequestBody ClusterCreateRequest request, Authentication authentication) {
+    public Cluster create(
+        @Valid @RequestBody ClusterCreateRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
         UserAccount user = access.currentUser(authentication);
         Cluster cluster = clusters.create(request);
         audit.user(
@@ -100,7 +105,8 @@ public class ClusterController {
             "cluster",
             cluster.clusterId(),
             "success",
-            Map.of("name", cluster.name(), "environment", cluster.environment())
+            Map.of("name", cluster.name(), "environment", cluster.environment()),
+            servletRequest
         );
         return cluster;
     }
@@ -161,7 +167,8 @@ public class ClusterController {
     public Map<String, Object> delete(
         @PathVariable String clusterId,
         @RequestParam(name = "confirm_name") String confirmName,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
         Cluster cluster = requireCluster(clusterId);
@@ -175,7 +182,8 @@ public class ClusterController {
             "cluster",
             clusterId,
             "success",
-            Map.of("name", cluster.name())
+            Map.of("name", cluster.name()),
+            servletRequest
         );
         return Map.of("deleted", true, "cluster_id", clusterId, "name", cluster.name());
     }
@@ -184,7 +192,8 @@ public class ClusterController {
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String, Object> rotateAgentToken(
         @PathVariable String clusterId,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         requireCluster(clusterId);
         UserAccount user = access.currentUser(authentication);
@@ -195,7 +204,8 @@ public class ClusterController {
             "cluster",
             clusterId,
             "success",
-            Map.of("requires_agent_secret_update", true)
+            Map.of("requires_agent_secret_update", true),
+            servletRequest
         );
         return Map.of(
             "cluster_id", clusterId,
@@ -212,11 +222,26 @@ public class ClusterController {
         @RequestParam(name = "backend_url", required = false) String backendUrl,
         @RequestParam(required = false) String image,
         @RequestParam(required = false) String namespace,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
+        Cluster cluster = requireCluster(clusterId);
+        audit.user(
+            user,
+            "cluster.install_command_viewed",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of(
+                "backend_url_provided", backendUrl != null && !backendUrl.isBlank(),
+                "image_provided", image != null && !image.isBlank(),
+                "namespace_provided", namespace != null && !namespace.isBlank()
+            ),
+            servletRequest
+        );
         return manifests.installCommand(
-            requireCluster(clusterId),
+            cluster,
             backendUrl,
             image,
             namespace,
@@ -277,7 +302,8 @@ public class ClusterController {
     public ClusterCollectionResponse collectionRun(
         @PathVariable String clusterId,
         @RequestBody ClusterCollectionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         if (!request.confirmed()) {
             throw new ResponseStatusException(BAD_REQUEST, "collection confirmation is required");
@@ -330,7 +356,8 @@ public class ClusterController {
             "cluster",
             clusterId,
             "success",
-            Map.of("requested_nodes", targets.size(), "created_requests", created.size(), "skipped_nodes", skipped.size())
+            Map.of("requested_nodes", targets.size(), "created_requests", created.size(), "skipped_nodes", skipped.size()),
+            servletRequest
         );
         return new ClusterCollectionResponse(clusterId, targets, created, skipped);
     }

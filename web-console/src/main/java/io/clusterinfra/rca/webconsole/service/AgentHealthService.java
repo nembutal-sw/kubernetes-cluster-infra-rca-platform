@@ -42,6 +42,9 @@ public class AgentHealthService {
         } else if (versionMismatch(agent)) {
             status = AgentHealthStatus.version_mismatch;
             reasons.addAll(versionMismatchReasons(agent));
+        } else if (capabilityDegraded(agent.health())) {
+            status = AgentHealthStatus.collector_degraded;
+            reasons.add("Agent capability self-check reported unavailable collection prerequisites.");
         } else if (collectorDegraded(agent)) {
             status = AgentHealthStatus.collector_degraded;
             reasons.add("One or more collectors reported a degraded or failed state.");
@@ -141,6 +144,28 @@ public class AgentHealthService {
             return true;
         }
         return containsState(agent.health(), List.of("degraded", "failed", "error", "unhealthy"));
+    }
+
+    private boolean capabilityDegraded(Map<String, Object> health) {
+        if (!(health.get("capabilities") instanceof Map<?, ?> capabilities)) {
+            return false;
+        }
+        Object overall = capabilities.get("overall_status");
+        if ("degraded".equalsIgnoreCase(String.valueOf(overall))) {
+            return true;
+        }
+        Object collectors = capabilities.get("collectors");
+        if (collectors instanceof Map<?, ?> collectorMap) {
+            return collectorMap.values().stream().anyMatch(this::capabilityUnavailable);
+        }
+        return false;
+    }
+
+    private boolean capabilityUnavailable(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return false;
+        }
+        return "unavailable".equalsIgnoreCase(String.valueOf(map.get("status")));
     }
 
     private boolean unauthorized(Map<String, Object> health) {

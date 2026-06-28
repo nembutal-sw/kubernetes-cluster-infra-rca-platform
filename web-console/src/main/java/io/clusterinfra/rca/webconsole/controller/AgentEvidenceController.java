@@ -16,6 +16,7 @@ import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,7 +63,10 @@ public class AgentEvidenceController {
 
     @PostMapping("/api/agents/register")
     @ResponseStatus(HttpStatus.CREATED)
-    public NodeAgentRegistrationResponse register(@Valid @RequestBody NodeAgentRegisterRequest request) {
+    public NodeAgentRegistrationResponse register(
+        @Valid @RequestBody NodeAgentRegisterRequest request,
+        HttpServletRequest servletRequest
+    ) {
         NodeAgentRegistrationResponse registered = agents.register(request);
         audit.record(
             "agent",
@@ -74,7 +78,8 @@ public class AgentEvidenceController {
             java.util.Map.of(
                 "agent_version", request.agentVersion(),
                 "agent_protocol_version", request.protocolVersionOrDefault()
-            )
+            ),
+            servletRequest
         );
         return registered;
     }
@@ -127,7 +132,10 @@ public class AgentEvidenceController {
     }
 
     @PostMapping("/api/agents/evidence-responses")
-    public EvidenceRequest submit(@Valid @RequestBody AgentEvidenceSubmitRequest request) {
+    public EvidenceRequest submit(
+        @Valid @RequestBody AgentEvidenceSubmitRequest request,
+        HttpServletRequest servletRequest
+    ) {
         if (request.statusOrDefault() != EvidenceRequestStatus.completed
             && request.statusOrDefault() != EvidenceRequestStatus.failed) {
             throw new ResponseStatusException(
@@ -159,7 +167,8 @@ public class AgentEvidenceController {
             "evidence_request",
             request.requestId(),
             submitted.status().name(),
-            java.util.Map.of("cluster_id", request.clusterId())
+            java.util.Map.of("cluster_id", request.clusterId()),
+            servletRequest
         );
         return submitted;
     }

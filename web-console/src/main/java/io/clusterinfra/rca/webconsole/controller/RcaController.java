@@ -28,6 +28,7 @@ import io.clusterinfra.rca.webconsole.persistence.ActionRepository;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
+import io.clusterinfra.rca.webconsole.persistence.AuditSearchCriteria;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
@@ -35,6 +36,7 @@ import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.RcaService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -163,7 +165,8 @@ public class RcaController {
     public AnalysisTask retryAnalysisTask(
         @PathVariable String taskId,
         @Valid @RequestBody ActionDecisionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         if (!request.confirmed()) {
             throw new ResponseStatusException(BAD_REQUEST, "analysis retry confirmation is required");
@@ -180,7 +183,8 @@ public class RcaController {
             "analysis_task",
             taskId,
             "queued",
-            Map.of("note", request.note() == null ? "" : request.note())
+            Map.of("note", request.note() == null ? "" : request.note()),
+            servletRequest
         );
         return task;
     }
@@ -217,9 +221,10 @@ public class RcaController {
     public Incident resolveIncident(
         @PathVariable String incidentId,
         @Valid @RequestBody ActionDecisionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
-        return changeIncidentStatus(incidentId, request, authentication, IncidentStatus.resolved);
+        return changeIncidentStatus(incidentId, request, authentication, servletRequest, IncidentStatus.resolved);
     }
 
     @PostMapping("/api/rca/incidents/{incidentId}/reopen")
@@ -227,15 +232,17 @@ public class RcaController {
     public Incident reopenIncident(
         @PathVariable String incidentId,
         @Valid @RequestBody ActionDecisionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
-        return changeIncidentStatus(incidentId, request, authentication, IncidentStatus.open);
+        return changeIncidentStatus(incidentId, request, authentication, servletRequest, IncidentStatus.open);
     }
 
     private Incident changeIncidentStatus(
         String incidentId,
         ActionDecisionRequest request,
         Authentication authentication,
+        HttpServletRequest servletRequest,
         IncidentStatus status
     ) {
         if (!request.confirmed()) {
@@ -256,7 +263,8 @@ public class RcaController {
             "incident",
             incidentId,
             status.name(),
-            Map.of("note", request.note() == null ? "" : request.note())
+            Map.of("note", request.note() == null ? "" : request.note()),
+            servletRequest
         );
         return incident;
     }
@@ -280,28 +288,53 @@ public class RcaController {
     @GetMapping("/api/audit/events")
     @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
     public List<AuditEvent> auditEvents(
+        @RequestParam(name = "actor_type", required = false) String actorType,
+        @RequestParam(name = "actor_id", required = false) String actorId,
+        @RequestParam(name = "event_type", required = false) String eventType,
+        @RequestParam(name = "resource_type", required = false) String resourceType,
+        @RequestParam(name = "resource_id", required = false) String resourceId,
+        @RequestParam(required = false) String outcome,
+        @RequestParam(name = "client_ip", required = false) String clientIp,
+        @RequestParam(name = "q", required = false) String query,
+        @RequestParam(required = false) Instant from,
+        @RequestParam(required = false) Instant to,
         @RequestParam(name = "limit", defaultValue = "200") Integer limit
     ) {
-        return audits.list(limit);
+        int safeLimit = validateAuditQuery(from, to, limit == null ? 200 : limit, 1000);
+        return audits.search(new AuditSearchCriteria(
+            actorType,
+            actorId,
+            eventType,
+            resourceType,
+            resourceId,
+            outcome,
+            clientIp,
+            query,
+            from,
+            to,
+            safeLimit
+        ));
     }
 
     @GetMapping("/api/audit/events/export")
     @PreAuthorize("hasAnyRole('ADMIN','AUDITOR')")
     public ResponseEntity<byte[]> exportAuditEvents(
+        @RequestParam(name = "actor_type", required = false) String actorType,
+        @RequestParam(name = "actor_id", required = false) String actorId,
         @RequestParam(name = "event_type", required = false) String eventType,
+        @RequestParam(name = "resource_type", required = false) String resourceType,
+        @RequestParam(name = "resource_id", required = false) String resourceId,
         @RequestParam(required = false) String outcome,
+        @RequestParam(name = "client_ip", required = false) String clientIp,
+        @RequestParam(name = "q", required = false) String query,
         @RequestParam(required = false) Instant from,
         @RequestParam(required = false) Instant to,
         @RequestParam(defaultValue = "1000") int limit,
         @RequestParam(defaultValue = "json") String format,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
-        if (limit < 1 || limit > 5000) {
-            throw new ResponseStatusException(BAD_REQUEST, "limit must be between 1 and 5000");
-        }
-        if (from != null && to != null && from.isAfter(to)) {
-            throw new ResponseStatusException(BAD_REQUEST, "from must not be after to");
-        }
+        int safeLimit = validateAuditQuery(from, to, limit, 5000);
         String normalizedFormat = format == null ? "" : format.trim().toLowerCase();
         if (!Set.of("json", "csv").contains(normalizedFormat)) {
             throw new ResponseStatusException(
@@ -309,7 +342,20 @@ public class RcaController {
                 "format must be json or csv"
             );
         }
-        List<AuditEvent> events = audits.search(eventType, outcome, from, to, limit);
+        AuditSearchCriteria criteria = new AuditSearchCriteria(
+            actorType,
+            actorId,
+            eventType,
+            resourceType,
+            resourceId,
+            outcome,
+            clientIp,
+            query,
+            from,
+            to,
+            safeLimit
+        );
+        List<AuditEvent> events = audits.search(criteria);
         UserAccount user = access.currentUser(authentication);
         audit.user(
             user,
@@ -317,7 +363,8 @@ public class RcaController {
             "audit_event",
             "bulk",
             "success",
-            Map.of("format", normalizedFormat, "event_count", events.size())
+            auditExportDetails(normalizedFormat, events.size(), criteria),
+            servletRequest
         );
         if ("csv".equals(normalizedFormat)) {
             StringBuilder csv = new StringBuilder(
@@ -355,12 +402,24 @@ public class RcaController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> exportReports(
         @RequestParam(name = "cluster_id", required = false) String clusterId,
-        @RequestParam(name = "format", defaultValue = "json") String format
+        @RequestParam(name = "format", defaultValue = "json") String format,
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         requireJson(format);
         List<RcaReport> reports = this.reports.listReports().stream()
             .filter(report -> clusterId == null || clusterId.equals(report.clusterId()))
             .toList();
+        UserAccount user = access.currentUser(authentication);
+        audit.user(
+            user,
+            "rca.reports_exported",
+            "rca_report",
+            clusterId == null ? "all" : clusterId,
+            "success",
+            Map.of("cluster_id", clusterId == null ? "" : clusterId, "report_count", reports.size()),
+            servletRequest
+        );
         return attachment(
             exportPayload(reports, Map.of("cluster_id", clusterId == null ? "" : clusterId)),
             "rca-reports-" + safeFilename(clusterId == null ? "all" : clusterId)
@@ -371,11 +430,24 @@ public class RcaController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> exportReport(
         @PathVariable String reportId,
-        @RequestParam(name = "format", defaultValue = "json") String format
+        @RequestParam(name = "format", defaultValue = "json") String format,
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         requireJson(format);
+        RcaReport report = requireReport(reportId);
+        UserAccount user = access.currentUser(authentication);
+        audit.user(
+            user,
+            "rca.report_exported",
+            "rca_report",
+            reportId,
+            "success",
+            Map.of("cluster_id", report.clusterId()),
+            servletRequest
+        );
         return attachment(
-            exportPayload(List.of(requireReport(reportId)), Map.of("report_id", reportId)),
+            exportPayload(List.of(report), Map.of("report_id", reportId)),
             "rca-report-" + safeFilename(reportId)
         );
     }
@@ -386,7 +458,8 @@ public class RcaController {
         @PathVariable String reportId,
         @PathVariable int actionIndex,
         @Valid @RequestBody ActionExecutionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
         if (!request.confirmed()) {
@@ -415,7 +488,7 @@ public class RcaController {
                 request.note(),
                 null
             );
-            auditAction(user, actionRequest, status.name());
+            auditAction(user, actionRequest, status.name(), servletRequest);
             return new ActionExecutionResponse(
                 reportId,
                 actionIndex,
@@ -444,7 +517,8 @@ public class RcaController {
                 user,
                 request.note(),
                 "No target node was found in the RCA report scope.",
-                "missing_target_node"
+                "missing_target_node",
+                servletRequest
             );
         }
         if (agents.find(report.clusterId(), nodeName).isEmpty()) {
@@ -455,7 +529,8 @@ public class RcaController {
                 user,
                 request.note(),
                 "Target node agent is not registered, so evidence collection cannot be requested.",
-                "agent_not_registered"
+                "agent_not_registered",
+                servletRequest
             );
         }
 
@@ -488,7 +563,7 @@ public class RcaController {
             request.note(),
             evidenceRequest.requestId()
         );
-        auditAction(user, actionRequest, "accepted");
+        auditAction(user, actionRequest, "accepted", servletRequest);
         return new ActionExecutionResponse(
             reportId,
             actionIndex,
@@ -510,13 +585,15 @@ public class RcaController {
     public ActionApprovalResponse approveActionRequest(
         @PathVariable String actionRequestId,
         @Valid @RequestBody ActionDecisionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         ActionRequest decided = decideActionRequest(
             actionRequestId,
             request,
             authentication,
-            ActionRequestStatus.approved_manual
+            ActionRequestStatus.approved_manual,
+            servletRequest
         );
         return new ActionApprovalResponse(decided, null);
     }
@@ -526,13 +603,15 @@ public class RcaController {
     public ActionApprovalResponse rejectActionRequest(
         @PathVariable String actionRequestId,
         @Valid @RequestBody ActionDecisionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         ActionRequest decided = decideActionRequest(
             actionRequestId,
             request,
             authentication,
-            ActionRequestStatus.rejected
+            ActionRequestStatus.rejected,
+            servletRequest
         );
         return new ActionApprovalResponse(decided, null);
     }
@@ -542,7 +621,8 @@ public class RcaController {
     public ActionApprovalResponse completeManualActionRequest(
         @PathVariable String actionRequestId,
         @Valid @RequestBody ActionManualCompletionRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         if (!request.confirmed()) {
             throw new ResponseStatusException(BAD_REQUEST, "manual completion confirmation is required");
@@ -565,7 +645,8 @@ public class RcaController {
                 "report_id", completed.reportId(),
                 "action_key", completed.actionKey(),
                 "note", request.note()
-            )
+            ),
+            servletRequest
         );
         return new ActionApprovalResponse(completed, null);
     }
@@ -574,7 +655,8 @@ public class RcaController {
         String actionRequestId,
         ActionDecisionRequest request,
         Authentication authentication,
-        ActionRequestStatus decision
+        ActionRequestStatus decision,
+        HttpServletRequest servletRequest
     ) {
         if (!request.confirmed()) {
             throw new ResponseStatusException(BAD_REQUEST, "action decision confirmation is required");
@@ -591,7 +673,7 @@ public class RcaController {
             user.email(),
             request.note()
         ).orElseThrow(() -> new ResponseStatusException(CONFLICT, "action request was already decided"));
-        auditAction(user, decided, decision.name());
+        auditAction(user, decided, decision.name(), servletRequest);
         return decided;
     }
 
@@ -602,7 +684,8 @@ public class RcaController {
         UserAccount user,
         String note,
         String message,
-        String guardrail
+        String guardrail,
+        HttpServletRequest servletRequest
     ) {
         List<String> guardrails = new java.util.ArrayList<>(action.guardrails());
         guardrails.add(guardrail);
@@ -617,7 +700,7 @@ public class RcaController {
             note,
             null
         );
-        auditAction(user, actionRequest, "blocked");
+        auditAction(user, actionRequest, "blocked", servletRequest);
         return new ActionExecutionResponse(
             reportId,
             actionIndex,
@@ -643,7 +726,12 @@ public class RcaController {
             + "the platform and node agent will not execute the command. Mark completion after manual handling.";
     }
 
-    private void auditAction(UserAccount user, ActionRequest request, String outcome) {
+    private void auditAction(
+        UserAccount user,
+        ActionRequest request,
+        String outcome,
+        HttpServletRequest servletRequest
+    ) {
         audit.user(
             user,
             "rca.action_request",
@@ -655,7 +743,8 @@ public class RcaController {
                 "action_key", request.actionKey(),
                 "policy", request.policy().name(),
                 "source", request.source()
-            )
+            ),
+            servletRequest
         );
     }
 
@@ -686,6 +775,57 @@ public class RcaController {
     private void requireJson(String format) {
         if (!"json".equalsIgnoreCase(format)) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "only json export is supported");
+        }
+    }
+
+    private int validateAuditQuery(Instant from, Instant to, int limit, int maxLimit) {
+        if (limit < 1 || limit > maxLimit) {
+            throw new ResponseStatusException(BAD_REQUEST, "limit must be between 1 and " + maxLimit);
+        }
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ResponseStatusException(BAD_REQUEST, "from must not be after to");
+        }
+        return limit;
+    }
+
+    private Map<String, Object> auditExportDetails(
+        String format,
+        int eventCount,
+        AuditSearchCriteria criteria
+    ) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("format", format);
+        details.put("event_count", eventCount);
+        details.put("limit", criteria.limit());
+        Map<String, Object> filters = auditFilterDetails(criteria);
+        if (!filters.isEmpty()) {
+            details.put("filters", filters);
+        }
+        return details;
+    }
+
+    private Map<String, Object> auditFilterDetails(AuditSearchCriteria criteria) {
+        Map<String, Object> filters = new LinkedHashMap<>();
+        putIfPresent(filters, "actor_type", criteria.actorType());
+        putIfPresent(filters, "actor_id", criteria.actorId());
+        putIfPresent(filters, "event_type", criteria.eventType());
+        putIfPresent(filters, "resource_type", criteria.resourceType());
+        putIfPresent(filters, "resource_id", criteria.resourceId());
+        putIfPresent(filters, "outcome", criteria.outcome());
+        putIfPresent(filters, "client_ip", criteria.clientIp());
+        putIfPresent(filters, "q", criteria.query());
+        if (criteria.from() != null) {
+            filters.put("from", criteria.from().toString());
+        }
+        if (criteria.to() != null) {
+            filters.put("to", criteria.to().toString());
+        }
+        return filters;
+    }
+
+    private void putIfPresent(Map<String, Object> values, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            values.put(key, value.trim());
         }
     }
 

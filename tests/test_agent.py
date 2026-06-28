@@ -10,6 +10,7 @@ import pytest
 
 from node_agent.client import AgentClient, AgentClientError
 from node_agent.ebpf import parse_event
+import node_agent.capabilities as capabilities
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 from node_agent.collectors import collector_metadata
@@ -47,6 +48,80 @@ def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None
     assert by_name["systemd"]["requires_host_pid"] is True
     assert by_name["disk"]["risk_level"] == "read_only"
     assert by_name["disk"]["max_output_bytes"] == 1_048_576
+
+
+def test_capability_report_marks_node_diagnostics_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    root = tmp_path / "root"
+    for child in ["etc", "var", "run"]:
+        (root / child).mkdir(parents=True, exist_ok=True)
+    paths = AgentPaths(
+        root=root,
+        proc=paths.proc,
+        sys=paths.sys,
+        etc=paths.etc,
+        var_log=paths.var_log,
+        run=paths.run,
+    )
+    runtime_socket = paths.run / "containerd/containerd.sock"
+    runtime_socket.parent.mkdir(parents=True, exist_ok=True)
+    runtime_socket.write_text("", encoding="utf-8")
+    token = tmp_path / "serviceaccount-token"
+    ca = tmp_path / "serviceaccount-ca.crt"
+    token.write_text("token", encoding="utf-8")
+    ca.write_text("ca", encoding="utf-8")
+
+    monkeypatch.setenv("AGENT_MODE", "node-diagnostics")
+    monkeypatch.setenv("AGENT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "443")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN", str(token))
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(ca))
+    monkeypatch.setattr(capabilities.stat, "S_ISSOCK", lambda mode: True)
+
+    report = capabilities.collect_capabilities(
+        paths=paths,
+        runner=FakeRunner(),  # type: ignore[arg-type]
+        mode="node-diagnostics",
+    )
+
+    assert report["overall_status"] == "ready"
+    assert report["collectors"]["runtime"]["status"] == "available"
+    assert report["collectors"]["kernel"]["status"] == "available"
+    assert report["collectors"]["ebpf"]["status"] == "disabled"
+
+
+def test_capability_report_respects_safe_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    token = tmp_path / "serviceaccount-token"
+    ca = tmp_path / "serviceaccount-ca.crt"
+    token.write_text("token", encoding="utf-8")
+    ca.write_text("ca", encoding="utf-8")
+
+    monkeypatch.setenv("AGENT_MODE", "safe")
+    monkeypatch.setenv("AGENT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+    monkeypatch.setenv("KUBERNETES_SERVICE_PORT", "443")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN", str(token))
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(ca))
+
+    report = capabilities.collect_capabilities(
+        paths=paths,
+        runner=FakeRunner(),  # type: ignore[arg-type]
+        mode="safe",
+    )
+
+    assert report["overall_status"] == "ready"
+    assert report["collectors"]["node"]["status"] == "available"
+    assert report["collectors"]["kubernetes"]["status"] == "available"
+    assert report["collectors"]["kernel"]["status"] == "disabled"
+    assert report["collectors"]["runtime"]["status"] == "disabled"
 
 
 def test_safe_agent_mode_disables_host_level_collectors(

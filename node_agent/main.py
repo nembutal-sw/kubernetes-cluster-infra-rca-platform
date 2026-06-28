@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from node_agent import AGENT_PROTOCOL_VERSION, SUPPORTED_COLLECTORS, __version__
+from node_agent.capabilities import agent_status_for, collect_capabilities
 from node_agent.client import AgentClient, AgentClientError
 from node_agent.collectors import (
     AgentPaths,
@@ -134,6 +135,13 @@ def collect_local_evidence(
     runner: CommandRunner,
     requested_collectors: list[str],
 ) -> dict[str, Any]:
+    mode = agent_mode()
+    capabilities = collect_capabilities(
+        paths=paths,
+        runner=runner,
+        mode=mode,
+        ebpf_enabled=mode == "ebpf" and _boolean_env("EBPF_ENABLED", False),
+    )
     collectors = collect_evidence(requested_collectors, paths=paths, runner=runner)
     return {
         "agent_version": __version__,
@@ -141,6 +149,7 @@ def collect_local_evidence(
         "node_name": os.getenv("NODE_NAME") or socket.gethostname(),
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "requested_collectors": requested_collectors,
+        "capabilities": capabilities,
         "host_paths": {
             "root": str(paths.root),
             "proc": str(paths.proc),
@@ -191,6 +200,25 @@ def run_agent(args: argparse.Namespace) -> int:
     paths = AgentPaths.from_env()
     runner = CommandRunner(timeout_seconds=args.command_timeout_seconds)
     mode = agent_mode()
+    ebpf_enabled = mode == "ebpf" and _boolean_env("EBPF_ENABLED", False)
+    if args.capability_check:
+        capabilities = collect_capabilities(
+            paths=paths,
+            runner=runner,
+            mode=mode,
+            ebpf_enabled=ebpf_enabled,
+        )
+        write_local_evidence(
+            {
+                "agent_version": __version__,
+                "agent_protocol_version": AGENT_PROTOCOL_VERSION,
+                "node_name": os.getenv("NODE_NAME") or socket.gethostname(),
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "capabilities": capabilities,
+            },
+            args.output,
+        )
+        return 0
     if args.collect_local:
         evidence = collect_local_evidence(
             paths=paths,
@@ -203,7 +231,7 @@ def run_agent(args: argparse.Namespace) -> int:
     client = build_client_from_env(timeout_seconds=args.http_timeout_seconds)
     metadata = _agent_metadata(paths, runner)
     ebpf = EbpfEventManager(
-        enabled=mode == "ebpf" and _boolean_env("EBPF_ENABLED", False),
+        enabled=ebpf_enabled,
         queue_size=_positive_int_env("EBPF_EVENT_QUEUE_SIZE", 1000),
     )
     supported_collectors = sorted(allowed_collectors(mode))
@@ -231,15 +259,23 @@ def run_agent(args: argparse.Namespace) -> int:
     ebpf.start()
     while True:
         try:
+            capabilities = collect_capabilities(
+                paths=paths,
+                runner=runner,
+                mode=mode,
+                ebpf_enabled=ebpf.enabled,
+            )
             flush_spooled_responses(client, state)
             client.heartbeat(
                 agent_version=__version__,
                 agent_protocol_version=AGENT_PROTOCOL_VERSION,
                 supported_collectors=supported_collectors,
+                status=agent_status_for(capabilities),
                 health={
                     "agent": "running",
                     "mode": mode,
                     "ebpf": "enabled" if ebpf.enabled else "disabled",
+                    "capabilities": capabilities,
                 },
             )
             processed = process_pending_requests(
@@ -295,6 +331,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--collect-local",
         action="store_true",
         help="Collect evidence locally and exit without registering to backend",
+    )
+    parser.add_argument(
+        "--capability-check",
+        action="store_true",
+        help="Run the Agent host access self-check and exit without registering to backend",
     )
     parser.add_argument(
         "--collectors",

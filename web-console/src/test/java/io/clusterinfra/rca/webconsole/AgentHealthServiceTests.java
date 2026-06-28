@@ -68,6 +68,30 @@ class AgentHealthServiceTests {
         assertThat(health.reasons()).anyMatch(reason -> reason.contains("protocol 2"));
     }
 
+    @Test
+    void capabilitySelfCheckCanDegradeAgentHealth() {
+        NodeAgent degraded = agent(
+            "0.1.0",
+            AgentStatus.healthy,
+            Map.of(
+                "capabilities",
+                Map.of(
+                    "overall_status", "degraded",
+                    "collectors", Map.of(
+                        "runtime", Map.of("status", "unavailable")
+                    )
+                )
+            ),
+            Instant.now()
+        );
+
+        var health = service.classify(degraded);
+
+        assertThat(health.healthStatus()).isEqualTo(AgentHealthStatus.collector_degraded);
+        assertThat(health.reasons())
+            .contains("Agent capability self-check reported unavailable collection prerequisites.");
+    }
+
     private NodeAgent agent(
         String version,
         AgentStatus status,

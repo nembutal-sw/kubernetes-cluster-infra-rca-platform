@@ -75,7 +75,25 @@ The response includes a node-specific token.
   "supported_collectors": ["node", "disk", "kernel"],
   "health": {
     "agent": "running",
-    "ebpf": "disabled"
+    "ebpf": "disabled",
+    "capabilities": {
+      "schema_version": "1.0",
+      "mode": "node-diagnostics",
+      "overall_status": "limited",
+      "summary": {
+        "available": 11,
+        "limited": 2,
+        "unavailable": 0,
+        "disabled": 1
+      },
+      "collectors": {
+        "runtime": {
+          "status": "limited",
+          "reason": "Some prerequisites are present but incomplete.",
+          "checks": ["host_run", "runtime_socket"]
+        }
+      }
+    }
   }
 }
 ```
@@ -88,6 +106,7 @@ Heartbeat updates:
 - agent protocol version
 - supported collector list
 - health summary
+- capability self-check summary
 - cluster `last_seen_at`
 
 ## Agent Protocol Versioning

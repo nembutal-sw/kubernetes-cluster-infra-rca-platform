@@ -320,6 +320,24 @@ pre,
   border-top: 1px solid var(--console-line);
 }
 
+.audit-filter-form {
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--console-line);
+}
+
+.audit-user-agent {
+  max-width: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-details {
+  min-width: 16rem;
+  max-width: 28rem;
+}
+
 .text-truncate-cell {
   max-width: 20rem;
   overflow: hidden;
@@ -656,6 +674,43 @@ pre,
   border-color: rgba(47, 95, 152, .22);
   background: rgba(47, 95, 152, .06);
   color: var(--console-blue);
+}
+
+.agent-capability {
+  min-width: 0;
+  display: grid;
+  gap: .45rem;
+}
+
+.agent-capability.compact {
+  max-width: 22rem;
+}
+
+.agent-capability-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  flex-wrap: wrap;
+}
+
+.agent-capability-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+}
+
+.agent-capability-checks {
+  display: grid;
+  gap: .45rem;
+}
+
+.agent-capability-check {
+  min-width: 0;
+  border: 1px solid var(--console-line);
+  border-radius: .45rem;
+  background: var(--console-surface);
+  padding: .55rem;
 }
 
 .console-modal-backdrop {

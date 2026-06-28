@@ -5,6 +5,7 @@ import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.EvidenceBundleExportService;
 import io.clusterinfra.rca.webconsole.service.EvidenceBundleExportService.ExportedBundle;
+import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.http.ContentDisposition;
@@ -37,25 +38,28 @@ public class EvidenceBundleExportController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> reportBundle(
         @PathVariable String reportId,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
-        return response(exports.exportReport(reportId), "report", reportId, authentication);
+        return response(exports.exportReport(reportId), "report", reportId, authentication, servletRequest);
     }
 
     @GetMapping("/api/rca/incidents/{incidentId}/bundle")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> incidentBundle(
         @PathVariable String incidentId,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
-        return response(exports.exportIncident(incidentId), "incident", incidentId, authentication);
+        return response(exports.exportIncident(incidentId), "incident", incidentId, authentication, servletRequest);
     }
 
     private ResponseEntity<byte[]> response(
         ExportedBundle bundle,
         String resourceType,
         String resourceId,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
         audit.user(
@@ -64,7 +68,8 @@ public class EvidenceBundleExportController {
             resourceType,
             resourceId,
             "success",
-            Map.of("evidence_count", bundle.evidenceCount(), "raw_bytes", bundle.rawBytes())
+            Map.of("evidence_count", bundle.evidenceCount(), "raw_bytes", bundle.rawBytes()),
+            servletRequest
         );
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("application/zip"));

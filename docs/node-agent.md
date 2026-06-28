@@ -56,6 +56,25 @@ Collect evidence locally without backend registration.
 python -m node_agent.main --collect-local --collectors node,disk,kernel --output evidence.json
 ```
 
+### Capability Self-Check
+
+Run a lightweight host access check without backend registration.
+
+```bash
+python -m node_agent.main --capability-check --output capabilities.json
+```
+
+The same report is sent in every heartbeat as `health.capabilities`.
+It summarizes:
+
+- enabled collectors that are `available`, `limited`, `unavailable`, or `disabled`
+- host path readability for `/proc`, `/sys`, `/run`, `/var/log`, `/etc`, and `/`
+- Kubernetes ServiceAccount API prerequisites
+- runtime socket discovery
+- conntrack, CNI, systemd file-mode, and optional eBPF prerequisites
+
+Use this before or after DaemonSet rollout to confirm whether an Agent can collect enough evidence for RCA.
+
 ## Collector Package
 
 Collectors are organized as a package and exposed through a registry.

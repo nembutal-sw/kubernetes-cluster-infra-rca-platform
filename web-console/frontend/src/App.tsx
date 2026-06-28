@@ -39,6 +39,20 @@ import "./styles.css";
       "Event": "이벤트",
       "Resource": "대상",
       "Outcome": "결과",
+      "Search": "검색",
+      "Event type": "이벤트 타입",
+      "Actor type": "행위자 타입",
+      "Client IP": "클라이언트 IP",
+      "Resource type": "대상 타입",
+      "Resource ID": "대상 ID",
+      "From": "시작",
+      "To": "종료",
+      "Limit": "개수",
+      "All": "전체",
+      "Apply": "적용",
+      "Reset": "초기화",
+      "Details": "상세",
+      "Access": "접근",
       "Root Cause": "근본 원인",
       "Root trigger": "최초 원인 신호",
       "Causal inference": "인과 추론",
@@ -639,6 +653,7 @@ import "./styles.css";
     const [incidents, setIncidents] = React.useState([]);
     const [analysisTasks, setAnalysisTasks] = React.useState([]);
     const [auditEvents, setAuditEvents] = React.useState([]);
+    const [auditFilters, setAuditFilters] = React.useState(() => emptyAuditFilters());
     const [demoScenarios, setDemoScenarios] = React.useState({ loading: true, enabled: false, items: [] });
     const [platformInfo, setPlatformInfo] = React.useState(null);
     const [reportDetails, setReportDetails] = React.useState({});
@@ -751,11 +766,15 @@ import "./styles.css";
       }
     }, [authHeaders, callApi, notify]);
 
-    const loadAuditEvents = React.useCallback(async (silent) => {
+    const loadAuditEvents = React.useCallback(async (silent, nextFilters) => {
       if (!["admin", "auditor"].includes(currentUser?.role)) return;
       try {
         setLoading((value) => ({ ...value, audit: true }));
-        const result = await callApi("/api/audit/events?limit=300", { headers: authHeaders() });
+        const query = buildAuditQuery(nextFilters || auditFilters, {
+          limit: nextFilters?.limit || auditFilters.limit || 300,
+          maxLimit: 1000,
+        });
+        const result = await callApi(`/api/audit/events?${query}`, { headers: authHeaders() });
         setAuditEvents(Array.isArray(result) ? result : []);
       } catch (error) {
         setAuditEvents([]);
@@ -763,7 +782,7 @@ import "./styles.css";
       } finally {
         setLoading((value) => ({ ...value, audit: false }));
       }
-    }, [currentUser, authHeaders, callApi, notify]);
+    }, [currentUser, auditFilters, authHeaders, callApi, notify]);
 
     const loadAnalysisTasks = React.useCallback(async (silent) => {
       try {
@@ -1144,7 +1163,7 @@ import "./styles.css";
           actionExecutions: Array.isArray(actionExecutions) ? actionExecutions : [],
         },
       }));
-      if (currentUser?.role === "admin") loadAuditEvents(true);
+      if (["admin", "auditor"].includes(currentUser?.role)) loadAuditEvents(true);
     }
 
     async function decideActionRequest(actionRequestId, reportId, decision) {
@@ -1199,7 +1218,7 @@ import "./styles.css";
         });
         notify(`Incident ${status}.`);
         await loadIncidents(false);
-        if (currentUser?.role === "admin") loadAuditEvents(true);
+        if (["admin", "auditor"].includes(currentUser?.role)) loadAuditEvents(true);
       } catch (error) {
         notify(error.message);
       }
@@ -1249,9 +1268,22 @@ import "./styles.css";
       );
     }
 
+    async function applyAuditFilters(nextFilters) {
+      const normalized = normalizeAuditFilters(nextFilters);
+      setAuditFilters(normalized);
+      await loadAuditEvents(false, normalized);
+    }
+
+    async function resetAuditFilters() {
+      const reset = emptyAuditFilters();
+      setAuditFilters(reset);
+      await loadAuditEvents(false, reset);
+    }
+
     async function downloadAuditExport(format) {
+      const query = buildAuditQuery(auditFilters, { limit: 5000, format });
       await downloadApiFile(
-        `/api/audit/events/export?limit=5000&format=${encodeURIComponent(format)}`,
+        `/api/audit/events/export?${query}`,
         `audit-events.${format}`,
         "Audit export downloaded."
       );
@@ -1426,8 +1458,11 @@ import "./styles.css";
         }),
         activeView === "audit" && ["admin", "auditor"].includes(currentUser.role) && h(AuditView, {
           events: auditEvents,
+          filters: auditFilters,
           loading: loading.audit,
           onReload: () => loadAuditEvents(false),
+          onApplyFilters: applyAuditFilters,
+          onResetFilters: resetAuditFilters,
           onExport: downloadAuditExport,
         }),
         activeView === "demo" && h(DemoScenariosView, {
@@ -1487,7 +1522,7 @@ import "./styles.css";
         )
       ),
       h("nav", { className: "console-nav", "aria-label": "Console navigation" },
-        views.filter((view) => view.id !== "audit" || currentUser?.role === "admin").map((view) => h("button", {
+        views.filter((view) => view.id !== "audit" || ["admin", "auditor"].includes(currentUser?.role)).map((view) => h("button", {
           key: view.id,
           type: "button",
           className: activeView === view.id ? "active" : "",
@@ -1830,10 +1865,24 @@ import "./styles.css";
     ) : h(EmptyState, { message: "No incidents loaded." }));
   }
 
-  function AuditView({ events, loading, onReload, onExport }) {
+  function AuditView({ events, filters, loading, onReload, onApplyFilters, onResetFilters, onExport }) {
+    const [draft, setDraft] = React.useState(() => normalizeAuditFilters(filters));
+    React.useEffect(() => setDraft(normalizeAuditFilters(filters)), [filters]);
+    const update = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
+    const submit = (event) => {
+      event.preventDefault();
+      onApplyFilters(draft);
+    };
+    const reset = () => {
+      setDraft(emptyAuditFilters());
+      onResetFilters();
+    };
+    const activeFilterCount = auditFilterCount(filters);
     return h(Panel, {
       title: "Audit",
-      subtitle: loading ? "Loading" : `${events.length} events`,
+      subtitle: loading
+        ? "Loading"
+        : `${events.length} events${activeFilterCount ? ` / ${activeFilterCount} filters` : ""}`,
       action: h("div", { className: "btn-group btn-group-sm" },
         h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onReload },
           h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
@@ -1842,28 +1891,178 @@ import "./styles.css";
         h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => onExport("csv") },
           h(Icon, { name: "filetype-csv" }), "CSV")
       ),
-    }, events.length ? h("div", { className: "table-responsive" },
-      h("table", { className: "table table-hover align-middle mb-0" },
-        h("thead", null, h("tr", null,
-          h("th", null, tr("Created")),
-          h("th", null, tr("Actor")),
-          h("th", null, tr("Event")),
-          h("th", null, tr("Resource")),
-          h("th", null, tr("Outcome"))
-        )),
-        h("tbody", null, events.map((event) => h("tr", { key: event.audit_event_id },
-          h("td", null, formatDate(event.created_at)),
-          h("td", null, `${event.actor_type}: ${event.actor_id}`),
-          h("td", { className: "font-monospace small" }, event.event_type),
-          h("td", { className: "small" }, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`),
-          h("td", null, h(StatusBadge, {
-            value: event.outcome,
-            tone: ["success", "accepted", "approved_manual", "report_created"].includes(event.outcome) ? "green"
-              : ["failed", "blocked"].includes(event.outcome) ? "red" : "amber",
-          }))
+    }, h(React.Fragment, null,
+      h("form", { className: "audit-filter-form", onSubmit: submit },
+        h("div", { className: "row g-2 align-items-end" },
+          h("div", { className: "col-12 col-xl-3 col-md-6" },
+            h("label", { className: "form-label" }, tr("Search")),
+            h("input", {
+              className: "form-control form-control-sm",
+              value: draft.q,
+              placeholder: "event, actor, resource, detail",
+              onChange: (event) => update("q", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Event type")),
+            h("input", {
+              className: "form-control form-control-sm font-monospace",
+              value: draft.event_type,
+              placeholder: "auth.login",
+              onChange: (event) => update("event_type", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Outcome")),
+            h("select", {
+              className: "form-select form-select-sm",
+              value: draft.outcome,
+              onChange: (event) => update("outcome", event.target.value),
+            },
+              h("option", { value: "" }, tr("All")),
+              ["success", "failed", "queued", "accepted", "pending_approval", "approved_manual", "rejected", "blocked", "completed"].map((value) =>
+                h("option", { key: value, value }, value)
+              )
+            )
+          ),
+          h("div", { className: "col-6 col-xl-1 col-md-3" },
+            h("label", { className: "form-label" }, tr("Actor type")),
+            h("select", {
+              className: "form-select form-select-sm",
+              value: draft.actor_type,
+              onChange: (event) => update("actor_type", event.target.value),
+            },
+              h("option", { value: "" }, tr("All")),
+              ["user", "agent", "system"].map((value) => h("option", { key: value, value }, value))
+            )
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Actor")),
+            h("input", {
+              className: "form-control form-control-sm",
+              value: draft.actor_id,
+              placeholder: "admin",
+              onChange: (event) => update("actor_id", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Client IP")),
+            h("input", {
+              className: "form-control form-control-sm font-monospace",
+              value: draft.client_ip,
+              placeholder: "10.0.0.10",
+              onChange: (event) => update("client_ip", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Resource type")),
+            h("input", {
+              className: "form-control form-control-sm font-monospace",
+              value: draft.resource_type,
+              placeholder: "cluster",
+              onChange: (event) => update("resource_type", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("Resource ID")),
+            h("input", {
+              className: "form-control form-control-sm font-monospace",
+              value: draft.resource_id,
+              onChange: (event) => update("resource_id", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("From")),
+            h("input", {
+              type: "datetime-local",
+              className: "form-control form-control-sm",
+              value: draft.from,
+              onChange: (event) => update("from", event.target.value),
+            })
+          ),
+          h("div", { className: "col-6 col-xl-2 col-md-3" },
+            h("label", { className: "form-label" }, tr("To")),
+            h("input", {
+              type: "datetime-local",
+              className: "form-control form-control-sm",
+              value: draft.to,
+              onChange: (event) => update("to", event.target.value),
+            })
+          ),
+          h("div", { className: "col-4 col-xl-1 col-md-2" },
+            h("label", { className: "form-label" }, tr("Limit")),
+            h("input", {
+              type: "number",
+              min: "1",
+              max: "1000",
+              className: "form-control form-control-sm",
+              value: draft.limit,
+              onChange: (event) => update("limit", event.target.value),
+            })
+          ),
+          h("div", { className: "col-8 col-xl-2 col-md-4" },
+            h("div", { className: "d-grid d-sm-flex gap-2" },
+              h("button", { type: "submit", className: "btn btn-sm btn-primary btn-icon" },
+                h(Icon, { name: "search" }), tr("Apply")),
+              h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: reset }, tr("Reset"))
+            )
+          )
+        )
+      ),
+      events.length ? h(React.Fragment, null,
+        h("div", { className: "table-responsive desktop-table-view" },
+          h("table", { className: "table table-hover align-middle mb-0" },
+            h("thead", null, h("tr", null,
+              h("th", null, tr("Created")),
+              h("th", null, tr("Actor")),
+              h("th", null, tr("Event")),
+              h("th", null, tr("Resource")),
+              h("th", null, tr("Outcome")),
+              h("th", null, tr("Client IP")),
+              h("th", null, tr("Details"))
+            )),
+            h("tbody", null, events.map((event) => h("tr", { key: event.audit_event_id },
+              h("td", null, formatDate(event.created_at)),
+              h("td", null,
+                h("div", null, `${event.actor_type}: ${event.actor_id}`),
+                h("div", { className: "small text-muted font-monospace" }, event.audit_event_id)
+              ),
+              h("td", { className: "font-monospace small" }, event.event_type),
+              h("td", { className: "small text-break" }, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`),
+              h("td", null, h(StatusBadge, {
+                value: event.outcome,
+                tone: auditOutcomeTone(event.outcome),
+              })),
+              h("td", { className: "small" },
+                h("div", { className: "font-monospace" }, auditClientIp(event)),
+                h("div", { className: "text-muted audit-user-agent", title: auditUserAgent(event) }, auditUserAgent(event))
+              ),
+              h("td", { className: "small text-break audit-details", title: auditDetailsJson(event.details) },
+                h("div", { className: "font-monospace" }, auditAccessLine(event.details)),
+                h("div", { className: "text-muted" }, auditDetailsSummary(event.details))
+              )
+            )))
+          )
+        ),
+        h("div", { className: "mobile-card-list" }, events.map((event) => h("article", { key: event.audit_event_id, className: "mobile-data-card" },
+          h("div", { className: "mobile-card-header" },
+            h("div", { className: "mobile-card-title" },
+              h("strong", { className: "font-monospace" }, event.event_type),
+              h("span", { className: "small text-muted" }, formatDate(event.created_at))
+            ),
+            h(StatusBadge, { value: event.outcome, tone: auditOutcomeTone(event.outcome) })
+          ),
+          h("div", { className: "mobile-field-grid" },
+            h("div", { className: "mobile-field" }, h("span", null, tr("Actor")), h("div", null, `${event.actor_type}: ${event.actor_id}`)),
+            h("div", { className: "mobile-field" }, h("span", null, tr("Resource")), h("div", null, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`)),
+            h("div", { className: "mobile-field" }, h("span", null, tr("Client IP")), h("div", { className: "font-monospace" }, auditClientIp(event))),
+            h("div", { className: "mobile-field" }, h("span", null, "UA"), h("div", { title: auditUserAgent(event) }, auditUserAgent(event))),
+            h("div", { className: "mobile-field" }, h("span", null, tr("Access")), h("div", { className: "font-monospace" }, auditAccessLine(event.details))),
+            h("div", { className: "mobile-field" }, h("span", null, tr("Details")), h("div", null, auditDetailsSummary(event.details)))
+          )
         )))
-      )
-    ) : h(EmptyState, { message: "No audit events loaded." }));
+      ) : h(EmptyState, { message: "No audit events loaded." })
+    ));
   }
 
   function PipelineView({ tasks, loading, onReload, onRetry, currentUser }) {
@@ -2183,7 +2382,13 @@ import "./styles.css";
     return h(React.Fragment, null,
       h("div", { className: "table-responsive desktop-table-view" },
         h("table", { className: "table table-sm mb-0" },
-          h("thead", null, h("tr", null, h("th", null, tr("Node")), h("th", null, tr("Status")), h("th", null, tr("Version")), h("th", null, tr("Last seen")))),
+          h("thead", null, h("tr", null,
+            h("th", null, tr("Node")),
+            h("th", null, tr("Status")),
+            h("th", null, tr("Collection")),
+            h("th", null, tr("Version")),
+            h("th", null, tr("Last seen"))
+          )),
           h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
             h("td", { className: "font-monospace small" }, agent.node_name),
             h("td", null,
@@ -2195,6 +2400,7 @@ import "./styles.css";
                 ? h("div", { className: "small text-muted mt-1" }, agent.reasons.join(" "))
                 : null
             ),
+            h("td", null, h(AgentCapabilitySummary, { agent, compact: true })),
             h("td", null,
               h("div", null, agent.agent_version || "n/a"),
               h("div", { className: "small text-muted" },
@@ -2221,6 +2427,7 @@ import "./styles.css";
               label: "Version",
               value: `${agent.agent_version || "n/a"} / protocol ${agent.agent_protocol_version || "1"}`,
             }),
+            h(MobileField, { label: "Collection" }, h(AgentCapabilitySummary, { agent })),
             h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) }),
             (agent.reasons || []).length
               ? h(MobileField, { label: "Reason", value: agent.reasons.join(" ") })
@@ -2228,6 +2435,56 @@ import "./styles.css";
           )
         ))
       )
+    );
+  }
+
+  function AgentCapabilitySummary({ agent, compact }) {
+    const capabilities = agent.health?.capabilities;
+    if (!capabilities) {
+      return h("div", { className: compact ? "agent-capability compact" : "agent-capability" },
+        h(StatusBadge, { value: "not reported", tone: "amber" })
+      );
+    }
+    const summary = capabilities.summary || {};
+    const collectors = Object.entries(capabilities.collectors || {})
+      .filter(([, value]) => ["limited", "unavailable"].includes(value?.status))
+      .sort((left, right) => capabilityRank(right[1]?.status) - capabilityRank(left[1]?.status));
+    const checks = (capabilities.checks || [])
+      .filter((check) => ["limited", "unavailable"].includes(check.status))
+      .slice(0, compact ? 2 : 4);
+    return h("div", { className: compact ? "agent-capability compact" : "agent-capability" },
+      h("div", { className: "agent-capability-head" },
+        h(StatusBadge, {
+          value: capabilities.overall_status || "unknown",
+          tone: capabilityTone(capabilities.overall_status),
+        }),
+        h("span", { className: "small text-muted" },
+          `${summary.available || 0} ok / ${summary.limited || 0} limited / ${summary.unavailable || 0} unavailable`
+        )
+      ),
+      collectors.length
+        ? h("div", { className: "agent-capability-chips" },
+            collectors.slice(0, compact ? 3 : 8).map(([name, value]) =>
+              h("span", {
+                key: name,
+                className: `chip ${capabilityTone(value?.status)}`,
+                title: value?.reason || "",
+              }, `${name}: ${value?.status || "unknown"}`)
+            )
+          )
+        : compact ? null : h("div", { className: "small text-muted" }, tr("All enabled collectors have their required prerequisites.")),
+      checks.length && !compact
+        ? h("div", { className: "agent-capability-checks" },
+            checks.map((check) => h("div", { key: check.key, className: "agent-capability-check" },
+              h("div", { className: "d-flex justify-content-between gap-2" },
+                h("strong", null, check.label || check.key),
+                h(StatusBadge, { value: check.status, tone: capabilityTone(check.status) })
+              ),
+              h("div", { className: "small text-muted" }, check.message || check.next_step || "n/a"),
+              check.path ? h("code", { className: "small text-break" }, check.path) : null
+            ))
+          )
+        : null
     );
   }
 
@@ -3198,6 +3455,133 @@ import "./styles.css";
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function emptyAuditFilters() {
+    return {
+      q: "",
+      actor_type: "",
+      actor_id: "",
+      event_type: "",
+      resource_type: "",
+      resource_id: "",
+      outcome: "",
+      client_ip: "",
+      from: "",
+      to: "",
+      limit: "300",
+    };
+  }
+
+  function normalizeAuditFilters(filters) {
+    const base = emptyAuditFilters();
+    const source = filters || {};
+    return Object.fromEntries(Object.keys(base).map((key) => [
+      key,
+      source[key] === null || source[key] === undefined ? base[key] : String(source[key]),
+    ]));
+  }
+
+  function buildAuditQuery(filters, overrides = {}) {
+    const normalized = normalizeAuditFilters(filters);
+    const query = new URLSearchParams();
+    const limit = clampNumber(overrides.limit || normalized.limit || 300, 1, overrides.maxLimit || 5000);
+    query.set("limit", String(limit));
+    if (overrides.format) query.set("format", overrides.format);
+    ["q", "actor_type", "actor_id", "event_type", "resource_type", "resource_id", "outcome", "client_ip"].forEach((key) => {
+      const value = trimmed(normalized[key]);
+      if (value) query.set(key, value);
+    });
+    const from = auditInstant(normalized.from);
+    const to = auditInstant(normalized.to);
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    return query.toString();
+  }
+
+  function auditFilterCount(filters) {
+    const normalized = normalizeAuditFilters(filters);
+    return ["q", "actor_type", "actor_id", "event_type", "resource_type", "resource_id", "outcome", "client_ip", "from", "to"]
+      .filter((key) => trimmed(normalized[key])).length;
+  }
+
+  function auditInstant(value) {
+    const text = trimmed(value);
+    if (!text) return "";
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  }
+
+  function clampNumber(value, min, max) {
+    const number = Number.parseInt(value, 10);
+    if (!Number.isFinite(number)) return min;
+    return Math.max(min, Math.min(number, max));
+  }
+
+  function trimmed(value) {
+    return value === null || value === undefined ? "" : String(value).trim();
+  }
+
+  function auditOutcomeTone(value) {
+    if (["success", "accepted", "approved_manual", "report_created", "completed", "queued"].includes(value)) return "green";
+    if (["failed", "blocked", "rejected"].includes(value)) return "red";
+    return "amber";
+  }
+
+  function auditClientIp(event) {
+    return event?.details?.client_ip || event?.details?.remote_addr || "n/a";
+  }
+
+  function auditUserAgent(event) {
+    return event?.details?.user_agent || "n/a";
+  }
+
+  function auditAccessLine(details) {
+    if (!details || typeof details !== "object") return "n/a";
+    const method = details.method ? String(details.method) : "";
+    const path = details.path ? String(details.path) : "";
+    const request = [method, path].filter(Boolean).join(" ");
+    const queryKeys = Array.isArray(details.query_keys) && details.query_keys.length
+      ? `query: ${details.query_keys.join(",")}`
+      : "";
+    const requestId = details.request_id ? `rid: ${details.request_id}` : "";
+    return [request, queryKeys, requestId].filter(Boolean).join(" / ") || "n/a";
+  }
+
+  function auditDetailsSummary(details) {
+    if (!details || typeof details !== "object") return "n/a";
+    const hidden = new Set([
+      "client_ip",
+      "client_ip_source",
+      "remote_addr",
+      "method",
+      "path",
+      "query_keys",
+      "query_values_redacted",
+      "user_agent",
+      "origin",
+      "referer_path",
+      "request_id",
+    ]);
+    const entries = Object.entries(details)
+      .filter(([key, value]) => !hidden.has(key) && value !== null && value !== undefined && value !== "")
+      .slice(0, 5)
+      .map(([key, value]) => `${key}=${auditDetailValue(value)}`);
+    return entries.length ? entries.join(" / ") : "n/a";
+  }
+
+  function auditDetailValue(value) {
+    if (Array.isArray(value)) return value.slice(0, 4).map(auditDetailValue).join(",");
+    if (value && typeof value === "object") return JSON.stringify(value).slice(0, 160);
+    return String(value).slice(0, 160);
+  }
+
+  function auditDetailsJson(details) {
+    try {
+      return JSON.stringify(details || {}, null, 2);
+    } catch {
+      return "{}";
+    }
+  }
+
   function normalizeLocale(value) {
     return value === "ko" ? "ko" : "en";
   }
@@ -3290,6 +3674,21 @@ import "./styles.css";
     if (value === "offline" || value === "unauthorized") return "red";
     if (["degraded", "stale", "version_mismatch", "collector_degraded"].includes(value)) return "amber";
     return "blue";
+  }
+
+  function capabilityTone(value) {
+    if (value === "ready" || value === "available") return "green";
+    if (value === "degraded" || value === "unavailable") return "red";
+    if (value === "limited") return "amber";
+    if (value === "disabled") return "blue";
+    return "blue";
+  }
+
+  function capabilityRank(value) {
+    if (value === "unavailable") return 3;
+    if (value === "limited") return 2;
+    if (value === "available") return 1;
+    return 0;
   }
 
   function evidenceStatusTone(value) {

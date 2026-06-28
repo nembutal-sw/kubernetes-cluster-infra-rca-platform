@@ -1467,34 +1467,71 @@ public class JdbcRcaStore {
         );
     }
 
-    public List<AuditEvent> searchAuditEvents(
-        String eventType,
-        String outcome,
-        Instant from,
-        Instant to,
-        int limit
-    ) {
+    public List<AuditEvent> searchAuditEvents(AuditSearchCriteria criteria) {
         StringBuilder sql = new StringBuilder("SELECT * FROM audit_events WHERE 1 = 1");
         List<Object> parameters = new ArrayList<>();
-        if (eventType != null && !eventType.isBlank()) {
-            sql.append(" AND event_type = ?");
-            parameters.add(eventType.trim());
-        }
-        if (outcome != null && !outcome.isBlank()) {
-            sql.append(" AND outcome = ?");
-            parameters.add(outcome.trim());
-        }
-        if (from != null) {
+        appendExactAuditFilter(sql, parameters, "actor_type", criteria.actorType());
+        appendExactAuditFilter(sql, parameters, "actor_id", criteria.actorId());
+        appendExactAuditFilter(sql, parameters, "event_type", criteria.eventType());
+        appendExactAuditFilter(sql, parameters, "resource_type", criteria.resourceType());
+        appendExactAuditFilter(sql, parameters, "resource_id", criteria.resourceId());
+        appendExactAuditFilter(sql, parameters, "outcome", criteria.outcome());
+        if (criteria.from() != null) {
             sql.append(" AND created_at >= ?");
-            parameters.add(timestamp(from));
+            parameters.add(timestamp(criteria.from()));
         }
-        if (to != null) {
+        if (criteria.to() != null) {
             sql.append(" AND created_at <= ?");
-            parameters.add(timestamp(to));
+            parameters.add(timestamp(criteria.to()));
+        }
+        String clientIp = normalized(criteria.clientIp());
+        if (clientIp != null) {
+            sql.append(" AND LOWER(details_json) LIKE ?");
+            parameters.add("%client_ip%" + clientIp.toLowerCase() + "%");
+        }
+        String query = normalized(criteria.query());
+        if (query != null) {
+            sql.append(
+                """
+                     AND (
+                         LOWER(actor_type) LIKE ?
+                         OR LOWER(actor_id) LIKE ?
+                         OR LOWER(event_type) LIKE ?
+                         OR LOWER(resource_type) LIKE ?
+                         OR LOWER(COALESCE(resource_id, '')) LIKE ?
+                         OR LOWER(outcome) LIKE ?
+                         OR LOWER(details_json) LIKE ?
+                     )
+                    """
+            );
+            String like = "%" + query.toLowerCase() + "%";
+            for (int i = 0; i < 7; i++) {
+                parameters.add(like);
+            }
         }
         sql.append(" ORDER BY created_at DESC LIMIT ?");
-        parameters.add(Math.max(1, Math.min(limit, 5000)));
+        parameters.add(criteria.boundedLimit(200, 5000));
         return jdbc.query(sql.toString(), this::mapAuditEvent, parameters.toArray());
+    }
+
+    private void appendExactAuditFilter(
+        StringBuilder sql,
+        List<Object> parameters,
+        String column,
+        String value
+    ) {
+        String normalized = normalized(value);
+        if (normalized != null) {
+            sql.append(" AND ").append(column).append(" = ?");
+            parameters.add(normalized);
+        }
+    }
+
+    private String normalized(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     public int deleteAuditEventsBefore(Instant cutoff) {

@@ -73,7 +73,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
             request.setAttribute("rca.authenticated_node_name", nodeName);
             filterChain.doFilter(wrapped, response);
         } catch (ResponseStatusException exception) {
-            auditFailure(path, clusterId, nodeName, exception.getReason());
+            auditFailure(wrapped, path, clusterId, nodeName, exception.getReason());
             SecurityFilterSupport.writeError(
                 objectMapper,
                 response,
@@ -108,7 +108,13 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         return value;
     }
 
-    private void auditFailure(String path, String clusterId, String nodeName, String reason) {
+    private void auditFailure(
+        HttpServletRequest request,
+        String path,
+        String clusterId,
+        String nodeName,
+        String reason
+    ) {
         try {
             audit.record(
                 "agent",
@@ -120,7 +126,8 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                 Map.of(
                     "path", path,
                     "reason", reason == null ? "authentication_failed" : reason
-                )
+                ),
+                request
             );
         } catch (RuntimeException ignored) {
             // Authentication failure responses must not depend on audit storage availability.

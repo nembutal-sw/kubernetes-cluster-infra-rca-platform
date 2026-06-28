@@ -121,9 +121,14 @@ class PlatformHttpTests {
     @Test
     @Order(3)
     void adminCanLoginAndCreateCluster() throws Exception {
-        ResponseEntity<String> login = restTemplate.postForEntity(
+        HttpHeaders loginHeaders = new HttpHeaders();
+        loginHeaders.setContentType(MediaType.APPLICATION_JSON);
+        loginHeaders.set("X-Forwarded-For", "203.0.113.10");
+        loginHeaders.set("User-Agent", "PlatformHttpTests/1.0");
+        ResponseEntity<String> login = restTemplate.exchange(
             "/api/auth/login",
-            Map.of("username", "admin", "password", "admin"),
+            HttpMethod.POST,
+            new HttpEntity<>(Map.of("username", "admin", "password", "admin"), loginHeaders),
             String.class
         );
         assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -501,6 +506,20 @@ class PlatformHttpTests {
             .contains("rca.action_manual_completed")
             .contains("incident.correlated")
             .contains("auth.login");
+        JsonNode loginAuditEvents = objectMapper.readTree(
+            exchange(
+                "/api/audit/events?event_type=auth.login&client_ip=203.0.113.10&q=PlatformHttpTests&limit=20",
+                HttpMethod.GET,
+                null
+            ).getBody()
+        );
+        assertThat(loginAuditEvents).hasSize(1);
+        JsonNode loginDetails = loginAuditEvents.get(0).path("details");
+        assertThat(loginDetails.path("client_ip").asText()).isEqualTo("203.0.113.10");
+        assertThat(loginDetails.path("client_ip_source").asText()).isIn("X-Forwarded-For", "remote_addr");
+        assertThat(loginDetails.path("user_agent").asText()).isEqualTo("PlatformHttpTests/1.0");
+        assertThat(loginDetails.path("method").asText()).isEqualTo("POST");
+        assertThat(loginDetails.path("path").asText()).isEqualTo("/api/auth/login");
 
         String incidentId = report.path("incident_id").asText();
         JsonNode resolved = objectMapper.readTree(exchange(

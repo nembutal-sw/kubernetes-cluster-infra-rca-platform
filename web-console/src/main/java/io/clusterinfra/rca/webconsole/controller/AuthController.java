@@ -68,12 +68,21 @@ public class AuthController {
                     "session",
                     null,
                     "failed",
-                    Map.of("reason", "invalid_credentials")
+                    Map.of("reason", "invalid_credentials"),
+                    servletRequest
                 );
                 throw new ResponseStatusException(UNAUTHORIZED, "invalid username or password");
             });
         if (user.status() != UserStatus.active || user.role() == null) {
-            audit.user(user, "auth.login", "session", null, "failed", Map.of("reason", "inactive_user"));
+            audit.user(
+                user,
+                "auth.login",
+                "session",
+                null,
+                "failed",
+                Map.of("reason", "inactive_user"),
+                servletRequest
+            );
             throw new ResponseStatusException(FORBIDDEN, "user is not active");
         }
         Instant expiresAt = Instant.now().plus(Duration.ofHours(Math.max(1, properties.getSessionTtlHours())));
@@ -82,7 +91,15 @@ public class AuthController {
             HttpHeaders.SET_COOKIE,
             sessionCookie(token, Duration.between(Instant.now(), expiresAt), servletRequest.isSecure()).toString()
         );
-        audit.user(user, "auth.login", "session", null, "success", Map.of("expires_at", expiresAt.toString()));
+        audit.user(
+            user,
+            "auth.login",
+            "session",
+            null,
+            "success",
+            Map.of("expires_at", expiresAt.toString()),
+            servletRequest
+        );
         return new AuthSessionResponse(token, "bearer", expiresAt, user);
     }
 
@@ -108,21 +125,30 @@ public class AuthController {
             HttpHeaders.SET_COOKIE,
             sessionCookie("", Duration.ZERO, servletRequest.isSecure()).toString()
         );
-        audit.user(user, "auth.logout", "session", null, revoked ? "success" : "not_found", Map.of());
+        audit.user(
+            user,
+            "auth.logout",
+            "session",
+            null,
+            revoked ? "success" : "not_found",
+            Map.of(),
+            servletRequest
+        );
         return Map.of("revoked", revoked);
     }
 
     @PostMapping("/change-password")
     public Map<String, Boolean> changePassword(
         @Valid @RequestBody UserPasswordChangeRequest request,
-        Authentication authentication
+        Authentication authentication,
+        HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
         if (!users.changePassword(user.userId(), request.currentPassword(), request.newPassword())) {
-            audit.user(user, "auth.password_change", "user", user.userId(), "failed", Map.of());
+            audit.user(user, "auth.password_change", "user", user.userId(), "failed", Map.of(), servletRequest);
             throw new ResponseStatusException(UNAUTHORIZED, "current password is invalid");
         }
-        audit.user(user, "auth.password_change", "user", user.userId(), "success", Map.of());
+        audit.user(user, "auth.password_change", "user", user.userId(), "success", Map.of(), servletRequest);
         return Map.of("changed", true);
     }
 
