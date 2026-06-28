@@ -1402,9 +1402,12 @@ import "./styles.css";
         activeView === "overview" && h(OverviewView, {
           clusters,
           reports,
+          incidents,
+          analysisTasks,
           loading,
           webhookEndpoint,
           onNavigate: setActiveView,
+          currentUser,
         }),
         activeView === "clusters" && h(ClustersView, {
           clusters,
@@ -1577,36 +1580,289 @@ import "./styles.css";
     );
   }
 
-  function OverviewView({ clusters, reports, loading, webhookEndpoint, onNavigate }) {
-    const highConfidence = reports.filter((report) => report.summary?.confidence === "high").length;
-    return h("div", { className: "d-grid gap-3" },
-      h("div", { className: "row g-3" },
-        h(MetricTile, { label: "Clusters", value: clusters.length, hint: loading.clusters ? "Loading" : "Registered targets", icon: "hdd-network" }),
-        h(MetricTile, { label: "RCA Reports", value: reports.length, hint: `${highConfidence} high confidence`, icon: "clipboard2-pulse" }),
-        h(MetricTile, { label: "Access", value: "Session", hint: "HttpOnly session", icon: "shield-lock" }),
-        h(MetricTile, { label: "Webhook", value: "Alertmanager", hint: webhookEndpoint, icon: "diagram-3", compact: true })
-      ),
-      h("div", { className: "row g-3" },
-        h("div", { className: "col-12 col-xl-7" },
-          h(Panel, { title: "Cluster Snapshot", subtitle: "Latest registered clusters", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("clusters") }, tr("Open")) },
-            h(ClusterTable, { clusters: clusters.slice(0, 6) })
+  function OverviewView({ clusters, reports, incidents, analysisTasks, loading, webhookEndpoint, onNavigate, currentUser }) {
+    const openIncidents = (incidents || []).filter((incident) => incident.status === "open");
+    const signalDigest = buildSignalDigest(reports);
+    const attention = buildAttentionQueue({ clusters, reports, incidents, analysisTasks, signalDigest });
+    const pipelineBacklog = (analysisTasks || []).filter((task) => ["queued", "retry_wait", "processing"].includes(task.status)).length;
+    const automationBlocked = reports.reduce((count, report) =>
+      count + (report.recommended_actions || []).filter((action) => action.automation_allowed !== true).length, 0);
+    const criticalSignals = signalDigest.filter((signal) => ["critical", "high"].includes(signal.severity)).length;
+    const canOpenAudit = ["admin", "auditor"].includes(currentUser?.role);
+    const intelligenceState = attention.length
+      ? `${attention.length} item${attention.length === 1 ? "" : "s"} need attention`
+      : "No active attention items";
+    return h("div", { className: "watchdog-overview" },
+      h("section", { className: "watchdog-hero" },
+        h("div", { className: "watchdog-hero-main" },
+          h("div", { className: "eyebrow" }, "INFRASTRUCTURE WATCHDOG"),
+          h("h2", null, "Incident Intelligence"),
+          h("p", null, "Automatic triage for node, runtime, network, storage, and control-plane signals. Rule-based RCA stays first; LLM output remains diagnostic context."),
+          h("div", { className: "watchdog-hero-actions" },
+            h("button", { type: "button", className: "btn btn-light btn-sm btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "clipboard2-pulse" }), "Review RCA"),
+            h("button", { type: "button", className: "btn btn-outline-light btn-sm btn-icon", onClick: () => onNavigate("clusters") }, h(Icon, { name: "hdd-network" }), "Manage Clusters")
           )
         ),
-        h("div", { className: "col-12 col-xl-5" },
-          h(Panel, { title: "Recent Reports", subtitle: "Root cause candidates", action: h("button", { className: "btn btn-sm btn-outline-secondary", onClick: () => onNavigate("reports") }, tr("Open")) },
-            reports.length ? h("div", { className: "list-group list-group-flush" },
-              reports.slice(0, 5).map((report) => h("div", { key: report.report_id, className: "list-group-item px-0" },
-                h("div", { className: "d-flex justify-content-between gap-2" },
-                  h("strong", { className: "small" }, displaySummary(report.summary?.symptom)),
-                  h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
-                ),
-                h("div", { className: "small text-muted text-truncate" }, displayText(report.summary?.most_likely_cause || report.report_id))
-              ))
-            ) : h(EmptyState, { message: "No reports loaded." })
+        h("div", { className: "watchdog-hero-status" },
+          h("span", { className: "small text-uppercase" }, "Current posture"),
+          h("strong", null, intelligenceState),
+          h("div", { className: "watchdog-status-grid" },
+            h(WatchdogKpi, { label: "Open incidents", value: openIncidents.length, tone: openIncidents.length ? "red" : "green" }),
+            h(WatchdogKpi, { label: "Critical signals", value: criticalSignals, tone: criticalSignals ? "red" : "green" }),
+            h(WatchdogKpi, { label: "Pipeline backlog", value: pipelineBacklog, tone: pipelineBacklog ? "amber" : "green" }),
+            h(WatchdogKpi, { label: "Guarded actions", value: automationBlocked, tone: automationBlocked ? "amber" : "green" })
           )
+        )
+      ),
+      h("div", { className: "watchdog-kpi-row" },
+        h(InsightTile, { label: "Clusters", value: clusters.length, hint: loading.clusters ? "Loading targets" : "Registered infrastructure targets", icon: "hdd-network", tone: "blue" }),
+        h(InsightTile, { label: "RCA Reports", value: reports.length, hint: latestReportHint(reports), icon: "clipboard2-pulse", tone: "green" }),
+        h(InsightTile, { label: "Signals", value: signalDigest.length, hint: signalDigest.length ? "Derived from recent evidence" : "No derived signals yet", icon: "broadcast-pin", tone: criticalSignals ? "red" : "blue" }),
+        h(InsightTile, { label: "Webhook", value: "Ready", hint: webhookEndpoint, icon: "diagram-3", tone: "amber", compact: true })
+      ),
+      h("div", { className: "row g-3" },
+        h("div", { className: "col-12 col-xxl-7" },
+          h(Panel, {
+            title: "Attention Queue",
+            subtitle: "Prioritized signals, incidents, and gated actions",
+            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate(attention[0]?.view || "reports") }, h(Icon, { name: "arrow-up-right-square" }), "Open")
+          }, h(AttentionQueue, { items: attention, onNavigate }))
+        ),
+        h("div", { className: "col-12 col-xxl-5" },
+          h(Panel, {
+            title: "Signal Stream",
+            subtitle: "Recent evidence collapsed into operator-friendly signals",
+            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "activity" }), "Reports")
+          }, h(SignalStream, { signals: signalDigest.slice(0, 8) }))
+        )
+      ),
+      h("div", { className: "row g-3" },
+        h("div", { className: "col-12 col-xl-4" },
+          h(Panel, {
+            title: "Cluster Posture",
+            subtitle: "Registration and lifecycle status",
+            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("clusters") }, h(Icon, { name: "window-sidebar" }), "Clusters")
+          }, h(ClusterPostureList, { clusters }))
+        ),
+        h("div", { className: "col-12 col-xl-4" },
+          h(Panel, {
+            title: "Recent RCA",
+            subtitle: "Root cause candidates ready for review",
+            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "list-check" }), "Review")
+          }, h(RecentRcaList, { reports: reports.slice(0, 5) }))
+        ),
+        h("div", { className: "col-12 col-xl-4" },
+          h(Panel, {
+            title: "Governance",
+            subtitle: "Automation guardrails and audit posture",
+            action: h("button", {
+              className: "btn btn-sm btn-outline-secondary btn-icon",
+              onClick: () => onNavigate(canOpenAudit ? "audit" : "settings"),
+            }, h(Icon, { name: canOpenAudit ? "journal-check" : "sliders" }), canOpenAudit ? "Audit" : "Settings")
+          }, h(GovernanceSummary, { reports, pipelineBacklog }))
         )
       )
     );
+  }
+
+  function WatchdogKpi({ label, value, tone }) {
+    return h("div", { className: `watchdog-kpi ${tone || ""}` },
+      h("span", null, label),
+      h("strong", null, value)
+    );
+  }
+
+  function InsightTile({ label, value, hint, icon, tone, compact }) {
+    return h("article", { className: `insight-tile ${tone || ""}` },
+      h("div", { className: "insight-tile-icon" }, h(Icon, { name: icon })),
+      h("div", { className: "insight-tile-body" },
+        h("span", null, label),
+        h("strong", { className: compact ? "compact" : "" }, typeof value === "string" ? displayText(value) : value),
+        h("p", null, displayText(hint))
+      )
+    );
+  }
+
+  function AttentionQueue({ items, onNavigate }) {
+    if (!items.length) return h(EmptyState, { message: "No active attention items. New incidents, critical signals, or blocked actions will appear here." });
+    return h("div", { className: "attention-list" }, items.slice(0, 7).map((item) => h("button", {
+      key: item.key,
+      type: "button",
+      className: `attention-item ${item.tone || ""}`,
+      onClick: () => onNavigate(item.view || "reports"),
+    },
+    h("span", { className: "attention-icon" }, h(Icon, { name: item.icon || "activity" })),
+    h("span", { className: "attention-copy" },
+      h("strong", null, displayText(item.title)),
+      h("small", null, displayText(item.description))
+    ),
+    h("span", { className: "attention-meta" }, displayText(item.meta))
+    )));
+  }
+
+  function SignalStream({ signals }) {
+    if (!signals.length) return h(EmptyState, { message: "No evidence signals yet. Agent evidence or demo scenarios will populate this stream." });
+    return h("div", { className: "signal-stream" }, signals.map((signal) => h("article", {
+      key: signal.key,
+      className: `signal-stream-item ${severityTone(signal.severity)}`
+    },
+    h("div", { className: "signal-stream-topline" },
+      h("strong", null, displayText(signal.signal)),
+      h(StatusBadge, { value: signal.severity || "unknown", tone: severityTone(signal.severity) })
+    ),
+    h("p", null, displayText(signal.interpretation || signal.cause || "Evidence observed.")),
+    h("div", { className: "signal-stream-meta" },
+      h("span", { className: "font-monospace" }, signal.clusterId || "unknown-cluster"),
+      h("span", null, signal.component || "node"),
+      h("span", null, formatDate(signal.createdAt))
+    )
+    )));
+  }
+
+  function ClusterPostureList({ clusters }) {
+    if (!clusters.length) return h(EmptyState, { message: "No clusters loaded." });
+    return h("div", { className: "posture-list" }, clusters.slice(0, 6).map((cluster) => h("div", {
+      key: cluster.cluster_id,
+      className: "posture-row"
+    },
+    h("div", null,
+      h("strong", null, cluster.name || cluster.cluster_id),
+      h("small", { className: "font-monospace" }, cluster.cluster_id)
+    ),
+    h(StatusBadge, { value: cluster.status || "unknown", tone: clusterStatusTone(cluster.status) })
+    )));
+  }
+
+  function RecentRcaList({ reports }) {
+    if (!reports.length) return h(EmptyState, { message: "No reports loaded." });
+    return h("div", { className: "recent-rca-list" }, reports.map((report) => h("article", {
+      key: report.report_id,
+      className: "recent-rca-item"
+    },
+    h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
+      h("strong", null, displaySummary(report.summary?.symptom)),
+      h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
+    ),
+    h("p", null, displayText(report.summary?.most_likely_cause || "No likely cause yet.")),
+    h("div", { className: "recent-rca-meta" },
+      h("span", { className: "font-monospace" }, report.cluster_id),
+      h("span", null, formatDate(report.created_at))
+    )
+    )));
+  }
+
+  function GovernanceSummary({ reports, pipelineBacklog }) {
+    const actions = reports.flatMap((report) => report.recommended_actions || []);
+    const llmActions = actions.filter((action) => action.source === "llm").length;
+    const blocked = actions.filter((action) => action.automation_allowed !== true).length;
+    const neverAuto = actions.filter((action) => action.policy === "NEVER_AUTO_EXECUTE").length;
+    return h("div", { className: "governance-stack" },
+      h("div", { className: "governance-callout" },
+        h(Icon, { name: "shield-lock" }),
+        h("div", null,
+          h("strong", null, "Human-in-the-loop enforced"),
+          h("p", null, "LLM-origin actions remain diagnostic. Operators approve, reject, or mark manual handling complete.")
+        )
+      ),
+      h("div", { className: "governance-metrics" },
+        h(WatchdogKpi, { label: "Blocked actions", value: blocked, tone: blocked ? "amber" : "green" }),
+        h(WatchdogKpi, { label: "LLM suggestions", value: llmActions, tone: llmActions ? "red" : "green" }),
+        h(WatchdogKpi, { label: "Never auto", value: neverAuto, tone: neverAuto ? "red" : "green" }),
+        h(WatchdogKpi, { label: "Backlog", value: pipelineBacklog, tone: pipelineBacklog ? "amber" : "green" })
+      )
+    );
+  }
+
+  function buildAttentionQueue({ clusters, reports, incidents, analysisTasks, signalDigest }) {
+    const items = [];
+    (incidents || [])
+      .filter((incident) => incident.status === "open")
+      .slice(0, 3)
+      .forEach((incident) => items.push({
+        key: `incident-${incident.incident_id}`,
+        title: incident.alert_name || incident.symptom || "Open incident",
+        description: `Cluster ${incident.cluster_id || "unknown"} is still open.`,
+        meta: formatDate(incident.last_seen_at || incident.created_at),
+        tone: "red",
+        icon: "exclamation-diamond",
+        view: "incidents",
+      }));
+    (signalDigest || [])
+      .filter((signal) => ["critical", "high"].includes(signal.severity))
+      .slice(0, 3)
+      .forEach((signal) => items.push({
+        key: `signal-${signal.key}`,
+        title: signal.signal,
+        description: signal.interpretation || signal.cause || "Critical evidence signal observed.",
+        meta: signal.component || signal.clusterId,
+        tone: "red",
+        icon: "broadcast-pin",
+        view: "reports",
+      }));
+    (reports || [])
+      .flatMap((report) => (report.recommended_actions || []).map((action, index) => ({ report, action, index })))
+      .filter(({ action }) => action.automation_allowed !== true)
+      .slice(0, 3)
+      .forEach(({ report, action, index }) => items.push({
+        key: `action-${report.report_id}-${index}`,
+        title: action.action || action.action_key || "Policy-gated action",
+        description: policyDescription(action.policy),
+        meta: action.source === "llm" ? "LLM diagnostic only" : action.policy || "policy gate",
+        tone: action.source === "llm" || action.policy === "NEVER_AUTO_EXECUTE" ? "red" : "amber",
+        icon: "shield-exclamation",
+        view: "reports",
+      }));
+    (analysisTasks || [])
+      .filter((task) => ["dead_letter", "retry_wait"].includes(task.status))
+      .slice(0, 2)
+      .forEach((task) => items.push({
+        key: `task-${task.task_id}`,
+        title: `Analysis task ${task.status}`,
+        description: task.last_error || "RCA pipeline task requires operator review.",
+        meta: task.task_id,
+        tone: task.status === "dead_letter" ? "red" : "amber",
+        icon: "list-task",
+        view: "pipeline",
+      }));
+    (clusters || [])
+      .filter((cluster) => !["active", "registered", "online"].includes(String(cluster.status || "").toLowerCase()))
+      .slice(0, 2)
+      .forEach((cluster) => items.push({
+        key: `cluster-${cluster.cluster_id}`,
+        title: cluster.name || cluster.cluster_id,
+        description: `Cluster status is ${cluster.status || "unknown"}.`,
+        meta: cluster.environment || "cluster",
+        tone: "amber",
+        icon: "hdd-network",
+        view: "clusters",
+      }));
+    return items.slice(0, 9);
+  }
+
+  function buildSignalDigest(reports) {
+    return (reports || [])
+      .flatMap((report) => {
+        const signals = section(report, "derived_signals")?.signals || [];
+        return signals.map((signal, index) => ({
+          key: `${report.report_id}-${index}-${signal.signal || "signal"}`,
+          signal: signal.signal || report.summary?.symptom || "evidence_signal",
+          severity: normalizeSeverity(signal.severity || report.summary?.confidence),
+          component: signal.component || (report.scope?.components || [])[0],
+          interpretation: signalFieldText(signal, "interpretation"),
+          nextStep: signalFieldText(signal, "next_step"),
+          clusterId: report.cluster_id,
+          reportId: report.report_id,
+          createdAt: report.created_at,
+          cause: report.summary?.most_likely_cause,
+        }));
+      })
+      .sort((left, right) => severityRank(right.severity) - severityRank(left.severity));
+  }
+
+  function latestReportHint(reports) {
+    if (!reports.length) return "No RCA reports yet";
+    const latest = reports[0];
+    return `${displaySummary(latest.summary?.symptom)} / ${formatDate(latest.created_at)}`;
   }
 
   function ClustersView(props) {
@@ -3726,9 +3982,29 @@ import "./styles.css";
     return tr("Unclassified policy decision.");
   }
 
+  function normalizeSeverity(value) {
+    const text = String(value || "").toLowerCase();
+    if (["critical", "fatal", "emergency"].includes(text)) return "critical";
+    if (["high", "warning", "warn"].includes(text)) return "warning";
+    if (["medium", "moderate"].includes(text)) return "medium";
+    if (["low", "info", "informational"].includes(text)) return "low";
+    return text || "unknown";
+  }
+
+  function severityRank(value) {
+    const normalized = normalizeSeverity(value);
+    if (normalized === "critical") return 4;
+    if (normalized === "warning") return 3;
+    if (normalized === "medium") return 2;
+    if (normalized === "low") return 1;
+    return 0;
+  }
+
   function severityTone(value) {
-    if (value === "critical") return "red";
-    if (value === "warning" || value === "high") return "amber";
+    const normalized = normalizeSeverity(value);
+    if (normalized === "critical") return "red";
+    if (normalized === "warning") return "amber";
+    if (normalized === "medium") return "amber";
     return "blue";
   }
 
