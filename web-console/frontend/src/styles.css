@@ -1015,6 +1015,126 @@ code {
   font-size: 0.82rem;
 }
 
+.path-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+  min-width: 0;
+}
+
+.path-list > span {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.path-list code {
+  display: inline-block;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--primary-strong);
+  padding: 4px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+
+.rule-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.rule-signal-card {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 14px;
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+}
+
+.rule-signal-card.red {
+  border-left-color: var(--red);
+}
+
+.rule-signal-card.amber {
+  border-left-color: var(--amber);
+}
+
+.rule-signal-card.blue {
+  border-left-color: var(--primary);
+}
+
+.rule-signal-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rule-signal-card h3,
+.rule-signal-card p,
+.rule-signal-card strong,
+.rule-signal-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rule-signal-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.rule-signal-card p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.signal-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.rule-value-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rule-value-grid > div,
+.next-step {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 9px;
+  min-width: 0;
+}
+
+.rule-value-grid span,
+.next-step span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.rule-value-grid strong,
+.next-step strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.84rem;
+}
+
 .command-list {
   display: grid;
   gap: 8px;
@@ -1767,6 +1887,19 @@ code {
 
   .timeline-graph {
     grid-template-columns: 1fr;
+  }
+
+  .rule-signal-card header,
+  .rule-value-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-signal-card header {
+    display: grid;
+  }
+
+  .signal-badges {
+    justify-content: flex-start;
   }
 
   .timeline-edge,

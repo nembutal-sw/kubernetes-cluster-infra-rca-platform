@@ -187,12 +187,58 @@ public class EvidenceBundleExportService {
         report.rootCauseCandidates().forEach(candidate -> markdown
             .append("- [").append(candidate.confidenceScore()).append("%] ")
             .append(candidate.cause()).append('\n'));
+        markdown.append("\n## Derived Rule Signals\n\n");
+        List<Map<String, Object>> signals = derivedSignals(report);
+        if (signals.isEmpty()) {
+            markdown.append("- No derived rule signals.\n");
+        } else {
+            signals.forEach(signal -> {
+                markdown.append("- ").append(value(signal, "signal"))
+                    .append(" (`").append(value(signal, "severity")).append("`, confidence=")
+                    .append(value(signal, "confidence")).append(")");
+                if (!"n/a".equals(value(signal, "component"))) {
+                    markdown.append(" component=").append(value(signal, "component"));
+                }
+                markdown.append('\n');
+                appendNested(markdown, "  - Interpretation: ", signal.get("interpretation"));
+                appendNested(markdown, "  - Matched fields: ", signal.get("matched_fields"));
+                appendNested(markdown, "  - Observed: ", signal.get("observed"));
+                appendNested(markdown, "  - Threshold: ", signal.get("threshold"));
+                appendNested(markdown, "  - Next step: ", signal.get("next_step"));
+            });
+        }
         markdown.append("\n## Recommended Actions\n\n");
         report.recommendedActions().forEach(action -> markdown
             .append("- ").append(action.action())
             .append(" (`").append(action.policy()).append("`, automation_allowed=")
             .append(action.automationAllowed()).append(")\n"));
         return markdown.toString();
+    }
+
+    private List<Map<String, Object>> derivedSignals(RcaReport report) {
+        List<Map<String, Object>> sections = report.evidence() == null ? List.of() : report.evidence();
+        return sections.stream()
+            .filter(section -> "derived_signals".equals(section.get("type")))
+            .findFirst()
+            .map(section -> section.get("signals"))
+            .filter(List.class::isInstance)
+            .map(signals -> ((List<?>) signals).stream()
+                .filter(Map.class::isInstance)
+                .map(signal -> stringKeyMap((Map<?, ?>) signal))
+                .toList())
+            .orElse(List.of());
+    }
+
+    private void appendNested(StringBuilder markdown, String label, Object value) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            return;
+        }
+        markdown.append(label).append(value).append('\n');
+    }
+
+    private String value(Map<String, Object> values, String key) {
+        Object value = values.get(key);
+        return value == null || String.valueOf(value).isBlank() ? "n/a" : String.valueOf(value);
     }
 
     private String safeName(String value) {

@@ -90,7 +90,11 @@ class DemoScenarioIntegrationTests {
         assertThat(entries)
             .contains("summary.json", "signals.json", "timeline.json", "rca-report.md")
             .anyMatch(name -> name.startsWith("evidence/"));
-        assertThat(markdown).contains("DiskPressure").contains("automation_allowed=");
+        assertThat(markdown)
+            .contains("DiskPressure")
+            .contains("## Derived Rule Signals")
+            .contains("disk_usage_critical")
+            .contains("automation_allowed=");
     }
 
     @Test

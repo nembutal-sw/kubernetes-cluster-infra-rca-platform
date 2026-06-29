@@ -83,6 +83,15 @@ const KO = {
   "Report detail": "보고서 상세",
   "Root cause candidates": "원인 후보",
   "Evidence summary": "근거 요약",
+  "Rule signals": "Rule 신호",
+  "Rule evidence": "Rule 근거",
+  "Matched fields": "매칭 필드",
+  "Observed": "관측값",
+  "Threshold": "임계값",
+  "Next step": "다음 확인",
+  "Supporting evidence": "지원 근거",
+  "Evidence paths": "근거 경로",
+  "No derived rule signals.": "파생된 Rule 신호가 없습니다.",
   "Additional checks": "추가 확인 명령",
   "Recommended actions": "권장 조치",
   "Policy gate": "정책 게이트",
@@ -137,6 +146,12 @@ const KO = {
   "Platform info": "플랫폼 정보",
   open: "진행 중",
   resolved: "해결됨",
+  high: "높음",
+  medium: "중간",
+  low: "낮음",
+  critical: "심각",
+  warning: "경고",
+  info: "정보",
   healthy: "정상",
   degraded: "저하",
   offline: "오프라인",
@@ -1088,6 +1103,7 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
   const actions = report.recommended_actions || [];
   const checks = report.additional_checks || report.next_steps || [];
   const evidenceItems = evidenceSummary(report);
+  const signals = derivedSignals(report);
   const llmActions = actions.filter((action) => action.source === "llm");
   return (
     <div className="report-detail">
@@ -1110,6 +1126,7 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
 
       <div className="summary-strip">
         <MetricTile label="Confidence" value={report.summary?.confidence || "n/a"} tone={confidenceTone(report.summary?.confidence)} icon="bar-chart-line" />
+        <MetricTile label={t("Rule signals")} value={signals.length} tone={signals.length ? "blue" : "muted"} icon="diagram-3" />
         <MetricTile label={t("Policy blocked")} value={actions.filter((action) => !action.automation_allowed).length} tone="amber" icon="shield-lock" />
         <MetricTile label="LLM" value={llmActions.length ? t("LLM diagnostic only") : "n/a"} tone={llmActions.length ? "amber" : "muted"} icon="stars" />
       </div>
@@ -1123,6 +1140,10 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
 
       <Surface title={t("Cascading timeline")} subtitle="Observed evidence order and inferred propagation">
         <TimelineGraph timeline={detail.timeline} report={report} t={t} />
+      </Surface>
+
+      <Surface title={t("Rule evidence")} subtitle="Rule-based detector output before LLM analysis">
+        <RuleEvidencePanel signals={signals} t={t} />
       </Surface>
 
       <div className="detail-grid">
@@ -1173,9 +1194,62 @@ function CandidateList({ candidates, t }) {
             <div className="supporting-lines">
               {(candidate.supporting_evidence || []).slice(0, 3).map((line) => <span key={line}>{line}</span>)}
             </div>
+            {(candidate.evidence_paths || []).length > 0 && (
+              <div className="path-list" aria-label={t("Evidence paths")}>
+                {(candidate.evidence_paths || []).slice(0, 5).map((path) => <code key={path}>{path}</code>)}
+              </div>
+            )}
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+function RuleEvidencePanel({ signals, t }) {
+  if (!signals.length) return <EmptyState message={t("No derived rule signals.")} />;
+  return (
+    <div className="rule-signal-grid">
+      {signals.slice(0, 12).map((signal, index) => {
+        const matchedFields = signal.matched_fields || signal.matchedFields || [];
+        const supportingEvidence = signal.supporting_evidence || signal.supportingEvidence || [];
+        return (
+          <article key={`${signal.signal || signal.name}-${index}`} className={`rule-signal-card ${severityTone(signal.severity)}`}>
+            <header>
+              <div>
+                <p className="section-kicker">{signal.component || "component"}</p>
+                <h3>{signal.signal || signal.name || "signal"}</h3>
+              </div>
+              <div className="signal-badges">
+                <StatusBadge value={signal.severity || "info"} tone={severityTone(signal.severity)} t={t} />
+                <StatusBadge value={signal.confidence || "unknown"} tone={confidenceTone(signal.confidence)} t={t} />
+              </div>
+            </header>
+            <p>{signal.interpretation || "No interpretation available."}</p>
+            <div className="rule-value-grid">
+              <div><span>{t("Observed")}</span><strong>{shortValue(signal.observed)}</strong></div>
+              <div><span>{t("Threshold")}</span><strong>{signal.threshold === undefined || signal.threshold === null ? "n/a" : shortValue(signal.threshold)}</strong></div>
+            </div>
+            {matchedFields.length > 0 && (
+              <div className="path-list">
+                <span>{t("Matched fields")}</span>
+                {matchedFields.slice(0, 6).map((field) => <code key={field}>{field}</code>)}
+              </div>
+            )}
+            {supportingEvidence.length > 0 && (
+              <div className="supporting-lines">
+                {supportingEvidence.slice(0, 3).map((line) => <span key={line}>{line}</span>)}
+              </div>
+            )}
+            {signal.next_step && (
+              <div className="next-step">
+                <span>{t("Next step")}</span>
+                <strong>{signal.next_step}</strong>
+              </div>
+            )}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -1896,6 +1970,15 @@ function evidenceSummary(report) {
   const evidence = report.evidence || report.evidence_summary || {};
   Object.entries(evidence).slice(0, 8).forEach(([key, value]) => rows.push({ label: key, value: shortValue(value) }));
   return rows;
+}
+
+function derivedSignals(report) {
+  const evidence = Array.isArray(report?.evidence) ? report.evidence : [];
+  const direct = evidence.find((section) => section?.type === "derived_signals");
+  if (Array.isArray(direct?.signals)) return direct.signals;
+  const preprocessed = evidence.find((section) => section?.type === "preprocessed_evidence");
+  const nested = preprocessed?.payload?.derived_signals || preprocessed?.payload?.derivedSignals;
+  return Array.isArray(nested) ? nested : [];
 }
 
 function fallbackTimeline(report) {
