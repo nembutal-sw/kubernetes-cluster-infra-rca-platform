@@ -5,9 +5,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.analysis.AnalysisContext;
 import io.clusterinfra.rca.webconsole.analysis.Signal;
+import io.clusterinfra.rca.webconsole.analysis.detector.CoreDnsHealthDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.CniFailureDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.ConntrackPressureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.DiskPressureDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.DnsConfigurationDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.DnsLatencyDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KernelLogDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KubeletFailureDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.NodeReadinessDetector;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +45,51 @@ class SignalDetectorTests {
     }
 
     @Test
+    void conntrackDetectorSeparatesFailuresDropsAndNearLimit() {
+        AnalysisContext context = context(Map.of(
+            "conntrack", Map.of(
+                "count", 990,
+                "max", 1000,
+                "insert_failed", 6,
+                "drop", 3,
+                "early_drop", 2
+            )
+        ));
+
+        assertThat(new ConntrackPressureDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly(
+                "conntrack_insert_failures",
+                "conntrack_packet_drops",
+                "conntrack_near_limit"
+            );
+    }
+
+    @Test
+    void conntrackDetectorDetectsKernelTableFullLog() {
+        AnalysisContext context = context(Map.of(
+            "kernel", Map.of("messages", List.of("nf_conntrack: table full, dropping packet"))
+        ));
+
+        assertThat(new ConntrackPressureDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("conntrack_table_full");
+    }
+
+    @Test
+    void conntrackDetectorIgnoresUnrelatedInterfaceDrops() {
+        AnalysisContext context = context(Map.of(
+            "network", Map.of(
+                "interface_rx_drop_total", 500,
+                "interface_tx_drop_total", 300
+            ),
+            "conntrack", Map.of("count", 10, "max", 1000)
+        ));
+
+        assertThat(new ConntrackPressureDetector().detect(context)).isEmpty();
+    }
+
+    @Test
     void unknownStatusDoesNotBecomeCriticalFailure() {
         AnalysisContext context = context(Map.of(
             "kubelet", Map.of("status", "unknown", "health_check", "not collected")
@@ -55,6 +106,159 @@ class SignalDetectorTests {
         ));
 
         assertThat(new KernelLogDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void nodeReadinessIgnoresHealthyPressureFalseConditions() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "node_ready", true,
+                "node_conditions", Map.of(
+                    "MemoryPressure", Map.of("status", "False"),
+                    "DiskPressure", Map.of("status", "False"),
+                    "PIDPressure", Map.of("status", "False")
+                )
+            )
+        ));
+
+        assertThat(new NodeReadinessDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void nodeReadinessDetectsReadyFalseOnly() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "node_ready", false,
+                "node_conditions", Map.of(
+                    "MemoryPressure", Map.of("status", "False"),
+                    "Ready", Map.of("status", "False")
+                )
+            )
+        ));
+
+        assertThat(new NodeReadinessDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("node_not_ready");
+    }
+
+    @Test
+    void corednsDetectorDetectsMissingReadyEndpoints() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "endpoint_slices", Map.of(
+                    "ok", true,
+                    "data", Map.of("items", List.of(Map.of(
+                        "metadata", Map.of(
+                            "name", "kube-dns-q5dn2",
+                            "labels", Map.of("kubernetes.io/service-name", "kube-dns")
+                        ),
+                        "endpoints", List.of()
+                    )))
+                )
+            )
+        ));
+
+        assertThat(new CoreDnsHealthDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("coredns_no_ready_endpoints");
+    }
+
+    @Test
+    void corednsDetectorUsesAgentSummaryFieldsOnEveryNode() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "coredns_service_observed", true,
+                "coredns_endpoint_count", 0,
+                "coredns_ready_endpoint_count", 0
+            )
+        ));
+
+        assertThat(new CoreDnsHealthDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("coredns_no_ready_endpoints");
+    }
+
+    @Test
+    void dnsDetectorsIgnoreCorednsEndpointSummaryFields() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "coredns_service_observed", true,
+                "coredns_has_ready_endpoints", false,
+                "coredns_pods", Map.of("latency_ms", 900.0)
+            )
+        ));
+
+        assertThat(new DnsConfigurationDetector().detect(context)).isEmpty();
+        assertThat(new DnsLatencyDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void dnsDetectorsUseResolverSpecificFields() {
+        AnalysisContext context = context(Map.of(
+            "dns", Map.of(
+                "dns_configured", false,
+                "dns_lookup_latency_ms", 900.0
+            )
+        ));
+
+        assertThat(new DnsConfigurationDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("dns_unconfigured");
+        assertThat(new DnsLatencyDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("dns_latency_high");
+    }
+
+    @Test
+    void cniDetectorDetectsDaemonSetNotScheduled() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "cni_daemonsets_not_scheduled", List.of(Map.of(
+                    "namespace", "kube-system",
+                    "name", "kindnet",
+                    "desired_number_scheduled", 0
+                ))
+            )
+        ));
+
+        assertThat(new CniFailureDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("cni_daemonset_not_scheduled");
+    }
+
+    @Test
+    void cniDetectorDetectsDaemonSetUnavailable() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "cni_daemonsets_unavailable", List.of(Map.of(
+                    "namespace", "kube-system",
+                    "name", "kindnet",
+                    "desired_number_scheduled", 2,
+                    "number_ready", 1
+                ))
+            )
+        ));
+
+        assertThat(new CniFailureDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("cni_daemonset_unavailable");
+    }
+
+    @Test
+    void cniDetectorDoesNotTreatHealthyFalseCountersAsConfigFailure() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "cni_daemonset_not_scheduled_count", 0,
+                "cni_daemonset_unavailable_count", 0
+            ),
+            "cni", Map.of(
+                "config_dir_exists", true,
+                "parse_errors", List.of(),
+                "plugin_errors_detected", false
+            )
+        ));
+
+        assertThat(new CniFailureDetector().detect(context)).isEmpty();
     }
 
     private AnalysisContext context(Map<String, Object> collectors) {

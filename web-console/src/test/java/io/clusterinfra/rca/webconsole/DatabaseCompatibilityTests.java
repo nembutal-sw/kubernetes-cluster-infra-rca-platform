@@ -415,7 +415,7 @@ class DatabaseCompatibilityTests {
             "database.compatibility",
             "cluster",
             cluster.clusterId(),
-            "success",
+            "new_incident_linked_to_resolved_incident",
             Map.of("database", "testcontainers")
         );
         assertThat(repository.listAuditEvents(10)).hasSize(1);

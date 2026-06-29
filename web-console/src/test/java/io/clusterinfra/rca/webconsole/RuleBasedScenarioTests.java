@@ -124,6 +124,14 @@ class RuleBasedScenarioTests {
                 "conntrack_near_limit"
             ),
             Arguments.of(
+                Named.of("NetworkUnavailable and conntrack insert failures", "NetworkUnavailable"),
+                Map.of(
+                    "conntrack", Map.of("count", 990, "max", 1000, "insert_failed", 9),
+                    "network", Map.of("conntrack_insert_failed", 9)
+                ),
+                "conntrack_insert_failures"
+            ),
+            Arguments.of(
                 Named.of("Kubelet failure", "KubeletUnhealthy"),
                 Map.of("kubelet", Map.of("status", "failed", "active", false)),
                 "kubelet_unit_unhealthy"
@@ -139,9 +147,43 @@ class RuleBasedScenarioTests {
                 "cni_mtu_values_inconsistent"
             ),
             Arguments.of(
+                Named.of("CNI DaemonSet not scheduled", "NetworkUnavailable"),
+                Map.of("kubernetes", Map.of(
+                    "cni_daemonsets_not_scheduled", List.of(Map.of(
+                        "namespace", "kube-system",
+                        "name", "kindnet",
+                        "desired_number_scheduled", 0
+                    ))
+                )),
+                "cni_daemonset_not_scheduled"
+            ),
+            Arguments.of(
                 Named.of("CoreDNS latency", "CoreDNSLatencyHigh"),
                 Map.of("dns", Map.of("latency_ms", 850.0, "configured", true)),
                 "dns_latency_high"
+            ),
+            Arguments.of(
+                Named.of("CoreDNS endpoints missing", "CoreDNSUnhealthy"),
+                Map.of(
+                    "kubernetes", Map.of(
+                        "node_ready", true,
+                        "node_conditions", Map.of("MemoryPressure", Map.of("status", "False")),
+                        "coredns_service_observed", true,
+                        "coredns_endpoint_count", 0,
+                        "coredns_ready_endpoint_count", 0,
+                        "endpoint_slices", Map.of(
+                            "ok", true,
+                            "data", Map.of("items", List.of(Map.of(
+                                "metadata", Map.of(
+                                    "name", "kube-dns-q5dn2",
+                                    "labels", Map.of("kubernetes.io/service-name", "kube-dns")
+                                ),
+                                "endpoints", List.of()
+                            )))
+                        )
+                    )
+                ),
+                "coredns_no_ready_endpoints"
             ),
             Arguments.of(
                 Named.of("Etcd latency", "EtcdLatencyHigh"),

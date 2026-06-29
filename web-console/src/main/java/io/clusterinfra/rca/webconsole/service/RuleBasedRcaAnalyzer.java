@@ -225,8 +225,20 @@ public class RuleBasedRcaAnalyzer {
             ));
         }
         if (names.stream().anyMatch(Set.of(
-            "conntrack_near_limit", "cni_config_invalid", "dns_unconfigured", "dns_latency_high",
-            "cni_mtu_values_inconsistent"
+            "conntrack_near_limit", "conntrack_table_full",
+            "conntrack_insert_failures", "conntrack_packet_drops"
+        )::contains)) {
+            actions.add(policyEngine.classify(
+                "increase_conntrack_limit",
+                "Propose reviewed conntrack sizing or timeout changes after confirming connection churn and drops.",
+                "Kernel network parameters can disrupt traffic and must be reviewed through GitOps."
+            ));
+        }
+        if (names.stream().anyMatch(Set.of(
+            "conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops",
+            "cni_config_invalid", "dns_unconfigured", "dns_latency_high",
+            "coredns_no_ready_endpoints", "coredns_pod_not_running", "cni_mtu_values_inconsistent",
+            "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running"
         )::contains)) {
             actions.add(policyEngine.classify(
                 "open_gitops_pr",

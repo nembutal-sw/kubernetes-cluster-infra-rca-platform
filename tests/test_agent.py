@@ -195,7 +195,73 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
                     },
                 }
             if path.startswith("/api/v1/pods?"):
-                return {"ok": True, "data": {"items": []}}
+                return {
+                    "ok": True,
+                    "data": {
+                        "items": [
+                            {
+                                "metadata": {
+                                    "namespace": "kube-system",
+                                    "name": "kindnet-a",
+                                    "labels": {"app": "kindnet"},
+                                },
+                                "status": {"phase": "Running", "containerStatuses": [{"restartCount": 0}]},
+                                "spec": {"nodeName": "control-a"},
+                            }
+                        ]
+                    },
+                }
+            if path.startswith("/apis/apps/v1/namespaces/kube-system/daemonsets?"):
+                return {
+                    "ok": True,
+                    "data": {
+                        "items": [
+                            {
+                                "metadata": {
+                                    "namespace": "kube-system",
+                                    "name": "kindnet",
+                                    "labels": {"app": "kindnet"},
+                                },
+                                "status": {
+                                    "desiredNumberScheduled": 1,
+                                    "currentNumberScheduled": 1,
+                                    "numberReady": 1,
+                                    "numberAvailable": 1,
+                                    "updatedNumberScheduled": 1,
+                                    "numberMisscheduled": 0,
+                                },
+                            }
+                        ]
+                    },
+                }
+            if path.startswith("/api/v1/namespaces/kube-system/pods?"):
+                return {
+                    "ok": True,
+                    "data": {
+                        "items": [
+                            {
+                                "metadata": {"namespace": "kube-system", "name": "coredns-a"},
+                                "status": {"phase": "Running", "containerStatuses": [{"restartCount": 1}]},
+                                "spec": {"nodeName": "control-a"},
+                            }
+                        ]
+                    },
+                }
+            if path.startswith("/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices?"):
+                return {
+                    "ok": True,
+                    "data": {
+                        "items": [
+                            {
+                                "metadata": {
+                                    "name": "kube-dns-abcd",
+                                    "labels": {"kubernetes.io/service-name": "kube-dns"},
+                                },
+                                "endpoints": [{"conditions": {"ready": endpoint_ok}}],
+                            }
+                        ]
+                    },
+                }
             if path.startswith("/api/v1/events?"):
                 return {"ok": True, "data": {"items": []}}
             if path.startswith("/apis/metrics.k8s.io/"):
@@ -236,6 +302,13 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
 
     assert evidence["topology_inventory_collected"] is True
     assert evidence["topology_inventory_complete"] is expected_complete
+    assert evidence["cni_pod_count_on_node"] == 1
+    assert evidence["cni_running_pod_count_on_node"] == 1
+    assert evidence["cni_daemonset_count"] == 1
+    assert evidence["cni_daemonset_unavailable_count"] == 0
+    assert evidence["coredns_pod_count"] == 1
+    assert evidence["coredns_endpoint_count"] == 1
+    assert evidence["coredns_ready_endpoint_count"] == (1 if endpoint_ok else 0)
 
 
 class FakeRunner:
@@ -375,6 +448,12 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["network"]["conntrack_usage_percent"] == 50.0
     assert evidence["conntrack"]["available"] == 50
     assert evidence["conntrack"]["near_limit"] is False
+    assert evidence["conntrack"]["buckets"] == 256
+    assert evidence["conntrack"]["hashsize"] == 256
+    assert evidence["conntrack"]["insert_failed"] == 0
+    assert evidence["conntrack"]["drop"] == 0
+    assert evidence["conntrack"]["early_drop"] == 0
+    assert evidence["conntrack"]["stats"]["insert"] == 8
     assert evidence["systemd"]["kubelet_status"] == "active"
     assert evidence["systemd"]["kubelet_sub_state"] == "running"
     assert evidence["systemd"]["containerd_status"] == "failed"
@@ -398,6 +477,31 @@ def test_collectors_read_host_like_proc_files(tmp_path: Path) -> None:
     assert evidence["dns"]["resolv_conf_exists"] is True
     assert evidence["dns"]["ndots"] == 5
     assert evidence["dns"]["dns_lookup_latency_ms"] is None
+
+
+def test_conntrack_collector_parses_failure_counters(tmp_path: Path) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    (paths.proc / "sys/net/netfilter/nf_conntrack_count").write_text("990\n", encoding="utf-8")
+    (paths.proc / "sys/net/netfilter/nf_conntrack_max").write_text("1000\n", encoding="utf-8")
+    (paths.proc / "net/stat/nf_conntrack").write_text(
+        "entries searched found new invalid ignore delete delete_list insert insert_failed drop early_drop error search_restart\n"
+        "000003de 00000020 0000001e 00000012 00000004 00000000 00000002 00000000 00000012 00000002 00000003 00000001 00000005 00000000\n"
+        "000003de 00000010 0000000f 00000008 00000001 00000000 00000001 00000000 00000008 00000004 00000000 00000002 00000000 00000000\n",
+        encoding="utf-8",
+    )
+    (paths.var_log / "kern.log").write_text("kernel: nf_conntrack: table full, dropping packet\n", encoding="utf-8")
+
+    evidence = collect_evidence(["conntrack"], paths=paths, runner=FakeRunner())
+
+    assert evidence["conntrack"]["usage_percent"] == 99.0
+    assert evidence["conntrack"]["near_limit"] is True
+    assert evidence["conntrack"]["insert_failed"] == 6
+    assert evidence["conntrack"]["drop"] == 3
+    assert evidence["conntrack"]["early_drop"] == 3
+    assert evidence["conntrack"]["invalid"] == 5
+    assert evidence["conntrack"]["error"] == 5
+    assert evidence["conntrack"]["failure_total"] == 17
+    assert evidence["conntrack"]["table_full_detected"] is True
 
 
 def test_systemd_and_kubelet_collectors_support_daemonset_file_mode(
@@ -906,7 +1010,9 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
         proc / "sys/net/netfilter",
         proc / "pressure",
         proc / "net",
+        proc / "net/stat",
         sys / "class/net/eth0",
+        sys / "module/nf_conntrack/parameters",
         etc / "cni/net.d",
         proc / "1",
         proc / "2",
@@ -977,6 +1083,13 @@ def _build_fake_host_paths(tmp_path: Path) -> AgentPaths:
     )
     (proc / "sys/net/netfilter/nf_conntrack_count").write_text("50\n", encoding="utf-8")
     (proc / "sys/net/netfilter/nf_conntrack_max").write_text("100\n", encoding="utf-8")
+    (proc / "sys/net/netfilter/nf_conntrack_buckets").write_text("256\n", encoding="utf-8")
+    (sys / "module/nf_conntrack/parameters/hashsize").write_text("256\n", encoding="utf-8")
+    (proc / "net/stat/nf_conntrack").write_text(
+        "entries searched found new invalid ignore delete delete_list insert insert_failed drop early_drop error search_restart\n"
+        "00000032 0000000a 00000009 00000008 00000000 00000000 00000002 00000000 00000008 00000000 00000000 00000000 00000000 00000000\n",
+        encoding="utf-8",
+    )
     (proc / "mounts").write_text("/dev/sda1 / ext4 ro,relatime 0 0\n", encoding="utf-8")
     (proc / "diskstats").write_text("", encoding="utf-8")
     (var_log / "kern.log").write_text(

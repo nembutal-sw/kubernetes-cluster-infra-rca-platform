@@ -288,7 +288,16 @@ def collect_kubernetes() -> dict[str, Any]:
         "node_pressure": {},
         "pod_count_on_node": None,
         "high_restart_pods": [],
+        "cni_pod_count_on_node": 0,
+        "cni_running_pod_count_on_node": 0,
+        "cni_non_running_pods": [],
         "cni_high_restart_pods": [],
+        "cni_daemonsets": [],
+        "cni_daemonset_count": 0,
+        "cni_daemonsets_unavailable": [],
+        "cni_daemonset_unavailable_count": 0,
+        "cni_daemonsets_not_scheduled": [],
+        "cni_daemonset_not_scheduled_count": 0,
         "control_plane_peer_connectivity": [],
         "failed_peer_probe_count": 0,
         "certificate_expiration_warnings": [],
@@ -319,6 +328,27 @@ def collect_kubernetes() -> dict[str, Any]:
     if pods_response.get("ok"):
         pod_summary = _summarize_kubernetes_pods(_list_items(pods_response.get("data")))
         base.update(pod_summary)
+
+    cni_daemonsets_response = client.get_json("/apis/apps/v1/namespaces/kube-system/daemonsets?limit=100")
+    base["cni_daemonsets_response"] = cni_daemonsets_response
+    if cni_daemonsets_response.get("ok"):
+        base.update(_summarize_cni_daemonsets(_list_items(cni_daemonsets_response.get("data"))))
+
+    coredns_pods_response = client.get_json(
+        "/api/v1/namespaces/kube-system/pods?"
+        + urllib.parse.urlencode({"labelSelector": "k8s-app=kube-dns", "limit": "20"})
+    )
+    base["coredns_pods"] = coredns_pods_response
+    if coredns_pods_response.get("ok"):
+        base.update(_summarize_coredns_pods(_list_items(coredns_pods_response.get("data"))))
+
+    coredns_endpoint_slices_response = client.get_json(
+        "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices?"
+        + urllib.parse.urlencode({"labelSelector": "kubernetes.io/service-name=kube-dns", "limit": "20"})
+    )
+    base["coredns_endpoint_slices"] = coredns_endpoint_slices_response
+    if coredns_endpoint_slices_response.get("ok"):
+        base.update(_summarize_coredns_endpoint_slices(_list_items(coredns_endpoint_slices_response.get("data"))))
 
     events_response = client.get_json(
         "/api/v1/events?fieldSelector="
@@ -569,6 +599,9 @@ def collect_network(paths: AgentPaths) -> dict[str, Any]:
         "routes_excerpt": _last_lines(_read_text(proc / "net/route", max_bytes=32768), 30),
         "tcp_snmp_excerpt": _last_lines(_read_text(proc / "net/snmp", max_bytes=32768), 40),
         "conntrack_usage_percent": conntrack.get("usage_percent"),
+        "conntrack_insert_failed": conntrack.get("insert_failed"),
+        "conntrack_drop_total": conntrack.get("drop"),
+        "conntrack_early_drop_total": conntrack.get("early_drop"),
         "conntrack": conntrack,
     }
 
@@ -577,17 +610,41 @@ def collect_conntrack(paths: AgentPaths) -> dict[str, Any]:
     proc = paths.proc_root()
     count = _safe_int(_read_first_line(proc / "sys/net/netfilter/nf_conntrack_count"))
     maximum = _safe_int(_read_first_line(proc / "sys/net/netfilter/nf_conntrack_max"))
+    buckets = _safe_int(_read_first_line(proc / "sys/net/netfilter/nf_conntrack_buckets"))
+    hashsize = _safe_int(_read_first_line(paths.sys_root() / "module/nf_conntrack/parameters/hashsize"))
+    stats, stats_excerpt = _parse_nf_conntrack_stats(proc / "net/stat/nf_conntrack")
+    insert_failed = stats.get("insert_failed")
+    drop = stats.get("drop")
+    early_drop = stats.get("early_drop")
+    invalid = stats.get("invalid")
+    error = stats.get("error")
+    kernel_logs = "\n".join(_read_kernel_log_candidates(paths.var_log_root()))
     usage_percent = None
     available = None
     if count is not None and maximum:
         usage_percent = round((count / maximum) * 100, 2)
         available = max(maximum - count, 0)
+    failure_total = sum(value or 0 for value in (insert_failed, drop, early_drop, error))
     return {
         "count": count,
         "max": maximum,
+        "buckets": buckets,
+        "hashsize": hashsize,
         "available": available,
         "usage_percent": usage_percent,
         "near_limit": None if usage_percent is None else usage_percent >= 80.0,
+        "stats": stats,
+        "stats_excerpt": stats_excerpt,
+        "insert_failed": insert_failed,
+        "drop": drop,
+        "early_drop": early_drop,
+        "invalid": invalid,
+        "error": error,
+        "failure_total": failure_total,
+        "table_full_detected": _contains_any(
+            kernel_logs,
+            ["nf_conntrack: table full", "conntrack table full", "nf_conntrack table full"],
+        ),
     }
 
 
@@ -912,9 +969,12 @@ def _summarize_kubernetes_node(node: dict[str, Any]) -> dict[str, Any]:
 
 def _summarize_kubernetes_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
     high_restart_pods = []
+    cni_pods = []
+    cni_non_running_pods = []
     cni_high_restart_pods = []
     non_running_pods = []
     total_restart_count = 0
+    cni_restart_count = 0
     kube_system_pod_count = 0
     for pod in pods:
         metadata = _dict_value(pod.get("metadata"))
@@ -938,15 +998,115 @@ def _summarize_kubernetes_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
         }
         if restart_count >= 5:
             high_restart_pods.append(pod_summary)
-        if restart_count >= 5 and _is_cni_pod(metadata):
-            cni_high_restart_pods.append(pod_summary)
+        if _is_cni_pod(metadata):
+            cni_pods.append(pod_summary)
+            cni_restart_count += restart_count
+            if phase != "Running":
+                cni_non_running_pods.append(pod_summary)
+            if restart_count >= 5:
+                cni_high_restart_pods.append(pod_summary)
     return {
         "pod_count_on_node": len(pods),
         "kube_system_pod_count_on_node": kube_system_pod_count,
         "non_running_pods": non_running_pods[:30],
         "pod_restart_count_total": total_restart_count,
         "high_restart_pods": high_restart_pods[:30],
+        "cni_pod_count_on_node": len(cni_pods),
+        "cni_running_pod_count_on_node": sum(1 for item in cni_pods if item.get("phase") == "Running"),
+        "cni_non_running_pods": cni_non_running_pods[:30],
+        "cni_restart_count_total": cni_restart_count,
         "cni_high_restart_pods": cni_high_restart_pods[:30],
+    }
+
+
+def _summarize_cni_daemonsets(daemonsets: list[dict[str, Any]]) -> dict[str, Any]:
+    summaries = []
+    unavailable = []
+    not_scheduled = []
+    for daemonset in daemonsets:
+        metadata = _dict_value(daemonset.get("metadata"))
+        if not _is_cni_pod(metadata):
+            continue
+        status = _dict_value(daemonset.get("status"))
+        desired = _safe_int(status.get("desiredNumberScheduled")) or 0
+        current = _safe_int(status.get("currentNumberScheduled")) or 0
+        ready = _safe_int(status.get("numberReady")) or 0
+        available = _safe_int(status.get("numberAvailable")) or 0
+        item = {
+            "namespace": str(metadata.get("namespace") or "kube-system"),
+            "name": str(metadata.get("name") or ""),
+            "desired_number_scheduled": desired,
+            "current_number_scheduled": current,
+            "number_ready": ready,
+            "number_available": available,
+            "updated_number_scheduled": _safe_int(status.get("updatedNumberScheduled")),
+            "number_misscheduled": _safe_int(status.get("numberMisscheduled")),
+        }
+        summaries.append(item)
+        if desired == 0:
+            not_scheduled.append(item)
+        elif ready < desired or available < desired:
+            unavailable.append(item)
+    return {
+        "cni_daemonsets": summaries[:20],
+        "cni_daemonset_count": len(summaries),
+        "cni_daemonsets_unavailable": unavailable[:20],
+        "cni_daemonset_unavailable_count": len(unavailable),
+        "cni_daemonsets_not_scheduled": not_scheduled[:20],
+        "cni_daemonset_not_scheduled_count": len(not_scheduled),
+    }
+
+
+def _summarize_coredns_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
+    non_running_pods = []
+    running_count = 0
+    restart_count = 0
+    for pod in pods:
+        metadata = _dict_value(pod.get("metadata"))
+        status = _dict_value(pod.get("status"))
+        spec = _dict_value(pod.get("spec"))
+        phase = str(status.get("phase") or "")
+        if phase == "Running":
+            running_count += 1
+        if phase not in {"Running", "Succeeded"}:
+            non_running_pods.append(
+                {
+                    "namespace": str(metadata.get("namespace") or ""),
+                    "name": str(metadata.get("name") or ""),
+                    "phase": phase,
+                    "node_name": spec.get("nodeName"),
+                    "restart_count": _pod_restart_count(status),
+                }
+            )
+        restart_count += _pod_restart_count(status)
+    return {
+        "coredns_pod_count": len(pods),
+        "coredns_running_pod_count": running_count,
+        "coredns_non_running_pods": non_running_pods[:20],
+        "coredns_restart_count_total": restart_count,
+    }
+
+
+def _summarize_coredns_endpoint_slices(endpoint_slices: list[dict[str, Any]]) -> dict[str, Any]:
+    endpoint_count = 0
+    ready_endpoint_count = 0
+    not_ready_endpoint_count = 0
+    for endpoint_slice in endpoint_slices:
+        for endpoint in _safe_json_list(endpoint_slice.get("endpoints")):
+            endpoint_count += 1
+            conditions = _dict_value(endpoint.get("conditions"))
+            ready = conditions.get("ready")
+            if ready is False or str(ready).lower() == "false":
+                not_ready_endpoint_count += 1
+            else:
+                ready_endpoint_count += 1
+    return {
+        "coredns_endpoint_slice_count": len(endpoint_slices),
+        "coredns_service_observed": bool(endpoint_slices),
+        "coredns_endpoint_count": endpoint_count,
+        "coredns_ready_endpoint_count": ready_endpoint_count,
+        "coredns_not_ready_endpoint_count": not_ready_endpoint_count,
+        "coredns_has_ready_endpoints": bool(ready_endpoint_count),
     }
 
 
@@ -1061,7 +1221,7 @@ def _is_cni_pod(metadata: dict[str, Any]) -> bool:
     label_text = " ".join(str(value).lower() for value in labels.values())
     return namespace == "kube-system" and any(
         token in f"{name} {label_text}"
-        for token in ("cilium", "calico", "flannel", "weave", "antrea", "canal")
+        for token in ("cilium", "calico", "flannel", "kindnet", "weave", "antrea", "canal")
     )
 
 
@@ -1949,6 +2109,35 @@ def _parse_proc_net_table(path: Path) -> dict[str, dict[str, int]]:
                 continue
         pending_headers[protocol] = fields
     return parsed
+
+
+def _parse_nf_conntrack_stats(path: Path) -> tuple[dict[str, int], list[str]]:
+    text = _read_text(path, max_bytes=65536)
+    lines = [line.split() for line in text.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return {}, _last_lines(text, 20)
+    headers = lines[0]
+    totals: dict[str, int] = {}
+    for row in lines[1:]:
+        for index, name in enumerate(headers[: len(row)]):
+            value = _parse_conntrack_stat_number(row[index])
+            if value is None:
+                continue
+            if name == "entries":
+                totals[name] = max(totals.get(name, 0), value)
+            else:
+                totals[name] = totals.get(name, 0) + value
+    return totals, _last_lines(text, 20)
+
+
+def _parse_conntrack_stat_number(value: str) -> int | None:
+    try:
+        return int(value, 16)
+    except ValueError:
+        try:
+            return int(value)
+        except ValueError:
+            return None
 
 
 def _parse_json(text: str) -> Any | None:
