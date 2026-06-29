@@ -410,15 +410,15 @@ code {
 
 .failure-surface {
   display: grid;
-  grid-template-columns: repeat(6, minmax(92px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 10px;
-  overflow-x: auto;
+  overflow: visible;
   padding-bottom: 4px;
 }
 
 .surface-stage {
   position: relative;
-  min-width: 116px;
+  min-width: 0;
   min-height: 156px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -468,11 +468,7 @@ code {
 }
 
 .stage-link {
-  position: absolute;
-  right: -10px;
-  top: 46px;
-  width: 10px;
-  border-top: 2px solid var(--line-strong);
+  display: none;
 }
 
 .signal-list,
@@ -503,7 +499,7 @@ code {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: center;
+  align-items: start;
 }
 
 .signal-row i {
@@ -514,9 +510,10 @@ code {
 .signal-row span {
   display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .signal-row span {
@@ -599,9 +596,8 @@ code {
 
 .ops-strip strong {
   margin-top: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .split-grid {
@@ -672,9 +668,9 @@ code {
 
 .cluster-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: center;
+  align-items: start;
   padding: 10px;
 }
 
@@ -694,13 +690,19 @@ code {
   min-width: 0;
 }
 
+.cluster-main > div {
+  min-width: 0;
+}
+
 .cluster-main strong,
 .cluster-main span {
   display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .cluster-main span {
@@ -723,8 +725,14 @@ code {
 .cluster-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   color: var(--muted);
+}
+
+.cluster-row .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .cluster-detail-grid {
@@ -929,6 +937,9 @@ code {
 .timeline-graph strong,
 .timeline-graph span {
   display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-graph time {
@@ -948,11 +959,7 @@ code {
 }
 
 .timeline-edge {
-  position: absolute;
-  right: -13px;
-  top: 30px;
-  width: 13px;
-  border-top: 2px solid var(--line-strong);
+  display: none;
 }
 
 .candidate-item {
@@ -960,6 +967,16 @@ code {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 12px;
+}
+
+.candidate-item > div:last-child {
+  min-width: 0;
+}
+
+.candidate-item strong,
+.supporting-lines span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .candidate-score {
@@ -1518,7 +1535,7 @@ code {
     height: auto;
     padding: 10px;
     flex-direction: row;
-    overflow-x: auto;
+    overflow: visible;
   }
 
   .sidebar-brand {
@@ -1526,14 +1543,17 @@ code {
   }
 
   .sidebar-nav {
-    display: flex;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
-    min-width: max-content;
+    min-width: 0;
   }
 
   .sidebar-nav button {
     width: auto;
     min-width: 44px;
+    padding: 10px 8px;
   }
 
   .console-topbar {
@@ -1569,7 +1589,7 @@ code {
   }
 
   .failure-surface {
-    grid-template-columns: repeat(6, 132px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .cluster-form,
