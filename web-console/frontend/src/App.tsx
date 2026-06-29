@@ -1,4062 +1,1960 @@
 // @ts-nocheck
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./styles.css";
 
-  const rootElement = document.getElementById("rca-console-root");
-  const h = React.createElement;
-  const apiBase = "";
-  const publicApiBase = window.location.origin;
-  const LANGUAGE_STORAGE_KEY = "rca_console_language";
-  const views = [
-    { id: "overview", label: "Overview", icon: "speedometer2" },
-    { id: "clusters", label: "Clusters", icon: "hdd-network" },
-    { id: "webhooks", label: "Webhooks", icon: "diagram-3" },
-    { id: "incidents", label: "Incidents", icon: "exclamation-diamond" },
-    { id: "pipeline", label: "Pipeline", icon: "list-task" },
-    { id: "reports", label: "Reports", icon: "clipboard2-pulse" },
-    { id: "demo", label: "Demo Scenarios", icon: "play-circle" },
-    { id: "audit", label: "Audit", icon: "journal-check" },
-    { id: "settings", label: "Settings", icon: "sliders" },
-  ];
-  let activeLocale = normalizeLocale(localStorage.getItem(LANGUAGE_STORAGE_KEY));
+const STORAGE_KEYS = {
+  locale: "rca_console_language",
+};
 
-  const translations = {
-    ko: {
-      "Pipeline": "분석 파이프라인",
-      "Analysis Tasks": "분석 작업",
-      "Attempt": "시도",
-      "Next attempt": "다음 시도",
-      "Last error": "최근 오류",
-      "Retry task": "작업 재시도",
-      "No analysis tasks loaded.": "분석 작업이 없습니다.",
-      "Incidents": "인시던트",
-      "Incident": "인시던트",
-      "Audit": "감사 로그",
-      "Actor": "행위자",
-      "Event": "이벤트",
-      "Resource": "대상",
-      "Outcome": "결과",
-      "Search": "검색",
-      "Event type": "이벤트 타입",
-      "Actor type": "행위자 타입",
-      "Client IP": "클라이언트 IP",
-      "Resource type": "대상 타입",
-      "Resource ID": "대상 ID",
-      "From": "시작",
-      "To": "종료",
-      "Limit": "개수",
-      "All": "전체",
-      "Apply": "적용",
-      "Reset": "초기화",
-      "Details": "상세",
-      "Access": "접근",
-      "Root Cause": "근본 원인",
-      "Root trigger": "최초 원인 신호",
-      "Causal inference": "인과 추론",
-      "Observed sequence": "관측 순서",
-      "observed next in the incident window": "인시던트 구간에서 다음으로 관측됨",
-      "Occurrences": "발생 횟수",
-      "Recurrence": "재발",
-      "Previous incident": "이전 인시던트",
-      "Resolved at": "종료 시각",
-      "Resolution source": "종료 주체",
-      "Action History": "조치 이력",
-      "Approval and execution attempts": "승인 및 실행 요청 이력",
-      "Approval and manual handling history": "승인 및 수동 처리 이력",
-      "Approve for Manual Handling": "수동 처리 승인",
-      "Approve this request for human-operated handling? The platform and agent will not execute it.": "사람이 직접 처리하도록 승인할까요? 플랫폼과 Agent는 조치를 실행하지 않습니다.",
-      "Mark Manually Completed": "수동 처리 완료",
-      "Mark this approved request as manually completed?": "승인된 요청을 수동 처리 완료로 표시할까요?",
-      "Manual completion recorded.": "수동 처리 완료를 기록했습니다.",
-      "Collect Evidence": "근거 수집",
-      "Runbook / GitOps guidance": "Runbook / GitOps 안내",
-      "Commands are guidance only and are never executed by the platform or agent.": "명령은 안내용이며 플랫폼이나 Agent가 실행하지 않습니다.",
-      "Observed Services": "관찰된 Service",
-      "Service relationship unverified": "Service 영향 관계 미검증",
-      "No action requests.": "조치 요청 이력이 없습니다.",
-      "No incidents loaded.": "등록된 인시던트가 없습니다.",
-      "No audit events loaded.": "감사 이벤트가 없습니다.",
-      "Approve": "승인",
-      "Reject": "거절",
-      "Requested by": "요청자",
-      "Reviewed by": "검토자",
-      "Resolve": "해결 처리",
-      "Reopen": "다시 열기",
-      "Overview": "개요",
-      "Clusters": "클러스터",
-      "Webhooks": "웹훅",
-      "Reports": "보고서",
-      "Settings": "설정",
-      "Operations Console": "운영 콘솔",
-      "Cluster Infrastructure RCA": "클러스터 인프라 RCA",
-      "Checking session": "세션 확인 중",
-      "Please wait.": "잠시만 기다려주세요.",
-      "Sign in with the configured administrator account.": "설정된 관리자 계정으로 로그인하세요.",
-      "Account": "계정",
-      "Password": "비밀번호",
-      "Login": "로그인",
-      "Logout": "로그아웃",
-      "Refresh": "새로고침",
-      "Reload": "다시 불러오기",
-      "Auto": "자동",
-      "Manual": "수동",
-      "Not refreshed": "아직 새로고침 안 됨",
-      "Language": "언어",
-      "English": "영어",
-      "Korean": "한국어",
-      "RCA Reports": "RCA 보고서",
-      "Root Cause Candidates": "원인 후보",
-      "Evidence Signals": "근거 신호",
-      "Additional Checks": "추가 확인 명령",
-      "Recommended Actions": "권장 조치",
-      "Policy Engine": "정책 엔진",
-      "Rule gate before any action request": "조치 요청 전 Rule 기반 정책 검증",
-      "Rule-based candidates first, LLM candidates only as supporting context": "Rule 기반 후보를 우선 표시하고 LLM 후보는 보조 근거로만 사용",
-      "Read-only commands to verify the candidate cause": "원인 후보를 검증하기 위한 읽기 전용 명령",
-      "Policy Engine decides whether an action can be automated": "정책 엔진이 조치 자동화 가능 여부를 판단합니다",
-      "Policy keeps automation_allowed=false for every LLM-origin action.": "LLM 출처 조치는 항상 automation_allowed=false로 유지됩니다.",
-      "LLM suggestion only. automation_allowed=false until a rule or operator explicitly approves it.": "LLM 제안은 참고용입니다. Rule 또는 운영자 승인 전까지 automation_allowed=false 입니다.",
-      "LLM suggestion only. It cannot become executable and must remain diagnostic context.": "LLM 제안은 실행 가능 상태가 될 수 없으며 진단 참고 정보로만 사용합니다.",
-      "Risk reasons": "위험 사유",
-      "Guardrails": "가드레일",
-      "No policy risk factors.": "정책 위험 사유 없음",
-      "No guardrails triggered.": "트리거된 가드레일 없음",
-      "Read-only rule-based collection or verification.": "읽기 전용 Rule 기반 수집 또는 검증",
-      "Node or service state may change. Operator approval is required.": "노드 또는 서비스 상태 변경 가능성이 있어 운영자 승인이 필요합니다.",
-      "Configuration change. Propose through a reviewable PR only.": "설정 변경은 리뷰 가능한 PR로만 제안합니다.",
-      "Prohibited for automation. Human decision only.": "자동화 금지 대상이며 사람의 판단만 허용됩니다.",
-      "Needs manual investigation or external validation.": "수동 조사 또는 외부 검증이 필요합니다.",
-      "Unclassified policy decision.": "분류되지 않은 정책 결정입니다.",
-      "Read-only rule-based action requests": "읽기 전용 Rule 기반 조치 요청",
-      "Needs review, approval, PR, or manual handling": "리뷰, 승인, PR 또는 수동 처리가 필요합니다",
-      "Console Settings": "콘솔 설정",
-      "Runtime references": "런타임 참조",
-      "Change Password": "비밀번호 변경",
-      "Change the current administrator password": "현재 관리자 계정의 비밀번호를 변경합니다",
-      "Current password": "현재 비밀번호",
-      "New password": "새 비밀번호",
-      "Confirm password": "비밀번호 확인",
-      "Update password": "비밀번호 변경",
-      "Language preference is saved in this browser.": "언어 설정은 이 브라우저에 저장됩니다.",
-      "Language changed.": "언어가 변경되었습니다.",
-      "Name": "이름",
-      "Agents": "에이전트",
-      "Access": "접근",
-      "Session": "세션",
-      "Webhook": "웹훅",
-      "Platform API": "플랫폼 API",
-      "same origin": "동일 출처",
-      "Public API": "Public API",
-      "Signed in": "로그인 계정",
-      "Role": "역할",
-      "Refresh mode": "새로고침 모드",
-      "Webhook token env": "웹훅 토큰 환경 변수",
-      "LLM provider env": "LLM provider 환경 변수",
-      "Database env": "데이터베이스 환경 변수",
-      "Platform version": "플랫폼 버전",
-      "API version": "API 버전",
-      "Agent protocol": "에이전트 프로토콜",
-      "Minimum agent version": "최소 에이전트 버전",
-      "Webhook endpoint copied.": "웹훅 엔드포인트를 복사했습니다.",
-      "Receiver sample copied.": "Receiver 예시를 복사했습니다.",
-      "Install command copied.": "설치 명령을 복사했습니다.",
-      "Last refresh": "마지막 새로고침",
-      "Loading": "불러오는 중",
-      "Registered targets": "등록된 대상",
-      "high confidence": "높은 신뢰도",
-      "HttpOnly session": "HttpOnly 세션",
-      "Cluster Snapshot": "클러스터 스냅샷",
-      "Cluster Topology": "클러스터 토폴로지",
-      "Topology Relationship Graph": "토폴로지 관계 그래프",
-      "Service to node endpoint and selector relationships": "Service와 노드 사이의 endpoint 및 selector 관계",
-      "No topology relationships observed.": "관측된 토폴로지 관계가 없습니다.",
-      "Endpoint relationship": "Endpoint 관계",
-      "Selector-derived relationship": "Selector 기반 관계",
-      "Graph is limited to the most connected resources.": "그래프는 연결이 많은 주요 리소스만 표시합니다.",
-      "Pods": "파드",
-      "Services": "서비스",
-      "Relations": "관계",
-      "Not observed": "관측되지 않음",
-      "Cluster-wide Service and EndpointSlice inventory is complete.": "클러스터 전체 Service 및 EndpointSlice 인벤토리 수집이 완료되었습니다.",
-      "Topology is partial until the elected agent collects Service and EndpointSlice inventory.": "선정된 Agent가 Service 및 EndpointSlice 인벤토리를 수집하기 전까지 토폴로지는 일부 정보만 표시됩니다.",
-      "Latest registered clusters": "최근 등록된 클러스터",
-      "Open": "열기",
-      "Recent Reports": "최근 보고서",
-      "Root cause candidates": "원인 후보",
-      "No reports loaded.": "불러온 보고서가 없습니다.",
-      "Cluster Onboarding": "클러스터 온보딩",
-      "Register once, then install the node agent": "한 번 등록한 뒤 노드 에이전트를 설치합니다",
-      "Register": "등록",
-      "Create a cluster id and bootstrap token.": "cluster id와 bootstrap token을 생성합니다.",
-      "Install": "설치",
-      "Run the generated kubectl command.": "생성된 kubectl 명령을 실행합니다.",
-      "Verify": "검증",
-      "Check node agents after DaemonSet rollout.": "DaemonSet 배포 후 노드 에이전트를 확인합니다.",
-      "Cluster name": "클러스터 이름",
-      "Platform API URL for agents": "에이전트용 Platform API URL",
-      "Agents and kubectl will use this platform API URL.": "에이전트와 kubectl이 이 Platform API URL을 사용합니다.",
-      "Enter the platform API URL reachable from your kubectl workstation and cluster nodes.": "kubectl 작업 PC와 클러스터 노드에서 접근 가능한 Platform API URL을 입력하세요.",
-      "Description": "설명",
-      "Optional note for operators": "운영자용 선택 메모",
-      "Register and show install command": "등록 후 설치 명령 표시",
-      "Registered Clusters": "등록된 클러스터",
-      "clusters": "개 클러스터",
-      "Cluster": "클러스터",
-      "Environment": "환경",
-      "Status": "상태",
-      "Actions": "작업",
-      "Data": "데이터",
-      "Collect": "수집",
-      "Agent install command": "에이전트 설치 명령",
-      "Run this from a workstation with kubectl access to the target cluster.": "대상 클러스터에 kubectl 접근이 가능한 작업 PC에서 실행하세요.",
-      "Copy": "복사",
-      "Namespace and secret are created first.": "Namespace와 Secret을 먼저 생성합니다.",
-      "DaemonSet is applied from the generated manifest URL.": "생성된 manifest URL에서 DaemonSet을 적용합니다.",
-      "Click Agents after rollout to confirm node registration.": "배포 후 Agents를 눌러 노드 등록을 확인합니다.",
-      "Webhook Endpoint": "웹훅 엔드포인트",
-      "Alertmanager integration": "Alertmanager 연동",
-      "Endpoint": "엔드포인트",
-      "Authorization": "인증",
-      "Alertmanager Receiver": "Alertmanager Receiver",
-      "YAML sample": "YAML 예시",
-      "Symptom": "증상",
-      "Policy": "정책",
-      "Hide": "숨기기",
-      "Detail": "상세",
-      "Export": "내보내기",
-      "Export all": "전체 내보내기",
-      "Report summary copied.": "보고서 요약을 복사했습니다.",
-      "Report export downloaded.": "보고서 export 파일을 다운로드했습니다.",
-      "Reports export downloaded.": "보고서 export 파일을 다운로드했습니다.",
-      "Cluster reports export downloaded.": "클러스터 보고서 export 파일을 다운로드했습니다.",
-      "No registered clusters loaded.": "불러온 등록 클러스터가 없습니다.",
-      "No clusters loaded.": "불러온 클러스터가 없습니다.",
-      "Loading agents.": "에이전트를 불러오는 중입니다.",
-      "No agents registered.": "등록된 에이전트가 없습니다.",
-      "Node": "노드",
-      "Version": "버전",
-      "Last seen": "마지막 확인",
-      "Loading cluster data.": "클러스터 데이터를 불러오는 중입니다.",
-      "Evidence requests": "근거 수집 요청",
-      "Node Agents": "노드 에이전트",
-      "Evidence Requests": "근거 수집 요청",
-      "Collected Evidence": "수집된 근거",
-      "Evidence bundle copied.": "근거 번들을 복사했습니다.",
-      "Recent RCA": "최근 RCA",
-      "Cluster RCA reports copied.": "클러스터 RCA 보고서를 복사했습니다.",
-      "Close": "닫기",
-      "Evidence": "근거",
-      "Alert": "알림",
-      "Collectors": "수집기",
-      "No evidence requests.": "근거 수집 요청이 없습니다.",
-      "Request": "요청",
-      "Created": "생성 시간",
-      "View": "보기",
-      "Loading evidence bundle.": "근거 번들을 불러오는 중입니다.",
-      "Select a completed evidence request.": "완료된 근거 수집 요청을 선택하세요.",
-      "No RCA reports for this cluster.": "이 클러스터의 RCA 보고서가 없습니다.",
-      "Confirm Action": "조치 확인",
-      "No reason": "사유 없음",
-      "This will request read-only follow-up evidence from the node agent.": "노드 에이전트에 읽기 전용 추가 근거 수집을 요청합니다.",
-      "The policy gate will record the request status without direct node mutation.": "정책 게이트는 직접 노드 변경 없이 요청 상태만 기록합니다.",
-      "Cancel": "취소",
-      "Processing": "처리 중",
-      "Confirm": "확인",
-      "Confirm Collection": "수집 확인",
-      "Cluster collection": "클러스터 수집",
-      "Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline.": "백엔드는 등록된 온라인 노드 에이전트에 읽기 전용 근거 수집 요청을 생성합니다. 제출된 근거는 기존 RCA 파이프라인으로 분석됩니다.",
-      "No Prometheus or Alertmanager trigger is required.": "Prometheus 또는 Alertmanager 트리거가 없어도 됩니다.",
-      "Delete": "삭제",
-      "Deleting": "삭제 중",
-      "Confirm Delete": "삭제 확인",
-      "Delete cluster": "클러스터 삭제",
-      "Type the cluster name to confirm deletion.": "삭제하려면 클러스터 이름을 입력하세요.",
-      "This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the platform.": "플랫폼에서 클러스터 등록 정보와 저장된 agent, evidence request, evidence bundle, RCA job, report를 모두 삭제합니다.",
-      "Agent DaemonSets in target clusters are not removed automatically.": "대상 클러스터에 배포된 agent DaemonSet은 자동으로 제거되지 않습니다.",
-      "Confirmation does not match the cluster name.": "확인 값이 클러스터 이름과 일치하지 않습니다.",
-      "Cluster deleted.": "클러스터를 삭제했습니다.",
-      "Requesting": "요청 중",
-      "Loading report detail.": "보고서 상세를 불러오는 중입니다.",
-      "No policy decisions.": "정책 결정이 없습니다.",
-      "No items.": "항목이 없습니다.",
-      "No actions.": "조치가 없습니다.",
-      "No signals.": "신호가 없습니다.",
-      "Next:": "다음:",
-      "No checklist.": "체크리스트가 없습니다.",
-      "Command copied.": "명령을 복사했습니다.",
-      "Read-only verification": "읽기 전용 검증",
-      "Report": "보고서",
-      "Nodes": "노드",
-      "Automation": "자동화",
-      "Components": "구성 요소",
-      "Policies": "정책",
-      "Provider": "제공자",
-      "allowed": "허용",
-      "gated": "차단",
-      "action": "조치",
-      "derived signals": "파생 신호",
-      "mode": "모드",
-      "approval": "승인",
-      "review": "리뷰",
-      "key": "키",
-      "required": "필요",
-      "not required": "불필요",
-      "Execute": "실행",
-      "PR Gate": "PR 게이트",
-      "Blocked": "차단",
-      "Review": "검토",
-      "Unknown cause": "알 수 없는 원인",
-      "Unknown symptom": "알 수 없는 증상",
-      "n/a": "없음",
-      "unknown": "알 수 없음",
-      "manual": "수동",
-      "read_only": "읽기 전용",
-      "operator_approval": "운영자 승인",
-      "gitops_pr": "GitOps PR",
-      "prohibited": "금지",
-      "completed": "완료",
-      "skipped": "건너뜀",
-      "failed": "실패",
-      "active": "활성",
-      "registered": "등록됨",
-      "agent_pending": "에이전트 대기",
-      "healthy": "정상",
-      "offline": "오프라인",
-      "degraded": "저하",
-      "high": "높음",
-      "medium": "중간",
-      "low": "낮음",
-      "critical": "심각",
-      "warning": "경고",
-      "rule_based": "Rule 기반",
-      "llm_suggestion": "LLM 제안",
-      "automation_allowed": "자동화 허용",
-      "automation_blocked": "자동화 차단",
-      "llm_auto_blocked": "LLM 자동화 차단",
-      "Current evidence is insufficient to isolate a single root cause; additional logs and time-correlated metrics are required.": "현재 근거만으로 단일 원인을 분리하기 어렵습니다. 추가 로그와 시간 기준으로 맞춘 메트릭이 필요합니다.",
-      "Container runtime hang, crash loop, or socket failure is disrupting kubelet runtime integration.": "컨테이너 런타임 hang, crash loop 또는 socket 장애가 kubelet 런타임 연동을 방해하고 있습니다.",
-      "containerd hang, crash loop, or socket failure is disrupting kubelet runtime integration.": "containerd hang, crash loop 또는 socket 장애가 kubelet 런타임 연동을 방해하고 있습니다.",
-      "kubelet unit failure or repeated restarts are making node status updates and pod lifecycle handling unstable.": "kubelet unit 장애 또는 반복 재시작으로 노드 상태 갱신과 Pod lifecycle 처리가 불안정합니다.",
-      "Storage or filesystem errors may be causing root filesystem write failures and kubelet/containerd disruption.": "스토리지 또는 파일시스템 오류로 root filesystem 쓰기 실패와 kubelet/containerd 장애가 발생했을 수 있습니다.",
-      "Disk capacity, inode exhaustion, or I/O pressure is likely causing kubelet eviction and runtime latency.": "디스크 용량, inode 고갈 또는 I/O pressure가 kubelet eviction과 런타임 지연을 유발했을 가능성이 높습니다.",
-      "Node memory pressure or OOM activity may be preventing system daemons or workloads from running normally.": "노드 메모리 pressure 또는 OOM 활동으로 시스템 데몬이나 workload가 정상 동작하지 못했을 수 있습니다.",
-      "PID exhaustion or zombie process buildup may be preventing kubelet or runtime from spawning required processes.": "PID 고갈 또는 zombie process 누적으로 kubelet이나 런타임이 필요한 프로세스를 생성하지 못했을 수 있습니다.",
-      "Node network path, NIC link instability, TCP errors, or conntrack exhaustion is making API Server, CNI, or DNS communication unstable.": "노드 네트워크 경로, NIC link 불안정, TCP 오류 또는 conntrack 고갈로 API Server, CNI, DNS 통신이 불안정합니다.",
-      "CNI configuration, plugin errors, or MTU mismatch may be breaking pod network attachment or node networking.": "CNI 설정, plugin 오류 또는 MTU 불일치로 Pod 네트워크 연결이나 노드 네트워킹이 깨졌을 수 있습니다.",
-      "Node resolver, CoreDNS, or upstream DNS trouble may be delaying service discovery and control-plane communication.": "노드 resolver, CoreDNS 또는 upstream DNS 문제로 서비스 디스커버리와 control-plane 통신이 지연될 수 있습니다.",
-      "Kubernetes API readiness or metrics path is unhealthy, so controllers and operators may see stale or missing node state.": "Kubernetes API readiness 또는 metrics 경로가 비정상이라 controller와 operator가 오래되거나 누락된 노드 상태를 볼 수 있습니다.",
-      "Failed systemd units may be contributing to node-level service degradation.": "실패한 systemd unit이 노드 레벨 서비스 저하에 영향을 주고 있을 수 있습니다.",
-      "Check failed units and dependency failures": "실패한 unit과 의존성 장애를 확인",
-      "Check kubelet unit state, restart history, and node condition messages": "kubelet unit 상태, 재시작 이력, 노드 condition 메시지 확인",
-      "Check runtime sockets, unit state, pids, and recent journal lines": "런타임 socket, unit 상태, pid, 최근 journal 확인",
-      "Check containerd socket, unit, pid, and recent journal lines": "containerd socket, unit, pid, 최근 journal 확인",
-      "Confirm disk and inode pressure by mountpoint": "mountpoint별 disk와 inode pressure 확인",
-      "Find large runtime, kubelet, and log directories without crossing filesystems": "파일시스템 경계를 넘지 않고 큰 runtime/kubelet/log 디렉터리 확인",
-      "Find directories with unusually high file counts": "파일 개수가 비정상적으로 많은 디렉터리 확인",
-      "Check block device, filesystem, blocked task, taint, and read-only remount errors": "block device, filesystem, blocked task, taint, read-only remount 오류 확인",
-      "Check memory pressure, swap pressure, PSI, and recent OOM victims": "memory pressure, swap pressure, PSI, 최근 OOM victim 확인",
-      "Check PID pressure, process fan-out, and zombie parents": "PID pressure, process fan-out, zombie parent 확인",
-      "Check NIC, route, socket, TCP, and conntrack state": "NIC, route, socket, TCP, conntrack 상태 확인",
-      "Check CNI config, MTU settings, plugin logs, and kube-system pods": "CNI config, MTU 설정, plugin 로그, kube-system pod 확인",
-      "Check Kubernetes API readiness, metrics path, certificate warnings, and node events": "Kubernetes API readiness, metrics 경로, certificate 경고, node event 확인",
-      "Check node resolver path, timeout budget, and CoreDNS pods": "노드 resolver 경로, timeout budget, CoreDNS pod 확인",
-      "Evidence is insufficient; check failed units and kernel errors first": "근거가 부족합니다. 실패한 unit과 kernel error부터 확인하세요.",
-    },
-  };
+const NAV_ITEMS = [
+  { id: "overview", label: "Overview", icon: "speedometer2" },
+  { id: "clusters", label: "Clusters", icon: "hdd-network" },
+  { id: "reports", label: "RCA Reports", icon: "clipboard2-pulse" },
+  { id: "incidents", label: "Incidents", icon: "exclamation-diamond" },
+  { id: "pipeline", label: "Pipeline", icon: "diagram-3" },
+  { id: "audit", label: "Audit", icon: "journal-check", roles: ["admin", "auditor"] },
+  { id: "webhooks", label: "Webhooks", icon: "broadcast-pin" },
+  { id: "settings", label: "Settings", icon: "gear" },
+];
 
-  const actionTranslations = {
-    ko: {
-      collect_more_evidence: {
-        action: "장애 시간대의 kubelet, runtime, kernel, systemd, network, disk 근거를 추가 수집합니다.",
-        reason: "읽기 전용 근거 수집이며 노드나 workload 상태를 변경하지 않습니다.",
-      },
-      collect_linux_low_level_evidence: {
-        action: "systemd unit, kernel log, process state, runtime socket, host namespace의 Linux low-level 상태를 수집합니다.",
-        reason: "Linux low-level 점검은 읽기 전용이며 restart나 노드 변경을 검토하기 전에 필요합니다.",
-      },
-      inspect_storage_state: {
-        action: "filesystem, inode, mount, block device, kernel I/O 상태를 점검합니다.",
-        reason: "스토리지 점검은 읽기 전용이며 capacity pressure와 filesystem/device 오류를 분리하는 데 필요합니다.",
-      },
-      inspect_network_state: {
-        action: "영향받은 노드에서 NIC, route, socket, conntrack, resolver, CNI 상태를 점검합니다.",
-        reason: "네트워크 점검은 읽기 전용이며 CNI, sysctl, routing 변경 전 선행되어야 합니다.",
-      },
-      restart_container_runtime: {
-        action: "컨테이너 런타임 socket 또는 unit이 계속 비정상이면 운영자 승인 후 런타임 재시작을 검토합니다.",
-        reason: "런타임 재시작은 실행 중인 workload에 영향을 줄 수 있으므로 자동 실행하면 안 됩니다.",
-      },
-      restart_containerd: {
-        action: "containerd socket 또는 unit이 계속 비정상이면 운영자 승인 후 containerd 재시작을 검토합니다.",
-        reason: "런타임 재시작은 실행 중인 workload에 영향을 줄 수 있으므로 자동 실행하면 안 됩니다.",
-      },
-      restart_kubelet: {
-        action: "kubelet이 failed 상태이거나 반복 재시작 중이면 운영자 승인 후 kubelet 재시작을 검토합니다.",
-        reason: "kubelet 재시작은 노드 상태 갱신을 회복할 수 있지만 workload lifecycle 처리에 영향을 줄 수 있어 승인이 필요합니다.",
-      },
-      cleanup_disk: {
-        action: "운영자 승인 후 사용하지 않는 image, log, temporary file을 정리하거나 디스크 용량을 확장합니다.",
-        reason: "잘못된 경로를 정리하면 데이터 손실이 발생할 수 있으므로 경로 검토와 승인이 필요합니다.",
-      },
-      cordon_node: {
-        action: "memory pressure 또는 OOM이 계속되면 운영자 승인 후 node cordon 또는 drain을 검토합니다.",
-        reason: "cordon 또는 drain은 workload 재스케줄링을 유발하므로 자동 실행하면 안 됩니다.",
-      },
-      manual_investigation: {
-        action: "조치 전에 PID pressure, process fan-out, zombie parent, runtime shim 상태를 조사합니다.",
-        reason: "PID 고갈은 workload 동작이나 host process leak이 원인일 수 있어 사람의 판단이 필요합니다.",
-      },
-      open_gitops_pr: {
-        action: "conntrack, CNI, DNS/CoreDNS, MTU 또는 sysctl 변경은 GitOps PR로만 제안합니다.",
-        reason: "클러스터 설정 변경은 RCA에서 직접 적용하면 안 되며 리뷰 가능한 PR 흐름이 필요합니다.",
-      },
-      manual_hardware_check: {
-        action: "NIC link flap, kernel I/O error, read-only filesystem, storage 또는 network path 상태를 조사합니다.",
-        reason: "하드웨어, kernel, storage, network path 검증은 수동 조사가 필요합니다.",
-      },
-      reboot_node: {
-        action: "blocked task 또는 read-only filesystem 오류가 지속되면 node reboot는 최후 수단으로만 검토합니다.",
-        reason: "node reboot는 영향 범위가 크므로 절대 자동 실행하면 안 됩니다.",
-      },
-    },
-  };
+const KO = {
+  Overview: "개요",
+  Clusters: "클러스터",
+  "RCA Reports": "RCA 보고서",
+  Incidents: "인시던트",
+  Pipeline: "파이프라인",
+  Audit: "감사로그",
+  Webhooks: "웹훅",
+  Settings: "설정",
+  "Cluster Infra RCA": "클러스터 인프라 RCA",
+  "Linux and Kubernetes infrastructure root cause console": "Linux 및 Kubernetes 인프라 원인 분석 콘솔",
+  "Sign in": "로그인",
+  Username: "계정",
+  Password: "비밀번호",
+  "Default account": "기본 계정",
+  "Invalid username or password": "계정 또는 비밀번호가 올바르지 않습니다",
+  Logout: "로그아웃",
+  Refresh: "새로고침",
+  "Open incidents": "진행 중 인시던트",
+  "RCA reports": "RCA 보고서",
+  "Registered clusters": "등록 클러스터",
+  "Healthy agents": "정상 에이전트",
+  "Policy blocked": "정책 차단",
+  "APM Failure Surface": "APM 장애 표면",
+  "Failure propagation": "장애 전파",
+  "Signal stream": "시그널 스트림",
+  "Cluster topology": "클러스터 토폴로지",
+  "Recent RCA": "최근 RCA",
+  "No reports loaded.": "불러온 보고서가 없습니다.",
+  "No incidents loaded.": "불러온 인시던트가 없습니다.",
+  "No clusters registered.": "등록된 클러스터가 없습니다.",
+  "No audit events loaded.": "감사 이벤트가 없습니다.",
+  "No action requests.": "조치 요청이 없습니다.",
+  "No agents registered.": "등록된 에이전트가 없습니다.",
+  "Create cluster": "클러스터 생성",
+  "Cluster name": "클러스터 이름",
+  Environment: "환경",
+  Description: "설명",
+  "Backend URL": "백엔드 URL",
+  "Generate install command": "설치 명령 생성",
+  "Install command": "설치 명령",
+  Copy: "복사",
+  "Copied.": "복사했습니다.",
+  Delete: "삭제",
+  "Delete cluster": "클러스터 삭제",
+  "Type the cluster name to confirm deletion.": "삭제하려면 클러스터 이름을 입력하세요.",
+  Cancel: "취소",
+  Confirm: "확인",
+  "Manual collection": "수동 수집",
+  "Collect evidence": "증거 수집",
+  Agents: "에이전트",
+  Evidence: "증거",
+  Topology: "토폴로지",
+  Status: "상태",
+  Node: "노드",
+  Version: "버전",
+  "Last heartbeat": "마지막 하트비트",
+  "Alert name": "알림명",
+  "Created at": "생성일",
+  "Completed at": "완료일",
+  "Report detail": "보고서 상세",
+  "Root cause candidates": "원인 후보",
+  "Evidence summary": "근거 요약",
+  "Additional checks": "추가 확인 명령",
+  "Recommended actions": "권장 조치",
+  "Policy gate": "정책 게이트",
+  "Automation": "자동화",
+  "Risk factors": "위험 사유",
+  "Command preview": "명령 미리보기",
+  "Request action": "조치 요청",
+  "Approve": "승인",
+  "Reject": "거절",
+  "Complete manual": "수동 처리 완료",
+  "Manual workflow": "수동 처리",
+  "LLM diagnostic only": "LLM 진단 전용",
+  "Rule based": "Rule 기반",
+  "Automation blocked": "자동화 차단",
+  "Export report": "보고서 내보내기",
+  "Export all": "전체 내보내기",
+  "Cascading timeline": "장애 전파 타임라인",
+  "Action requests": "조치 요청",
+  "Analysis tasks": "분석 작업",
+  "Demo scenarios": "데모 시나리오",
+  Run: "실행",
+  Retry: "재시도",
+  "Alertmanager endpoint": "Alertmanager 엔드포인트",
+  "Receiver sample": "Receiver 예시",
+  "Audit search": "감사 검색",
+  Search: "검색",
+  Export: "내보내기",
+  "Client IP": "클라이언트 IP",
+  Actor: "행위자",
+  Event: "이벤트",
+  Resource: "리소스",
+  Outcome: "결과",
+  Details: "상세",
+  Language: "언어",
+  English: "영어",
+  Korean: "한국어",
+  "Change password": "비밀번호 변경",
+  "Current password": "현재 비밀번호",
+  "New password": "새 비밀번호",
+  Save: "저장",
+  "Platform info": "플랫폼 정보",
+  open: "진행 중",
+  resolved: "해결됨",
+  healthy: "정상",
+  degraded: "저하",
+  offline: "오프라인",
+  stale: "지연",
+  registered: "등록됨",
+  active: "활성",
+  agent_pending: "에이전트 대기",
+  completed: "완료",
+  failed: "실패",
+  queued: "대기",
+  processing: "처리 중",
+  retry_wait: "재시도 대기",
+  dead_letter: "실패 보관",
+  pending_approval: "승인 대기",
+  approved_manual: "수동 승인",
+  rejected: "거절됨",
+  blocked: "차단됨",
+  accepted: "접수됨",
+  AUTO_SAFE: "자동 안전",
+  APPROVAL_REQUIRED: "승인 필요",
+  GITOPS_PR_ONLY: "GitOps PR 전용",
+  NEVER_AUTO_EXECUTE: "자동 실행 금지",
+  MANUAL_INVESTIGATION: "수동 조사",
+};
 
-  const signalTranslations = {
-    ko: {
-      kubelet_unit_unhealthy: {
-        interpretation: "kubelet systemd unit이 active/running 상태가 아닙니다.",
-        next_step: "장애 직전의 systemctl status kubelet과 journalctl -u kubelet 실패 로그를 확인하세요.",
-      },
-      kubelet_restarting: {
-        interpretation: "kubelet 재시작 횟수가 높습니다. deadlock, 설정 오류, API server 연결 문제가 가능성이 있습니다.",
-        next_step: "각 재시작 시점의 journalctl -u kubelet 로그를 API server 연결 오류와 함께 대조하세요.",
-      },
-      containerd_unit_unhealthy: {
-        interpretation: "containerd systemd unit이 비정상이라 kubelet runtime 작업이 실패할 수 있습니다.",
-        next_step: "systemctl status containerd와 journalctl -u containerd에서 crash, hang, 설정 오류를 확인하세요.",
-      },
-      container_runtime_unit_unhealthy: {
-        interpretation: "컨테이너 런타임 systemd unit이 failed 또는 restarting 상태입니다.",
-        next_step: "운영자 승인으로 재시작하기 전에 runtime unit 상태와 journal을 확인하세요.",
-      },
-      rke2_server_unit_unhealthy: {
-        interpretation: "rke2-server unit이 정상 상태가 아니어서 embedded kubelet/containerd/control-plane이 불안정할 수 있습니다.",
-        next_step: "장애 시간대의 systemctl status rke2-server와 journalctl -u rke2-server를 확인하세요.",
-      },
-      rke2_server_restarting: {
-        interpretation: "rke2-server 재시작 횟수가 높습니다. control-plane 또는 embedded runtime 불안정이 있었을 수 있습니다.",
-        next_step: "rke2-server 재시작 시점을 node Ready 변화, CNI 재시작, API timeout 로그와 대조하세요.",
-      },
-      systemd_failed_units: {
-        interpretation: "노드에 failed systemd unit이 남아 있어 의존 서비스 장애를 나타낼 수 있습니다.",
-        next_step: "systemctl --failed를 실행하고 각 failed unit journal이 Kubernetes 구성 요소로 전파됐는지 확인하세요.",
-      },
-      kubernetes_api_unavailable: {
-        interpretation: "노드 에이전트가 Kubernetes API를 읽지 못했습니다. local API path, service account, control-plane 연결 문제가 가능성이 있습니다.",
-        next_step: "노드에서 in-cluster API service reachability, ServiceAccount RBAC, kube-apiserver 상태를 확인하세요.",
-      },
-      node_not_ready_condition: {
-        interpretation: "Kubernetes가 해당 노드의 Ready condition을 false로 보고합니다.",
-        next_step: "node condition transition time을 kubelet, runtime, kernel, network 근거와 비교하세요.",
-      },
-      node_pressure_condition_active: {
-        interpretation: "Kubernetes node pressure condition이 활성화되어 있습니다.",
-        next_step: "disk, memory, process, kernel collector로 pressure source를 식별하세요.",
-      },
-      control_plane_peer_unreachable: {
-        interpretation: "이 노드에서 control-plane peer TCP probe가 실패했습니다. API server, CNI watch, etcd/client 경로가 깨질 수 있습니다.",
-        next_step: "실패한 peer port의 firewall, routing, ACL, listener 상태를 확인하세요.",
-      },
-      cni_pod_restarting: {
-        interpretation: "노드의 CNI pod 재시작 횟수가 높습니다. API watch timeout, CNI agent crash, node network 불안정이 가능성이 있습니다.",
-        next_step: "CNI pod previous log와 API server 또는 node network 오류 시간을 대조하세요.",
-      },
-      system_pod_restarts_high: {
-        interpretation: "노드의 pod 재시작 횟수가 높습니다. node/runtime/network 불안정의 2차 증상일 수 있습니다.",
-        next_step: "원인으로 확정하기 전에 application restart와 kube-system/runtime restart를 분리하세요.",
-      },
-      node_metrics_unavailable: {
-        interpretation: "metrics.k8s.io를 통한 node metrics가 불가하여 scheduler/autoscaler/operator 가시성이 부족할 수 있습니다.",
-        next_step: "metrics-server 로그와 영향을 받은 노드의 kubelet summary API 접근성을 확인하세요.",
-      },
-      apiserver_readyz_failed: {
-        interpretation: "API server readiness check가 실패했습니다.",
-        next_step: "실패한 readyz check를 etcd/API server 로그와 대조하세요.",
-      },
-      node_certificate_expiring: {
-        interpretation: "Kubernetes가 node certificate 만료 경고를 발생시켰습니다. 즉시 장애 원인은 아닐 수 있지만 운영상 중요합니다.",
-        next_step: "만료 전 통제된 RKE2 certificate rotation을 계획하고, 승인된 maintenance plan 없이 control-plane node를 재시작하지 마세요.",
-      },
-      container_runtime_socket_permission_denied: {
-        interpretation: "컨테이너 런타임 socket은 있지만 로컬 권한 때문에 agent가 probe하지 못했습니다.",
-        next_step: "런타임 장애로 보기 전에 노드 에이전트 권한 또는 runtime socket 접근 권한을 확인하세요.",
-      },
-      container_runtime_socket_unhealthy: {
-        interpretation: "컨테이너 런타임 Unix socket이 응답하지 않아 kubelet의 pod sandbox/container 작업이 실패할 수 있습니다.",
-        next_step: "감지된 runtime 종류의 socket, pid, unit, journal을 확인하세요.",
-      },
-      container_runtime_socket_latency_high: {
-        interpretation: "컨테이너 런타임 socket latency가 높습니다. runtime hang 또는 I/O pressure가 관련될 수 있습니다.",
-        next_step: "runtime journal과 disk I/O pressure를 함께 확인하세요.",
-      },
-      container_runtime_pid_not_running: {
-        interpretation: "runtime pid file이 가리키는 프로세스가 실행 중이 아닙니다.",
-        next_step: "systemd 상태와 runtime crash loop 이력을 확인하세요.",
-      },
-      containerd_socket_permission_denied: {
-        interpretation: "containerd socket은 있지만 로컬 권한 때문에 agent가 probe하지 못했습니다.",
-        next_step: "containerd 장애로 보기 전에 노드 에이전트 권한 또는 socket 접근 권한을 확인하세요.",
-      },
-      containerd_socket_unhealthy: {
-        interpretation: "containerd Unix socket이 응답하지 않아 kubelet의 pod sandbox/container 작업이 실패할 수 있습니다.",
-        next_step: "containerd socket, pid, unit, journal을 확인하세요.",
-      },
-      containerd_socket_latency_high: {
-        interpretation: "containerd socket latency가 높습니다. runtime hang 또는 I/O pressure가 관련될 수 있습니다.",
-        next_step: "containerd journal과 disk I/O pressure를 함께 확인하세요.",
-      },
-      containerd_pid_not_running: {
-        interpretation: "containerd pid file이 가리키는 프로세스가 실행 중이 아닙니다.",
-        next_step: "systemd 상태와 containerd crash loop 이력을 확인하세요.",
-      },
-      disk_usage_critical: {
-        interpretation: "root filesystem 사용률이 높아 kubelet eviction, log write, image pull 실패가 발생할 수 있습니다.",
-        next_step: "df, du, container image usage, log size를 확인해 안전한 정리 또는 용량 확장 대상을 검증하세요.",
-      },
-      disk_usage_high: {
-        interpretation: "root filesystem 사용률이 높아 kubelet eviction, log write, image pull 실패가 발생할 수 있습니다.",
-        next_step: "df, du, container image usage, log size를 확인해 안전한 정리 또는 용량 확장 대상을 검증하세요.",
-      },
-      inode_usage_critical: {
-        interpretation: "inode 사용률이 높아 새 파일 생성 실패와 kubelet DiskPressure가 발생할 수 있습니다.",
-        next_step: "df -i와 file count가 높은 디렉터리 점검으로 정리 후보를 식별하세요.",
-      },
-      inode_usage_high: {
-        interpretation: "inode 사용률이 높아 새 파일 생성 실패와 kubelet DiskPressure가 발생할 수 있습니다.",
-        next_step: "df -i와 file count가 높은 디렉터리 점검으로 정리 후보를 식별하세요.",
-      },
-      root_filesystem_read_only: {
-        interpretation: "root filesystem이 read-only로 mount되어 kubelet/containerd write 작업이 실패할 수 있습니다.",
-        next_step: "kernel I/O error, filesystem error, block device health, storage path event를 우선 확인하세요.",
-      },
-      kernel_io_error: {
-        interpretation: "kernel 또는 disk collector에서 I/O error가 감지되었습니다.",
-        next_step: "dmesg, journalctl -k, block device health, filesystem 상태를 확인하세요.",
-      },
-      io_pressure_high: {
-        interpretation: "I/O pressure가 높아 kubelet, containerd, etcd 또는 log 작업이 지연될 수 있습니다.",
-        next_step: "/proc/pressure/io, iostat, diskstats, runtime journal timestamp를 대조해 병목 device를 식별하세요.",
-      },
-      blocked_task_detected: {
-        interpretation: "kernel blocked task가 감지되었습니다. I/O hang, driver hang, filesystem lock contention 가능성이 있습니다.",
-        next_step: "dmesg blocked task stack trace를 보고 disruptive 조치 전에 blocked subsystem을 식별하세요.",
-      },
-      read_only_filesystem_detected: {
-        interpretation: "kernel log에 filesystem read-only 전환 근거가 있습니다.",
-        next_step: "remount 직전의 block device 또는 filesystem error를 찾아 storage event와 대조하세요.",
-      },
-      kernel_nic_error: {
-        interpretation: "kernel log에 NIC link 또는 driver error가 있습니다.",
-        next_step: "NIC driver log, carrier change, ethtool counter, switch port event를 함께 확인하세요.",
-      },
-      kernel_oom_detected: {
-        interpretation: "kernel OOM 활동이 감지되어 host process 또는 workload가 종료됐을 수 있습니다.",
-        next_step: "OOM victim, cgroup, memory pressure, kubelet eviction event를 장애 시간대와 함께 확인하세요.",
-      },
-      kernel_tainted: {
-        interpretation: "kernel taint가 설정되어 third-party module, forced load, kernel warning에 대한 추가 해석이 필요할 수 있습니다.",
-        next_step: "/proc/sys/kernel/tainted를 decode하고 최근 dmesg warning을 확인한 뒤 원인을 확정하세요.",
-      },
-      memory_pressure_critical: {
-        interpretation: "노드 memory 사용률이 높아 kubelet eviction, OOM kill, system daemon latency가 발생할 수 있습니다.",
-        next_step: "MemAvailable, swap usage, top memory consumer, kubelet eviction event를 확인하세요.",
-      },
-      memory_pressure_high: {
-        interpretation: "노드 memory 사용률이 높아 kubelet eviction, OOM kill, system daemon latency가 발생할 수 있습니다.",
-        next_step: "MemAvailable, swap usage, top memory consumer, kubelet eviction event를 확인하세요.",
-      },
-      oom_kill_detected: {
-        interpretation: "장애 시간대에 OOM kill 근거가 있습니다.",
-        next_step: "kernel log에서 OOM victim, cgroup, memory pressure context를 확인하세요.",
-      },
-      swap_usage_high: {
-        interpretation: "swap 사용률이 높아 system daemon latency가 증가할 수 있습니다.",
-        next_step: "swap in/out 활동과 상위 memory-consuming process를 확인하세요.",
-      },
-      memory_psi_high: {
-        interpretation: "Memory PSI가 높아 runnable task가 memory reclaim 또는 allocation에서 지연될 수 있습니다.",
-        next_step: "/proc/pressure/memory를 kubelet eviction과 OOM event와 대조하세요.",
-      },
-      pid_usage_high: {
-        interpretation: "PID 사용률이 높아 process creation 실패 또는 PIDPressure가 발생할 수 있습니다.",
-        next_step: "조치 전에 process fan-out, service별 process count, zombie process를 식별하세요.",
-      },
-      zombie_process_detected: {
-        interpretation: "Zombie process가 존재합니다. parent reaping 문제 또는 runtime shim 문제가 가능성이 있습니다.",
-        next_step: "zombie parent process와 runtime shim 상태를 확인하세요.",
-      },
-      interface_down: {
-        interpretation: "하나 이상의 NIC가 down 상태이며 노드 연결성이 손상됐을 수 있습니다.",
-        next_step: "ip link, ethtool, driver log, switch port event를 확인하세요.",
-      },
-      nic_link_flap: {
-        interpretation: "NIC carrier change가 감지되어 API server, etcd, CNI 통신이 불안정할 수 있습니다.",
-        next_step: "carrier change, kernel NIC log, switch event, control-plane connection failure를 시간 기준으로 대조하세요.",
-      },
-      conntrack_near_limit: {
-        interpretation: "conntrack table이 한도에 가까워 DNS, Service, API server 연결이 간헐적으로 실패할 수 있습니다.",
-        next_step: "nf_conntrack_count/max, conntrack drop, connection spike를 유발하는 workload를 확인하세요.",
-      },
-      interface_packet_errors: {
-        interpretation: "NIC error 또는 drop이 감지되어 packet loss나 driver/link 문제가 있을 수 있습니다.",
-        next_step: "/proc/net/dev, ethtool -S, CNI overlay interface error를 확인하세요.",
-      },
-      tcp_error_counters_high: {
-        interpretation: "TCP retransmit 또는 listen overflow counter가 높아 connection latency 또는 backlog exhaustion이 의심됩니다.",
-        next_step: "/proc/net/snmp, /proc/net/netstat, service backlog 설정, upstream packet loss를 확인하세요.",
-      },
-      dns_latency_high: {
-        interpretation: "DNS lookup latency가 높아 pod scheduling, image pull, service discovery가 지연될 수 있습니다.",
-        next_step: "CoreDNS latency, node resolver 설정, upstream DNS 상태를 확인하세요.",
-      },
-      cni_config_invalid: {
-        interpretation: "CNI configuration JSON parse error가 감지되어 kubelet pod sandbox 생성이 실패할 수 있습니다.",
-        next_step: "/etc/cni/net.d 파일을 검증하고 최근 CNI 설정 변경을 확인하세요.",
-      },
-      cni_plugin_error: {
-        interpretation: "CNI plugin error가 감지되어 pod network attachment가 실패할 수 있습니다.",
-        next_step: "CNI plugin log와 kubelet pod sandbox event를 확인하세요.",
-      },
-      cni_mtu_values_inconsistent: {
-        interpretation: "CNI 설정에 여러 MTU 값이 있어 overlay path MTU mismatch가 가능성이 있습니다.",
-        next_step: "node NIC MTU, CNI MTU, pod path MTU, overlay interface MTU를 함께 비교하세요.",
-      },
-      dns_unconfigured: {
-        interpretation: "노드 resolver에 사용 가능한 nameserver가 없어 DNS lookup이 실패할 수 있습니다.",
-        next_step: "/etc/resolv.conf, node-local-dns, CoreDNS, upstream DNS 설정을 확인하세요.",
-      },
-      dns_resolver_timeout_budget_high: {
-        interpretation: "resolver timeout budget이 높아 DNS 실패가 긴 요청 지연을 만들 수 있습니다.",
-        next_step: "resolv.conf option과 CoreDNS timeout/retry policy를 검토하세요.",
-      },
-    },
-  };
+const POLICY_HELP = {
+  AUTO_SAFE: "Read-only evidence collection can be requested from the agent.",
+  APPROVAL_REQUIRED: "A human approval record is required. Execution remains manual.",
+  GITOPS_PR_ONLY: "Use a GitOps PR or runbook. Do not execute directly from the console.",
+  NEVER_AUTO_EXECUTE: "High-risk remediation. The console only records review decisions.",
+  MANUAL_INVESTIGATION: "Operator investigation is required before any remediation.",
+};
 
-  function App() {
-    const [activeView, setActiveView] = React.useState("overview");
-    const [locale, setLocale] = React.useState(activeLocale);
-    const [clusters, setClusters] = React.useState([]);
-    const [reports, setReports] = React.useState([]);
-    const [incidents, setIncidents] = React.useState([]);
-    const [analysisTasks, setAnalysisTasks] = React.useState([]);
-    const [auditEvents, setAuditEvents] = React.useState([]);
-    const [auditFilters, setAuditFilters] = React.useState(() => emptyAuditFilters());
-    const [demoScenarios, setDemoScenarios] = React.useState({ loading: true, enabled: false, items: [] });
-    const [platformInfo, setPlatformInfo] = React.useState(null);
-    const [reportDetails, setReportDetails] = React.useState({});
-    const [agentsByCluster, setAgentsByCluster] = React.useState({});
-    const [installCommands, setInstallCommands] = React.useState({});
-    const [currentUser, setCurrentUser] = React.useState(null);
-    const [authChecking, setAuthChecking] = React.useState(true);
-    const [toast, setToast] = React.useState("");
-    const [loading, setLoading] = React.useState({});
-    const [autoRefresh, setAutoRefresh] = React.useState(true);
-    const [lastRefresh, setLastRefresh] = React.useState(null);
-    const [clusterData, setClusterData] = React.useState(null);
-    const [actionDialog, setActionDialog] = React.useState(null);
-    const [collectionDialog, setCollectionDialog] = React.useState(null);
-    const [deleteDialog, setDeleteDialog] = React.useState(null);
-    activeLocale = locale;
-    document.documentElement.lang = locale;
+const SIGNAL_STAGES = [
+  { key: "disk", label: "Disk I/O", icon: "nvme" },
+  { key: "runtime", label: "Runtime", icon: "boxes" },
+  { key: "kubelet", label: "Kubelet", icon: "cpu" },
+  { key: "network", label: "Network", icon: "ethernet" },
+  { key: "control", label: "Control Plane", icon: "diagram-2" },
+  { key: "service", label: "Service Impact", icon: "activity" },
+];
 
-    const notify = React.useCallback((message) => {
-      setToast(message);
-      window.clearTimeout(notify.timer);
-      notify.timer = window.setTimeout(() => setToast(""), 3200);
-    }, []);
+function ConsoleApp() {
+  const [locale, setLocale] = useState(() => localStorage.getItem(STORAGE_KEYS.locale) || "en");
+  const [session, setSession] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeView, setActiveView] = useState("overview");
+  const [loading, setLoading] = useState({ boot: true, data: false });
+  const [toast, setToast] = useState(null);
+  const [clusters, setClusters] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [incidents, setIncidents] = useState([]);
+  const [analysisTasks, setAnalysisTasks] = useState([]);
+  const [actionRequests, setActionRequests] = useState([]);
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [demoScenarios, setDemoScenarios] = useState([]);
+  const [platformInfo, setPlatformInfo] = useState(null);
+  const [selectedCluster, setSelectedCluster] = useState(null);
+  const [clusterDetail, setClusterDetail] = useState(null);
+  const [selectedReportId, setSelectedReportId] = useState(null);
+  const [reportDetail, setReportDetail] = useState(null);
+  const [installCommand, setInstallCommand] = useState(null);
+  const [actionDialog, setActionDialog] = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState(null);
 
-    const changeLanguage = React.useCallback((value) => {
-      const nextLocale = normalizeLocale(value);
-      activeLocale = nextLocale;
-      setLocale(nextLocale);
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
-      notify(tr("Language changed."));
-    }, [notify]);
+  const t = useCallback((key) => (locale === "ko" ? KO[key] || key : key), [locale]);
 
-    const authHeaders = React.useCallback(() => {
-      return {};
-    }, []);
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.locale, locale);
+    document.documentElement.lang = locale === "ko" ? "ko" : "en";
+  }, [locale]);
 
-    const callApi = React.useCallback(async (path, options = {}) => {
-      let response;
-      try {
-        response = await fetch(`${apiBase}${path}`, {
-          cache: "no-store",
-          credentials: "same-origin",
-          ...options,
-          headers: {
-            "Content-Type": "application/json",
-            ...(options.headers || {}),
-          },
-        });
-      } catch (error) {
-        throw new Error("Platform API is unreachable.");
-      }
+  const notify = useCallback((message, tone = "success") => {
+    setToast({ message, tone });
+    window.setTimeout(() => setToast(null), 3200);
+  }, []);
 
-      const contentType = response.headers.get("content-type") || "";
+  const authHeaders = useCallback(() => {
+    const token = session?.access_token || session?.accessToken;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, [session]);
+
+  const callApi = useCallback(async (path, options = {}) => {
+    const headers = {
+      Accept: "application/json",
+      ...authHeaders(),
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    };
+    const response = await fetch(path, {
+      method: options.method || "GET",
+      credentials: "same-origin",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    if (!response.ok) {
       const text = await response.text();
-      const body = contentType.includes("application/json") && text ? JSON.parse(text) : text;
-      if (!response.ok) {
-        throw new Error(readError(body, response.statusText));
-      }
-      return body;
-    }, []);
-
-    const loadCurrentUser = React.useCallback(async (silent) => {
-      try {
-        const user = await callApi("/api/auth/me", { headers: authHeaders() });
-        setCurrentUser(user);
-      } catch (error) {
-        setCurrentUser(null);
-        if (!silent) notify(error.message);
-      } finally {
-        setAuthChecking(false);
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadClusters = React.useCallback(async (silent) => {
-      try {
-        setLoading((value) => ({ ...value, clusters: true }));
-        const result = await callApi("/api/clusters", { headers: authHeaders() });
-        setClusters(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setClusters([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, clusters: false }));
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadReports = React.useCallback(async (silent) => {
-      try {
-        setLoading((value) => ({ ...value, reports: true }));
-        const result = await callApi("/api/rca/reports", { headers: authHeaders() });
-        setReports(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setReports([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, reports: false }));
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadIncidents = React.useCallback(async (silent) => {
-      try {
-        setLoading((value) => ({ ...value, incidents: true }));
-        const result = await callApi("/api/rca/incidents", { headers: authHeaders() });
-        setIncidents(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setIncidents([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, incidents: false }));
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadAuditEvents = React.useCallback(async (silent, nextFilters) => {
-      if (!["admin", "auditor"].includes(currentUser?.role)) return;
-      try {
-        setLoading((value) => ({ ...value, audit: true }));
-        const query = buildAuditQuery(nextFilters || auditFilters, {
-          limit: nextFilters?.limit || auditFilters.limit || 300,
-          maxLimit: 1000,
-        });
-        const result = await callApi(`/api/audit/events?${query}`, { headers: authHeaders() });
-        setAuditEvents(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setAuditEvents([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, audit: false }));
-      }
-    }, [currentUser, auditFilters, authHeaders, callApi, notify]);
-
-    const loadAnalysisTasks = React.useCallback(async (silent) => {
-      try {
-        setLoading((value) => ({ ...value, pipeline: true }));
-        const result = await callApi("/api/rca/analysis-tasks?limit=300", { headers: authHeaders() });
-        setAnalysisTasks(Array.isArray(result) ? result : []);
-      } catch (error) {
-        setAnalysisTasks([]);
-        if (!silent) notify(error.message);
-      } finally {
-        setLoading((value) => ({ ...value, pipeline: false }));
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadDemoScenarios = React.useCallback(async (silent) => {
-      try {
-        setDemoScenarios((value) => ({ ...value, loading: true }));
-        const result = await callApi("/api/demo/scenarios", { headers: authHeaders() });
-        setDemoScenarios({
-          loading: false,
-          enabled: result.enabled === true,
-          items: Array.isArray(result.scenarios) ? result.scenarios : [],
-        });
-      } catch (error) {
-        setDemoScenarios({ loading: false, enabled: false, items: [], error: error.message });
-        if (!silent) notify(error.message);
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const loadPlatformInfo = React.useCallback(async (silent) => {
-      try {
-        setPlatformInfo(await callApi("/api/v1/platform/info", { headers: authHeaders() }));
-      } catch (error) {
-        setPlatformInfo(null);
-        if (!silent) notify(error.message);
-      }
-    }, [authHeaders, callApi, notify]);
-
-    const refreshAll = React.useCallback(async (silent) => {
-      await Promise.allSettled([
-        loadClusters(silent),
-        loadReports(silent),
-        loadIncidents(silent),
-        loadAnalysisTasks(silent),
-        loadAuditEvents(silent),
-        loadDemoScenarios(silent),
-        loadPlatformInfo(silent),
-      ]);
-      setLastRefresh(new Date());
-    }, [loadClusters, loadReports, loadIncidents, loadAnalysisTasks, loadAuditEvents, loadDemoScenarios, loadPlatformInfo]);
-
-    React.useEffect(() => {
-      loadCurrentUser(true);
-    }, [loadCurrentUser]);
-
-    React.useEffect(() => {
-      if (currentUser) refreshAll(true);
-    }, [currentUser, refreshAll]);
-
-    React.useEffect(() => {
-      if (!autoRefresh || !currentUser) return undefined;
-      const timer = window.setInterval(() => refreshAll(true), 30000);
-      return () => window.clearInterval(timer);
-    }, [autoRefresh, currentUser, refreshAll]);
-
-    async function login(event) {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const payload = formPayload(form);
-      try {
-        const session = await callApi("/api/auth/login", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        setCurrentUser(session.user);
-        form.reset();
-        notify(`Signed in: ${session.user.email}`);
-      } catch (error) {
-        notify(error.message);
-      }
+      throw new Error(text || `${response.status} ${response.statusText}`);
     }
-
-    async function logout() {
-      if (currentUser) {
-        await callApi("/api/auth/logout", {
-          method: "POST",
-          headers: authHeaders(),
-        }).catch(() => null);
-      }
-      setCurrentUser(null);
-      setClusters([]);
-      setReports([]);
-      setIncidents([]);
-      setAnalysisTasks([]);
-      setAuditEvents([]);
-      setDemoScenarios({ loading: true, enabled: false, items: [] });
-      setPlatformInfo(null);
-      setReportDetails({});
-      setAgentsByCluster({});
-      setClusterData(null);
-      setActionDialog(null);
-      setCollectionDialog(null);
-      setDeleteDialog(null);
-      notify("Signed out.");
-    }
-
-    async function changePassword(event) {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const payload = formPayload(form);
-      if (payload.new_password !== payload.confirm_password) {
-        notify("New passwords do not match.");
-        return;
-      }
-      delete payload.confirm_password;
-      try {
-        await callApi("/api/auth/change-password", {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify(payload),
-        });
-        form.reset();
-        notify("Password changed.");
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function createCluster(event) {
-      event.preventDefault();
-      const form = event.currentTarget;
-      try {
-        const payload = formPayload(form);
-        const backendUrl = payload.backend_url;
-        delete payload.backend_url;
-        const cluster = await callApi("/api/clusters", {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify(payload),
-        });
-        form.reset();
-        notify(`Cluster registered: ${cluster.name}. Install command is ready.`);
-        await loadClusters(false);
-        await loadInstallCommand(cluster.cluster_id, backendUrl);
-        await loadAgents(cluster.cluster_id);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function loadInstallCommand(clusterId, backendUrl) {
-      try {
-        setInstallCommands((value) => ({ ...value, [clusterId]: "Loading..." }));
-        const query = new URLSearchParams();
-        if (backendUrl || publicApiBase) query.set("backend_url", backendUrl || publicApiBase);
-        const suffix = query.toString() ? `?${query}` : "";
-        const response = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/install-command${suffix}`, {
-          headers: authHeaders(),
-        });
-        setInstallCommands((value) => ({ ...value, [clusterId]: response.commands.join("\n") }));
-      } catch (error) {
-        setInstallCommands((value) => ({ ...value, [clusterId]: error.message }));
-      }
-    }
-
-    async function loadAgents(clusterId) {
-      try {
-        setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: true, items: [] } }));
-        const agents = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, {
-          headers: authHeaders(),
-        });
-        setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: false, items: agents } }));
-      } catch (error) {
-        setAgentsByCluster((value) => ({ ...value, [clusterId]: { loading: false, error: error.message, items: [] } }));
-      }
-    }
-
-    async function loadClusterData(clusterId) {
-      setClusterData({ open: true, loading: true, clusterId });
-      try {
-        const [cluster, agents, evidenceRequests, allReports, topology, topologyHistory] = await Promise.all([
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}`, { headers: authHeaders() }),
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`, { headers: authHeaders() }),
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests`, { headers: authHeaders() }),
-          callApi("/api/rca/reports", { headers: authHeaders() }),
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology`, { headers: authHeaders() }),
-          callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology/history?limit=2`, { headers: authHeaders() }),
-        ]);
-        const history = Array.isArray(topologyHistory) ? topologyHistory : [];
-        let topologyComparison = null;
-        if (history.length >= 2) {
-          const targetAt = history[0].observed_at;
-          const baselineAt = history[1].observed_at;
-          const query = new URLSearchParams({
-            baseline_at: baselineAt,
-            target_at: targetAt,
-          });
-          topologyComparison = await callApi(
-            `/api/clusters/${encodeURIComponent(clusterId)}/topology/compare?${query}`,
-            { headers: authHeaders() }
-          );
-        }
-        setClusterData({
-          open: true,
-          loading: false,
-          clusterId,
-          cluster,
-          agents: Array.isArray(agents) ? agents : [],
-          evidenceRequests: Array.isArray(evidenceRequests) ? evidenceRequests : [],
-          reports: (Array.isArray(allReports) ? allReports : []).filter((report) => report.cluster_id === clusterId),
-          topology,
-          topologyHistory: history,
-          topologyComparison,
-        });
-      } catch (error) {
-        setClusterData({ open: true, loading: false, clusterId, error: error.message });
-      }
-    }
-
-    async function loadEvidenceBundle(evidenceId) {
-      if (!evidenceId) return;
-      setClusterData((value) => ({ ...(value || {}), evidenceLoading: true, selectedEvidence: null, evidenceError: null }));
-      try {
-        const evidence = await callApi(`/api/evidence/${encodeURIComponent(evidenceId)}`, {
-          headers: authHeaders(),
-        });
-        setClusterData((value) => ({ ...(value || {}), evidenceLoading: false, selectedEvidence: evidence, evidenceError: null }));
-      } catch (error) {
-        setClusterData((value) => ({ ...(value || {}), evidenceLoading: false, evidenceError: error.message }));
-      }
-    }
-
-    async function toggleReport(reportId) {
-      if (reportDetails[reportId]?.open) {
-        setReportDetails((value) => ({ ...value, [reportId]: { ...value[reportId], open: false } }));
-        return;
-      }
-      setReportDetails((value) => ({ ...value, [reportId]: { ...(value[reportId] || {}), open: true, loading: true } }));
-      try {
-        const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`, { headers: authHeaders() });
-        const [actionRequests, actionExecutions, timeline] = await Promise.all([
-          callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() }),
-          ["admin", "operator"].includes(currentUser?.role)
-            ? callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`, { headers: authHeaders() })
-            : Promise.resolve([]),
-          report.incident_id
-            ? callApi(`/api/rca/incidents/${encodeURIComponent(report.incident_id)}/timeline`, { headers: authHeaders() })
-            : Promise.resolve(null),
-        ]);
-        setReportDetails((value) => ({
-          ...value,
-          [reportId]: {
-            open: true,
-            loading: false,
-            report,
-            actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
-            actionExecutions: Array.isArray(actionExecutions) ? actionExecutions : [],
-            timeline,
-          },
-        }));
-      } catch (error) {
-        setReportDetails((value) => ({ ...value, [reportId]: { open: true, loading: false, error: error.message } }));
-      }
-    }
-
-    function prepareRecommendedAction(report, action, actionIndex) {
-      setActionDialog({ report, action, actionIndex, loading: false });
-    }
-
-    function prepareClusterCollection(cluster) {
-      setCollectionDialog({ cluster, loading: false });
-    }
-
-    function prepareClusterDelete(cluster) {
-      setDeleteDialog({ cluster, confirmName: "", loading: false });
-    }
-
-    async function executeClusterDelete(event) {
-      event.preventDefault();
-      if (!deleteDialog?.cluster) return;
-      const cluster = deleteDialog.cluster;
-      const confirmName = (deleteDialog.confirmName || "").trim();
-      if (confirmName !== cluster.name) {
-        setDeleteDialog((value) => ({ ...value, error: tr("Confirmation does not match the cluster name.") }));
-        return;
-      }
-      setDeleteDialog((value) => ({ ...value, loading: true, error: null }));
-      try {
-        const query = new URLSearchParams({ confirm_name: confirmName });
-        await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}?${query}`, {
-          method: "DELETE",
-          headers: authHeaders(),
-        });
-        setDeleteDialog(null);
-        setInstallCommands((value) => {
-          const next = { ...value };
-          delete next[cluster.cluster_id];
-          return next;
-        });
-        setAgentsByCluster((value) => {
-          const next = { ...value };
-          delete next[cluster.cluster_id];
-          return next;
-        });
-        if (clusterData?.clusterId === cluster.cluster_id) {
-          setClusterData(null);
-        }
-        notify(tr("Cluster deleted."));
-        await Promise.all([loadClusters(false), loadReports(false)]);
-      } catch (error) {
-        setDeleteDialog((value) => ({ ...value, loading: false, error: error.message }));
-      }
-    }
-
-    async function executeClusterCollection() {
-      if (!collectionDialog?.cluster) return;
-      const cluster = collectionDialog.cluster;
-      setCollectionDialog((value) => ({ ...value, loading: true }));
-      try {
-        const result = await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/collection-runs`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({
-            confirmed: true,
-            reason: "Manual platform collection from web console",
-            context: { source: "web-console" },
-          }),
-        });
-        setCollectionDialog(null);
-        notify(`Collection requested: ${result.created_evidence_requests.length} nodes, skipped ${result.skipped_nodes.length}.`);
-        await loadAgents(cluster.cluster_id);
-        if (clusterData?.clusterId === cluster.cluster_id) {
-          await loadClusterData(cluster.cluster_id);
-        }
-      } catch (error) {
-        setCollectionDialog((value) => ({ ...value, loading: false, error: error.message }));
-      }
-    }
-
-    async function executeRecommendedAction() {
-      if (!actionDialog) return;
-      const { report, actionIndex } = actionDialog;
-      setActionDialog((value) => ({ ...value, loading: true }));
-      try {
-        const result = await callApi(
-          `/api/rca/reports/${encodeURIComponent(report.report_id)}/actions/${actionIndex}/execute`,
-          {
-            method: "POST",
-            headers: authHeaders(),
-            body: JSON.stringify({ confirmed: true }),
-          }
-        );
-        setActionDialog(null);
-        notify(result.evidence_request ? `${result.message} ${result.evidence_request.request_id}` : result.message);
-        await reloadActionRequests(report.report_id);
-        if (result.evidence_request) loadClusterData(report.cluster_id);
-      } catch (error) {
-        setActionDialog((value) => ({ ...value, loading: false, error: error.message }));
-      }
-    }
-
-    async function reloadActionRequests(reportId) {
-      const actionRequests = await callApi(
-        `/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`,
-        { headers: authHeaders() }
-      );
-      const actionExecutions = ["admin", "operator"].includes(currentUser?.role)
-        ? await callApi(
-            `/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`,
-            { headers: authHeaders() }
-          )
-        : [];
-      setReportDetails((value) => ({
-        ...value,
-        [reportId]: {
-          ...(value[reportId] || {}),
-          actionRequests: Array.isArray(actionRequests) ? actionRequests : [],
-          actionExecutions: Array.isArray(actionExecutions) ? actionExecutions : [],
-        },
-      }));
-      if (["admin", "auditor"].includes(currentUser?.role)) loadAuditEvents(true);
-    }
-
-    async function decideActionRequest(actionRequestId, reportId, decision) {
-      if (!window.confirm(
-        decision === "approve"
-          ? tr("Approve this request for human-operated handling? The platform and agent will not execute it.")
-          : tr("Reject this action request?")
-      )) return;
-      try {
-        const result = await callApi(
-          `/api/rca/action-requests/${encodeURIComponent(actionRequestId)}/${decision}`,
-          {
-            method: "POST",
-            headers: authHeaders(),
-            body: JSON.stringify({ confirmed: true, note: `Decision from web console: ${decision}` }),
-          }
-        );
-        notify(`Action request ${(result.action_request || result).status}.`);
-        await reloadActionRequests(reportId);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function completeManualActionRequest(actionRequestId, reportId) {
-      if (!window.confirm(tr("Mark this approved request as manually completed?"))) return;
-      try {
-        await callApi(
-          `/api/rca/action-requests/${encodeURIComponent(actionRequestId)}/complete-manual`,
-          {
-            method: "POST",
-            headers: authHeaders(),
-            body: JSON.stringify({
-              confirmed: true,
-              note: "Manual handling completion recorded from web console",
-            }),
-          }
-        );
-        notify(tr("Manual completion recorded."));
-        await reloadActionRequests(reportId);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function changeIncidentStatus(incidentId, status) {
-      try {
-        await callApi(`/api/rca/incidents/${encodeURIComponent(incidentId)}/${status}`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({ confirmed: true, note: `Status changed from web console: ${status}` }),
-        });
-        notify(`Incident ${status}.`);
-        await loadIncidents(false);
-        if (["admin", "auditor"].includes(currentUser?.role)) loadAuditEvents(true);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function retryAnalysisTask(taskId) {
-      if (!window.confirm(tr("Retry task") + `: ${taskId}?`)) return;
-      try {
-        await callApi(`/api/rca/analysis-tasks/${encodeURIComponent(taskId)}/retry`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({ confirmed: true, note: "Requeued from web console" }),
-        });
-        notify("Analysis task queued.");
-        await loadAnalysisTasks(false);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function downloadReportsExport(clusterId) {
-      const query = new URLSearchParams();
-      if (clusterId) query.set("cluster_id", clusterId);
-      const suffix = query.toString() ? `?${query}` : "";
-      await downloadApiFile(
-        `/api/rca/reports/export${suffix}`,
-        clusterId ? `rca-reports-${clusterId}.json` : "rca-reports.json",
-        clusterId ? "Cluster reports export downloaded." : "Reports export downloaded."
-      );
-    }
-
-    async function downloadReportExport(reportId) {
-      if (!reportId) return;
-      await downloadApiFile(
-        `/api/rca/reports/${encodeURIComponent(reportId)}/export`,
-        `rca-report-${reportId}.json`,
-        "Report export downloaded."
-      );
-    }
-
-    async function downloadEvidenceBundle(reportId) {
-      if (!reportId) return;
-      await downloadApiFile(
-        `/api/rca/reports/${encodeURIComponent(reportId)}/bundle`,
-        `incident-${reportId}.zip`,
-        "Evidence bundle downloaded."
-      );
-    }
-
-    async function applyAuditFilters(nextFilters) {
-      const normalized = normalizeAuditFilters(nextFilters);
-      setAuditFilters(normalized);
-      await loadAuditEvents(false, normalized);
-    }
-
-    async function resetAuditFilters() {
-      const reset = emptyAuditFilters();
-      setAuditFilters(reset);
-      await loadAuditEvents(false, reset);
-    }
-
-    async function downloadAuditExport(format) {
-      const query = buildAuditQuery(auditFilters, { limit: 5000, format });
-      await downloadApiFile(
-        `/api/audit/events/export?${query}`,
-        `audit-events.${format}`,
-        "Audit export downloaded."
-      );
-    }
-
-    async function rotateAgentToken(cluster) {
-      if (!window.confirm(
-        `Rotate the Agent bootstrap token for ${cluster.name}? Existing Agent Secrets will stop authenticating until updated.`
-      )) return;
-      try {
-        const result = await callApi(
-          `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`,
-          { method: "POST", headers: authHeaders() }
-        );
-        await navigator.clipboard.writeText(result.agent_token);
-        notify("Agent token rotated and copied. Update the Kubernetes Secret now.");
-        await loadInstallCommand(cluster.cluster_id);
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function runDemoScenario(scenario) {
-      if (!demoScenarios.enabled) {
-        notify("Demo Scenario Mode is disabled.");
-        return;
-      }
-      if (!window.confirm(`Run demo scenario: ${scenario.name}?`)) return;
-      try {
-        const result = await callApi(`/api/demo/scenarios/${encodeURIComponent(scenario.key)}/run`, {
-          method: "POST",
-          headers: authHeaders(),
-          body: JSON.stringify({ confirmed: true }),
-        });
-        notify(`Demo queued: ${result.analysis_task.task_id}`);
-        await Promise.all([loadClusters(true), loadAnalysisTasks(false)]);
-        setActiveView("pipeline");
-      } catch (error) {
-        notify(error.message);
-      }
-    }
-
-    async function downloadApiFile(path, fallbackFilename, message) {
-      let response;
-      try {
-        response = await fetch(`${apiBase}${path}`, {
-          cache: "no-store",
-          credentials: "same-origin",
-          headers: authHeaders(),
-        });
-      } catch (error) {
-        notify("Platform API is unreachable.");
-        return;
-      }
-      if (!response.ok) {
-        const contentType = response.headers.get("content-type") || "";
-        const text = await response.text();
-        let body = text;
-        if (contentType.includes("application/json") && text) {
-          try {
-            body = JSON.parse(text);
-          } catch (error) {
-            body = text;
-          }
-        }
-        notify(readError(body, response.statusText));
-        return;
-      }
-      const blob = await response.blob();
-      const filename = filenameFromContentDisposition(response.headers.get("content-disposition")) || fallbackFilename;
-      triggerDownload(blob, filename);
-      notify(message);
-    }
-
-    async function copyText(value, message) {
-      try {
-        await navigator.clipboard.writeText(value);
-        notify(message);
-      } catch (error) {
-        notify(value);
-      }
-    }
-
-    const webhookEndpoint = `${publicApiBase.replace(/\/$/, "")}/api/webhooks/alertmanager`;
-
-    if (authChecking) {
-      return h("div", { className: "login-shell" },
-        h("div", { className: "login-card" },
-          h("div", { className: "console-brand-mark mb-3" }, "RCA"),
-          h("h1", { className: "h5 mb-2" }, tr("Checking session")),
-          h("p", { className: "text-muted mb-0" }, tr("Please wait."))
-        )
-      );
-    }
-
-    if (!currentUser) {
-      return h(React.Fragment, null,
-        h(LoginPage, { onLogin: login, locale, onChangeLanguage: changeLanguage }),
-        toast && h(Toast, { message: toast, onClose: () => setToast("") })
-      );
-    }
-
-    return h("div", { className: "console-shell" },
-      h(Sidebar, { activeView, setActiveView, currentUser }),
-      h("main", { className: "console-main" },
-        h(Topbar, {
-          currentUser,
-          autoRefresh,
-          lastRefresh,
-          onLogout: logout,
-          onRefresh: () => refreshAll(false),
-          onToggleAutoRefresh: () => setAutoRefresh((value) => !value),
-          locale,
-          onChangeLanguage: changeLanguage,
-        }),
-        activeView === "overview" && h(OverviewView, {
-          clusters,
-          reports,
-          incidents,
-          analysisTasks,
-          loading,
-          webhookEndpoint,
-          onNavigate: setActiveView,
-          currentUser,
-        }),
-        activeView === "clusters" && h(ClustersView, {
-          clusters,
-          loading,
-          agentsByCluster,
-          installCommands,
-          onCreateCluster: createCluster,
-          onLoadClusters: () => loadClusters(false),
-          onLoadInstallCommand: loadInstallCommand,
-          onLoadAgents: loadAgents,
-          onOpenClusterData: loadClusterData,
-          onCollectCluster: prepareClusterCollection,
-          onDeleteCluster: prepareClusterDelete,
-          onRotateAgentToken: rotateAgentToken,
-          onCopy: copyText,
-          publicApiBase,
-          currentUser,
-        }),
-        activeView === "webhooks" && h(WebhooksView, {
-          endpoint: webhookEndpoint,
-          onCopy: copyText,
-        }),
-        activeView === "incidents" && h(IncidentsView, {
-          incidents,
-          loading: loading.incidents,
-          onReload: () => loadIncidents(false),
-          onChangeStatus: changeIncidentStatus,
-          currentUser,
-        }),
-        activeView === "pipeline" && h(PipelineView, {
-          tasks: analysisTasks,
-          loading: loading.pipeline,
-          onReload: () => loadAnalysisTasks(false),
-          onRetry: retryAnalysisTask,
-          currentUser,
-        }),
-        activeView === "reports" && h(ReportsView, {
-          reports,
-          loading,
-          reportDetails,
-          onLoadReports: () => loadReports(false),
-          onToggleReport: toggleReport,
-          onPrepareAction: prepareRecommendedAction,
-          onExportReports: () => downloadReportsExport(),
-          onExportReport: downloadReportExport,
-          onExportBundle: downloadEvidenceBundle,
-          onCopy: copyText,
-          currentUser,
-          onDecideAction: decideActionRequest,
-          onCompleteManual: completeManualActionRequest,
-        }),
-        activeView === "audit" && ["admin", "auditor"].includes(currentUser.role) && h(AuditView, {
-          events: auditEvents,
-          filters: auditFilters,
-          loading: loading.audit,
-          onReload: () => loadAuditEvents(false),
-          onApplyFilters: applyAuditFilters,
-          onResetFilters: resetAuditFilters,
-          onExport: downloadAuditExport,
-        }),
-        activeView === "demo" && h(DemoScenariosView, {
-          state: demoScenarios,
-          onReload: () => loadDemoScenarios(false),
-          onRun: runDemoScenario,
-          canRun: ["admin", "operator"].includes(currentUser?.role),
-        }),
-        activeView === "settings" && h(SettingsView, {
-          apiBase,
-          publicApiBase,
-          autoRefresh,
-          currentUser,
-          onChangePassword: changePassword,
-          locale,
-          onChangeLanguage: changeLanguage,
-          platformInfo,
-        }),
-        clusterData?.open && h(ClusterDataModal, {
-          state: clusterData,
-          onClose: () => setClusterData(null),
-          onRefresh: () => loadClusterData(clusterData.clusterId),
-          onLoadEvidence: loadEvidenceBundle,
-          onCollectCluster: prepareClusterCollection,
-          onExportReports: () => downloadReportsExport(clusterData.clusterId),
-          onCopy: copyText,
-          canExport: ["admin", "operator"].includes(currentUser?.role),
-        }),
-        actionDialog && h(ActionConfirmDialog, {
-          state: actionDialog,
-          onCancel: () => setActionDialog(null),
-          onConfirm: executeRecommendedAction,
-        }),
-        collectionDialog && h(CollectionConfirmDialog, {
-          state: collectionDialog,
-          onCancel: () => setCollectionDialog(null),
-          onConfirm: executeClusterCollection,
-        }),
-        deleteDialog && h(DeleteClusterDialog, {
-          state: deleteDialog,
-          onCancel: () => setDeleteDialog(null),
-          onChangeConfirm: (confirmName) => setDeleteDialog((value) => ({ ...value, confirmName, error: null })),
-          onConfirm: executeClusterDelete,
-        }),
-        toast && h(Toast, { message: toast, onClose: () => setToast("") })
-      )
-    );
-  }
-
-  function Sidebar({ activeView, setActiveView, currentUser }) {
-    return h("aside", { className: "console-sidebar" },
-      h("div", { className: "console-brand" },
-        h("div", { className: "console-brand-mark" }, "RCA"),
-        h("div", null,
-          h("div", { className: "fw-bold" }, "Infra RCA"),
-          h("div", { className: "small text-white-50" }, tr("Operations Console"))
-        )
-      ),
-      h("nav", { className: "console-nav", "aria-label": "Console navigation" },
-        views.filter((view) => view.id !== "audit" || ["admin", "auditor"].includes(currentUser?.role)).map((view) => h("button", {
-          key: view.id,
-          type: "button",
-          className: activeView === view.id ? "active" : "",
-          onClick: () => setActiveView(view.id),
-        }, h(Icon, { name: view.icon }), h("span", null, tr(view.label))))
-      )
-    );
-  }
-
-  function Topbar(props) {
-    return h("section", { className: "console-topbar" },
-      h("div", { className: "row g-3 align-items-end" },
-        h("div", { className: "col-12 col-xl-4" },
-          h("div", { className: "d-flex align-items-center gap-2 mb-1" },
-            h("span", { className: "status-dot online" }),
-            h("span", { className: "small text-muted fw-semibold" }, `${props.currentUser.email} / ${props.currentUser.role}`)
-          ),
-          h("h1", { className: "h4 mb-0" }, tr("Cluster Infrastructure RCA"))
-        ),
-        h("div", { className: "col-12 col-xl-8" },
-          h("div", { className: "topbar-actions d-flex gap-2 flex-wrap justify-content-xl-end" },
-            h(LanguageSelect, { locale: props.locale, onChangeLanguage: props.onChangeLanguage, compact: true }),
-            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onRefresh }, h(Icon, { name: "arrow-clockwise" }), tr("Refresh")),
-            h("button", { type: "button", className: `btn btn-outline-secondary btn-icon ${props.autoRefresh ? "active" : ""}`, onClick: props.onToggleAutoRefresh }, h(Icon, { name: "activity" }), props.autoRefresh ? tr("Auto") : tr("Manual")),
-            h("button", { type: "button", className: "btn btn-outline-secondary btn-icon", onClick: props.onLogout }, h(Icon, { name: "box-arrow-right" }), tr("Logout"))
-          ),
-          h("div", { className: "small text-muted mt-1" }, props.lastRefresh ? `${tr("Last refresh")} ${formatDate(props.lastRefresh)}` : tr("Not refreshed"))
-        )
-      )
-    );
-  }
-
-  function LoginPage({ onLogin, locale, onChangeLanguage }) {
-    return h("div", { className: "login-shell" },
-      h("section", { className: "login-card" },
-        h("div", { className: "d-flex justify-content-end mb-2" }, h(LanguageSelect, { locale, onChangeLanguage, compact: true })),
-        h("div", { className: "console-brand-mark mb-3" }, "RCA"),
-        h("h1", { className: "h4 mb-2" }, tr("Cluster Infrastructure RCA")),
-        h("p", { className: "text-muted mb-4" }, tr("Sign in with the configured administrator account.")),
-        h("form", { className: "d-grid gap-3", onSubmit: onLogin },
-          h("div", null,
-            h("label", { className: "form-label", htmlFor: "login-username" }, tr("Account")),
-            h("input", { id: "login-username", className: "form-control", name: "username", autoComplete: "username", defaultValue: "admin", required: true })
-          ),
-          h("div", null,
-            h("label", { className: "form-label", htmlFor: "login-password" }, tr("Password")),
-            h("input", { id: "login-password", className: "form-control", name: "password", type: "password", autoComplete: "current-password", required: true })
-          ),
-          h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "box-arrow-in-right" }), tr("Login"))
-        )
-      )
-    );
-  }
-
-  function OverviewView({ clusters, reports, incidents, analysisTasks, loading, webhookEndpoint, onNavigate, currentUser }) {
-    const openIncidents = (incidents || []).filter((incident) => incident.status === "open");
-    const signalDigest = buildSignalDigest(reports);
-    const attention = buildAttentionQueue({ clusters, reports, incidents, analysisTasks, signalDigest });
-    const pipelineBacklog = (analysisTasks || []).filter((task) => ["queued", "retry_wait", "processing"].includes(task.status)).length;
-    const automationBlocked = reports.reduce((count, report) =>
-      count + (report.recommended_actions || []).filter((action) => action.automation_allowed !== true).length, 0);
-    const criticalSignals = signalDigest.filter((signal) => ["critical", "high"].includes(signal.severity)).length;
-    const canOpenAudit = ["admin", "auditor"].includes(currentUser?.role);
-    const intelligenceState = attention.length
-      ? `${attention.length} item${attention.length === 1 ? "" : "s"} need attention`
-      : "No active attention items";
-    return h("div", { className: "watchdog-overview" },
-      h("section", { className: "watchdog-hero" },
-        h("div", { className: "watchdog-hero-main" },
-          h("div", { className: "eyebrow" }, "INFRASTRUCTURE WATCHDOG"),
-          h("h2", null, "Incident Intelligence"),
-          h("p", null, "Automatic triage for node, runtime, network, storage, and control-plane signals. Rule-based RCA stays first; LLM output remains diagnostic context."),
-          h("div", { className: "watchdog-hero-actions" },
-            h("button", { type: "button", className: "btn btn-light btn-sm btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "clipboard2-pulse" }), "Review RCA"),
-            h("button", { type: "button", className: "btn btn-outline-light btn-sm btn-icon", onClick: () => onNavigate("clusters") }, h(Icon, { name: "hdd-network" }), "Manage Clusters")
-          )
-        ),
-        h("div", { className: "watchdog-hero-status" },
-          h("span", { className: "small text-uppercase" }, "Current posture"),
-          h("strong", null, intelligenceState),
-          h("div", { className: "watchdog-status-grid" },
-            h(WatchdogKpi, { label: "Open incidents", value: openIncidents.length, tone: openIncidents.length ? "red" : "green" }),
-            h(WatchdogKpi, { label: "Critical signals", value: criticalSignals, tone: criticalSignals ? "red" : "green" }),
-            h(WatchdogKpi, { label: "Pipeline backlog", value: pipelineBacklog, tone: pipelineBacklog ? "amber" : "green" }),
-            h(WatchdogKpi, { label: "Guarded actions", value: automationBlocked, tone: automationBlocked ? "amber" : "green" })
-          )
-        )
-      ),
-      h("div", { className: "watchdog-kpi-row" },
-        h(InsightTile, { label: "Clusters", value: clusters.length, hint: loading.clusters ? "Loading targets" : "Registered infrastructure targets", icon: "hdd-network", tone: "blue" }),
-        h(InsightTile, { label: "RCA Reports", value: reports.length, hint: latestReportHint(reports), icon: "clipboard2-pulse", tone: "green" }),
-        h(InsightTile, { label: "Signals", value: signalDigest.length, hint: signalDigest.length ? "Derived from recent evidence" : "No derived signals yet", icon: "broadcast-pin", tone: criticalSignals ? "red" : "blue" }),
-        h(InsightTile, { label: "Webhook", value: "Ready", hint: webhookEndpoint, icon: "diagram-3", tone: "amber", compact: true })
-      ),
-      h("div", { className: "row g-3" },
-        h("div", { className: "col-12 col-xxl-7" },
-          h(Panel, {
-            title: "Attention Queue",
-            subtitle: "Prioritized signals, incidents, and gated actions",
-            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate(attention[0]?.view || "reports") }, h(Icon, { name: "arrow-up-right-square" }), "Open")
-          }, h(AttentionQueue, { items: attention, onNavigate }))
-        ),
-        h("div", { className: "col-12 col-xxl-5" },
-          h(Panel, {
-            title: "Signal Stream",
-            subtitle: "Recent evidence collapsed into operator-friendly signals",
-            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "activity" }), "Reports")
-          }, h(SignalStream, { signals: signalDigest.slice(0, 8) }))
-        )
-      ),
-      h("div", { className: "row g-3" },
-        h("div", { className: "col-12 col-xl-4" },
-          h(Panel, {
-            title: "Cluster Posture",
-            subtitle: "Registration and lifecycle status",
-            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("clusters") }, h(Icon, { name: "window-sidebar" }), "Clusters")
-          }, h(ClusterPostureList, { clusters }))
-        ),
-        h("div", { className: "col-12 col-xl-4" },
-          h(Panel, {
-            title: "Recent RCA",
-            subtitle: "Root cause candidates ready for review",
-            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onNavigate("reports") }, h(Icon, { name: "list-check" }), "Review")
-          }, h(RecentRcaList, { reports: reports.slice(0, 5) }))
-        ),
-        h("div", { className: "col-12 col-xl-4" },
-          h(Panel, {
-            title: "Governance",
-            subtitle: "Automation guardrails and audit posture",
-            action: h("button", {
-              className: "btn btn-sm btn-outline-secondary btn-icon",
-              onClick: () => onNavigate(canOpenAudit ? "audit" : "settings"),
-            }, h(Icon, { name: canOpenAudit ? "journal-check" : "sliders" }), canOpenAudit ? "Audit" : "Settings")
-          }, h(GovernanceSummary, { reports, pipelineBacklog }))
-        )
-      )
-    );
-  }
-
-  function WatchdogKpi({ label, value, tone }) {
-    return h("div", { className: `watchdog-kpi ${tone || ""}` },
-      h("span", null, label),
-      h("strong", null, value)
-    );
-  }
-
-  function InsightTile({ label, value, hint, icon, tone, compact }) {
-    return h("article", { className: `insight-tile ${tone || ""}` },
-      h("div", { className: "insight-tile-icon" }, h(Icon, { name: icon })),
-      h("div", { className: "insight-tile-body" },
-        h("span", null, label),
-        h("strong", { className: compact ? "compact" : "" }, typeof value === "string" ? displayText(value) : value),
-        h("p", null, displayText(hint))
-      )
-    );
-  }
-
-  function AttentionQueue({ items, onNavigate }) {
-    if (!items.length) return h(EmptyState, { message: "No active attention items. New incidents, critical signals, or blocked actions will appear here." });
-    return h("div", { className: "attention-list" }, items.slice(0, 7).map((item) => h("button", {
-      key: item.key,
-      type: "button",
-      className: `attention-item ${item.tone || ""}`,
-      onClick: () => onNavigate(item.view || "reports"),
-    },
-    h("span", { className: "attention-icon" }, h(Icon, { name: item.icon || "activity" })),
-    h("span", { className: "attention-copy" },
-      h("strong", null, displayText(item.title)),
-      h("small", null, displayText(item.description))
-    ),
-    h("span", { className: "attention-meta" }, displayText(item.meta))
-    )));
-  }
-
-  function SignalStream({ signals }) {
-    if (!signals.length) return h(EmptyState, { message: "No evidence signals yet. Agent evidence or demo scenarios will populate this stream." });
-    return h("div", { className: "signal-stream" }, signals.map((signal) => h("article", {
-      key: signal.key,
-      className: `signal-stream-item ${severityTone(signal.severity)}`
-    },
-    h("div", { className: "signal-stream-topline" },
-      h("strong", null, displayText(signal.signal)),
-      h(StatusBadge, { value: signal.severity || "unknown", tone: severityTone(signal.severity) })
-    ),
-    h("p", null, displayText(signal.interpretation || signal.cause || "Evidence observed.")),
-    h("div", { className: "signal-stream-meta" },
-      h("span", { className: "font-monospace" }, signal.clusterId || "unknown-cluster"),
-      h("span", null, signal.component || "node"),
-      h("span", null, formatDate(signal.createdAt))
-    )
-    )));
-  }
-
-  function ClusterPostureList({ clusters }) {
-    if (!clusters.length) return h(EmptyState, { message: "No clusters loaded." });
-    return h("div", { className: "posture-list" }, clusters.slice(0, 6).map((cluster) => h("div", {
-      key: cluster.cluster_id,
-      className: "posture-row"
-    },
-    h("div", null,
-      h("strong", null, cluster.name || cluster.cluster_id),
-      h("small", { className: "font-monospace" }, cluster.cluster_id)
-    ),
-    h(StatusBadge, { value: cluster.status || "unknown", tone: clusterStatusTone(cluster.status) })
-    )));
-  }
-
-  function RecentRcaList({ reports }) {
-    if (!reports.length) return h(EmptyState, { message: "No reports loaded." });
-    return h("div", { className: "recent-rca-list" }, reports.map((report) => h("article", {
-      key: report.report_id,
-      className: "recent-rca-item"
-    },
-    h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-      h("strong", null, displaySummary(report.summary?.symptom)),
-      h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
-    ),
-    h("p", null, displayText(report.summary?.most_likely_cause || "No likely cause yet.")),
-    h("div", { className: "recent-rca-meta" },
-      h("span", { className: "font-monospace" }, report.cluster_id),
-      h("span", null, formatDate(report.created_at))
-    )
-    )));
-  }
-
-  function GovernanceSummary({ reports, pipelineBacklog }) {
-    const actions = reports.flatMap((report) => report.recommended_actions || []);
-    const llmActions = actions.filter((action) => action.source === "llm").length;
-    const blocked = actions.filter((action) => action.automation_allowed !== true).length;
-    const neverAuto = actions.filter((action) => action.policy === "NEVER_AUTO_EXECUTE").length;
-    return h("div", { className: "governance-stack" },
-      h("div", { className: "governance-callout" },
-        h(Icon, { name: "shield-lock" }),
-        h("div", null,
-          h("strong", null, "Human-in-the-loop enforced"),
-          h("p", null, "LLM-origin actions remain diagnostic. Operators approve, reject, or mark manual handling complete.")
-        )
-      ),
-      h("div", { className: "governance-metrics" },
-        h(WatchdogKpi, { label: "Blocked actions", value: blocked, tone: blocked ? "amber" : "green" }),
-        h(WatchdogKpi, { label: "LLM suggestions", value: llmActions, tone: llmActions ? "red" : "green" }),
-        h(WatchdogKpi, { label: "Never auto", value: neverAuto, tone: neverAuto ? "red" : "green" }),
-        h(WatchdogKpi, { label: "Backlog", value: pipelineBacklog, tone: pipelineBacklog ? "amber" : "green" })
-      )
-    );
-  }
-
-  function buildAttentionQueue({ clusters, reports, incidents, analysisTasks, signalDigest }) {
-    const items = [];
-    (incidents || [])
-      .filter((incident) => incident.status === "open")
-      .slice(0, 3)
-      .forEach((incident) => items.push({
-        key: `incident-${incident.incident_id}`,
-        title: incident.alert_name || incident.symptom || "Open incident",
-        description: `Cluster ${incident.cluster_id || "unknown"} is still open.`,
-        meta: formatDate(incident.last_seen_at || incident.created_at),
-        tone: "red",
-        icon: "exclamation-diamond",
-        view: "incidents",
-      }));
-    (signalDigest || [])
-      .filter((signal) => ["critical", "high"].includes(signal.severity))
-      .slice(0, 3)
-      .forEach((signal) => items.push({
-        key: `signal-${signal.key}`,
-        title: signal.signal,
-        description: signal.interpretation || signal.cause || "Critical evidence signal observed.",
-        meta: signal.component || signal.clusterId,
-        tone: "red",
-        icon: "broadcast-pin",
-        view: "reports",
-      }));
-    (reports || [])
-      .flatMap((report) => (report.recommended_actions || []).map((action, index) => ({ report, action, index })))
-      .filter(({ action }) => action.automation_allowed !== true)
-      .slice(0, 3)
-      .forEach(({ report, action, index }) => items.push({
-        key: `action-${report.report_id}-${index}`,
-        title: action.action || action.action_key || "Policy-gated action",
-        description: policyDescription(action.policy),
-        meta: action.source === "llm" ? "LLM diagnostic only" : action.policy || "policy gate",
-        tone: action.source === "llm" || action.policy === "NEVER_AUTO_EXECUTE" ? "red" : "amber",
-        icon: "shield-exclamation",
-        view: "reports",
-      }));
-    (analysisTasks || [])
-      .filter((task) => ["dead_letter", "retry_wait"].includes(task.status))
-      .slice(0, 2)
-      .forEach((task) => items.push({
-        key: `task-${task.task_id}`,
-        title: `Analysis task ${task.status}`,
-        description: task.last_error || "RCA pipeline task requires operator review.",
-        meta: task.task_id,
-        tone: task.status === "dead_letter" ? "red" : "amber",
-        icon: "list-task",
-        view: "pipeline",
-      }));
-    (clusters || [])
-      .filter((cluster) => !["active", "registered", "online"].includes(String(cluster.status || "").toLowerCase()))
-      .slice(0, 2)
-      .forEach((cluster) => items.push({
-        key: `cluster-${cluster.cluster_id}`,
-        title: cluster.name || cluster.cluster_id,
-        description: `Cluster status is ${cluster.status || "unknown"}.`,
-        meta: cluster.environment || "cluster",
-        tone: "amber",
-        icon: "hdd-network",
-        view: "clusters",
-      }));
-    return items.slice(0, 9);
-  }
-
-  function buildSignalDigest(reports) {
-    return (reports || [])
-      .flatMap((report) => {
-        const signals = section(report, "derived_signals")?.signals || [];
-        return signals.map((signal, index) => ({
-          key: `${report.report_id}-${index}-${signal.signal || "signal"}`,
-          signal: signal.signal || report.summary?.symptom || "evidence_signal",
-          severity: normalizeSeverity(signal.severity || report.summary?.confidence),
-          component: signal.component || (report.scope?.components || [])[0],
-          interpretation: signalFieldText(signal, "interpretation"),
-          nextStep: signalFieldText(signal, "next_step"),
-          clusterId: report.cluster_id,
-          reportId: report.report_id,
-          createdAt: report.created_at,
-          cause: report.summary?.most_likely_cause,
-        }));
-      })
-      .sort((left, right) => severityRank(right.severity) - severityRank(left.severity));
-  }
-
-  function latestReportHint(reports) {
-    if (!reports.length) return "No RCA reports yet";
-    const latest = reports[0];
-    return `${displaySummary(latest.summary?.symptom)} / ${formatDate(latest.created_at)}`;
-  }
-
-  function ClustersView(props) {
-    const backendUrlHelp = props.publicApiBase
-      ? "Agents and kubectl will use this platform API URL."
-      : "Enter the platform API URL reachable from your kubectl workstation and cluster nodes.";
-    return h("div", { className: "d-grid gap-3" },
-      h("div", { className: "row g-3" },
-        h("div", { className: "col-12 col-xl-5" },
-          h(Panel, { title: "Cluster Onboarding", subtitle: "Register once, then install the node agent" },
-            h("ol", { className: "onboarding-steps mb-3" },
-              h("li", null, h("span", null, "1"), h("div", null, h("strong", null, tr("Register")), h("small", null, tr("Create a cluster id and bootstrap token.")))),
-              h("li", null, h("span", null, "2"), h("div", null, h("strong", null, tr("Install")), h("small", null, tr("Run the generated kubectl command.")))),
-              h("li", null, h("span", null, "3"), h("div", null, h("strong", null, tr("Verify")), h("small", null, tr("Check node agents after DaemonSet rollout."))))
-            ),
-            h("form", { className: "row g-3", onSubmit: props.onCreateCluster },
-              h(InputField, { label: "Cluster name", name: "name", required: true, placeholder: "prod-cluster" }),
-              h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-environment" }, tr("Environment")),
-                h("select", { id: "cluster-environment", className: "form-select", name: "environment", defaultValue: "prod" },
-                  h("option", { value: "prod" }, "prod"),
-                  h("option", { value: "stage" }, "stage"),
-                  h("option", { value: "dev" }, "dev")
-                )
-              ),
-              h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-backend-url" }, tr("Platform API URL for agents")),
-                h("input", {
-                  id: "cluster-backend-url",
-                  className: "form-control font-monospace",
-                  name: "backend_url",
-                  type: "url",
-                  defaultValue: props.publicApiBase || "",
-                  placeholder: "https://rca-api.example.com",
-                  required: true,
-                }),
-                h("div", { className: "form-text" }, tr(backendUrlHelp))
-              ),
-              h("div", { className: "col-12" },
-                h("label", { className: "form-label", htmlFor: "cluster-description" }, tr("Description")),
-                h("textarea", { id: "cluster-description", className: "form-control", name: "description", rows: 2, placeholder: tr("Optional note for operators") })
-              ),
-              h("div", { className: "col-12 d-grid" },
-                h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "plus-lg" }), tr("Register and show install command"))
-              )
-            )
-          )
-        ),
-        h("div", { className: "col-12 col-xl-7" },
-          h(Panel, {
-            title: "Registered Clusters",
-            subtitle: props.loading.clusters ? "Loading" : `${props.clusters.length} clusters`,
-            action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: props.onLoadClusters }, h(Icon, { name: "arrow-clockwise" }), "Reload"),
-          }, props.clusters.length ? h(React.Fragment, null,
-            h("div", { className: "table-responsive desktop-table-view" },
-              h("table", { className: "table table-hover mb-0" },
-                h("thead", null, h("tr", null,
-                  h("th", null, tr("Cluster")),
-                  h("th", null, tr("Environment")),
-                  h("th", null, tr("Status")),
-                  h("th", { className: "text-end" }, tr("Actions"))
-                )),
-                h("tbody", null, props.clusters.map((cluster) => h(React.Fragment, { key: cluster.cluster_id },
-                  h("tr", null,
-                    h("td", null,
-                      h("button", {
-                        type: "button",
-                        className: "cluster-name-button",
-                        onClick: () => props.onOpenClusterData(cluster.cluster_id),
-                      }, cluster.name),
-                      h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)
-                    ),
-                    h("td", null, cluster.environment),
-                    h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })),
-                    h("td", { className: "text-end" },
-                      h(ClusterActionGroup, { cluster, props })
-                    )
-                  ),
-                  (props.installCommands[cluster.cluster_id] || props.agentsByCluster[cluster.cluster_id]) && h("tr", null,
-                    h("td", { colSpan: 4 },
-                      props.installCommands[cluster.cluster_id] && h(InstallCommandPanel, {
-                        command: props.installCommands[cluster.cluster_id],
-                        onCopy: props.onCopy,
-                      }),
-                      props.agentsByCluster[cluster.cluster_id] && h(AgentsTable, { state: props.agentsByCluster[cluster.cluster_id] })
-                    )
-                  )
-                )))
-              )
-            ),
-            h("div", { className: "mobile-card-list" },
-              props.clusters.map((cluster) => h("article", { key: cluster.cluster_id, className: "mobile-data-card" },
-                h("div", { className: "mobile-card-header" },
-                  h("div", { className: "mobile-card-title" },
-                    h("button", {
-                      type: "button",
-                      className: "cluster-name-button",
-                      onClick: () => props.onOpenClusterData(cluster.cluster_id),
-                    }, cluster.name),
-                    h("span", { className: "small text-muted font-monospace" }, cluster.cluster_id)
-                  ),
-                  h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })
-                ),
-                h("div", { className: "mobile-field-grid" },
-                  h(MobileField, { label: "Environment", value: cluster.environment })
-                ),
-                h("div", { className: "mobile-card-actions" },
-                  h(ClusterActionGroup, { cluster, props, mobile: true })
-                ),
-                (props.installCommands[cluster.cluster_id] || props.agentsByCluster[cluster.cluster_id]) && h("div", { className: "mobile-card-expanded" },
-                  props.installCommands[cluster.cluster_id] && h(InstallCommandPanel, {
-                    command: props.installCommands[cluster.cluster_id],
-                    onCopy: props.onCopy,
-                  }),
-                  props.agentsByCluster[cluster.cluster_id] && h(AgentsTable, { state: props.agentsByCluster[cluster.cluster_id] })
-                )
-              ))
-            )
-          ) : h(EmptyState, { message: "No registered clusters loaded." }))
-        )
-      )
-    );
-  }
-
-  function ClusterActionGroup({ cluster, props, mobile }) {
-    const secondaryClass = mobile ? "btn btn-sm btn-outline-secondary btn-icon" : "btn btn-outline-secondary btn-icon";
-    const dangerClass = mobile ? "btn btn-sm btn-outline-danger btn-icon" : "btn btn-outline-danger btn-icon";
-    return h("div", { className: mobile ? "mobile-action-grid" : "btn-group btn-group-sm" },
-      h("button", { type: "button", className: secondaryClass, onClick: () => props.onOpenClusterData(cluster.cluster_id) }, h(Icon, { name: "window-sidebar" }), tr("Data")),
-      h("button", { type: "button", className: secondaryClass, onClick: () => props.onCollectCluster(cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
-      h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadInstallCommand(cluster.cluster_id) }, h(Icon, { name: "terminal" }), tr("Install")),
-      h("button", { type: "button", className: secondaryClass, onClick: () => props.onLoadAgents(cluster.cluster_id) }, h(Icon, { name: "hdd-stack" }), tr("Agents")),
-      props.currentUser?.role === "admin"
-        ? h("button", { type: "button", className: secondaryClass, onClick: () => props.onRotateAgentToken(cluster) }, h(Icon, { name: "key" }), tr("Rotate token"))
-        : null,
-      h("button", { type: "button", className: dangerClass, onClick: () => props.onDeleteCluster(cluster) }, h(Icon, { name: "trash3" }), tr("Delete"))
-    );
-  }
-
-  function InstallCommandPanel({ command, onCopy }) {
-    const isLoading = command === "Loading...";
-    const canCopy = command && !isLoading && !command.toLowerCase().includes("failed") && !command.toLowerCase().includes("invalid");
-    return h("div", { className: "install-command-panel mb-3" },
-      h("div", { className: "install-command-header" },
-        h("div", null,
-          h("div", { className: "fw-semibold" }, tr("Agent install command")),
-          h("div", { className: "small text-muted" }, tr("Run this from a workstation with kubectl access to the target cluster."))
-        ),
-        h("button", {
-          type: "button",
-          className: "btn btn-sm btn-outline-secondary btn-icon",
-          disabled: !canCopy,
-          onClick: () => onCopy(command, "Install command copied."),
-        }, h(Icon, { name: "clipboard" }), tr("Copy"))
-      ),
-      h("pre", { className: "code-block" }, command),
-      h("div", { className: "install-checklist" },
-        h("span", null, h(Icon, { name: "1-circle" }), tr("Namespace and secret are created first.")),
-        h("span", null, h(Icon, { name: "2-circle" }), tr("DaemonSet is applied from the generated manifest URL.")),
-        h("span", null, h(Icon, { name: "3-circle" }), tr("Click Agents after rollout to confirm node registration."))
-      )
-    );
-  }
-
-  function WebhooksView({ endpoint, onCopy }) {
-    const sample = `receivers:\n  - name: cluster-infra-rca\n    webhook_configs:\n      - url: ${endpoint}\n        send_resolved: true\n        http_config:\n          authorization:\n            type: Bearer\n            credentials_file: /etc/alertmanager/secrets/rca-webhook-token`;
-    return h("div", { className: "row g-3" },
-      h("div", { className: "col-12 col-xl-5" },
-        h(Panel, { title: "Webhook Endpoint", subtitle: "Alertmanager integration" },
-          h("div", { className: "d-grid gap-3" },
-            h("div", null,
-              h("label", { className: "form-label" }, tr("Endpoint")),
-              h("div", { className: "input-group" },
-                h("input", { className: "form-control font-monospace", readOnly: true, value: endpoint }),
-                h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(endpoint, "Webhook endpoint copied.") }, h(Icon, { name: "clipboard" }))
-              )
-            ),
-            h("div", null,
-              h("label", { className: "form-label" }, tr("Authorization")),
-              h("code", { className: "d-block p-3 bg-light rounded-2" }, "Authorization: Bearer ${RCA_WEBHOOK_TOKEN}")
-            )
-          )
-        )
-      ),
-      h("div", { className: "col-12 col-xl-7" },
-        h(Panel, { title: "Alertmanager Receiver", subtitle: "YAML sample", action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: () => onCopy(sample, "Receiver sample copied.") }, h(Icon, { name: "clipboard" }), tr("Copy")) },
-          h("pre", { className: "code-block" }, sample)
-        )
-      )
-    );
-  }
-
-  function IncidentsView({ incidents, loading, onReload, onChangeStatus, currentUser }) {
-    return h(Panel, {
-      title: "Incidents",
-      subtitle: loading ? "Loading" : `${incidents.length} incidents`,
-      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
-        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
-    }, incidents.length ? h("div", { className: "table-responsive" },
-      h("table", { className: "table table-hover align-middle mb-0" },
-        h("thead", null, h("tr", null,
-          h("th", null, tr("Incident")),
-          h("th", null, tr("Cluster")),
-          h("th", null, tr("Node")),
-          h("th", null, tr("Root Cause")),
-          h("th", null, tr("Occurrences")),
-          h("th", null, tr("Last seen")),
-          h("th", { className: "text-end" }, tr("Actions"))
-        )),
-        h("tbody", null, incidents.map((incident) => h("tr", { key: incident.incident_id },
-          h("td", null,
-            h(StatusBadge, { value: incident.status, tone: incident.status === "open" ? "red" : "green" }),
-            incident.recurrence_sequence > 0
-              ? h("span", { className: "badge text-bg-warning ms-2" },
-                  `${tr("Recurrence")} #${incident.recurrence_sequence}`)
-              : null,
-            h("div", { className: "small font-monospace mt-1" }, incident.incident_id),
-            incident.recurrence_of_incident_id
-              ? h("div", { className: "small text-secondary mt-1" },
-                  `${tr("Previous incident")}: `,
-                  h("span", { className: "font-monospace" }, incident.recurrence_of_incident_id))
-              : null
-          ),
-          h("td", { className: "font-monospace small" }, incident.cluster_id),
-          h("td", null, listValue(
-            Array.isArray(incident.node_names) && incident.node_names.length
-              ? incident.node_names
-              : [incident.node_name]
-          )),
-          h("td", null, displayText(incident.root_cause)),
-          h("td", null, incident.occurrence_count),
-          h("td", null,
-            h("div", null, formatDate(incident.last_seen_at)),
-            incident.resolved_at
-              ? h("div", { className: "small text-secondary mt-1" },
-                  `${tr("Resolved at")}: ${formatDate(incident.resolved_at)}`)
-              : null,
-            incident.resolution_source
-              ? h("div", { className: "small text-secondary" },
-                  `${tr("Resolution source")}: ${displayText(incident.resolution_source)}`)
-              : null
-          ),
-          h("td", { className: "text-end" },
-            ["admin", "operator"].includes(currentUser?.role)
-              ? h("button", {
-                  className: "btn btn-sm btn-outline-secondary",
-                  onClick: () => onChangeStatus(
-                    incident.incident_id,
-                    incident.status === "open" ? "resolve" : "reopen"
-                  ),
-                }, tr(incident.status === "open" ? "Resolve" : "Reopen"))
-              : null
-          )
-        )))
-      )
-    ) : h(EmptyState, { message: "No incidents loaded." }));
-  }
-
-  function AuditView({ events, filters, loading, onReload, onApplyFilters, onResetFilters, onExport }) {
-    const [draft, setDraft] = React.useState(() => normalizeAuditFilters(filters));
-    React.useEffect(() => setDraft(normalizeAuditFilters(filters)), [filters]);
-    const update = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
-    const submit = (event) => {
-      event.preventDefault();
-      onApplyFilters(draft);
-    };
-    const reset = () => {
-      setDraft(emptyAuditFilters());
-      onResetFilters();
-    };
-    const activeFilterCount = auditFilterCount(filters);
-    return h(Panel, {
-      title: "Audit",
-      subtitle: loading
-        ? "Loading"
-        : `${events.length} events${activeFilterCount ? ` / ${activeFilterCount} filters` : ""}`,
-      action: h("div", { className: "btn-group btn-group-sm" },
-        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onReload },
-          h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
-        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => onExport("json") },
-          h(Icon, { name: "download" }), "JSON"),
-        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: () => onExport("csv") },
-          h(Icon, { name: "filetype-csv" }), "CSV")
-      ),
-    }, h(React.Fragment, null,
-      h("form", { className: "audit-filter-form", onSubmit: submit },
-        h("div", { className: "row g-2 align-items-end" },
-          h("div", { className: "col-12 col-xl-3 col-md-6" },
-            h("label", { className: "form-label" }, tr("Search")),
-            h("input", {
-              className: "form-control form-control-sm",
-              value: draft.q,
-              placeholder: "event, actor, resource, detail",
-              onChange: (event) => update("q", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Event type")),
-            h("input", {
-              className: "form-control form-control-sm font-monospace",
-              value: draft.event_type,
-              placeholder: "auth.login",
-              onChange: (event) => update("event_type", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Outcome")),
-            h("select", {
-              className: "form-select form-select-sm",
-              value: draft.outcome,
-              onChange: (event) => update("outcome", event.target.value),
-            },
-              h("option", { value: "" }, tr("All")),
-              ["success", "failed", "queued", "accepted", "pending_approval", "approved_manual", "rejected", "blocked", "completed"].map((value) =>
-                h("option", { key: value, value }, value)
-              )
-            )
-          ),
-          h("div", { className: "col-6 col-xl-1 col-md-3" },
-            h("label", { className: "form-label" }, tr("Actor type")),
-            h("select", {
-              className: "form-select form-select-sm",
-              value: draft.actor_type,
-              onChange: (event) => update("actor_type", event.target.value),
-            },
-              h("option", { value: "" }, tr("All")),
-              ["user", "agent", "system"].map((value) => h("option", { key: value, value }, value))
-            )
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Actor")),
-            h("input", {
-              className: "form-control form-control-sm",
-              value: draft.actor_id,
-              placeholder: "admin",
-              onChange: (event) => update("actor_id", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Client IP")),
-            h("input", {
-              className: "form-control form-control-sm font-monospace",
-              value: draft.client_ip,
-              placeholder: "10.0.0.10",
-              onChange: (event) => update("client_ip", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Resource type")),
-            h("input", {
-              className: "form-control form-control-sm font-monospace",
-              value: draft.resource_type,
-              placeholder: "cluster",
-              onChange: (event) => update("resource_type", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("Resource ID")),
-            h("input", {
-              className: "form-control form-control-sm font-monospace",
-              value: draft.resource_id,
-              onChange: (event) => update("resource_id", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("From")),
-            h("input", {
-              type: "datetime-local",
-              className: "form-control form-control-sm",
-              value: draft.from,
-              onChange: (event) => update("from", event.target.value),
-            })
-          ),
-          h("div", { className: "col-6 col-xl-2 col-md-3" },
-            h("label", { className: "form-label" }, tr("To")),
-            h("input", {
-              type: "datetime-local",
-              className: "form-control form-control-sm",
-              value: draft.to,
-              onChange: (event) => update("to", event.target.value),
-            })
-          ),
-          h("div", { className: "col-4 col-xl-1 col-md-2" },
-            h("label", { className: "form-label" }, tr("Limit")),
-            h("input", {
-              type: "number",
-              min: "1",
-              max: "1000",
-              className: "form-control form-control-sm",
-              value: draft.limit,
-              onChange: (event) => update("limit", event.target.value),
-            })
-          ),
-          h("div", { className: "col-8 col-xl-2 col-md-4" },
-            h("div", { className: "d-grid d-sm-flex gap-2" },
-              h("button", { type: "submit", className: "btn btn-sm btn-primary btn-icon" },
-                h(Icon, { name: "search" }), tr("Apply")),
-              h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: reset }, tr("Reset"))
-            )
-          )
-        )
-      ),
-      events.length ? h(React.Fragment, null,
-        h("div", { className: "table-responsive desktop-table-view" },
-          h("table", { className: "table table-hover align-middle mb-0" },
-            h("thead", null, h("tr", null,
-              h("th", null, tr("Created")),
-              h("th", null, tr("Actor")),
-              h("th", null, tr("Event")),
-              h("th", null, tr("Resource")),
-              h("th", null, tr("Outcome")),
-              h("th", null, tr("Client IP")),
-              h("th", null, tr("Details"))
-            )),
-            h("tbody", null, events.map((event) => h("tr", { key: event.audit_event_id },
-              h("td", null, formatDate(event.created_at)),
-              h("td", null,
-                h("div", null, `${event.actor_type}: ${event.actor_id}`),
-                h("div", { className: "small text-muted font-monospace" }, event.audit_event_id)
-              ),
-              h("td", { className: "font-monospace small" }, event.event_type),
-              h("td", { className: "small text-break" }, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`),
-              h("td", null, h(StatusBadge, {
-                value: event.outcome,
-                tone: auditOutcomeTone(event.outcome),
-              })),
-              h("td", { className: "small" },
-                h("div", { className: "font-monospace" }, auditClientIp(event)),
-                h("div", { className: "text-muted audit-user-agent", title: auditUserAgent(event) }, auditUserAgent(event))
-              ),
-              h("td", { className: "small text-break audit-details", title: auditDetailsJson(event.details) },
-                h("div", { className: "font-monospace" }, auditAccessLine(event.details)),
-                h("div", { className: "text-muted" }, auditDetailsSummary(event.details))
-              )
-            )))
-          )
-        ),
-        h("div", { className: "mobile-card-list" }, events.map((event) => h("article", { key: event.audit_event_id, className: "mobile-data-card" },
-          h("div", { className: "mobile-card-header" },
-            h("div", { className: "mobile-card-title" },
-              h("strong", { className: "font-monospace" }, event.event_type),
-              h("span", { className: "small text-muted" }, formatDate(event.created_at))
-            ),
-            h(StatusBadge, { value: event.outcome, tone: auditOutcomeTone(event.outcome) })
-          ),
-          h("div", { className: "mobile-field-grid" },
-            h("div", { className: "mobile-field" }, h("span", null, tr("Actor")), h("div", null, `${event.actor_type}: ${event.actor_id}`)),
-            h("div", { className: "mobile-field" }, h("span", null, tr("Resource")), h("div", null, `${event.resource_type}${event.resource_id ? ` / ${event.resource_id}` : ""}`)),
-            h("div", { className: "mobile-field" }, h("span", null, tr("Client IP")), h("div", { className: "font-monospace" }, auditClientIp(event))),
-            h("div", { className: "mobile-field" }, h("span", null, "UA"), h("div", { title: auditUserAgent(event) }, auditUserAgent(event))),
-            h("div", { className: "mobile-field" }, h("span", null, tr("Access")), h("div", { className: "font-monospace" }, auditAccessLine(event.details))),
-            h("div", { className: "mobile-field" }, h("span", null, tr("Details")), h("div", null, auditDetailsSummary(event.details)))
-          )
-        )))
-      ) : h(EmptyState, { message: "No audit events loaded." })
-    ));
-  }
-
-  function PipelineView({ tasks, loading, onReload, onRetry, currentUser }) {
-    const tone = (status) => {
-      if (["completed", "skipped"].includes(status)) return "green";
-      if (status === "dead_letter") return "red";
-      if (status === "retry_wait") return "amber";
-      return "blue";
-    };
-    return h(Panel, {
-      title: "Analysis Tasks",
-      subtitle: loading ? "Loading" : `${tasks.length} tasks`,
-      action: h("button", { className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onReload },
-        h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
-    }, tasks.length ? h("div", { className: "table-responsive" },
-      h("table", { className: "table table-hover align-middle mb-0" },
-        h("thead", null, h("tr", null,
-          h("th", null, tr("Status")),
-          h("th", null, tr("Node")),
-          h("th", null, tr("Symptom")),
-          h("th", null, tr("Attempt")),
-          h("th", null, tr("Next attempt")),
-          h("th", null, tr("Last error")),
-          h("th", { className: "text-end" }, tr("Actions"))
-        )),
-        h("tbody", null, tasks.map((task) => h("tr", { key: task.task_id },
-          h("td", null,
-            h(StatusBadge, { value: task.status, tone: tone(task.status) }),
-            h("div", { className: "small font-monospace mt-1" }, task.task_id)
-          ),
-          h("td", null,
-            h("div", null, task.node_name),
-            h("div", { className: "small text-muted font-monospace" }, task.cluster_id)
-          ),
-          h("td", null, task.alert_name),
-          h("td", null, `${task.attempt_count} / ${task.max_attempts}`),
-          h("td", null, formatDate(task.next_attempt_at)),
-          h("td", { className: "small text-break", style: { minWidth: "14rem" } },
-            task.last_error || "-"),
-          h("td", { className: "text-end" },
-            task.status === "dead_letter" && ["admin", "operator"].includes(currentUser?.role)
-              ? h("button", {
-                  className: "btn btn-sm btn-outline-danger",
-                  onClick: () => onRetry(task.task_id),
-                }, tr("Retry task"))
-              : task.report_id
-                ? h("span", { className: "small font-monospace" }, task.report_id)
-                : "-"
-          )
-        )))
-      )
-    ) : h(EmptyState, { message: "No analysis tasks loaded." }));
-  }
-
-  function ReportsView({
-    reports,
-    loading,
-    reportDetails,
-    onLoadReports,
-    onToggleReport,
-    onPrepareAction,
-    onExportReports,
-    onExportReport,
-    onExportBundle,
-    onCopy,
-    currentUser,
-    onDecideAction,
-    onCompleteManual,
-  }) {
-    const canExport = ["admin", "operator"].includes(currentUser?.role);
-    return h(Panel, {
-      title: "RCA Reports",
-      subtitle: loading.reports ? "Loading" : `${reports.length} reports`,
-      action: h("div", { className: "btn-group btn-group-sm" },
-        canExport ? h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onExportReports }, h(Icon, { name: "download" }), tr("Export all")) : null,
-        h("button", { className: "btn btn-outline-secondary btn-icon", onClick: onLoadReports }, h(Icon, { name: "arrow-clockwise" }), tr("Reload"))
-      ),
-    }, reports.length ? h(React.Fragment, null,
-      h("div", { className: "table-responsive desktop-table-view" },
-        h("table", { className: "table table-hover mb-0" },
-          h("thead", null, h("tr", null,
-            h("th", null, tr("Symptom")),
-            h("th", null, tr("Cluster")),
-            h("th", null, tr("Confidence")),
-            h("th", null, tr("Policy")),
-            h("th", { className: "text-end" }, tr("Actions"))
-          )),
-          h("tbody", null, reports.map((report) => {
-            const detail = reportDetails[report.report_id];
-            return h(React.Fragment, { key: report.report_id },
-              h("tr", null,
-                h("td", null,
-                  h("div", { className: "fw-semibold" }, displaySummary(report.summary?.symptom)),
-                  h("div", { className: "small text-muted text-truncate-cell" }, displayText(report.summary?.most_likely_cause || report.report_id))
-                ),
-                h("td", { className: "font-monospace small" }, report.cluster_id),
-                h("td", null, h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })),
-                h("td", null, uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))),
-                h("td", { className: "text-end" },
-                  h("div", { className: "btn-group btn-group-sm" },
-                    h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
-                    canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")) : null,
-                    canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy")) : null
-                  )
-                )
-              ),
-              detail?.open && h("tr", null, h("td", { colSpan: 5 }, h(ReportDetail, {
-                detail,
-                onPrepareAction,
-                onExportReport,
-                onExportBundle,
-                onCopy,
-                currentUser,
-                onDecideAction,
-                onCompleteManual,
-              })))
-            );
-          }))
-        )
-      ),
-      h("div", { className: "mobile-card-list" },
-        reports.map((report) => {
-          const detail = reportDetails[report.report_id];
-          return h("article", { key: report.report_id, className: "mobile-data-card" },
-            h("div", { className: "mobile-card-header" },
-              h("div", { className: "mobile-card-title" },
-                h("strong", null, displaySummary(report.summary?.symptom)),
-                h("span", { className: "small text-muted" }, displayText(report.summary?.most_likely_cause || report.report_id))
-              ),
-              h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
-            ),
-            h("div", { className: "mobile-field-grid" },
-              h(MobileField, { label: "Cluster", value: report.cluster_id, mono: true }),
-              h(MobileField, { label: "Policy" },
-                h("div", { className: "d-flex gap-1 flex-wrap" },
-                  uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) }))
-                )
-              )
-            ),
-            h("div", { className: "mobile-card-actions" },
-              h("div", { className: "btn-group btn-group-sm" },
-                h("button", { className: "btn btn-outline-secondary", onClick: () => onToggleReport(report.report_id) }, detail?.open ? tr("Hide") : tr("Detail")),
-                canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onExportReport(report.report_id) }, tr("Export")) : null,
-                canExport ? h("button", { className: "btn btn-outline-secondary", onClick: () => onCopy(JSON.stringify(report, null, 2), "Report summary copied.") }, tr("Copy")) : null
-              )
-            ),
-            detail?.open && h("div", { className: "mobile-card-expanded" },
-              h(ReportDetail, { detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction, onCompleteManual })
-            )
-          );
-        })
-      )
-    ) : h(EmptyState, { message: "No reports loaded." }));
-  }
-
-  function DemoScenariosView({ state, onReload, onRun, canRun }) {
-    return h("div", { className: "d-grid gap-3" },
-      h(Panel, {
-        title: "Demo Scenarios",
-        subtitle: state.enabled
-          ? "Generate evidence through the same RCA analysis pipeline used by node agents."
-          : "Disabled by configuration. Set RCA_DEMO_ENABLED=true outside production.",
-        action: h("button", {
-          type: "button",
-          className: "btn btn-sm btn-outline-secondary btn-icon",
-          onClick: onReload,
-        }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
-      },
-      state.loading
-        ? h(EmptyState, { message: "Loading demo scenarios." })
-        : state.error
-          ? h(EmptyState, { message: state.error })
-          : h("div", { className: "demo-scenario-grid" },
-              state.items.map((scenario) => h("article", {
-                key: scenario.key,
-                className: "demo-scenario-card",
-              },
-              h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-                h("div", null,
-                  h("strong", null, scenario.name),
-                  h("div", { className: "small text-muted font-monospace mt-1" }, scenario.alert_name)
-                ),
-                h(StatusBadge, { value: state.enabled ? "ready" : "disabled", tone: state.enabled ? "green" : "amber" })
-              ),
-              h("p", { className: "small text-muted mb-0" }, scenario.description),
-              h("button", {
-                type: "button",
-                className: "btn btn-sm btn-outline-primary btn-icon",
-                disabled: !state.enabled || !canRun,
-                onClick: () => onRun(scenario),
-              }, h(Icon, { name: "play-fill" }), "Run")
-              ))
-            )
-      )
-    );
-  }
-
-  function SettingsView({ apiBase, publicApiBase, autoRefresh, currentUser, onChangePassword, locale, onChangeLanguage, platformInfo }) {
-    const rows = [
-      ["Platform API", apiBase || tr("same origin")],
-      ["Public API", publicApiBase],
-      ["Signed in", currentUser.email],
-      ["Role", currentUser.role],
-      ["Refresh mode", autoRefresh ? "auto / 30s" : "manual"],
-      ["Webhook token env", "RCA_WEBHOOK_TOKEN"],
-      ["LLM provider env", "RCA_LLM_PROVIDER"],
-      ["Database env", "RCA_JDBC_URL"],
-      ["Platform version", platformInfo?.platform_version || "n/a"],
-      ["API version", platformInfo?.api_version || "n/a"],
-      ["Agent protocol", platformInfo
-        ? `${platformInfo.minimum_supported_agent_protocol_version} - ${platformInfo.agent_protocol_version}`
-        : "n/a"],
-      ["Minimum agent version", platformInfo?.minimum_supported_agent_version || "n/a"],
-    ];
-    return h("div", { className: "row g-3" },
-      h("div", { className: "col-12 col-xl-8" },
-        h(Panel, { title: tr("Console Settings"), subtitle: tr("Runtime references") },
-          h("div", { className: "row g-3" },
-            rows.map(([label, value]) => h("div", { className: "col-12 col-md-6 col-xl-3", key: label },
-              h("div", { className: "border rounded-2 p-3 bg-light h-100" },
-                h("div", { className: "small text-muted fw-semibold mb-2" }, tr(label)),
-                h("code", { className: "small text-break" }, value)
-              )
-            )),
-            h("div", { className: "col-12 col-md-6 col-xl-3" },
-              h("div", { className: "border rounded-2 p-3 bg-light h-100" },
-                h("div", { className: "small text-muted fw-semibold mb-2" }, tr("Language")),
-                h(LanguageSelect, { locale, onChangeLanguage }),
-                h("div", { className: "small text-muted mt-2" }, tr("Language preference is saved in this browser."))
-              )
-            )
-          )
-        )
-      ),
-      h("div", { className: "col-12 col-xl-4" },
-        h(Panel, { title: tr("Change Password"), subtitle: tr("Change the current administrator password") },
-          h("form", { className: "row g-3", onSubmit: onChangePassword },
-            h(InputField, { label: tr("Current password"), name: "current_password", type: "password", required: true, autoComplete: "current-password" }),
-            h(InputField, { label: tr("New password"), name: "new_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
-            h(InputField, { label: tr("Confirm password"), name: "confirm_password", type: "password", minLength: 8, required: true, autoComplete: "new-password" }),
-            h("div", { className: "col-12 d-grid" },
-              h("button", { className: "btn btn-primary btn-icon justify-content-center", type: "submit" }, h(Icon, { name: "key" }), tr("Update password"))
-            )
-          )
-        )
-      )
-    );
-  }
-
-  function MetricTile({ label, value, hint, icon, compact }) {
-    return h("div", { className: "col-12 col-md-6 col-xl-3" },
-      h("div", { className: "metric-tile" },
-        h("div", { className: "d-flex justify-content-between gap-2" },
-          h("span", { className: "label" }, tr(label)),
-          h(Icon, { name: icon })
-        ),
-        h("span", { className: compact ? "value h5" : "value" }, typeof value === "string" ? displayText(value) : value),
-        h("div", { className: "hint text-truncate" }, displayText(hint))
-      )
-    );
-  }
-
-  function Panel({ title, subtitle, action, children }) {
-    return h("section", { className: "console-panel" },
-      h("div", { className: "console-panel-header" },
-        h("div", null, h("h2", { className: "console-panel-title" }, tr(title)), subtitle && h("p", { className: "console-panel-subtitle" }, displayText(subtitle))),
-        action && h("div", null, action)
-      ),
-      h("div", { className: "console-panel-body" }, children)
-    );
-  }
-
-  function MobileField({ label, value, children, mono }) {
-    const content = children !== undefined
-      ? h("div", { className: mono ? "font-monospace" : "" }, children)
-      : h("strong", { className: mono ? "font-monospace" : "" }, displayText(value));
-    return h("div", { className: "mobile-field" },
-      h("span", null, tr(label)),
-      content
-    );
-  }
-
-  function ClusterTable({ clusters }) {
-    if (!clusters.length) return h(EmptyState, { message: "No clusters loaded." });
-    return h(React.Fragment, null,
-      h("div", { className: "table-responsive desktop-table-view" },
-        h("table", { className: "table table-hover mb-0" },
-          h("thead", null, h("tr", null, h("th", null, tr("Name")), h("th", null, tr("Environment")), h("th", null, tr("Status")))),
-          h("tbody", null, clusters.map((cluster) => h("tr", { key: cluster.cluster_id },
-            h("td", null, h("div", { className: "fw-semibold" }, cluster.name), h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id)),
-            h("td", null, cluster.environment),
-            h("td", null, h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) }))
-          )))
-        )
-      ),
-      h("div", { className: "mobile-card-list" },
-        clusters.map((cluster) => h("article", { key: cluster.cluster_id, className: "mobile-data-card" },
-          h("div", { className: "mobile-card-header" },
-            h("div", { className: "mobile-card-title" },
-              h("strong", null, cluster.name),
-              h("span", { className: "small text-muted font-monospace" }, cluster.cluster_id)
-            ),
-            h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) })
-          ),
-          h("div", { className: "mobile-field-grid" },
-            h(MobileField, { label: "Environment", value: cluster.environment })
-          )
-        ))
-      )
-    );
-  }
-
-  function AgentsTable({ state }) {
-    if (state.loading) return h(EmptyState, { message: "Loading agents." });
-    if (state.error) return h(EmptyState, { message: state.error });
-    if (!state.items.length) return h(EmptyState, { message: "No agents registered." });
-    return h(React.Fragment, null,
-      h("div", { className: "table-responsive desktop-table-view" },
-        h("table", { className: "table table-sm mb-0" },
-          h("thead", null, h("tr", null,
-            h("th", null, tr("Node")),
-            h("th", null, tr("Status")),
-            h("th", null, tr("Collection")),
-            h("th", null, tr("Version")),
-            h("th", null, tr("Last seen"))
-          )),
-          h("tbody", null, state.items.map((agent) => h("tr", { key: agent.node_name },
-            h("td", { className: "font-monospace small" }, agent.node_name),
-            h("td", null,
-              h(StatusBadge, {
-                value: agent.health_status || agent.status || "unknown",
-                tone: agentStatusTone(agent.health_status || agent.status),
-              }),
-              (agent.reasons || []).length
-                ? h("div", { className: "small text-muted mt-1" }, agent.reasons.join(" "))
-                : null
-            ),
-            h("td", null, h(AgentCapabilitySummary, { agent, compact: true })),
-            h("td", null,
-              h("div", null, agent.agent_version || "n/a"),
-              h("div", { className: "small text-muted" },
-                `protocol ${agent.agent_protocol_version || "1"} / ${agent.platform_protocol_version || "1"}`
-              )
-            ),
-            h("td", null, formatAgentLastSeen(agent))
-          )))
-        )
-      ),
-      h("div", { className: "mobile-card-list" },
-        state.items.map((agent) => h("article", { key: agent.node_name, className: "mobile-data-card" },
-          h("div", { className: "mobile-card-header" },
-            h("div", { className: "mobile-card-title" },
-              h("strong", { className: "font-monospace" }, agent.node_name)
-            ),
-            h(StatusBadge, {
-              value: agent.health_status || agent.status || "unknown",
-              tone: agentStatusTone(agent.health_status || agent.status),
-            })
-          ),
-          h("div", { className: "mobile-field-grid" },
-            h(MobileField, {
-              label: "Version",
-              value: `${agent.agent_version || "n/a"} / protocol ${agent.agent_protocol_version || "1"}`,
-            }),
-            h(MobileField, { label: "Collection" }, h(AgentCapabilitySummary, { agent })),
-            h(MobileField, { label: "Last seen", value: formatAgentLastSeen(agent) }),
-            (agent.reasons || []).length
-              ? h(MobileField, { label: "Reason", value: agent.reasons.join(" ") })
-              : null
-          )
-        ))
-      )
-    );
-  }
-
-  function AgentCapabilitySummary({ agent, compact }) {
-    const capabilities = agent.health?.capabilities;
-    if (!capabilities) {
-      return h("div", { className: compact ? "agent-capability compact" : "agent-capability" },
-        h(StatusBadge, { value: "not reported", tone: "amber" })
-      );
-    }
-    const summary = capabilities.summary || {};
-    const collectors = Object.entries(capabilities.collectors || {})
-      .filter(([, value]) => ["limited", "unavailable"].includes(value?.status))
-      .sort((left, right) => capabilityRank(right[1]?.status) - capabilityRank(left[1]?.status));
-    const checks = (capabilities.checks || [])
-      .filter((check) => ["limited", "unavailable"].includes(check.status))
-      .slice(0, compact ? 2 : 4);
-    return h("div", { className: compact ? "agent-capability compact" : "agent-capability" },
-      h("div", { className: "agent-capability-head" },
-        h(StatusBadge, {
-          value: capabilities.overall_status || "unknown",
-          tone: capabilityTone(capabilities.overall_status),
-        }),
-        h("span", { className: "small text-muted" },
-          `${summary.available || 0} ok / ${summary.limited || 0} limited / ${summary.unavailable || 0} unavailable`
-        )
-      ),
-      collectors.length
-        ? h("div", { className: "agent-capability-chips" },
-            collectors.slice(0, compact ? 3 : 8).map(([name, value]) =>
-              h("span", {
-                key: name,
-                className: `chip ${capabilityTone(value?.status)}`,
-                title: value?.reason || "",
-              }, `${name}: ${value?.status || "unknown"}`)
-            )
-          )
-        : compact ? null : h("div", { className: "small text-muted" }, tr("All enabled collectors have their required prerequisites.")),
-      checks.length && !compact
-        ? h("div", { className: "agent-capability-checks" },
-            checks.map((check) => h("div", { key: check.key, className: "agent-capability-check" },
-              h("div", { className: "d-flex justify-content-between gap-2" },
-                h("strong", null, check.label || check.key),
-                h(StatusBadge, { value: check.status, tone: capabilityTone(check.status) })
-              ),
-              h("div", { className: "small text-muted" }, check.message || check.next_step || "n/a"),
-              check.path ? h("code", { className: "small text-break" }, check.path) : null
-            ))
-          )
-        : null
-    );
-  }
-
-  function ClusterDataModal({ state, onClose, onRefresh, onLoadEvidence, onCollectCluster, onExportReports, onCopy, canExport }) {
-    const cluster = state.cluster || {};
-    const agents = state.agents || [];
-    const evidenceRequests = state.evidenceRequests || [];
-    const reports = state.reports || [];
-    const topology = state.topology || {};
-    const topologyComparison = state.topologyComparison || null;
-    const topologyEntities = Array.isArray(topology.entities) ? topology.entities : [];
-    const topologyRelations = Array.isArray(topology.relations) ? topology.relations : [];
-    const topologyPods = topologyEntities.filter((entity) => entity.kind === "Pod").length;
-    const topologyServices = topologyEntities.filter((entity) => entity.kind === "Service").length;
-    const body = state.loading
-      ? h(EmptyState, { message: "Loading cluster data." })
-      : state.error
-        ? h(EmptyState, { message: state.error })
-        : h("div", { className: "d-grid gap-3" },
-          h("div", { className: "summary-grid" },
-            h(SummaryBox, { label: "Status", value: h(StatusBadge, { value: cluster.status, tone: clusterStatusTone(cluster.status) }) }),
-            h(SummaryBox, { label: "Environment", value: cluster.environment || "n/a" }),
-            h(SummaryBox, { label: "Agents", value: agents.length }),
-            h(SummaryBox, { label: "Evidence requests", value: evidenceRequests.length })
-          ),
-          h("div", null,
-            h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
-              h("h3", { className: "h6 mb-0" }, tr("Cluster Topology")),
-              h("span", { className: "small text-muted" },
-                topology.observed_at ? formatDate(topology.observed_at) : tr("Not observed"))
-            ),
-            h("div", { className: "summary-grid" },
-              h(SummaryBox, { label: "Nodes", value: (topology.nodes || []).length }),
-              h(SummaryBox, { label: "Pods", value: topologyPods }),
-              h(SummaryBox, { label: "Services", value: topologyServices }),
-              h(SummaryBox, { label: "Relations", value: topologyRelations.length })
-            ),
-            h(TopologyGraph, { topology, comparison: topologyComparison }),
-            topologyComparison
-              ? h("div", { className: "topology-change-summary small mt-2" },
-                  h("strong", null, tr("Topology change")),
-                  h("span", null, `+${topologyComparison.added_entity_ids?.length || 0} / -${topologyComparison.removed_entity_ids?.length || 0} resources`),
-                  h("span", null, `+${topologyComparison.added_relations?.length || 0} / -${topologyComparison.removed_relations?.length || 0} relations`)
-                )
-              : null,
-            h("div", { className: "small text-muted mt-2" },
-              topology.inventory_complete
-                ? tr("Cluster-wide Service and EndpointSlice inventory is complete.")
-                : tr("Topology is partial until the elected agent collects Service and EndpointSlice inventory."))
-          ),
-          h("div", null,
-            h("h3", { className: "h6 mb-2" }, tr("Node Agents")),
-            h(AgentsTable, { state: { loading: false, items: agents } })
-          ),
-          h("div", null,
-            h("h3", { className: "h6 mb-2" }, tr("Evidence Requests")),
-            h(EvidenceRequestTable, { items: evidenceRequests, onLoadEvidence })
-          ),
-          h("div", null,
-            h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
-              h("h3", { className: "h6 mb-0" }, tr("Collected Evidence")),
-              state.selectedEvidence && canExport && h("button", {
-                type: "button",
-                className: "btn btn-sm btn-outline-secondary btn-icon",
-                onClick: () => onCopy(JSON.stringify(state.selectedEvidence, null, 2), "Evidence bundle copied."),
-              }, h(Icon, { name: "clipboard" }), tr("Copy"))
-            ),
-            h(EvidenceBundlePreview, { state })
-          ),
-          h("div", null,
-            h("div", { className: "d-flex justify-content-between gap-2 align-items-center mb-2" },
-              h("h3", { className: "h6 mb-0" }, tr("Recent RCA")),
-              reports.length ? h("div", { className: "btn-group btn-group-sm" },
-                canExport ? h("button", {
-                  type: "button",
-                  className: "btn btn-outline-secondary btn-icon",
-                  onClick: onExportReports,
-                }, h(Icon, { name: "download" }), tr("Export")) : null,
-                canExport ? h("button", {
-                  type: "button",
-                  className: "btn btn-outline-secondary btn-icon",
-                  onClick: () => onCopy(JSON.stringify(reports, null, 2), "Cluster RCA reports copied."),
-                }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
-              ) : null
-            ),
-            h(ClusterReportList, { items: reports })
-          )
-        );
-
-    return h("div", { className: "console-modal-backdrop", role: "presentation", onMouseDown: (event) => event.target === event.currentTarget && onClose() },
-      h("section", { className: "console-modal cluster-data-modal", role: "dialog", "aria-modal": "true" },
-        h("div", { className: "console-modal-header" },
-          h("div", null,
-            h("h2", { className: "h5 mb-1" }, cluster.name || state.clusterId),
-          h("div", { className: "small text-muted font-monospace" }, state.clusterId)
-          ),
-          h("div", { className: "d-flex gap-2" },
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", disabled: !state.cluster, onClick: () => onCollectCluster(state.cluster) }, h(Icon, { name: "radar" }), tr("Collect")),
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary btn-icon", onClick: onRefresh }, h(Icon, { name: "arrow-clockwise" }), tr("Reload")),
-            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: onClose }, tr("Close"))
-          )
-        ),
-        h("div", { className: "console-modal-body" }, body)
-      )
-    );
-  }
-
-  function SummaryBox({ label, value }) {
-    return h("div", { className: "summary-box" },
-      h("div", { className: "small text-muted fw-semibold" }, tr(label)),
-      h("div", { className: "summary-value" }, value)
-    );
-  }
-
-  function TopologyGraph({ topology, comparison }) {
-    const entities = Array.isArray(topology?.entities) ? topology.entities : [];
-    const relations = Array.isArray(topology?.relations) ? topology.relations : [];
-    const entityById = new Map(entities.map((entity) => [entity.id, entity]));
-    const changedEntityIds = new Set(comparison?.added_entity_ids || []);
-    const nodeByPod = new Map();
-    relations
-      .filter((relation) => relation.relationship === "hosts")
-      .forEach((relation) => nodeByPod.set(relation.target, relation.source));
-
-    const pairMap = new Map();
-    function addPair(serviceId, nodeId, relationship) {
-      if (entityById.get(serviceId)?.kind !== "Service" || entityById.get(nodeId)?.kind !== "Node") return;
-      const key = `${serviceId}|${nodeId}`;
-      const current = pairMap.get(key);
-      const direct = relationship === "has_endpoint_on";
-      pairMap.set(key, {
-        serviceId,
-        nodeId,
-        direct: direct || current?.direct === true,
-      });
-    }
-    relations.forEach((relation) => {
-      if (relation.relationship === "has_endpoint_on") {
-        addPair(relation.source, relation.target, relation.relationship);
-      }
-      if (relation.relationship === "routes_to" || relation.relationship === "selects") {
-        const nodeId = nodeByPod.get(relation.target);
-        if (nodeId) addPair(relation.source, nodeId, relation.relationship);
-      }
+    if (response.status === 204) return null;
+    const contentType = response.headers.get("content-type") || "";
+    return contentType.includes("application/json") ? response.json() : response.text();
+  }, [authHeaders]);
+
+  const downloadApi = useCallback(async (path, filename) => {
+    const response = await fetch(path, {
+      credentials: "same-origin",
+      headers: { ...authHeaders() },
     });
-
-    const pairs = Array.from(pairMap.values());
-    const connectionCount = new Map();
-    pairs.forEach((pair) => {
-      connectionCount.set(pair.serviceId, (connectionCount.get(pair.serviceId) || 0) + 1);
-      connectionCount.set(pair.nodeId, (connectionCount.get(pair.nodeId) || 0) + 1);
-    });
-    const services = entities
-      .filter((entity) => entity.kind === "Service")
-      .sort((left, right) =>
-        (connectionCount.get(right.id) || 0) - (connectionCount.get(left.id) || 0)
-          || topologyLabel(left).localeCompare(topologyLabel(right)))
-      .slice(0, 8);
-    const nodes = entities
-      .filter((entity) => entity.kind === "Node")
-      .sort((left, right) =>
-        (connectionCount.get(right.id) || 0) - (connectionCount.get(left.id) || 0)
-          || left.name.localeCompare(right.name))
-      .slice(0, 10);
-    if (!services.length && !nodes.length) {
-      return h("div", { className: "topology-graph-empty" }, tr("No topology relationships observed."));
+    if (!response.ok) {
+      throw new Error(await response.text());
     }
-
-    const serviceIds = new Set(services.map((entity) => entity.id));
-    const nodeIds = new Set(nodes.map((entity) => entity.id));
-    const visiblePairs = pairs.filter((pair) =>
-      serviceIds.has(pair.serviceId) && nodeIds.has(pair.nodeId));
-    const height = Math.max(240, Math.max(services.length, nodes.length, 1) * 58 + 50);
-    const serviceY = new Map(services.map((entity, index) => [
-      entity.id,
-      graphPosition(index, services.length, height),
-    ]));
-    const nodeY = new Map(nodes.map((entity, index) => [
-      entity.id,
-      graphPosition(index, nodes.length, height),
-    ]));
-    const limited = services.length < entities.filter((entity) => entity.kind === "Service").length
-      || nodes.length < entities.filter((entity) => entity.kind === "Node").length;
-
-    return h("section", { className: "topology-graph-shell mt-3" },
-      h("div", { className: "topology-graph-header" },
-        h("div", null,
-          h("div", { className: "fw-semibold small" }, tr("Topology Relationship Graph")),
-          h("div", { className: "small text-muted" },
-            tr("Service to node endpoint and selector relationships"))
-        ),
-        h("div", { className: "topology-graph-legend" },
-          h("span", null, h("i", { className: "topology-legend-line direct" }), tr("Endpoint relationship")),
-          h("span", null, h("i", { className: "topology-legend-line inferred" }), tr("Selector-derived relationship"))
-        )
-      ),
-      h("div", { className: "topology-graph-scroll" },
-        h("svg", {
-          className: "topology-graph",
-          viewBox: `0 0 960 ${height}`,
-          role: "img",
-          "aria-label": tr("Topology Relationship Graph"),
-        },
-          h("text", { x: 28, y: 24, className: "topology-column-label" }, tr("Services")),
-          h("text", { x: 702, y: 24, className: "topology-column-label" }, tr("Nodes")),
-          visiblePairs.map((pair) => {
-            const startY = serviceY.get(pair.serviceId);
-            const endY = nodeY.get(pair.nodeId);
-            return h("path", {
-              key: `${pair.serviceId}-${pair.nodeId}`,
-              className: `topology-edge ${pair.direct ? "direct" : "inferred"}`,
-              d: `M 274 ${startY} C 420 ${startY}, 540 ${endY}, 686 ${endY}`,
-            });
-          }),
-          services.map((service) => h("g", { key: service.id },
-            h("rect", {
-              className: `topology-resource-box service ${changedEntityIds.has(service.id) ? "changed" : ""}`,
-              x: 24,
-              y: serviceY.get(service.id) - 22,
-              width: 250,
-              height: 44,
-              rx: 6,
-            }),
-            h("text", {
-              className: "topology-resource-name",
-              x: 38,
-              y: serviceY.get(service.id) - 3,
-            }, shortTopologyLabel(topologyLabel(service), 32)),
-            h("text", {
-              className: "topology-resource-meta",
-              x: 38,
-              y: serviceY.get(service.id) + 13,
-            }, `${connectionCount.get(service.id) || 0} node(s)`)
-          )),
-          nodes.map((node) => h("g", { key: node.id },
-            h("rect", {
-              className: `topology-resource-box node ${node.attributes?.ready === false ? "not-ready" : ""} ${changedEntityIds.has(node.id) ? "changed" : ""}`,
-              x: 686,
-              y: nodeY.get(node.id) - 22,
-              width: 250,
-              height: 44,
-              rx: 6,
-            }),
-            h("text", {
-              className: "topology-resource-name",
-              x: 700,
-              y: nodeY.get(node.id) - 3,
-            }, shortTopologyLabel(node.name, 32)),
-            h("text", {
-              className: "topology-resource-meta",
-              x: 700,
-              y: nodeY.get(node.id) + 13,
-            }, `${(node.roles || []).join(", ") || "worker"} / ${node.attributes?.ready === false ? "NotReady" : "Ready"}`)
-          ))
-        )
-      ),
-      limited
-        ? h("div", { className: "small text-muted px-3 pb-2" },
-            tr("Graph is limited to the most connected resources."))
-        : null
-    );
-  }
-
-  function graphPosition(index, count, height) {
-    if (count <= 1) return height / 2;
-    return 48 + (index * (height - 82)) / (count - 1);
-  }
-
-  function topologyLabel(entity) {
-    return entity.namespace
-      ? `${entity.namespace}/${entity.name}`
-      : entity.name;
-  }
-
-  function shortTopologyLabel(value, maxLength) {
-    const text = String(value || "");
-    return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}…`;
-  }
-
-  function EvidenceRequestTable({ items, onLoadEvidence }) {
-    if (!items.length) return h(EmptyState, { message: "No evidence requests." });
-    const visibleItems = items.slice(0, 8);
-    return h(React.Fragment, null,
-      h("div", { className: "table-responsive desktop-table-view" },
-        h("table", { className: "table table-sm mb-0" },
-          h("thead", null, h("tr", null,
-            h("th", null, tr("Request")),
-            h("th", null, tr("Node")),
-            h("th", null, tr("Alert")),
-            h("th", null, tr("Status")),
-            h("th", null, tr("Created")),
-            h("th", { className: "text-end" }, tr("Data"))
-          )),
-          h("tbody", null, visibleItems.map((item) => h("tr", { key: item.request_id },
-            h("td", { className: "font-monospace small" }, item.request_id),
-            h("td", { className: "font-monospace small" }, item.node_name),
-            h("td", null, item.alert_name),
-            h("td", null, h(StatusBadge, { value: item.status, tone: evidenceStatusTone(item.status) })),
-            h("td", null, formatDate(item.created_at)),
-            h("td", { className: "text-end" },
-              h("button", {
-                type: "button",
-                className: "btn btn-sm btn-outline-secondary",
-                disabled: !item.evidence_id,
-                onClick: () => onLoadEvidence(item.evidence_id),
-              }, tr("View"))
-            )
-          )))
-        )
-      ),
-      h("div", { className: "mobile-card-list" },
-        visibleItems.map((item) => h("article", { key: item.request_id, className: "mobile-data-card" },
-          h("div", { className: "mobile-card-header" },
-            h("div", { className: "mobile-card-title" },
-              h("strong", { className: "font-monospace" }, item.request_id),
-              h("span", { className: "small text-muted" }, item.alert_name)
-            ),
-            h(StatusBadge, { value: item.status, tone: evidenceStatusTone(item.status) })
-          ),
-          h("div", { className: "mobile-field-grid" },
-            h(MobileField, { label: "Node", value: item.node_name, mono: true }),
-            h(MobileField, { label: "Created", value: formatDate(item.created_at) })
-          ),
-          h("div", { className: "mobile-card-actions" },
-            h("button", {
-              type: "button",
-              className: "btn btn-sm btn-outline-secondary btn-icon w-100",
-              disabled: !item.evidence_id,
-              onClick: () => onLoadEvidence(item.evidence_id),
-            }, h(Icon, { name: "eye" }), tr("View"))
-          )
-        ))
-      )
-    );
-  }
-
-  function EvidenceBundlePreview({ state }) {
-    if (state.evidenceLoading) return h(EmptyState, { message: "Loading evidence bundle." });
-    if (state.evidenceError) return h(EmptyState, { message: state.evidenceError });
-    const evidence = state.selectedEvidence;
-    if (!evidence) return h(EmptyState, { message: "Select a completed evidence request." });
-    const collectors = Object.keys(evidence.collectors || {});
-    return h("div", { className: "evidence-preview" },
-      h("div", { className: "detail-grid mb-2" },
-        h("dl", { className: "detail-list mb-0" },
-          h(DetailRow, { label: "Evidence", value: evidence.evidence_id || "n/a" }),
-          h(DetailRow, { label: "Node", value: evidence.node_name || "n/a" })
-        ),
-        h("dl", { className: "detail-list mb-0" },
-          h(DetailRow, { label: "Alert", value: evidence.alert_name || "n/a" }),
-          h(DetailRow, { label: "Collectors", value: listValue(collectors) })
-        )
-      ),
-      h("pre", { className: "code-block evidence-code" }, JSON.stringify(evidence.collectors || {}, null, 2))
-    );
-  }
-
-  function ClusterReportList({ items }) {
-    if (!items.length) return h(EmptyState, { message: "No RCA reports for this cluster." });
-    return h("div", { className: "list-group list-group-flush" },
-      items.slice(0, 5).map((report) => h("div", { key: report.report_id, className: "list-group-item px-0" },
-        h("div", { className: "d-flex justify-content-between gap-2" },
-          h("strong", { className: "small" }, displaySummary(report.summary?.symptom || report.report_id)),
-          h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) })
-        ),
-        h("div", { className: "small text-muted text-truncate" }, displayText(report.summary?.most_likely_cause || "n/a"))
-      ))
-    );
-  }
-
-  function ActionConfirmDialog({ state, onCancel, onConfirm }) {
-    const action = state.action || {};
-    const report = state.report || {};
-    return h("div", { className: "console-modal-backdrop", role: "presentation", onMouseDown: (event) => event.target === event.currentTarget && onCancel() },
-      h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
-        h("div", { className: "console-modal-header" },
-          h("div", null,
-            h("h2", { className: "h5 mb-1" }, tr("Confirm Action")),
-            h("div", { className: "small text-muted font-monospace" }, report.report_id)
-          ),
-          h(StatusBadge, { value: action.policy, tone: policyTone(action.policy) })
-        ),
-        h("div", { className: "console-modal-body d-grid gap-3" },
-          h("div", { className: "action-card" },
-            h("div", { className: "fw-semibold" }, displayActionText(action)),
-            h("div", { className: "small text-muted mt-1" }, displayReasonText(action)),
-            h("div", { className: "small text-muted mt-1" }, action.automation_allowed
-              ? tr("This will request read-only follow-up evidence from the node agent.")
-              : tr("The policy gate will record the request status without direct node mutation."))
-          ),
-          Boolean(action.guardrails?.length) && h("div", { className: "alert alert-warning mb-0 py-2" }, `${tr("Guardrails")}: ${action.guardrails.join(", ")}`),
-          state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
-        ),
-        h("div", { className: "console-modal-footer" },
-          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
-          h("button", { type: "button", className: "btn btn-primary btn-icon", onClick: onConfirm, disabled: state.loading },
-            state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "check2" }),
-            state.loading ? tr("Processing") : tr("Confirm")
-          )
-        )
-      )
-    );
-  }
-
-  function CollectionConfirmDialog({ state, onCancel, onConfirm }) {
-    const cluster = state.cluster || {};
-    return h("div", { className: "console-modal-backdrop", role: "presentation", onMouseDown: (event) => event.target === event.currentTarget && onCancel() },
-      h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
-        h("div", { className: "console-modal-header" },
-          h("div", null,
-            h("h2", { className: "h5 mb-1" }, tr("Confirm Collection")),
-            h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id || "n/a")
-          ),
-          h(StatusBadge, { value: "read-only", tone: "green" })
-        ),
-        h("div", { className: "console-modal-body d-grid gap-3" },
-          h("div", { className: "action-card" },
-            h("div", { className: "fw-semibold" }, cluster.name || tr("Cluster collection")),
-            h("div", { className: "small text-muted mt-1" },
-              tr("Backend will create read-only evidence requests for registered online node agents. Submitted evidence will be analyzed by the existing RCA pipeline.")
-            ),
-            h("div", { className: "small text-muted mt-1" }, tr("No Prometheus or Alertmanager trigger is required."))
-          ),
-          state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
-        ),
-        h("div", { className: "console-modal-footer" },
-          h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
-          h("button", { type: "button", className: "btn btn-primary btn-icon", onClick: onConfirm, disabled: state.loading },
-            state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "radar" }),
-            state.loading ? tr("Requesting") : tr("Collect")
-          )
-        )
-      )
-    );
-  }
-
-  function DeleteClusterDialog({ state, onCancel, onChangeConfirm, onConfirm }) {
-    const cluster = state.cluster || {};
-    const confirmName = state.confirmName || "";
-    const canDelete = confirmName.trim() === cluster.name;
-    return h("div", { className: "console-modal-backdrop", role: "presentation", onMouseDown: (event) => event.target === event.currentTarget && onCancel() },
-      h("section", { className: "console-modal action-confirm-modal", role: "dialog", "aria-modal": "true" },
-        h("form", { onSubmit: onConfirm },
-          h("div", { className: "console-modal-header" },
-            h("div", null,
-              h("h2", { className: "h5 mb-1" }, tr("Confirm Delete")),
-              h("div", { className: "small text-muted font-monospace" }, cluster.cluster_id || "n/a")
-            ),
-            h(StatusBadge, { value: "prohibited", tone: "red" })
-          ),
-          h("div", { className: "console-modal-body d-grid gap-3" },
-            h("div", { className: "action-card" },
-              h("div", { className: "fw-semibold" }, `${tr("Delete cluster")}: ${cluster.name || "n/a"}`),
-              h("div", { className: "small text-muted mt-1" },
-                tr("This removes the cluster registration and all stored agents, evidence requests, evidence bundles, RCA jobs, and reports from the platform.")
-              ),
-              h("div", { className: "small text-muted mt-1" }, tr("Agent DaemonSets in target clusters are not removed automatically."))
-            ),
-            h("div", null,
-              h("label", { className: "form-label", htmlFor: "delete-cluster-confirm-name" }, tr("Type the cluster name to confirm deletion.")),
-              h("input", {
-                id: "delete-cluster-confirm-name",
-                className: "form-control font-monospace",
-                value: confirmName,
-                autoFocus: true,
-                disabled: state.loading,
-                onChange: (event) => onChangeConfirm(event.target.value),
-                placeholder: cluster.name || "",
-              })
-            ),
-            state.error && h("div", { className: "alert alert-danger mb-0 py-2" }, state.error)
-          ),
-          h("div", { className: "console-modal-footer" },
-            h("button", { type: "button", className: "btn btn-outline-secondary", onClick: onCancel, disabled: state.loading }, tr("Cancel")),
-            h("button", { type: "submit", className: "btn btn-danger btn-icon", disabled: state.loading || !canDelete },
-              state.loading ? h(Icon, { name: "hourglass-split" }) : h(Icon, { name: "trash3" }),
-              state.loading ? tr("Deleting") : tr("Delete")
-            )
-          )
-        )
-      )
-    );
-  }
-
-  function ReportDetail({ detail, onPrepareAction, onExportReport, onExportBundle, onCopy, currentUser, onDecideAction, onCompleteManual }) {
-    if (detail.loading) return h(EmptyState, { message: "Loading report detail." });
-    if (detail.error) return h(EmptyState, { message: detail.error });
-    const report = detail.report;
-    const signals = section(report, "derived_signals")?.signals || [];
-    const checklist = section(report, "resolution_checklist")?.items || [];
-    const llm = section(report, "llm_analysis")?.analysis || {};
-    const actions = report.recommended_actions || [];
-    return h("div", { className: "d-grid gap-3" },
-      ["admin", "operator"].includes(currentUser?.role) ? h("div", { className: "d-flex justify-content-end gap-2 flex-wrap" },
-        h("button", {
-          type: "button",
-          className: "btn btn-sm btn-outline-secondary btn-icon",
-          onClick: () => onExportReport(report.report_id),
-        }, h(Icon, { name: "filetype-json" }), tr("Export")),
-        h("button", {
-          type: "button",
-          className: "btn btn-sm btn-outline-secondary btn-icon",
-          onClick: () => onExportBundle(report.report_id),
-        }, h(Icon, { name: "file-earmark-zip" }), "Evidence Bundle")
-      ) : null,
-      h(ReportSummaryStrip, { report, llm, actions }),
-      h(PolicyOverview, { actions }),
-      detail.timeline ? h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Cascading Failure Timeline")),
-          h("span", { className: "small text-muted" }, tr("Time-correlated propagation from the first trigger"))
-        ),
-        h(TimelineGraph, { timeline: detail.timeline })
-      ) : null,
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Impact Scope")),
-          h("span", { className: "small text-muted" }, displayText(report.scope?.impact_assessment))
-        ),
-        h(ImpactScope, { scope: report.scope || {} })
-      ),
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Root Cause Candidates")),
-          h("span", { className: "small text-muted" }, tr("Rule-based candidates first, LLM candidates only as supporting context"))
-        ),
-        h(OrderedFacts, { items: report.root_cause_candidates || [], titleKey: "cause", metaKey: "confidence", textKey: "supporting_evidence" })
-      ),
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Evidence Signals")),
-          h("span", { className: "small text-muted" }, activeLocale === "ko" ? `파생 신호 ${signals.length}개` : `${signals.length} ${tr("derived signals")}`)
-        ),
-        h(SignalFacts, { items: signals })
-      ),
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Additional Checks")),
-          h("span", { className: "small text-muted" }, tr("Read-only commands to verify the candidate cause"))
-        ),
-        h(ChecklistFacts, { items: checklist, onCopy })
-      ),
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Recommended Actions")),
-          h("span", { className: "small text-muted" }, tr("Policy Engine decides whether an action can be automated"))
-        ),
-        h(ActionFacts, { items: actions, report, onPrepareAction, currentUser })
-      ),
-      h("section", { className: "report-section" },
-        h("div", { className: "report-section-title" },
-          h("h3", { className: "h6 mb-0" }, tr("Action History")),
-          h("span", { className: "small text-muted" }, tr("Approval and manual handling history"))
-        ),
-        h(ActionRequestHistory, {
-          items: detail.actionRequests || [],
-          executions: detail.actionExecutions || [],
-          reportId: report.report_id,
-          currentUser,
-          onDecideAction,
-          onCompleteManual,
-        })
-      )
-    );
-  }
-
-  function ImpactScope({ scope }) {
-    const groups = [
-      ["Affected Pods", scope.affected_pods || []],
-      ["Affected Namespaces", scope.affected_namespaces || []],
-      ["Affected Workloads", scope.affected_workloads || []],
-      ["Observed Services", scope.observed_services || []],
-    ];
-    const hasInventory = groups.some(([, values]) => values.length);
-    if (!hasInventory) {
-      return h(EmptyState, { message: scope.impact_assessment || "No workload inventory was available in the collected evidence." });
-    }
-    return h(React.Fragment, null,
-      scope.service_impact_assessment ? h("div", { className: "alert alert-info py-2 mb-3" },
-        h("strong", null, `${tr("Service relationship unverified")}: `),
-        displayText(scope.service_impact_assessment)
-      ) : null,
-      h("div", { className: "impact-scope-grid" },
-      groups.map(([label, values]) => h("div", { key: label, className: "impact-scope-item" },
-        h("div", { className: "small fw-semibold mb-2" }, tr(label)),
-        h(ChipList, { items: values, tone: "blue", empty: tr("No items.") })
-      )))
-    );
-  }
-
-  function ReportSummaryStrip({ report, llm, actions }) {
-    const allowed = actions.filter((action) => action.automation_allowed).length;
-    const blocked = actions.length - allowed;
-    const llmCount = actions.filter((action) => action.source === "llm").length;
-    return h("div", { className: "report-summary-grid" },
-      h(SummaryBox, { label: "Report", value: h("span", { className: "font-monospace small text-break" }, report.report_id) }),
-      h(SummaryBox, { label: "Incident", value: h("span", { className: "font-monospace small text-break" }, report.incident_id || "n/a") }),
-      h(SummaryBox, { label: "Nodes", value: listValue(report.scope?.nodes) }),
-      h(SummaryBox, { label: "Confidence", value: h(StatusBadge, { value: report.summary?.confidence || "unknown", tone: confidenceTone(report.summary?.confidence) }) }),
-      h(SummaryBox, { label: "Automation", value: activeLocale === "ko" ? `${allowed}개 ${tr("allowed")} / ${blocked}개 ${tr("gated")}` : `${allowed} allowed / ${blocked} gated` }),
-      h(SummaryBox, { label: "Components", value: listValue(report.scope?.components) }),
-      h(SummaryBox, { label: "Policies", value: uniquePolicies(report).map((policy) => h(StatusBadge, { key: policy, value: policy, tone: policyTone(policy) })) }),
-      h(SummaryBox, { label: "LLM", value: h("span", null, h(StatusBadge, { value: llm.status || "unknown", tone: llm.status === "completed" ? "green" : "amber" }), llmCount ? h("span", { className: "small text-muted ms-2" }, `${llmCount} ${tr("action")}`) : null) }),
-      h(SummaryBox, { label: "Provider", value: llm.provider || llm.reason || llm.error || "n/a" })
-    );
-  }
-
-  function ActionRequestHistory({ items, executions, reportId, currentUser, onDecideAction, onCompleteManual }) {
-    if (!items.length) return h(EmptyState, { message: "No action requests." });
-    return h("div", { className: "d-grid gap-2" }, items.map((item) => h("article", {
-      key: item.action_request_id,
-      className: "action-card",
-    },
-    h("div", { className: "d-flex justify-content-between gap-2 flex-wrap" },
-      h("div", null,
-        h("strong", null, item.action_key),
-        h("div", { className: "small text-muted font-monospace" }, item.action_request_id)
-      ),
-      h("div", { className: "d-flex gap-2 align-items-center flex-wrap" },
-        h(StatusBadge, { value: item.policy, tone: policyTone(item.policy) }),
-        h(StatusBadge, {
-          value: item.status,
-          tone: ["accepted", "approved_manual", "completed"].includes(item.status) ? "green"
-            : item.status === "blocked" || item.status === "rejected" ? "red" : "amber",
-        }),
-        ["admin", "approver"].includes(currentUser?.role) && item.status === "pending_approval"
-          ? h("div", { className: "btn-group btn-group-sm" },
-              h("button", {
-                className: "btn btn-outline-success",
-                onClick: () => onDecideAction(item.action_request_id, reportId, "approve"),
-              }, tr("Approve for Manual Handling")),
-              h("button", {
-                className: "btn btn-outline-danger",
-                onClick: () => onDecideAction(item.action_request_id, reportId, "reject"),
-              }, tr("Reject"))
-            )
-          : null,
-        ["admin", "operator"].includes(currentUser?.role) && item.status === "approved_manual"
-          ? h("button", {
-              className: "btn btn-sm btn-outline-primary",
-              onClick: () => onCompleteManual(item.action_request_id, reportId),
-            }, tr("Mark Manually Completed"))
-          : null
-      )
-    ),
-    h("div", { className: "small text-muted mt-2" },
-      `${tr("Requested by")}: ${item.requested_by} / ${formatDate(item.created_at)}`
-    ),
-    item.reviewed_by ? h("div", { className: "small text-muted" },
-      `${tr("Reviewed by")}: ${item.reviewed_by} / ${formatDate(item.reviewed_at)}`
-    ) : null,
-    (() => {
-      const execution = (executions || []).find((value) => value.action_request_id === item.action_request_id);
-      return execution ? h("div", { className: "execution-result mt-2" },
-        h("div", { className: "d-flex justify-content-between gap-2" },
-          h("span", { className: "font-monospace small" }, execution.command_key),
-          h(StatusBadge, {
-            value: execution.status,
-            tone: execution.status === "completed" ? "green"
-              : execution.status === "failed" ? "red" : "amber",
-          })
-        ),
-        execution.stdout ? h("pre", { className: "execution-output mt-2 mb-0" }, execution.stdout) : null,
-        execution.stderr ? h("pre", { className: "execution-output execution-error mt-2 mb-0" }, execution.stderr) : null
-      ) : null;
-    })()
-    )));
-  }
-
-  function TimelineGraph({ timeline }) {
-    const nodes = timeline.nodes || [];
-    const edges = timeline.edges || [];
-    if (!nodes.length) return h(EmptyState, { message: "No timeline evidence." });
-    return h("div", { className: "timeline-scroll" },
-      h("div", { className: "failure-timeline" }, nodes.map((node, index) => {
-        const incoming = edges.find((edge) => edge.target === node.id);
-        const nextNode = nodes[index + 1];
-        const nextEdge = nextNode ? edges.find((edge) => edge.target === nextNode.id) : null;
-        const sourceNode = incoming ? nodes.find((item) => item.id === incoming.source) : null;
-        return h("div", { key: node.id, className: "timeline-step" },
-          h("article", { className: `timeline-node severity-${node.severity} ${node.root_trigger ? "root-trigger" : ""}` },
-            h("div", { className: "d-flex justify-content-between gap-2" },
-              h("span", { className: "timeline-component" },
-                `${node.component} / ${node.signal_family || "unknown"}`
-              ),
-              h(StatusBadge, { value: node.severity, tone: severityTone(node.severity) })
-            ),
-            h("strong", null, displayText(node.title)),
-            h("span", { className: "small text-muted" }, formatDate(node.timestamp)),
-            h("p", { className: "small mb-0" }, displayText(node.detail)),
-            incoming ? h("div", { className: "causal-edge-meta" },
-              h("span", null,
-                `${sourceNode?.signal_family || sourceNode?.component || "signal"} → ${node.signal_family || node.component}`
-              ),
-              h("span", null,
-                `${incoming.rule_id} · ${Math.round((incoming.confidence || 0) * 100)}%`
-              )
-            ) : null,
-            node.root_trigger ? h("span", { className: "root-label" }, tr("Root trigger")) : null
-          ),
-          index < nodes.length - 1
-            ? h("div", { className: "timeline-link" },
-                h(Icon, { name: "arrow-right" }),
-                h("span", null, displayText(nextEdge?.relationship || "observed next in the incident window")),
-                nextEdge ? h("small", null,
-                  `${nextEdge.inferred ? tr("Causal inference") : tr("Observed sequence")} · ${Math.round((nextEdge.confidence || 0) * 100)}%`
-                ) : null
-              )
-            : null
-        );
-      }))
-    );
-  }
-
-  function PolicyOverview({ actions }) {
-    if (!actions.length) return h(EmptyState, { message: "No policy decisions." });
-    const counts = policyCounts(actions);
-    const llmActions = actions.filter((action) => action.source === "llm").length;
-    const blocked = actions.filter((action) => !action.automation_allowed).length;
-    const allowed = actions.length - blocked;
-    return h("section", { className: "policy-overview" },
-      h("div", { className: "report-section-title" },
-        h("h3", { className: "h6 mb-0" }, tr("Policy Engine")),
-        h("span", { className: "small text-muted" }, tr("Rule gate before any action request"))
-      ),
-      h("div", { className: "policy-overview-grid" },
-        policyOrder().map((policy) => counts[policy] ? h("div", { key: policy, className: "policy-overview-item" },
-          h(StatusBadge, { value: policy, tone: policyTone(policy) }),
-          h("strong", null, counts[policy]),
-          h("span", null, policyDescription(policy))
-        ) : null),
-        h("div", { className: "policy-overview-item" },
-          h(StatusBadge, { value: "automation_allowed", tone: "green" }),
-          h("strong", null, allowed),
-          h("span", null, tr("Read-only rule-based action requests"))
-        ),
-        h("div", { className: "policy-overview-item policy-overview-warning" },
-          h(StatusBadge, { value: "automation_blocked", tone: blocked ? "red" : "green" }),
-          h("strong", null, blocked),
-          h("span", null, tr("Needs review, approval, PR, or manual handling"))
-        )
-      ),
-      llmActions ? h("div", { className: "llm-action-warning mt-2" },
-        h(Icon, { name: "exclamation-triangle" }),
-        h("span", null, activeLocale === "ko"
-          ? `LLM 조치 ${llmActions}개. ${tr("Policy keeps automation_allowed=false for every LLM-origin action.")}`
-          : `${llmActions} LLM action(s). ${tr("Policy keeps automation_allowed=false for every LLM-origin action.")}`)
-      ) : null
-    );
-  }
-
-  function OrderedFacts({ items, titleKey, metaKey, textKey }) {
-    if (!items.length) return h("div", { className: "empty-state" }, tr("No items."));
-    return h("div", { className: "candidate-list" }, items.map((item, index) => h("article", { key: index, className: "candidate-card" },
-      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-        h("strong", null, `${index + 1}. ${displayText(item[titleKey] || "Unknown cause")}`),
-        h("div", { className: "d-flex align-items-center gap-2 flex-wrap justify-content-end" },
-          Number.isFinite(item.confidence_score)
-            ? h("strong", { className: "candidate-score" }, `${item.confidence_score}%`)
-            : null,
-          h(StatusBadge, { value: item[metaKey], tone: confidenceTone(item[metaKey]) })
-        )
-      ),
-      Number.isFinite(item.confidence_score)
-        ? h("div", {
-            className: "confidence-meter mt-2",
-            role: "progressbar",
-            "aria-valuenow": item.confidence_score,
-            "aria-valuemin": 0,
-            "aria-valuemax": 100,
-          }, h("span", { style: { width: `${Math.max(0, Math.min(100, item.confidence_score))}%` } }))
-        : null,
-      h("div", { className: "small text-muted mt-1" }, displayText(listValue(item[textKey]))),
-      h(ChipList, { items: item.evidence_paths || [], tone: "blue", empty: null })
-    )));
-  }
-
-  function ActionFacts({ items, report, onPrepareAction, currentUser }) {
-    if (!items.length) return h("div", { className: "empty-state" }, tr("No actions."));
-    return h("div", { className: "d-grid gap-2" }, items.map((item, index) => {
-      const llmSourced = item.source === "llm";
-      const automationAllowed = item.automation_allowed === true;
-      return h("article", {
-        key: index,
-        className: `action-card action-card-rca ${automationAllowed ? "automation-allowed" : "automation-blocked"} ${llmSourced ? "llm-sourced" : ""}`,
-      },
-      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-        h("div", null,
-          h("strong", null, displayActionText(item)),
-          h("div", { className: "small text-muted mt-1" }, displayReasonText(item))
-        ),
-        h("div", { className: "d-flex gap-2 flex-wrap justify-content-end" },
-          h(StatusBadge, { value: item.policy, tone: policyTone(item.policy) }),
-          h(StatusBadge, { value: sourceLabel(item.source), tone: sourceTone(item.source) }),
-          h(StatusBadge, { value: automationLabel(item), tone: automationTone(item) }),
-          h("button", {
-            type: "button",
-            className: `btn btn-sm ${item.automation_allowed ? "btn-primary" : "btn-outline-secondary"} btn-icon`,
-            disabled: item.policy === "NEVER_AUTO_EXECUTE"
-              || !onPrepareAction
-              || !["admin", "operator"].includes(currentUser?.role),
-            onClick: () => onPrepareAction(report, item, index),
-          }, h(Icon, { name: actionIcon(item) }), actionButtonLabel(item))
-        )
-      ),
-      h("div", { className: "policy-description mt-2" }, policyDescription(item.policy)),
-      llmSourced ? h("div", { className: "llm-action-warning mt-2" },
-        h(Icon, { name: "exclamation-triangle" }),
-        h("span", null, tr("LLM suggestion only. It cannot become executable and must remain diagnostic context."))
-      ) : null,
-      h("div", { className: "action-meta-grid mt-2" },
-        h(MetaPill, { label: "mode", value: item.automation_mode || "manual" }),
-        h(MetaPill, { label: "approval", value: item.requires_approval ? "required" : "not required", tone: item.requires_approval ? "amber" : "green" }),
-        h(MetaPill, { label: "review", value: item.review_required ? "required" : "not required", tone: item.review_required ? "amber" : "green" }),
-        h(MetaPill, { label: "key", value: item.action_key || "n/a" })
-      ),
-      item.execution_plan ? h("div", { className: "action-plan mt-2" },
-        h("div", { className: "small fw-semibold mb-1" }, tr("Runbook / GitOps guidance")),
-        (item.execution_plan.command_preview || []).map((command, commandIndex) =>
-          h("pre", { key: commandIndex, className: "command-preview mb-1" }, command)
-        ),
-        item.execution_plan.yaml_patch
-          ? h("pre", { className: "command-preview mb-1" }, item.execution_plan.yaml_patch)
-          : null,
-        h(StatusBadge, { value: "manual guidance only", tone: "blue" }),
-        h("div", { className: "small text-muted mt-1" },
-          tr("Commands are guidance only and are never executed by the platform or agent.")
-        )
-      ) : null,
-      h("div", { className: "mt-2" },
-        h(ChipList, { label: tr("Risk reasons"), items: item.risk_factors || [], tone: "red", empty: tr("No policy risk factors.") })
-      ),
-      h("div", { className: "mt-2" },
-        h(ChipList, { label: tr("Guardrails"), items: item.guardrails || [], tone: "amber", empty: tr("No guardrails triggered.") })
-      )
-    ); }));
-  }
-
-  function SignalFacts({ items }) {
-    if (!items.length) return h("div", { className: "empty-state" }, tr("No signals."));
-    return h("div", { className: "signal-grid" }, items.map((item, index) => h("article", { key: index, className: "signal-card" },
-      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-        h("strong", null, item.signal || "unknown_signal"),
-        h(StatusBadge, { value: item.severity, tone: severityTone(item.severity) })
-      ),
-      h("div", { className: "small text-muted mt-1" }, `${item.component || "node"}: ${signalFieldText(item, "interpretation")}`),
-      h("div", { className: "small mt-2" }, h("span", { className: "text-muted fw-semibold" }, `${tr("Next:")} `), signalFieldText(item, "next_step"))
-    )));
-  }
-
-  function ChecklistFacts({ items, onCopy }) {
-    if (!items.length) return h("div", { className: "empty-state" }, tr("No checklist."));
-    return h("div", { className: "checklist-grid" }, items.map((item, index) => h("article", { key: index, className: "check-card" },
-      h("div", { className: "d-flex justify-content-between gap-2 align-items-start" },
-        h("div", null,
-          h("div", { className: "fw-semibold" }, item.component || "node"),
-          h("div", { className: "small text-muted" }, displayText(item.check || "Read-only verification"))
-        ),
-        onCopy ? h("button", {
-          type: "button",
-          className: "btn btn-sm btn-outline-secondary btn-icon",
-          onClick: () => onCopy(item.command || "", "Command copied."),
-        }, h(Icon, { name: "clipboard" }), tr("Copy")) : null
-      ),
-      h("code", { className: "small d-block text-break mt-2" }, item.command || "n/a")
-    )));
-  }
-
-  function MetaPill({ label, value, tone }) {
-    return h("div", { className: `meta-pill ${tone || ""}` },
-      h("span", null, tr(label)),
-      h("strong", null, displayText(value))
-    );
-  }
-
-  function ChipList({ label, items, tone, empty }) {
-    const values = Array.isArray(items) ? items.filter(Boolean) : [];
-    if (!values.length && empty === null) return null;
-    return h("div", { className: "chip-list-wrap" },
-      label ? h("div", { className: "chip-label" }, tr(label)) : null,
-      values.length
-        ? h("div", { className: "chip-list" }, values.map((value) => h("span", { key: value, className: `chip ${tone || ""}` }, value)))
-        : h("div", { className: "small text-muted" }, displayText(empty || "n/a"))
-    );
-  }
-
-  function LanguageSelect({ locale, onChangeLanguage, compact }) {
-    return h("label", { className: compact ? "language-select compact" : "language-select" },
-      !compact && h("span", null, tr("Language")),
-      h("select", {
-        className: "form-select form-select-sm",
-        value: locale || "en",
-        onChange: (event) => onChangeLanguage(event.target.value),
-        "aria-label": tr("Language"),
-      },
-        h("option", { value: "en" }, tr("English")),
-        h("option", { value: "ko" }, tr("Korean"))
-      )
-    );
-  }
-
-  function InputField({ label, ...props }) {
-    const inputId = props.id || `field-${props.name || label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-    return h("div", { className: "col-12 col-md-6" },
-      h("label", { className: "form-label", htmlFor: inputId }, tr(label)),
-      h("input", { className: "form-control", ...props, id: inputId })
-    );
-  }
-
-  function DetailRow({ label, value }) {
-    return h("div", { className: "detail-row" }, h("dt", null, tr(label)), h("dd", null, value));
-  }
-
-  function StatusBadge({ value, tone }) {
-    const label = value === null || value === undefined || value === "" ? "n/a" : String(value);
-    return h("span", { className: `badge badge-soft ${tone || ""}` }, tr(label));
-  }
-
-  function EmptyState({ message }) {
-    return h("div", { className: "empty-state" }, displayText(message));
-  }
-
-  function Toast({ message, onClose }) {
-    return h("div", { className: "toast-area" },
-      h("div", { className: "toast show align-items-center text-bg-dark border-0", role: "status" },
-        h("div", { className: "d-flex" },
-          h("div", { className: "toast-body" }, displayText(message)),
-          h("button", { type: "button", className: "btn-close btn-close-white me-2 m-auto", onClick: onClose })
-        )
-      )
-    );
-  }
-
-  function Icon({ name }) {
-    return h("i", { className: `bi bi-${name}`, "aria-hidden": "true" });
-  }
-
-  function formPayload(form) {
-    return Object.fromEntries([...new FormData(form).entries()].map(([key, value]) => {
-      const normalized = typeof value === "string" ? value.trim() : value;
-      return [key, normalized === "" ? null : normalized];
-    }));
-  }
-
-  function readError(body, fallback) {
-    const detail = body && typeof body === "object" ? body.detail : body;
-    if (Array.isArray(detail)) return detail.map((item) => item.msg || String(item)).join(", ");
-    if (detail && typeof detail === "object") return JSON.stringify(detail);
-    return detail || fallback || "Request failed.";
-  }
-
-  function filenameFromContentDisposition(value) {
-    if (!value) return null;
-    const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
-    if (utf8Match) return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
-    const asciiMatch = value.match(/filename="?([^";]+)"?/i);
-    return asciiMatch ? asciiMatch[1] : null;
-  }
-
-  function triggerDownload(blob, filename) {
+    const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = filename || "rca-export.json";
+    anchor.download = filename;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
+    URL.revokeObjectURL(url);
+  }, [authHeaders]);
 
-  function emptyAuditFilters() {
-    return {
-      q: "",
-      actor_type: "",
-      actor_id: "",
-      event_type: "",
-      resource_type: "",
-      resource_id: "",
-      outcome: "",
-      client_ip: "",
-      from: "",
-      to: "",
-      limit: "300",
-    };
-  }
-
-  function normalizeAuditFilters(filters) {
-    const base = emptyAuditFilters();
-    const source = filters || {};
-    return Object.fromEntries(Object.keys(base).map((key) => [
-      key,
-      source[key] === null || source[key] === undefined ? base[key] : String(source[key]),
-    ]));
-  }
-
-  function buildAuditQuery(filters, overrides = {}) {
-    const normalized = normalizeAuditFilters(filters);
-    const query = new URLSearchParams();
-    const limit = clampNumber(overrides.limit || normalized.limit || 300, 1, overrides.maxLimit || 5000);
-    query.set("limit", String(limit));
-    if (overrides.format) query.set("format", overrides.format);
-    ["q", "actor_type", "actor_id", "event_type", "resource_type", "resource_id", "outcome", "client_ip"].forEach((key) => {
-      const value = trimmed(normalized[key]);
-      if (value) query.set(key, value);
-    });
-    const from = auditInstant(normalized.from);
-    const to = auditInstant(normalized.to);
-    if (from) query.set("from", from);
-    if (to) query.set("to", to);
-    return query.toString();
-  }
-
-  function auditFilterCount(filters) {
-    const normalized = normalizeAuditFilters(filters);
-    return ["q", "actor_type", "actor_id", "event_type", "resource_type", "resource_id", "outcome", "client_ip", "from", "to"]
-      .filter((key) => trimmed(normalized[key])).length;
-  }
-
-  function auditInstant(value) {
-    const text = trimmed(value);
-    if (!text) return "";
-    const date = new Date(text);
-    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
-  }
-
-  function clampNumber(value, min, max) {
-    const number = Number.parseInt(value, 10);
-    if (!Number.isFinite(number)) return min;
-    return Math.max(min, Math.min(number, max));
-  }
-
-  function trimmed(value) {
-    return value === null || value === undefined ? "" : String(value).trim();
-  }
-
-  function auditOutcomeTone(value) {
-    if (["success", "accepted", "approved_manual", "report_created", "completed", "queued"].includes(value)) return "green";
-    if (["failed", "blocked", "rejected"].includes(value)) return "red";
-    return "amber";
-  }
-
-  function auditClientIp(event) {
-    return event?.details?.client_ip || event?.details?.remote_addr || "n/a";
-  }
-
-  function auditUserAgent(event) {
-    return event?.details?.user_agent || "n/a";
-  }
-
-  function auditAccessLine(details) {
-    if (!details || typeof details !== "object") return "n/a";
-    const method = details.method ? String(details.method) : "";
-    const path = details.path ? String(details.path) : "";
-    const request = [method, path].filter(Boolean).join(" ");
-    const queryKeys = Array.isArray(details.query_keys) && details.query_keys.length
-      ? `query: ${details.query_keys.join(",")}`
-      : "";
-    const requestId = details.request_id ? `rid: ${details.request_id}` : "";
-    return [request, queryKeys, requestId].filter(Boolean).join(" / ") || "n/a";
-  }
-
-  function auditDetailsSummary(details) {
-    if (!details || typeof details !== "object") return "n/a";
-    const hidden = new Set([
-      "client_ip",
-      "client_ip_source",
-      "remote_addr",
-      "method",
-      "path",
-      "query_keys",
-      "query_values_redacted",
-      "user_agent",
-      "origin",
-      "referer_path",
-      "request_id",
-    ]);
-    const entries = Object.entries(details)
-      .filter(([key, value]) => !hidden.has(key) && value !== null && value !== undefined && value !== "")
-      .slice(0, 5)
-      .map(([key, value]) => `${key}=${auditDetailValue(value)}`);
-    return entries.length ? entries.join(" / ") : "n/a";
-  }
-
-  function auditDetailValue(value) {
-    if (Array.isArray(value)) return value.slice(0, 4).map(auditDetailValue).join(",");
-    if (value && typeof value === "object") return JSON.stringify(value).slice(0, 160);
-    return String(value).slice(0, 160);
-  }
-
-  function auditDetailsJson(details) {
+  const loadConsoleData = useCallback(async (silent = false) => {
+    if (!silent) setLoading((value) => ({ ...value, data: true }));
     try {
-      return JSON.stringify(details || {}, null, 2);
-    } catch {
-      return "{}";
-    }
-  }
-
-  function normalizeLocale(value) {
-    return value === "ko" ? "ko" : "en";
-  }
-
-  function tr(key) {
-    if (key === null || key === undefined) return key;
-    const text = String(key);
-    return translations[activeLocale]?.[text] || text;
-  }
-
-  function displayText(value) {
-    if (Array.isArray(value)) return value.map(displayText).join(", ");
-    if (value === null || value === undefined || value === "") return tr("n/a");
-    const text = String(value);
-    if (activeLocale === "ko") {
-      if (text.startsWith("LLM analysis: ")) {
-        return `LLM 분석: ${text.slice("LLM analysis: ".length)}`;
+      const requests = [
+        callApi("/api/clusters"),
+        callApi("/api/rca/reports"),
+        callApi("/api/rca/incidents"),
+        callApi("/api/rca/analysis-tasks?limit=300"),
+        callApi("/api/rca/action-requests"),
+        callApi("/api/demo/scenarios"),
+        callApi("/api/v1/platform/info"),
+      ];
+      if (["admin", "auditor"].includes(currentUser?.role)) {
+        requests.push(callApi("/api/audit/events?limit=200"));
       }
-      const highConfidence = text.match(/^(\d+) high confidence$/);
-      if (highConfidence) return `높은 신뢰도 ${highConfidence[1]}개`;
-      const clusters = text.match(/^(\d+) clusters$/);
-      if (clusters) return `클러스터 ${clusters[1]}개`;
-      const reports = text.match(/^(\d+) reports$/);
-      if (reports) return `보고서 ${reports[1]}개`;
-    }
-    return tr(text);
-  }
-
-  function displaySummary(value) {
-    if (!value) return tr("Unknown symptom");
-    const text = String(value);
-    if (activeLocale === "ko") {
-      const detailed = text.match(/^(.+) was reported on node (.+)\. Rule analysis found (\d+) critical signal\(s\) and (\d+) warning signal\(s\)\.$/);
-      if (detailed) {
-        return `${detailed[1]} 알림이 ${detailed[2]} 노드에서 보고되었습니다. Rule 분석 결과 critical 신호 ${detailed[3]}개, warning 신호 ${detailed[4]}개가 확인되었습니다.`;
+      const results = await Promise.allSettled(requests);
+      setClusters(arrayResult(results[0]));
+      setReports(sortByTime(arrayResult(results[1]), "created_at"));
+      setIncidents(sortByTime(arrayResult(results[2]), "last_seen_at"));
+      setAnalysisTasks(sortByTime(arrayResult(results[3]), "created_at"));
+      setActionRequests(sortByTime(arrayResult(results[4]), "created_at"));
+      setDemoScenarios(arrayResult(results[5]));
+      setPlatformInfo(results[6].status === "fulfilled" ? results[6].value : null);
+      if (["admin", "auditor"].includes(currentUser?.role)) {
+        setAuditEvents(sortByTime(arrayResult(results[7]), "created_at"));
+      } else {
+        setAuditEvents([]);
       }
-      const simple = text.match(/^(.+) was reported on node (.+)\.$/);
-      if (simple) return `${simple[1]} 알림이 ${simple[2]} 노드에서 보고되었습니다.`;
+    } catch (error) {
+      notify(error.message || "Failed to load console data.", "danger");
+    } finally {
+      setLoading((value) => ({ ...value, data: false }));
     }
-    return displayText(text);
+  }, [callApi, currentUser?.role, notify]);
+
+  useEffect(() => {
+    async function boot() {
+      try {
+        const response = await fetch("/api/auth/me", {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          throw new Error("not authenticated");
+        }
+        const user = await response.json();
+        setCurrentUser(user);
+        setSession({ user });
+      } catch {
+        setCurrentUser(null);
+      } finally {
+        setLoading((value) => ({ ...value, boot: false }));
+      }
+    }
+    boot();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) loadConsoleData(true);
+  }, [currentUser, loadConsoleData]);
+
+  useEffect(() => {
+    if (!selectedReportId && reports.length) {
+      setSelectedReportId(reports[0].report_id);
+    }
+  }, [reports, selectedReportId]);
+
+  useEffect(() => {
+    if (selectedReportId) loadReportDetail(selectedReportId);
+  }, [selectedReportId]);
+
+  async function login(form) {
+    try {
+      const nextSession = await callApi("/api/auth/login", { method: "POST", body: form });
+      setSession(nextSession);
+      setCurrentUser(nextSession.user);
+      notify("Signed in.");
+    } catch (error) {
+      notify(t("Invalid username or password"), "danger");
+    }
   }
 
-  function displayActionText(action) {
-    const translated = actionTranslations[activeLocale]?.[action.action_key]?.action;
-    return translated || displayText(action.action || "n/a");
+  async function logout() {
+    try {
+      await callApi("/api/auth/logout", { method: "POST" });
+    } finally {
+      setSession(null);
+      setCurrentUser(null);
+      setActiveView("overview");
+      setSelectedCluster(null);
+      setReportDetail(null);
+    }
   }
 
-  function displayReasonText(action) {
-    const translated = actionTranslations[activeLocale]?.[action.action_key]?.reason;
-    return translated || displayText(action.reason || "No reason");
+  async function createCluster(form) {
+    const cluster = await callApi("/api/clusters", {
+      method: "POST",
+      body: {
+        name: form.name,
+        environment: form.environment,
+        description: form.description,
+      },
+    });
+    notify("Cluster created.");
+    await loadConsoleData(true);
+    await generateInstallCommand(cluster.cluster_id, form.backend_url);
+    setSelectedCluster(cluster);
+    setActiveView("clusters");
   }
 
-  function signalFieldText(item, field) {
-    const translated = signalTranslations[activeLocale]?.[item.signal]?.[field];
-    return translated || displayText(item[field] || "n/a");
+  async function generateInstallCommand(clusterId, backendUrl) {
+    const params = new URLSearchParams();
+    if (backendUrl) params.set("backend_url", backendUrl);
+    const suffix = params.toString() ? `?${params}` : "";
+    const command = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/install-command${suffix}`);
+    setInstallCommand(command);
+    return command;
   }
 
-  function formatDate(value) {
-    if (!value) return "n/a";
-    return new Intl.DateTimeFormat(activeLocale === "ko" ? "ko-KR" : "en-US", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(value));
+  async function loadClusterDetail(cluster) {
+    if (!cluster) return;
+    setSelectedCluster(cluster);
+    setActiveView("clusters");
+    const clusterId = cluster.cluster_id;
+    const [agents, evidence, topology] = await Promise.allSettled([
+      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`),
+      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests?limit=100`),
+      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology`),
+    ]);
+    setClusterDetail({
+      agents: arrayResult(agents),
+      evidence: arrayResult(evidence),
+      topology: topology.status === "fulfilled" ? topology.value : null,
+    });
   }
 
-  function formatAgentLastSeen(agent) {
-    return formatDate(agent.last_heartbeat_at || agent.health?.freshness?.last_seen_at || agent.registered_at);
+  async function deleteCluster(cluster, confirmName) {
+    const query = new URLSearchParams({ confirm_name: confirmName });
+    await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}?${query}`, { method: "DELETE" });
+    setDeleteDialog(null);
+    setSelectedCluster(null);
+    setClusterDetail(null);
+    notify("Cluster deleted.");
+    await loadConsoleData(true);
   }
 
-  function uniquePolicies(report) {
-    return [...new Set((report.recommended_actions || []).map((action) => action.policy).filter(Boolean))];
+  async function rotateAgentToken(cluster) {
+    const result = await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`, {
+      method: "POST",
+    });
+    notify("Agent token rotated.");
+    setInstallCommand({
+      cluster_id: cluster.cluster_id,
+      namespace: "cluster-infra-rca",
+      commands: [`New agent token: ${result.agent_token}`],
+      notes: [result.note],
+    });
   }
 
-  function confidenceTone(value) {
-    if (value === "high") return "green";
-    if (value === "medium") return "amber";
-    return "red";
+  async function startCollection(cluster, nodeName = "") {
+    await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/collection-runs`, {
+      method: "POST",
+      body: {
+        confirmed: true,
+        alert_name: "BackendManualCollection",
+        node_names: nodeName ? [nodeName] : [],
+        requested_collectors: [],
+        reason: "Manual evidence collection requested from Web Console.",
+        context: { source: "web_console" },
+      },
+    });
+    notify("Evidence collection requested.");
+    await loadClusterDetail(cluster);
   }
 
-  function clusterStatusTone(value) {
-    if (value === "active") return "green";
-    if (value === "agent_pending" || value === "registered") return "amber";
-    return "blue";
+  async function loadReportDetail(reportId) {
+    try {
+      const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`);
+      const incidentId = report.incident_id;
+      const requests = [
+        callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`),
+        ["admin", "operator", "auditor"].includes(currentUser?.role)
+          ? callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`)
+          : Promise.resolve([]),
+        incidentId ? callApi(`/api/rca/incidents/${encodeURIComponent(incidentId)}/timeline`) : Promise.resolve(null),
+      ];
+      const [actionReq, executions, timeline] = await Promise.allSettled(requests);
+      setReportDetail({
+        report,
+        actionRequests: arrayResult(actionReq),
+        actionExecutions: arrayResult(executions),
+        timeline: timeline.status === "fulfilled" ? timeline.value : null,
+      });
+    } catch (error) {
+      notify(error.message || "Failed to load report.", "danger");
+    }
   }
 
-  function agentStatusTone(value) {
-    if (value === "healthy") return "green";
-    if (value === "offline" || value === "unauthorized") return "red";
-    if (["degraded", "stale", "version_mismatch", "collector_degraded"].includes(value)) return "amber";
-    return "blue";
+  async function executeRecommendedAction(report, actionIndex, note) {
+    const response = await callApi(
+      `/api/rca/reports/${encodeURIComponent(report.report_id)}/actions/${actionIndex}/execute`,
+      { method: "POST", body: { confirmed: true, note } },
+    );
+    setActionDialog(null);
+    notify(response.message || "Action request updated.");
+    await loadReportDetail(report.report_id);
+    await loadConsoleData(true);
   }
 
-  function capabilityTone(value) {
-    if (value === "ready" || value === "available") return "green";
-    if (value === "degraded" || value === "unavailable") return "red";
-    if (value === "limited") return "amber";
-    if (value === "disabled") return "blue";
-    return "blue";
+  async function decideActionRequest(actionRequest, decision, note = "") {
+    await callApi(`/api/rca/action-requests/${encodeURIComponent(actionRequest.action_request_id)}/${decision}`, {
+      method: "POST",
+      body: { confirmed: true, note },
+    });
+    notify(`Action request ${decision}.`);
+    await loadReportDetail(actionRequest.report_id);
+    await loadConsoleData(true);
   }
 
-  function capabilityRank(value) {
-    if (value === "unavailable") return 3;
-    if (value === "limited") return 2;
-    if (value === "available") return 1;
-    return 0;
+  async function completeManualAction(actionRequest, note) {
+    await callApi(`/api/rca/action-requests/${encodeURIComponent(actionRequest.action_request_id)}/complete-manual`, {
+      method: "POST",
+      body: { confirmed: true, note },
+    });
+    notify("Manual handling completed.");
+    await loadReportDetail(actionRequest.report_id);
+    await loadConsoleData(true);
   }
 
-  function evidenceStatusTone(value) {
-    if (value === "completed") return "green";
-    if (value === "failed") return "red";
-    if (value === "pending") return "amber";
-    return "blue";
+  async function changeIncidentStatus(incident, nextStatus) {
+    await callApi(`/api/rca/incidents/${encodeURIComponent(incident.incident_id)}/${nextStatus}`, {
+      method: "POST",
+      body: { confirmed: true, note: "Updated from Web Console." },
+    });
+    notify(`Incident ${nextStatus}.`);
+    await loadConsoleData(true);
   }
 
-  function policyOrder() {
-    return ["AUTO_SAFE", "MANUAL_INVESTIGATION", "APPROVAL_REQUIRED", "GITOPS_PR_ONLY", "NEVER_AUTO_EXECUTE"];
+  async function retryAnalysisTask(task) {
+    await callApi(`/api/rca/analysis-tasks/${encodeURIComponent(task.task_id)}/retry`, {
+      method: "POST",
+      body: { confirmed: true, note: "Retry requested from Web Console." },
+    });
+    notify("Analysis task requeued.");
+    await loadConsoleData(true);
   }
 
-  function policyCounts(actions) {
-    return actions.reduce((acc, action) => {
-      const key = action.policy || "UNKNOWN";
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
+  async function runDemoScenario(scenario, clusterId, nodeName) {
+    await callApi(`/api/demo/scenarios/${encodeURIComponent(scenario.key)}/run`, {
+      method: "POST",
+      body: { confirmed: true, cluster_id: clusterId || null, node_name: nodeName || null },
+    });
+    notify("Demo scenario started.");
+    await loadConsoleData(true);
   }
 
-  function policyTone(value) {
-    if (value === "AUTO_SAFE") return "green";
-    if (value === "NEVER_AUTO_EXECUTE") return "red";
-    if (value === "APPROVAL_REQUIRED" || value === "GITOPS_PR_ONLY") return "amber";
-    return "blue";
+  async function changePassword(form) {
+    await callApi("/api/auth/change-password", {
+      method: "POST",
+      body: { current_password: form.current_password, new_password: form.new_password },
+    });
+    notify("Password changed.");
   }
 
-  function policyDescription(value) {
-    if (value === "AUTO_SAFE") return tr("Read-only rule-based collection or verification.");
-    if (value === "APPROVAL_REQUIRED") return tr("Node or service state may change. Operator approval is required.");
-    if (value === "GITOPS_PR_ONLY") return tr("Configuration change. Propose through a reviewable PR only.");
-    if (value === "NEVER_AUTO_EXECUTE") return tr("Prohibited for automation. Human decision only.");
-    if (value === "MANUAL_INVESTIGATION") return tr("Needs manual investigation or external validation.");
-    return tr("Unclassified policy decision.");
+  async function exportReports(clusterId = "") {
+    const suffix = clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : "";
+    await downloadApi(`/api/rca/reports/export${suffix}`, clusterId ? `rca-reports-${clusterId}.json` : "rca-reports.json");
+    notify("Export downloaded.");
   }
 
-  function normalizeSeverity(value) {
-    const text = String(value || "").toLowerCase();
-    if (["critical", "fatal", "emergency"].includes(text)) return "critical";
-    if (["high", "warning", "warn"].includes(text)) return "warning";
-    if (["medium", "moderate"].includes(text)) return "medium";
-    if (["low", "info", "informational"].includes(text)) return "low";
-    return text || "unknown";
+  async function exportReport(reportId) {
+    await downloadApi(`/api/rca/reports/${encodeURIComponent(reportId)}/export`, `rca-report-${reportId}.json`);
+    notify("Report exported.");
   }
 
-  function severityRank(value) {
-    const normalized = normalizeSeverity(value);
-    if (normalized === "critical") return 4;
-    if (normalized === "warning") return 3;
-    if (normalized === "medium") return 2;
-    if (normalized === "low") return 1;
-    return 0;
+  async function exportAudit(format = "json", filters = {}) {
+    const query = buildAuditQuery({ ...filters, format, limit: 5000 });
+    await downloadApi(`/api/audit/events/export?${query}`, `audit-events.${format}`);
+    notify("Audit export downloaded.");
   }
 
-  function severityTone(value) {
-    const normalized = normalizeSeverity(value);
-    if (normalized === "critical") return "red";
-    if (normalized === "warning") return "amber";
-    if (normalized === "medium") return "amber";
-    return "blue";
+  if (loading.boot) {
+    return <BootScreen />;
   }
 
-  function sourceTone(value) {
-    if (value === "rule_based") return "green";
-    if (value === "llm") return "amber";
-    return "blue";
+  if (!currentUser) {
+    return <LoginPage onLogin={login} locale={locale} setLocale={setLocale} t={t} toast={toast} />;
   }
 
-  function sourceLabel(value) {
-    if (value === "rule_based") return "rule_based";
-    if (value === "llm") return "llm_suggestion";
-    return value || "unknown_source";
-  }
+  const visibleNav = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(currentUser.role));
+  const webhookEndpoint = `${window.location.origin.replace(/\/$/, "")}/api/webhooks/alertmanager`;
 
-  function automationTone(action) {
-    if (action.automation_allowed) return "green";
-    if (action.source === "llm") return "amber";
-    if (action.policy === "NEVER_AUTO_EXECUTE") return "red";
-    return "amber";
-  }
+  return (
+    <div className="console-shell">
+      <Sidebar items={visibleNav} activeView={activeView} setActiveView={setActiveView} t={t} />
+      <div className="console-main">
+        <Topbar
+          user={currentUser}
+          locale={locale}
+          setLocale={setLocale}
+          onRefresh={() => loadConsoleData(false)}
+          onLogout={logout}
+          loading={loading.data}
+          t={t}
+        />
+        <main className="console-content">
+          {activeView === "overview" && (
+            <OverviewView
+              clusters={clusters}
+              reports={reports}
+              incidents={incidents}
+              analysisTasks={analysisTasks}
+              actionRequests={actionRequests}
+              onNavigate={setActiveView}
+              onOpenReport={setSelectedReportId}
+              onOpenCluster={loadClusterDetail}
+              webhookEndpoint={webhookEndpoint}
+              t={t}
+            />
+          )}
+          {activeView === "clusters" && (
+            <ClustersView
+              clusters={clusters}
+              selectedCluster={selectedCluster}
+              clusterDetail={clusterDetail}
+              installCommand={installCommand}
+              currentUser={currentUser}
+              onCreate={createCluster}
+              onSelect={loadClusterDetail}
+              onGenerateInstall={generateInstallCommand}
+              onStartCollection={startCollection}
+              onDelete={(cluster) => setDeleteDialog({ cluster })}
+              onRotateToken={rotateAgentToken}
+              onCopy={(text) => copyText(text, notify)}
+              t={t}
+            />
+          )}
+          {activeView === "reports" && (
+            <ReportsView
+              reports={reports}
+              selectedReportId={selectedReportId}
+              setSelectedReportId={setSelectedReportId}
+              detail={reportDetail}
+              currentUser={currentUser}
+              onPrepareAction={(report, action, index) => setActionDialog({ report, action, index })}
+              onDecideAction={decideActionRequest}
+              onCompleteManual={completeManualAction}
+              onExportReport={exportReport}
+              onExportAll={() => exportReports()}
+              t={t}
+            />
+          )}
+          {activeView === "incidents" && (
+            <IncidentsView
+              incidents={incidents}
+              onOpenReport={(id) => {
+                setSelectedReportId(id);
+                setActiveView("reports");
+              }}
+              onChangeStatus={changeIncidentStatus}
+              currentUser={currentUser}
+              t={t}
+            />
+          )}
+          {activeView === "pipeline" && (
+            <PipelineView
+              tasks={analysisTasks}
+              actionRequests={actionRequests}
+              demoScenarios={demoScenarios}
+              clusters={clusters}
+              onRetry={retryAnalysisTask}
+              onRunDemo={runDemoScenario}
+              t={t}
+            />
+          )}
+          {activeView === "audit" && (
+            <AuditView
+              events={auditEvents}
+              onSearch={async (filters) => {
+                const query = buildAuditQuery(filters);
+                const next = await callApi(`/api/audit/events?${query}`);
+                setAuditEvents(sortByTime(next, "created_at"));
+              }}
+              onExport={exportAudit}
+              t={t}
+            />
+          )}
+          {activeView === "webhooks" && (
+            <WebhooksView endpoint={webhookEndpoint} onCopy={(text) => copyText(text, notify)} t={t} />
+          )}
+          {activeView === "settings" && (
+            <SettingsView
+              locale={locale}
+              setLocale={setLocale}
+              platformInfo={platformInfo}
+              onChangePassword={changePassword}
+              t={t}
+            />
+          )}
+        </main>
+      </div>
+      {toast && <Toast tone={toast.tone} message={toast.message} />}
+      {actionDialog && (
+        <ActionDialog
+          state={actionDialog}
+          onClose={() => setActionDialog(null)}
+          onConfirm={executeRecommendedAction}
+          t={t}
+        />
+      )}
+      {deleteDialog && (
+        <DeleteClusterDialog
+          state={deleteDialog}
+          onClose={() => setDeleteDialog(null)}
+          onConfirm={deleteCluster}
+          t={t}
+        />
+      )}
+    </div>
+  );
+}
 
-  function automationLabel(action) {
-    if (action.automation_allowed) return "automation_allowed";
-    if (action.source === "llm") return "llm_auto_blocked";
-    return "automation_blocked";
-  }
+function BootScreen() {
+  return (
+    <div className="boot-screen">
+      <div className="boot-mark">
+        <Icon name="activity" />
+      </div>
+      <div>
+        <strong>Cluster Infra RCA</strong>
+        <p>Loading console</p>
+      </div>
+    </div>
+  );
+}
 
-  function actionButtonLabel(action) {
-    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return tr("Collect Evidence");
-    if (action.policy === "APPROVAL_REQUIRED") return tr("Request");
-    if (action.policy === "GITOPS_PR_ONLY") return tr("PR Gate");
-    if (action.policy === "NEVER_AUTO_EXECUTE") return tr("Blocked");
-    return tr("Review");
+function LoginPage({ onLogin, locale, setLocale, t, toast }) {
+  const [form, setForm] = useState({ username: "admin", password: "" });
+  const [busy, setBusy] = useState(false);
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await onLogin(form);
+    } finally {
+      setBusy(false);
+    }
   }
+  return (
+    <div className="login-screen">
+      <section className="login-panel">
+        <div className="brand-row">
+          <div className="brand-icon"><Icon name="activity" /></div>
+          <div>
+            <h1>{t("Cluster Infra RCA")}</h1>
+            <p>{t("Linux and Kubernetes infrastructure root cause console")}</p>
+          </div>
+        </div>
+        <div className="login-observability">
+          <div><span>Disk I/O</span><strong>watch</strong></div>
+          <div><span>Kubelet</span><strong>rule gate</strong></div>
+          <div><span>Network</span><strong>timeline</strong></div>
+        </div>
+        <form onSubmit={submit} className="login-form">
+          <label>
+            {t("Username")}
+            <input
+              className="form-control"
+              autoComplete="username"
+              value={form.username}
+              onChange={(event) => setForm({ ...form, username: event.target.value })}
+            />
+          </label>
+          <label>
+            {t("Password")}
+            <input
+              className="form-control"
+              type="password"
+              autoComplete="current-password"
+              value={form.password}
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+            />
+          </label>
+          <button className="btn btn-primary w-100" disabled={busy}>
+            {busy ? "..." : t("Sign in")}
+          </button>
+        </form>
+        <div className="login-footer">
+          <span>{t("Default account")}: admin / admin</span>
+          <LanguageSwitch locale={locale} setLocale={setLocale} />
+        </div>
+      </section>
+      {toast && <Toast tone={toast.tone} message={toast.message} />}
+    </div>
+  );
+}
 
-  function actionIcon(action) {
-    if (action.policy === "AUTO_SAFE" && action.automation_allowed) return "play-circle";
-    if (action.policy === "APPROVAL_REQUIRED") return "shield-check";
-    if (action.policy === "GITOPS_PR_ONLY") return "git";
-    if (action.policy === "NEVER_AUTO_EXECUTE") return "slash-circle";
-    return "eye";
+function Sidebar({ items, activeView, setActiveView, t }) {
+  return (
+    <aside className="console-sidebar">
+      <div className="sidebar-brand">
+        <div className="brand-icon"><Icon name="activity" /></div>
+        <div>
+          <strong>Infra RCA</strong>
+          <span>APM Console</span>
+        </div>
+      </div>
+      <nav className="sidebar-nav" aria-label="Console navigation">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={item.id === activeView ? "active" : ""}
+            onClick={() => setActiveView(item.id)}
+          >
+            <Icon name={item.icon} />
+            <span>{t(item.label)}</span>
+          </button>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, t }) {
+  return (
+    <header className="console-topbar">
+      <div>
+        <div className="topbar-eyebrow">Cluster Infra RCA</div>
+        <h2>{t("Linux and Kubernetes infrastructure root cause console")}</h2>
+      </div>
+      <div className="topbar-actions">
+        <LanguageSwitch locale={locale} setLocale={setLocale} />
+        <button className="btn btn-outline-secondary btn-sm icon-button" onClick={onRefresh} disabled={loading}>
+          <Icon name={loading ? "arrow-repeat" : "arrow-clockwise"} />
+          <span>{t("Refresh")}</span>
+        </button>
+        <div className="user-chip">
+          <Icon name="person-circle" />
+          <span>{user.email || user.user_id}</span>
+          <StatusBadge value={user.role} />
+        </div>
+        <button className="btn btn-dark btn-sm icon-button" onClick={onLogout}>
+          <Icon name="box-arrow-right" />
+          <span>{t("Logout")}</span>
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function OverviewView({ clusters, reports, incidents, analysisTasks, actionRequests, onNavigate, onOpenReport, onOpenCluster, webhookEndpoint, t }) {
+  const openIncidents = incidents.filter((item) => item.status === "open");
+  const agents = clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0);
+  const blockedActions = reports.flatMap((report) => report.recommended_actions || []).filter((action) => action.automation_allowed !== true).length;
+  const signalDigest = buildSignalDigest(reports, incidents);
+  const latestReport = reports[0];
+  return (
+    <div className="page-stack">
+      <section className="apm-hero">
+        <div>
+          <p className="section-kicker">APM-style infrastructure lens</p>
+          <h1>{t("APM Failure Surface")}</h1>
+          <p>
+            Node pressure, kernel/runtime evidence, control-plane latency, and policy-gated remediation in one operational surface.
+          </p>
+        </div>
+        <div className="hero-actions">
+          <button className="btn btn-light btn-sm icon-button" onClick={() => onNavigate("reports")}>
+            <Icon name="clipboard2-pulse" />
+            <span>{t("RCA Reports")}</span>
+          </button>
+          <button className="btn btn-outline-light btn-sm icon-button" onClick={() => onNavigate("clusters")}>
+            <Icon name="hdd-network" />
+            <span>{t("Clusters")}</span>
+          </button>
+        </div>
+      </section>
+
+      <section className="metric-grid">
+        <MetricTile label={t("Open incidents")} value={openIncidents.length} tone={openIncidents.length ? "red" : "green"} icon="exclamation-diamond" />
+        <MetricTile label={t("RCA reports")} value={reports.length} tone="blue" icon="clipboard2-pulse" />
+        <MetricTile label={t("Registered clusters")} value={clusters.length} tone="teal" icon="hdd-network" />
+        <MetricTile label={t("Policy blocked")} value={blockedActions} tone={blockedActions ? "amber" : "green"} icon="shield-lock" />
+      </section>
+
+      <div className="dashboard-grid">
+        <Surface title={t("Failure propagation")} subtitle="Evidence sequence by system layer" action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}>
+          <FailureSurface reports={reports} incidents={incidents} t={t} />
+        </Surface>
+        <Surface title={t("Signal stream")} subtitle="Prioritized recent infrastructure signals">
+          <SignalStream items={signalDigest} t={t} />
+        </Surface>
+        <Surface title={t("Cluster topology")} subtitle="Registration and agent posture">
+          <ClusterTopologyPreview clusters={clusters} onOpenCluster={onOpenCluster} t={t} />
+        </Surface>
+        <Surface title={t("Recent RCA")} subtitle={latestReport ? latestReport.report_id : "No report selected"} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>Open</button>}>
+          <RecentReport report={latestReport} onOpenReport={onOpenReport} t={t} />
+        </Surface>
+      </div>
+
+      <section className="ops-strip">
+        <div>
+          <span>Webhook</span>
+          <strong>{webhookEndpoint}</strong>
+        </div>
+        <div>
+          <span>Pipeline backlog</span>
+          <strong>{analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status)).length}</strong>
+        </div>
+        <div>
+          <span>{t("Action requests")}</span>
+          <strong>{actionRequests.length}</strong>
+        </div>
+        <div>
+          <span>{t("Healthy agents")}</span>
+          <strong>{agents || "n/a"}</strong>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ClustersView(props) {
+  const {
+    clusters,
+    selectedCluster,
+    clusterDetail,
+    installCommand,
+    currentUser,
+    onCreate,
+    onSelect,
+    onGenerateInstall,
+    onStartCollection,
+    onDelete,
+    onRotateToken,
+    onCopy,
+    t,
+  } = props;
+  const canOperate = ["admin", "operator"].includes(currentUser.role);
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Clusters")} subtitle="Register clusters, install node agents, and inspect collected evidence." />
+      <div className="split-grid">
+        <Surface title={t("Create cluster")} subtitle="Minimal registration flow">
+          <ClusterForm onCreate={onCreate} disabled={!canOperate} t={t} />
+          {installCommand && <InstallCommand command={installCommand} onCopy={onCopy} t={t} />}
+        </Surface>
+        <Surface title={t("Cluster topology")} subtitle={`${clusters.length} registered`}>
+          <ClusterList clusters={clusters} selectedCluster={selectedCluster} onSelect={onSelect} onGenerateInstall={onGenerateInstall} onDelete={onDelete} onRotateToken={onRotateToken} canOperate={canOperate} currentUser={currentUser} t={t} />
+        </Surface>
+      </div>
+      {selectedCluster && (
+        <Surface title={selectedCluster.name} subtitle={`${selectedCluster.cluster_id} / ${selectedCluster.environment}`}>
+          <ClusterDetail cluster={selectedCluster} detail={clusterDetail} onStartCollection={onStartCollection} canOperate={canOperate} t={t} />
+        </Surface>
+      )}
+    </div>
+  );
+}
+
+function ClusterForm({ onCreate, disabled, t }) {
+  const [form, setForm] = useState({
+    name: "",
+    environment: "dev",
+    description: "",
+    backend_url: window.location.origin,
+  });
+  const [busy, setBusy] = useState(false);
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await onCreate(form);
+      setForm({ ...form, name: "", description: "" });
+    } finally {
+      setBusy(false);
+    }
   }
+  return (
+    <form className="cluster-form" onSubmit={submit}>
+      <label>{t("Cluster name")}<input className="form-control" value={form.name} disabled={disabled} required onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+      <label>{t("Environment")}<select className="form-select" value={form.environment} disabled={disabled} onChange={(event) => setForm({ ...form, environment: event.target.value })}><option>dev</option><option>stage</option><option>prod</option><option>dr</option></select></label>
+      <label className="wide">{t("Description")}<textarea className="form-control" rows={2} value={form.description} disabled={disabled} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+      <label className="wide">{t("Backend URL")}<input className="form-control" value={form.backend_url} disabled={disabled} onChange={(event) => setForm({ ...form, backend_url: event.target.value })} /></label>
+      <button className="btn btn-primary icon-button" disabled={disabled || busy || !form.name.trim()}>
+        <Icon name="plus-circle" />
+        <span>{busy ? "..." : t("Generate install command")}</span>
+      </button>
+    </form>
+  );
+}
 
-  function section(report, type) {
-    return (report.evidence || []).find((item) => item.type === type);
+function ClusterList({ clusters, selectedCluster, onSelect, onGenerateInstall, onDelete, onRotateToken, canOperate, currentUser, t }) {
+  if (!clusters.length) return <EmptyState message={t("No clusters registered.")} />;
+  return (
+    <div className="cluster-list">
+      {clusters.map((cluster) => (
+        <article key={cluster.cluster_id} className={`cluster-row ${selectedCluster?.cluster_id === cluster.cluster_id ? "selected" : ""}`}>
+          <button type="button" className="cluster-main" onClick={() => onSelect(cluster)}>
+            <div className="cluster-node-icon"><Icon name="hdd-network" /></div>
+            <div>
+              <strong>{cluster.name}</strong>
+              <span>{cluster.cluster_id}</span>
+            </div>
+          </button>
+          <div className="cluster-meta">
+            <StatusBadge value={cluster.status} tone={cluster.status === "active" ? "green" : "amber"} t={t} />
+            <span>{cluster.environment}</span>
+          </div>
+          <div className="row-actions">
+            {canOperate && <button className="btn btn-sm btn-outline-secondary" onClick={() => onGenerateInstall(cluster.cluster_id, window.location.origin)}>{t("Install command")}</button>}
+            {currentUser.role === "admin" && <button className="btn btn-sm btn-outline-secondary" onClick={() => onRotateToken(cluster)}><Icon name="arrow-repeat" /></button>}
+            {currentUser.role === "admin" && <button className="btn btn-sm btn-outline-danger" onClick={() => onDelete(cluster)}><Icon name="trash" /></button>}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function InstallCommand({ command, onCopy, t }) {
+  const commandText = (command.commands || []).join("\n");
+  return (
+    <div className="install-command">
+      <div className="install-head">
+        <strong>{t("Install command")}</strong>
+        <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy(commandText)}>
+          <Icon name="clipboard" /><span>{t("Copy")}</span>
+        </button>
+      </div>
+      <pre>{commandText}</pre>
+      {(command.notes || []).map((note) => <p key={note} className="note-line">{note}</p>)}
+    </div>
+  );
+}
+
+function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
+  const agents = detail?.agents || [];
+  const evidence = detail?.evidence || [];
+  const topology = detail?.topology || {};
+  const entities = topology.entities || [];
+  return (
+    <div className="cluster-detail-grid">
+      <div>
+        <div className="section-toolbar">
+          <h3>{t("Agents")}</h3>
+          {canOperate && <button className="btn btn-sm btn-primary icon-button" onClick={() => onStartCollection(cluster)}><Icon name="collection" /><span>{t("Collect evidence")}</span></button>}
+        </div>
+        <ResponsiveTable
+          empty={t("No agents registered.")}
+          columns={[t("Node"), t("Status"), t("Version"), t("Last heartbeat")]}
+          rows={agents.map((agent) => [
+            agent.node_name,
+            <StatusBadge value={agent.health_status || agent.status || agent.reported_status} tone={agentHealthTone(agent)} t={t} />,
+            agent.agent_version || "n/a",
+            relativeTime(agent.last_heartbeat_at),
+          ])}
+        />
+      </div>
+      <div>
+        <h3>{t("Evidence")}</h3>
+        <div className="evidence-list">
+          {evidence.length ? evidence.slice(0, 8).map((item) => (
+            <article key={item.request_id} className="evidence-item">
+              <strong>{item.alert_name}</strong>
+              <span>{item.node_name}</span>
+              <StatusBadge value={item.status} tone={item.status === "completed" ? "green" : item.status === "failed" ? "red" : "amber"} t={t} />
+            </article>
+          )) : <EmptyState message="No evidence requests." />}
+        </div>
+      </div>
+      <div className="wide">
+        <h3>{t("Topology")}</h3>
+        <div className="topology-entities">
+          {entities.slice(0, 18).map((entity) => (
+            <span key={entity.id} className="entity-pill">{entity.kind}/{entity.name}</span>
+          ))}
+          {!entities.length && <span className="text-muted">Topology observation is not loaded yet.</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportAll, t }) {
+  const canExport = ["admin", "operator"].includes(currentUser.role);
+  return (
+    <div className="page-stack">
+      <PageHeader
+        title={t("RCA Reports")}
+        subtitle="Root cause candidates, evidence, policy gates, and operator workflow."
+        actions={canExport && <button className="btn btn-sm btn-outline-secondary icon-button" onClick={onExportAll}><Icon name="download" /><span>{t("Export all")}</span></button>}
+      />
+      <div className="report-layout">
+        <aside className="report-list">
+          {reports.length ? reports.map((report) => (
+            <button key={report.report_id} className={selectedReportId === report.report_id ? "selected" : ""} onClick={() => setSelectedReportId(report.report_id)}>
+              <span className="report-time">{relativeTime(report.created_at)}</span>
+              <strong>{report.summary?.symptom || report.trigger?.alert_name || report.report_id}</strong>
+              <span>{report.cluster_id} / {report.node_name || "cluster"}</span>
+            </button>
+          )) : <EmptyState message={t("No reports loaded.")} />}
+        </aside>
+        <section className="report-detail-panel">
+          {detail?.report ? (
+            <ReportDetail
+              detail={detail}
+              currentUser={currentUser}
+              onPrepareAction={onPrepareAction}
+              onDecideAction={onDecideAction}
+              onCompleteManual={onCompleteManual}
+              onExportReport={onExportReport}
+              t={t}
+            />
+          ) : <EmptyState message="Select an RCA report." />}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, t }) {
+  const report = detail.report;
+  const candidates = report.root_cause_candidates || [];
+  const actions = report.recommended_actions || [];
+  const checks = report.additional_checks || report.next_steps || [];
+  const evidenceItems = evidenceSummary(report);
+  const llmActions = actions.filter((action) => action.source === "llm");
+  return (
+    <div className="report-detail">
+      <div className="report-detail-head">
+        <div>
+          <p className="section-kicker">{report.report_id}</p>
+          <h2>{report.summary?.most_likely_cause || report.summary?.symptom || "RCA report"}</h2>
+          <div className="meta-row">
+            <span>{report.cluster_id}</span>
+            <span>{report.node_name || "cluster scope"}</span>
+            <span>{formatDate(report.created_at)}</span>
+          </div>
+        </div>
+        {["admin", "operator"].includes(currentUser.role) && (
+          <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onExportReport(report.report_id)}>
+            <Icon name="download" /><span>{t("Export report")}</span>
+          </button>
+        )}
+      </div>
+
+      <div className="summary-strip">
+        <MetricTile label="Confidence" value={report.summary?.confidence || "n/a"} tone={confidenceTone(report.summary?.confidence)} icon="bar-chart-line" />
+        <MetricTile label={t("Policy blocked")} value={actions.filter((action) => !action.automation_allowed).length} tone="amber" icon="shield-lock" />
+        <MetricTile label="LLM" value={llmActions.length ? t("LLM diagnostic only") : "n/a"} tone={llmActions.length ? "amber" : "muted"} icon="stars" />
+      </div>
+
+      {llmActions.length > 0 && (
+        <div className="policy-warning">
+          <Icon name="shield-exclamation" />
+          <span>{t("LLM diagnostic only")}: LLM-origin actions stay automation_allowed=false. Operators can create a request, record approval/rejection, or mark manual handling complete.</span>
+        </div>
+      )}
+
+      <Surface title={t("Cascading timeline")} subtitle="Observed evidence order and inferred propagation">
+        <TimelineGraph timeline={detail.timeline} report={report} t={t} />
+      </Surface>
+
+      <div className="detail-grid">
+        <Surface title={t("Root cause candidates")} subtitle="Ranked by rule and evidence confidence">
+          <CandidateList candidates={candidates} t={t} />
+        </Surface>
+        <Surface title={t("Evidence summary")} subtitle="Signals used by analyzer">
+          <EvidenceSummary items={evidenceItems} t={t} />
+        </Surface>
+        <Surface title={t("Additional checks")} subtitle="Commands to verify before remediation">
+          <CheckList checks={checks} />
+        </Surface>
+        <Surface title={t("Policy gate")} subtitle="Policy Engine result before any action request">
+          <PolicySummary actions={actions} t={t} />
+        </Surface>
+      </div>
+
+      <Surface title={t("Recommended actions")} subtitle="Every action remains behind policy and human confirmation">
+        <ActionList report={report} actions={actions} onPrepareAction={onPrepareAction} t={t} />
+      </Surface>
+
+      <Surface title={t("Action requests")} subtitle="Approval records and manual completion">
+        <ActionRequestList
+          items={detail.actionRequests}
+          executions={detail.actionExecutions}
+          currentUser={currentUser}
+          onDecideAction={onDecideAction}
+          onCompleteManual={onCompleteManual}
+          t={t}
+        />
+      </Surface>
+    </div>
+  );
+}
+
+function CandidateList({ candidates, t }) {
+  if (!candidates.length) return <EmptyState message="No root cause candidates." />;
+  return (
+    <div className="candidate-list">
+      {candidates.map((candidate, index) => (
+        <article key={`${candidate.cause}-${index}`} className="candidate-item">
+          <div className="candidate-score" style={{ "--score": `${candidate.confidence_score || 0}%` }}>
+            <strong>{candidate.confidence_score || 0}</strong>
+            <span>%</span>
+          </div>
+          <div>
+            <strong>{candidate.cause}</strong>
+            <div className="supporting-lines">
+              {(candidate.supporting_evidence || []).slice(0, 3).map((line) => <span key={line}>{line}</span>)}
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function EvidenceSummary({ items }) {
+  if (!items.length) return <EmptyState message="No evidence summary." />;
+  return (
+    <div className="signal-list compact">
+      {items.slice(0, 10).map((item, index) => (
+        <article key={`${item.label}-${index}`} className="signal-row">
+          <Icon name={signalIcon(item.label)} />
+          <div>
+            <strong>{item.label}</strong>
+            <span>{item.value}</span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CheckList({ checks }) {
+  const normalized = Array.isArray(checks) ? checks : [];
+  if (!normalized.length) return <EmptyState message="No additional checks." />;
+  return (
+    <div className="command-list">
+      {normalized.map((item, index) => {
+        const command = typeof item === "string" ? item : item.command || item.description || JSON.stringify(item);
+        return <pre key={`${command}-${index}`}>{command}</pre>;
+      })}
+    </div>
+  );
+}
+
+function PolicySummary({ actions, t }) {
+  if (!actions.length) return <EmptyState message="No policy decisions." />;
+  const counts = actions.reduce((acc, action) => {
+    const key = action.policy || "UNKNOWN";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  return (
+    <div className="policy-grid">
+      {Object.entries(counts).map(([policy, count]) => (
+        <article key={policy} className={`policy-tile ${policyTone(policy)}`}>
+          <StatusBadge value={policy} tone={policyTone(policy)} t={t} />
+          <strong>{count}</strong>
+          <span>{POLICY_HELP[policy] || "Policy decision"}</span>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ActionList({ report, actions, onPrepareAction, t }) {
+  if (!actions.length) return <EmptyState message="No recommended actions." />;
+  return (
+    <div className="action-grid">
+      {actions.map((action, index) => {
+        const automationBlocked = action.automation_allowed !== true;
+        const llm = action.source === "llm";
+        return (
+          <article key={`${action.action_key}-${index}`} className={`action-card ${automationBlocked ? "blocked" : "allowed"}`}>
+            <div className="action-head">
+              <StatusBadge value={action.policy} tone={policyTone(action.policy)} t={t} />
+              {llm && <span className="llm-pill">{t("LLM diagnostic only")}</span>}
+            </div>
+            <h3>{action.action}</h3>
+            <p>{action.reason}</p>
+            <div className="action-meta">
+              <span>{t("Automation")}</span>
+              <strong>{automationBlocked ? t("Automation blocked") : "read-only collection"}</strong>
+            </div>
+            {(action.risk_factors || []).length > 0 && (
+              <div className="risk-list">
+                {(action.risk_factors || []).slice(0, 3).map((risk) => <span key={risk}>{risk}</span>)}
+              </div>
+            )}
+            {action.execution_plan?.command_preview?.length > 0 && (
+              <pre className="command-preview">{action.execution_plan.command_preview.join("\n")}</pre>
+            )}
+            <button className="btn btn-sm btn-primary icon-button" onClick={() => onPrepareAction(report, action, index)}>
+              <Icon name={action.automation_allowed ? "collection" : "person-check"} />
+              <span>{action.automation_allowed ? t("Collect evidence") : t("Request action")}</span>
+            </button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActionRequestList({ items, executions, currentUser, onDecideAction, onCompleteManual, t }) {
+  const [noteById, setNoteById] = useState({});
+  if (!items?.length) return <EmptyState message={t("No action requests.")} />;
+  return (
+    <div className="request-list">
+      {items.map((item) => {
+        const execution = (executions || []).find((value) => value.action_request_id === item.action_request_id);
+        const canApprove = ["admin", "approver"].includes(currentUser.role) && item.status === "pending_approval";
+        const canComplete = ["admin", "operator"].includes(currentUser.role) && item.status === "approved_manual";
+        return (
+          <article key={item.action_request_id} className="request-item">
+            <div>
+              <strong>{item.action_key}</strong>
+              <span>{item.action_request_id}</span>
+            </div>
+            <StatusBadge value={item.status} tone={requestTone(item.status)} t={t} />
+            <div className="request-meta">
+              <span>{item.policy}</span>
+              <span>{item.source}</span>
+              <span>{relativeTime(item.created_at)}</span>
+            </div>
+            {execution && <pre className="command-preview">{execution.status}: {execution.command_key}</pre>}
+            {(canApprove || canComplete) && (
+              <div className="request-actions">
+                <input className="form-control form-control-sm" placeholder="Decision note" value={noteById[item.action_request_id] || ""} onChange={(event) => setNoteById({ ...noteById, [item.action_request_id]: event.target.value })} />
+                {canApprove && <button className="btn btn-sm btn-success" onClick={() => onDecideAction(item, "approve", noteById[item.action_request_id] || "")}>{t("Approve")}</button>}
+                {canApprove && <button className="btn btn-sm btn-outline-danger" onClick={() => onDecideAction(item, "reject", noteById[item.action_request_id] || "")}>{t("Reject")}</button>}
+                {canComplete && <button className="btn btn-sm btn-primary" disabled={!noteById[item.action_request_id]} onClick={() => onCompleteManual(item, noteById[item.action_request_id])}>{t("Complete manual")}</button>}
+              </div>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function IncidentsView({ incidents, onOpenReport, onChangeStatus, currentUser, t }) {
+  const canOperate = ["admin", "operator"].includes(currentUser.role);
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Incidents")} subtitle="Correlated evidence grouped by node, cause, and recurrence." />
+      <Surface title={t("Incidents")} subtitle={`${incidents.length} total`}>
+        <div className="incident-list">
+          {incidents.length ? incidents.map((incident) => (
+            <article key={incident.incident_id} className="incident-item">
+              <div>
+                <StatusBadge value={incident.status} tone={incident.status === "open" ? "red" : "green"} t={t} />
+                <h3>{incident.alert_name}</h3>
+                <p>{incident.root_cause || "Root cause not available yet."}</p>
+                <div className="meta-row">
+                  <span>{incident.cluster_id}</span>
+                  <span>{(incident.node_names || [incident.node_name]).filter(Boolean).join(", ")}</span>
+                  <span>{incident.occurrence_count}x</span>
+                </div>
+              </div>
+              <div className="incident-actions">
+                {incident.latest_report_id && <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(incident.latest_report_id)}>{t("RCA Reports")}</button>}
+                {canOperate && incident.status === "open" && <button className="btn btn-sm btn-success" onClick={() => onChangeStatus(incident, "resolve")}>Resolve</button>}
+                {canOperate && incident.status === "resolved" && <button className="btn btn-sm btn-outline-secondary" onClick={() => onChangeStatus(incident, "reopen")}>Reopen</button>}
+              </div>
+            </article>
+          )) : <EmptyState message={t("No incidents loaded.")} />}
+        </div>
+      </Surface>
+    </div>
+  );
+}
+
+function PipelineView({ tasks, actionRequests, demoScenarios, clusters, onRetry, onRunDemo, t }) {
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Pipeline")} subtitle="Analysis worker, approval queue, and built-in RCA scenario generator." />
+      <div className="split-grid">
+        <Surface title={t("Analysis tasks")} subtitle={`${tasks.length} tasks`}>
+          <TaskList tasks={tasks} onRetry={onRetry} t={t} />
+        </Surface>
+        <Surface title={t("Action requests")} subtitle={`${actionRequests.length} requests`}>
+          <RequestQueue items={actionRequests} t={t} />
+        </Surface>
+      </div>
+      <Surface title={t("Demo scenarios")} subtitle="Generate realistic evidence without Prometheus">
+        <DemoScenarios scenarios={demoScenarios} clusters={clusters} onRunDemo={onRunDemo} t={t} />
+      </Surface>
+    </div>
+  );
+}
+
+function TaskList({ tasks, onRetry, t }) {
+  if (!tasks.length) return <EmptyState message="No analysis tasks." />;
+  return (
+    <div className="task-list">
+      {tasks.slice(0, 30).map((task) => (
+        <article key={task.task_id} className="task-item">
+          <div>
+            <strong>{task.alert_name || task.task_id}</strong>
+            <span>{task.cluster_id} / {task.node_name || "cluster"}</span>
+          </div>
+          <StatusBadge value={task.status} tone={taskTone(task.status)} t={t} />
+          {["failed", "dead_letter"].includes(task.status) && <button className="btn btn-sm btn-outline-secondary" onClick={() => onRetry(task)}>{t("Retry")}</button>}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RequestQueue({ items, t }) {
+  if (!items.length) return <EmptyState message={t("No action requests.")} />;
+  return (
+    <div className="task-list">
+      {items.slice(0, 30).map((item) => (
+        <article key={item.action_request_id} className="task-item">
+          <div>
+            <strong>{item.action_key}</strong>
+            <span>{item.report_id}</span>
+          </div>
+          <StatusBadge value={item.status} tone={requestTone(item.status)} t={t} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DemoScenarios({ scenarios, clusters, onRunDemo, t }) {
+  const [clusterId, setClusterId] = useState(clusters[0]?.cluster_id || "");
+  const [nodeName, setNodeName] = useState("demo-worker-01");
+  useEffect(() => {
+    if (!clusterId && clusters[0]?.cluster_id) setClusterId(clusters[0].cluster_id);
+  }, [clusterId, clusters]);
+  if (!scenarios.length) return <EmptyState message="No demo scenarios." />;
+  return (
+    <div className="scenario-grid">
+      {scenarios.map((scenario) => (
+        <article key={scenario.key} className="scenario-card">
+          <h3>{scenario.name}</h3>
+          <p>{scenario.description}</p>
+          <div className="scenario-controls">
+            <select className="form-select form-select-sm" value={clusterId} onChange={(event) => setClusterId(event.target.value)}>
+              <option value="">Auto demo cluster</option>
+              {clusters.map((cluster) => <option key={cluster.cluster_id} value={cluster.cluster_id}>{cluster.name}</option>)}
+            </select>
+            <input className="form-control form-control-sm" value={nodeName} onChange={(event) => setNodeName(event.target.value)} />
+            <button className="btn btn-sm btn-primary" onClick={() => onRunDemo(scenario, clusterId, nodeName)}>{t("Run")}</button>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function AuditView({ events, onSearch, onExport, t }) {
+  const [filters, setFilters] = useState({ q: "", client_ip: "", event_type: "", outcome: "", limit: 200 });
+  async function submit(event) {
+    event.preventDefault();
+    await onSearch(filters);
   }
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Audit")} subtitle="Access, approval, export, agent auth, and administrative records." />
+      <Surface title={t("Audit search")} subtitle="Filter by event, IP, actor, outcome, or text">
+        <form className="audit-form" onSubmit={submit}>
+          <input className="form-control" placeholder="q" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} />
+          <input className="form-control" placeholder={t("Client IP")} value={filters.client_ip} onChange={(event) => setFilters({ ...filters, client_ip: event.target.value })} />
+          <input className="form-control" placeholder={t("Event")} value={filters.event_type} onChange={(event) => setFilters({ ...filters, event_type: event.target.value })} />
+          <input className="form-control" placeholder={t("Outcome")} value={filters.outcome} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })} />
+          <button className="btn btn-primary">{t("Search")}</button>
+          <button type="button" className="btn btn-outline-secondary" onClick={() => onExport("json", filters)}>JSON</button>
+          <button type="button" className="btn btn-outline-secondary" onClick={() => onExport("csv", filters)}>CSV</button>
+        </form>
+      </Surface>
+      <Surface title={t("Audit")} subtitle={`${events.length} events`}>
+        <ResponsiveTable
+          empty={t("No audit events loaded.")}
+          columns={[t("Created at"), t("Actor"), t("Event"), t("Resource"), t("Outcome"), t("Client IP"), t("Details")]}
+          rows={events.map((event) => [
+            formatDate(event.created_at),
+            `${event.actor_type}/${event.actor_id || "-"}`,
+            event.event_type,
+            `${event.resource_type}/${event.resource_id || "-"}`,
+            <StatusBadge value={event.outcome} tone={auditTone(event.outcome)} t={t} />,
+            auditClientIp(event),
+            <span className="text-break">{auditSummary(event.details)}</span>,
+          ])}
+        />
+      </Surface>
+    </div>
+  );
+}
 
-  function listValue(value) {
-    if (Array.isArray(value)) return value.length ? value.join(", ") : "n/a";
-    if (value === null || value === undefined || value === "") return "n/a";
-    return String(value);
+function WebhooksView({ endpoint, onCopy, t }) {
+  const sample = `receivers:
+  - name: cluster-infra-rca
+    webhook_configs:
+      - url: ${endpoint}
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/rca-webhook-token`;
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Webhooks")} subtitle="Alertmanager is optional; the backend can also request evidence collection directly." />
+      <div className="split-grid">
+        <Surface title={t("Alertmanager endpoint")} subtitle="Protected by webhook token">
+          <div className="endpoint-box">
+            <code>{endpoint}</code>
+            <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy(endpoint)}><Icon name="clipboard" /><span>{t("Copy")}</span></button>
+          </div>
+        </Surface>
+        <Surface title={t("Receiver sample")} subtitle="YAML">
+          <pre className="config-sample">{sample}</pre>
+          <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy(sample)}><Icon name="clipboard" /><span>{t("Copy")}</span></button>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ locale, setLocale, platformInfo, onChangePassword, t }) {
+  const [password, setPassword] = useState({ current_password: "", new_password: "" });
+  async function submit(event) {
+    event.preventDefault();
+    await onChangePassword(password);
+    setPassword({ current_password: "", new_password: "" });
   }
+  return (
+    <div className="page-stack">
+      <PageHeader title={t("Settings")} subtitle="Console preferences and local admin credential rotation." />
+      <div className="split-grid">
+        <Surface title={t("Language")} subtitle="Preference is stored in this browser">
+          <LanguageSwitch locale={locale} setLocale={setLocale} expanded />
+        </Surface>
+        <Surface title={t("Change password")} subtitle="The built-in admin account should be rotated after install">
+          <form className="password-form" onSubmit={submit}>
+            <label>{t("Current password")}<input className="form-control" type="password" value={password.current_password} onChange={(event) => setPassword({ ...password, current_password: event.target.value })} /></label>
+            <label>{t("New password")}<input className="form-control" type="password" value={password.new_password} onChange={(event) => setPassword({ ...password, new_password: event.target.value })} /></label>
+            <button className="btn btn-primary">{t("Save")}</button>
+          </form>
+        </Surface>
+      </div>
+      <Surface title={t("Platform info")} subtitle="Protocol compatibility">
+        <div className="info-grid">
+          {Object.entries(platformInfo || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{String(value)}</strong></div>)}
+        </div>
+      </Surface>
+    </div>
+  );
+}
 
-  createRoot(rootElement).render(h(App));
+function FailureSurface({ reports, incidents }) {
+  const counts = SIGNAL_STAGES.map((stage) => ({
+    ...stage,
+    count: scoreStage(stage.key, reports, incidents),
+  }));
+  const max = Math.max(1, ...counts.map((item) => item.count));
+  return (
+    <div className="failure-surface">
+      {counts.map((stage, index) => (
+        <div key={stage.key} className={`surface-stage ${stage.count ? "hot" : ""}`}>
+          <div className="stage-icon"><Icon name={stage.icon} /></div>
+          <strong>{stage.label}</strong>
+          <div className="stage-bar"><span style={{ width: `${Math.max(8, (stage.count / max) * 100)}%` }} /></div>
+          <small>{stage.count} signals</small>
+          {index < counts.length - 1 && <div className="stage-link" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SignalStream({ items, t }) {
+  if (!items.length) return <EmptyState message="New node or control-plane evidence will appear here." />;
+  return (
+    <div className="signal-list">
+      {items.slice(0, 8).map((item) => (
+        <article key={item.id} className="signal-row">
+          <Icon name={signalIcon(item.family)} />
+          <div>
+            <strong>{item.title}</strong>
+            <span>{item.detail}</span>
+          </div>
+          <StatusBadge value={item.severity || "info"} tone={severityTone(item.severity)} t={t} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ClusterTopologyPreview({ clusters, onOpenCluster, t }) {
+  if (!clusters.length) return <EmptyState message={t("No clusters registered.")} />;
+  return (
+    <div className="mini-topology">
+      {clusters.slice(0, 10).map((cluster) => (
+        <button key={cluster.cluster_id} onClick={() => onOpenCluster(cluster)}>
+          <Icon name="hdd-network" />
+          <strong>{cluster.name}</strong>
+          <StatusBadge value={cluster.status} tone={cluster.status === "active" ? "green" : "amber"} t={t} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RecentReport({ report, onOpenReport, t }) {
+  if (!report) return <EmptyState message={t("No reports loaded.")} />;
+  return (
+    <article className="recent-report">
+      <div className="report-cause">
+        <span>{report.summary?.confidence || "unknown"}</span>
+        <strong>{report.summary?.most_likely_cause || report.summary?.symptom}</strong>
+      </div>
+      <p>{(report.root_cause_candidates || [])[0]?.supporting_evidence?.[0] || "No evidence summary available."}</p>
+      <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(report.report_id)}>{t("Report detail")}</button>
+    </article>
+  );
+}
+
+function TimelineGraph({ timeline, report }) {
+  const nodes = timeline?.nodes?.length ? timeline.nodes : fallbackTimeline(report);
+  if (!nodes.length) return <EmptyState message="Timeline evidence is not available." />;
+  return (
+    <div className="timeline-graph">
+      {nodes.slice(0, 10).map((node, index) => (
+        <article key={node.id || `${node.title}-${index}`} className={node.root_trigger ? "root" : ""}>
+          <div className="timeline-dot"><Icon name={node.root_trigger ? "bullseye" : signalIcon(node.component || node.signal_family)} /></div>
+          <div>
+            <time>{formatDate(node.timestamp || node.observed_at || report.created_at)}</time>
+            <strong>{node.title || node.event_type || node.component}</strong>
+            <span>{node.detail || node.signal_family || node.evidence_id}</span>
+          </div>
+          {index < nodes.length - 1 && <div className="timeline-edge" />}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ActionDialog({ state, onClose, onConfirm, t }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { report, action, index } = state;
+  async function submit() {
+    setBusy(true);
+    try {
+      await onConfirm(report, index, note);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="modal-backdrop-custom">
+      <section className="console-modal">
+        <header>
+          <div>
+            <p className="section-kicker">{t("Policy gate")}</p>
+            <h2>{action.automation_allowed ? t("Collect evidence") : t("Request action")}</h2>
+          </div>
+          <button className="btn btn-sm btn-outline-secondary" onClick={onClose}><Icon name="x-lg" /></button>
+        </header>
+        <div className="policy-warning">
+          <Icon name="shield-lock" />
+          <span>{action.source === "llm" ? t("LLM diagnostic only") : POLICY_HELP[action.policy] || "Policy controlled workflow."}</span>
+        </div>
+        <div className="action-card blocked">
+          <div className="action-head">
+            <StatusBadge value={action.policy} tone={policyTone(action.policy)} t={t} />
+            <StatusBadge value={action.automation_allowed ? "automation_allowed" : "automation_allowed=false"} tone={action.automation_allowed ? "green" : "amber"} />
+          </div>
+          <h3>{action.action}</h3>
+          <p>{action.reason}</p>
+          {action.execution_plan?.command_preview?.length > 0 && <pre className="command-preview">{action.execution_plan.command_preview.join("\n")}</pre>}
+        </div>
+        <textarea className="form-control" rows={3} placeholder="Operator note" value={note} onChange={(event) => setNote(event.target.value)} />
+        <footer>
+          <button className="btn btn-outline-secondary" onClick={onClose}>{t("Cancel")}</button>
+          <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? "..." : t("Confirm")}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function DeleteClusterDialog({ state, onClose, onConfirm, t }) {
+  const [confirmName, setConfirmName] = useState("");
+  const cluster = state.cluster;
+  return (
+    <div className="modal-backdrop-custom">
+      <section className="console-modal">
+        <header>
+          <div>
+            <p className="section-kicker">{cluster.cluster_id}</p>
+            <h2>{t("Delete cluster")}</h2>
+          </div>
+          <button className="btn btn-sm btn-outline-secondary" onClick={onClose}><Icon name="x-lg" /></button>
+        </header>
+        <div className="alert alert-danger">
+          {t("Type the cluster name to confirm deletion.")} <strong>{cluster.name}</strong>
+        </div>
+        <input className="form-control" value={confirmName} onChange={(event) => setConfirmName(event.target.value)} />
+        <footer>
+          <button className="btn btn-outline-secondary" onClick={onClose}>{t("Cancel")}</button>
+          <button className="btn btn-danger" disabled={confirmName !== cluster.name} onClick={() => onConfirm(cluster, confirmName)}>{t("Delete")}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function Surface({ title, subtitle, action, children }) {
+  return (
+    <section className="surface">
+      <header className="surface-head">
+        <div>
+          <h2>{title}</h2>
+          {subtitle && <p>{subtitle}</p>}
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function PageHeader({ title, subtitle, actions }) {
+  return (
+    <div className="page-header">
+      <div>
+        <p className="section-kicker">Console</p>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
+    </div>
+  );
+}
+
+function MetricTile({ label, value, tone = "blue", icon }) {
+  return (
+    <article className={`metric-tile ${tone}`}>
+      <div className="metric-icon"><Icon name={icon} /></div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
+function ResponsiveTable({ columns, rows, empty }) {
+  if (!rows.length) return <EmptyState message={empty} />;
+  return (
+    <div className="table-responsive console-table-wrap">
+      <table className="table console-table align-middle">
+        <thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function StatusBadge({ value, tone, t = (x) => x }) {
+  return <span className={`status-badge ${tone || statusTone(value)}`}>{t(String(value || "n/a"))}</span>;
+}
+
+function EmptyState({ message }) {
+  return (
+    <div className="empty-state">
+      <Icon name="inbox" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function LanguageSwitch({ locale, setLocale, expanded = false }) {
+  return (
+    <div className={`language-switch ${expanded ? "expanded" : ""}`}>
+      <button className={locale === "en" ? "active" : ""} onClick={() => setLocale("en")} type="button">EN</button>
+      <button className={locale === "ko" ? "active" : ""} onClick={() => setLocale("ko")} type="button">KO</button>
+    </div>
+  );
+}
+
+function Toast({ tone, message }) {
+  return <div className={`console-toast ${tone || "success"}`}>{message}</div>;
+}
+
+function Icon({ name }) {
+  return <i className={`bi bi-${name}`} aria-hidden="true" />;
+}
+
+function arrayResult(result) {
+  return result?.status === "fulfilled" && Array.isArray(result.value) ? result.value : [];
+}
+
+function sortByTime(items, field) {
+  return [...(items || [])].sort((a, b) => new Date(b[field] || 0).getTime() - new Date(a[field] || 0).getTime());
+}
+
+async function copyText(text, notify) {
+  await navigator.clipboard.writeText(text || "");
+  notify("Copied.");
+}
+
+function buildAuditQuery(filters) {
+  const query = new URLSearchParams();
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      query.set(key, String(value).trim());
+    }
+  });
+  if (!query.has("limit")) query.set("limit", "200");
+  return query.toString();
+}
+
+function buildSignalDigest(reports, incidents) {
+  const fromReports = (reports || []).flatMap((report) => {
+    const candidates = report.root_cause_candidates || [];
+    return candidates.slice(0, 2).map((candidate, index) => ({
+      id: `${report.report_id}-${index}`,
+      title: candidate.cause || report.summary?.symptom || "RCA signal",
+      detail: (candidate.supporting_evidence || [])[0] || report.cluster_id,
+      severity: candidate.confidence === "high" ? "critical" : "warning",
+      family: inferSignalFamily(candidate.cause || report.summary?.most_likely_cause || ""),
+    }));
+  });
+  const fromIncidents = (incidents || []).filter((incident) => incident.status === "open").map((incident) => ({
+    id: incident.incident_id,
+    title: incident.alert_name,
+    detail: incident.root_cause || incident.cluster_id,
+    severity: "critical",
+    family: inferSignalFamily(`${incident.alert_name} ${incident.root_cause}`),
+  }));
+  return [...fromIncidents, ...fromReports];
+}
+
+function scoreStage(stage, reports, incidents) {
+  const text = JSON.stringify([reports, incidents]).toLowerCase();
+  const needles = {
+    disk: ["disk", "inode", "io", "filesystem", "pressure"],
+    runtime: ["containerd", "runtime", "docker", "crio"],
+    kubelet: ["kubelet", "node not ready", "nodeready"],
+    network: ["network", "cni", "conntrack", "dns", "mtu", "tcp"],
+    control: ["apiserver", "api server", "etcd", "control plane"],
+    service: ["service", "coredns", "endpoint", "latency"],
+  }[stage] || [];
+  return needles.reduce((count, needle) => count + occurrences(text, needle), 0);
+}
+
+function occurrences(text, needle) {
+  if (!needle) return 0;
+  return (text.match(new RegExp(escapeRegExp(needle), "g")) || []).length;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function inferSignalFamily(value) {
+  const text = String(value || "").toLowerCase();
+  if (/disk|inode|io|filesystem|pressure/.test(text)) return "disk";
+  if (/containerd|runtime|docker|crio/.test(text)) return "runtime";
+  if (/kubelet|node/.test(text)) return "kubelet";
+  if (/network|cni|conntrack|dns|mtu|tcp|nic/.test(text)) return "network";
+  if (/api|etcd|control/.test(text)) return "control";
+  return "service";
+}
+
+function evidenceSummary(report) {
+  const rows = [];
+  const trigger = report.trigger || {};
+  Object.entries(trigger).forEach(([key, value]) => rows.push({ label: `trigger.${key}`, value: shortValue(value) }));
+  (report.root_cause_candidates || []).forEach((candidate) => {
+    (candidate.supporting_evidence || []).slice(0, 2).forEach((value) => rows.push({ label: candidate.cause, value }));
+  });
+  const evidence = report.evidence || report.evidence_summary || {};
+  Object.entries(evidence).slice(0, 8).forEach(([key, value]) => rows.push({ label: key, value: shortValue(value) }));
+  return rows;
+}
+
+function fallbackTimeline(report) {
+  const candidates = report.root_cause_candidates || [];
+  const root = candidates[0]?.cause || report.summary?.most_likely_cause;
+  const items = [];
+  if (root) {
+    items.push({ id: "root", timestamp: report.created_at, component: inferSignalFamily(root), title: root, detail: "Most likely root cause", root_trigger: true });
+  }
+  (report.recommended_actions || []).slice(0, 4).forEach((action, index) => {
+    items.push({ id: `action-${index}`, timestamp: report.created_at, component: action.action_key, title: action.action_key || action.policy, detail: action.reason });
+  });
+  return items;
+}
+
+function shortValue(value) {
+  if (value === null || value === undefined) return "n/a";
+  if (typeof value === "object") return JSON.stringify(value).slice(0, 180);
+  return String(value).slice(0, 180);
+}
+
+function formatDate(value) {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function relativeTime(value) {
+  if (!value) return "n/a";
+  const diff = Date.now() - new Date(value).getTime();
+  if (Number.isNaN(diff)) return String(value);
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function statusTone(value) {
+  if (["healthy", "active", "completed", "resolved", "success", "accepted"].includes(String(value))) return "green";
+  if (["failed", "dead_letter", "offline", "blocked", "rejected", "critical"].includes(String(value))) return "red";
+  if (["open", "degraded", "pending_approval", "queued", "processing", "retry_wait", "stale"].includes(String(value))) return "amber";
+  return "muted";
+}
+
+function policyTone(policy) {
+  if (policy === "AUTO_SAFE") return "green";
+  if (policy === "APPROVAL_REQUIRED" || policy === "MANUAL_INVESTIGATION") return "amber";
+  if (policy === "GITOPS_PR_ONLY") return "blue";
+  if (policy === "NEVER_AUTO_EXECUTE") return "red";
+  return "muted";
+}
+
+function confidenceTone(value) {
+  if (value === "high") return "green";
+  if (value === "medium") return "amber";
+  if (value === "low") return "red";
+  return "muted";
+}
+
+function severityTone(value) {
+  if (["critical", "error", "high"].includes(String(value))) return "red";
+  if (["warning", "medium"].includes(String(value))) return "amber";
+  return "blue";
+}
+
+function requestTone(value) {
+  if (["accepted", "completed", "approved_manual"].includes(String(value))) return "green";
+  if (["blocked", "rejected", "failed"].includes(String(value))) return "red";
+  return "amber";
+}
+
+function taskTone(value) {
+  if (value === "completed") return "green";
+  if (["failed", "dead_letter"].includes(String(value))) return "red";
+  return "amber";
+}
+
+function auditTone(value) {
+  if (String(value).includes("success")) return "green";
+  if (String(value).includes("fail") || String(value).includes("denied")) return "red";
+  return "amber";
+}
+
+function agentHealthTone(agent) {
+  const value = agent.health_status || agent.status || agent.reported_status;
+  if (value === "healthy") return "green";
+  if (["offline", "unauthorized", "version_mismatch"].includes(value)) return "red";
+  return "amber";
+}
+
+function signalIcon(value) {
+  const family = inferSignalFamily(value);
+  return {
+    disk: "nvme",
+    runtime: "boxes",
+    kubelet: "cpu",
+    network: "ethernet",
+    control: "diagram-2",
+    service: "activity",
+  }[family] || "activity";
+}
+
+function auditClientIp(event) {
+  return event.client_ip || event.details?.client_ip || event.details?.remote_addr || "-";
+}
+
+function auditSummary(details) {
+  if (!details) return "-";
+  if (typeof details === "string") return details;
+  return Object.entries(details).slice(0, 4).map(([key, value]) => `${key}=${shortValue(value)}`).join(", ");
+}
+
+const root = createRoot(document.getElementById("rca-console-root"));
+root.render(<ConsoleApp />);
