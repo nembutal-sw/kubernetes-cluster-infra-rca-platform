@@ -200,6 +200,28 @@ public class PolicyEngine {
                 false,
                 30
             );
+            case "inspect_api_server_health" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of(
+                    "kubectl get --raw='/readyz?verbose'",
+                    "kubectl get --raw='/livez?verbose'",
+                    "kubectl -n kube-system get pods -l component=kube-apiserver -o wide"
+                ),
+                false,
+                30
+            );
+            case "inspect_etcd_health" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of(
+                    "kubectl get --raw='/readyz?verbose'",
+                    "kubectl -n kube-system get pods -l component=etcd -o wide",
+                    "etcdctl endpoint health --cluster"
+                ),
+                false,
+                30
+            );
             default -> null;
         };
     }
@@ -221,6 +243,8 @@ public class PolicyEngine {
         rules.put("inspect_kernel_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_network_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_storage_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
+        rules.put("inspect_api_server_health", rule(PolicyLevel.AUTO_SAFE, "read_only"));
+        rules.put("inspect_etcd_health", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("restart_kubelet", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
             "node_agent_disruption", "workload_status_change"));
         rules.put("restart_containerd", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",

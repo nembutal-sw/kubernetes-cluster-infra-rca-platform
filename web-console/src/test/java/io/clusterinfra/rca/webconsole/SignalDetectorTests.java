@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.analysis.AnalysisContext;
 import io.clusterinfra.rca.webconsole.analysis.Signal;
+import io.clusterinfra.rca.webconsole.analysis.detector.ApiServerLatencyDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.CoreDnsHealthDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.CniFailureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.ConntrackPressureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.DiskPressureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.DnsConfigurationDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.DnsLatencyDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.EtcdLatencyDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KernelLogDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KubeletFailureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodeReadinessDetector;
@@ -87,6 +89,63 @@ class SignalDetectorTests {
         ));
 
         assertThat(new ConntrackPressureDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void apiServerDetectorUsesStructuredControlPlaneFields() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "api_server_latency_ms", 1_600.0,
+                "api_readyz_failed_check_count", 1,
+                "api_livez_failed_check_count", 1,
+                "api_request_error_count", 2,
+                "api_timeout_detected", true
+            ),
+            "application", Map.of("api_server_latency_ms", 5_000.0)
+        ));
+
+        assertThat(new ApiServerLatencyDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly(
+                "api_server_latency_high",
+                "api_server_readyz_failed",
+                "api_server_livez_failed",
+                "api_server_request_errors"
+            );
+    }
+
+    @Test
+    void apiServerDetectorIgnoresUnrelatedLatencyFields() {
+        AnalysisContext context = context(Map.of(
+            "application", Map.of("api_server_latency_ms", 5_000.0),
+            "network", Map.of("request_latency_ms", 5_000.0)
+        ));
+
+        assertThat(new ApiServerLatencyDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void etcdDetectorSeparatesLatencyReadyzAndPodHealth() {
+        AnalysisContext context = context(Map.of(
+            "etcd", Map.of("fsync_latency_ms", 900.0),
+            "kubernetes", Map.of(
+                "etcd_readyz_healthy", false,
+                "etcd_non_running_pods", List.of(Map.of(
+                    "namespace", "kube-system",
+                    "name", "etcd-control-a",
+                    "phase", "CrashLoopBackOff",
+                    "restart_count", 7
+                ))
+            )
+        ));
+
+        assertThat(new EtcdLatencyDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly(
+                "etcd_latency_high",
+                "etcd_readyz_failed",
+                "etcd_pod_unhealthy"
+            );
     }
 
     @Test

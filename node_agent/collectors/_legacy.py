@@ -301,6 +301,26 @@ def collect_kubernetes() -> dict[str, Any]:
         "control_plane_peer_connectivity": [],
         "failed_peer_probe_count": 0,
         "certificate_expiration_warnings": [],
+        "api_request_latencies": [],
+        "api_request_error_count": 0,
+        "api_timeout_detected": False,
+        "api_server_latency_ms": None,
+        "api_readyz_latency_ms": None,
+        "api_readyz_failed_checks": [],
+        "api_readyz_failed_check_count": 0,
+        "api_livez_latency_ms": None,
+        "api_livez_failed_checks": [],
+        "api_livez_failed_check_count": 0,
+        "etcd_readyz_healthy": None,
+        "etcd_readyz_message": None,
+        "api_server_pod_count_on_node": 0,
+        "api_server_non_running_pods": [],
+        "api_server_restart_count_total": 0,
+        "api_server_high_restart_pods": [],
+        "etcd_pod_count_on_node": 0,
+        "etcd_non_running_pods": [],
+        "etcd_restart_count_total": 0,
+        "etcd_high_restart_pods": [],
         "topology_inventory_collected": False,
         "topology_inventory_collector_node": None,
         "topology_inventory_truncated": False,
@@ -315,6 +335,7 @@ def collect_kubernetes() -> dict[str, Any]:
     base["api_available"] = node_response.get("ok") is True
     if not node_response.get("ok"):
         base["api_error"] = node_response.get("error")
+        _summarize_api_requests(base, [("node", node_response)])
         return base
 
     node = _dict_value(node_response.get("data"))
@@ -326,8 +347,10 @@ def collect_kubernetes() -> dict[str, Any]:
     )
     base["pods"] = pods_response
     if pods_response.get("ok"):
-        pod_summary = _summarize_kubernetes_pods(_list_items(pods_response.get("data")))
+        pods_on_node = _list_items(pods_response.get("data"))
+        pod_summary = _summarize_kubernetes_pods(pods_on_node)
         base.update(pod_summary)
+        base.update(_summarize_control_plane_pods(pods_on_node))
 
     cni_daemonsets_response = client.get_json("/apis/apps/v1/namespaces/kube-system/daemonsets?limit=100")
     base["cni_daemonsets_response"] = cni_daemonsets_response
@@ -361,7 +384,23 @@ def collect_kubernetes() -> dict[str, Any]:
     readyz_response = client.get_text("/readyz?verbose")
     base["readyz"] = readyz_response
     if readyz_response.get("ok"):
-        base["api_readyz_failed_checks"] = _parse_readyz_failures(str(readyz_response.get("body") or ""))
+        readyz_checks = _parse_readyz_checks(str(readyz_response.get("body") or ""))
+        readyz_failures = _readyz_failures(readyz_checks)
+        base["api_readyz_checks"] = readyz_checks
+        base["api_readyz_failed_checks"] = readyz_failures
+        base["api_readyz_failed_check_count"] = len(readyz_failures)
+        base.update(_summarize_etcd_readyz(readyz_checks))
+    base["api_readyz_latency_ms"] = readyz_response.get("latency_ms")
+
+    livez_response = client.get_text("/livez?verbose")
+    base["livez"] = livez_response
+    if livez_response.get("ok"):
+        livez_checks = _parse_readyz_checks(str(livez_response.get("body") or ""))
+        livez_failures = _readyz_failures(livez_checks)
+        base["api_livez_checks"] = livez_checks
+        base["api_livez_failed_checks"] = livez_failures
+        base["api_livez_failed_check_count"] = len(livez_failures)
+    base["api_livez_latency_ms"] = livez_response.get("latency_ms")
 
     metrics_response = client.get_json(f"/apis/metrics.k8s.io/v1beta1/nodes/{urllib.parse.quote(node_name, safe='')}")
     base["metrics"] = metrics_response
@@ -407,6 +446,21 @@ def collect_kubernetes() -> dict[str, Any]:
                 and not base["topology_inventory_truncated"]
             )
 
+    _summarize_api_requests(
+        base,
+        [
+            ("node", node_response),
+            ("pods_on_node", pods_response),
+            ("cni_daemonsets", cni_daemonsets_response),
+            ("coredns_pods", coredns_pods_response),
+            ("coredns_endpoint_slices", coredns_endpoint_slices_response),
+            ("node_events", events_response),
+            ("readyz", readyz_response),
+            ("livez", livez_response),
+            ("metrics", metrics_response),
+            ("nodes", nodes_response),
+        ],
+    )
     return base
 
 
@@ -893,8 +947,8 @@ class _KubernetesApiClient:
             cached["cache_hit"] = True
             return cached
         request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+        started_at = time.monotonic()
         try:
-            started_at = time.monotonic()
             with urllib.request.urlopen(request, timeout=self.timeout_seconds, context=self.context) as response:
                 body = response.read(512 * 1024).decode("utf-8", errors="replace")
             result = {
@@ -909,13 +963,17 @@ class _KubernetesApiClient:
             return {
                 "ok": False,
                 "status_code": exc.code,
+                "latency_ms": round((time.monotonic() - started_at) * 1000, 2),
                 "error": _clean_text(str(exc), limit=500),
             }
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            error = _clean_text(str(exc), limit=500)
             return {
                 "ok": False,
                 "status_code": None,
-                "error": _clean_text(str(exc), limit=500),
+                "latency_ms": round((time.monotonic() - started_at) * 1000, 2),
+                "timeout": "timed out" in error.lower() or "timeout" in error.lower(),
+                "error": error,
             }
 
     def _cached(self, key: str) -> dict[str, Any] | None:
@@ -1016,6 +1074,58 @@ def _summarize_kubernetes_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
         "cni_non_running_pods": cni_non_running_pods[:30],
         "cni_restart_count_total": cni_restart_count,
         "cni_high_restart_pods": cni_high_restart_pods[:30],
+    }
+
+
+def _summarize_control_plane_pods(pods: list[dict[str, Any]]) -> dict[str, Any]:
+    api_server_pods: list[dict[str, Any]] = []
+    api_server_non_running: list[dict[str, Any]] = []
+    api_server_high_restart: list[dict[str, Any]] = []
+    api_server_restarts = 0
+    etcd_pods: list[dict[str, Any]] = []
+    etcd_non_running: list[dict[str, Any]] = []
+    etcd_high_restart: list[dict[str, Any]] = []
+    etcd_restarts = 0
+
+    for pod in pods:
+        metadata = _dict_value(pod.get("metadata"))
+        status = _dict_value(pod.get("status"))
+        spec = _dict_value(pod.get("spec"))
+        namespace = str(metadata.get("namespace") or "")
+        name = str(metadata.get("name") or "")
+        phase = str(status.get("phase") or "")
+        restart_count = _pod_restart_count(status)
+        pod_summary = {
+            "namespace": namespace,
+            "name": name,
+            "phase": phase,
+            "restart_count": restart_count,
+            "node_name": spec.get("nodeName"),
+        }
+        if _is_api_server_pod(metadata):
+            api_server_pods.append(pod_summary)
+            api_server_restarts += restart_count
+            if phase != "Running":
+                api_server_non_running.append(pod_summary)
+            if restart_count >= 5:
+                api_server_high_restart.append(pod_summary)
+        if _is_etcd_pod(metadata):
+            etcd_pods.append(pod_summary)
+            etcd_restarts += restart_count
+            if phase != "Running":
+                etcd_non_running.append(pod_summary)
+            if restart_count >= 5:
+                etcd_high_restart.append(pod_summary)
+
+    return {
+        "api_server_pod_count_on_node": len(api_server_pods),
+        "api_server_non_running_pods": api_server_non_running[:20],
+        "api_server_restart_count_total": api_server_restarts,
+        "api_server_high_restart_pods": api_server_high_restart[:20],
+        "etcd_pod_count_on_node": len(etcd_pods),
+        "etcd_non_running_pods": etcd_non_running[:20],
+        "etcd_restart_count_total": etcd_restarts,
+        "etcd_high_restart_pods": etcd_high_restart[:20],
     }
 
 
@@ -1225,6 +1335,32 @@ def _is_cni_pod(metadata: dict[str, Any]) -> bool:
     )
 
 
+def _is_api_server_pod(metadata: dict[str, Any]) -> bool:
+    namespace = str(metadata.get("namespace") or "").lower()
+    name = str(metadata.get("name") or "").lower()
+    labels = _dict_value(metadata.get("labels"))
+    label_text = " ".join(f"{key}={value}".lower() for key, value in labels.items())
+    combined = f"{name} {label_text}"
+    return namespace == "kube-system" and (
+        name.startswith("kube-apiserver")
+        or "component=kube-apiserver" in combined
+        or "k8s-app=kube-apiserver" in combined
+    )
+
+
+def _is_etcd_pod(metadata: dict[str, Any]) -> bool:
+    namespace = str(metadata.get("namespace") or "").lower()
+    name = str(metadata.get("name") or "").lower()
+    labels = _dict_value(metadata.get("labels"))
+    label_text = " ".join(f"{key}={value}".lower() for key, value in labels.items())
+    combined = f"{name} {label_text}"
+    return namespace == "kube-system" and (
+        name.startswith("etcd")
+        or "component=etcd" in combined
+        or "k8s-app=etcd" in combined
+    )
+
+
 def _is_control_plane_node(metadata: dict[str, Any]) -> bool:
     labels = _dict_value(metadata.get("labels"))
     return any(
@@ -1254,12 +1390,83 @@ def _certificate_expiration_warnings(events: list[dict[str, Any]]) -> list[dict[
 
 
 def _parse_readyz_failures(text: str) -> list[str]:
-    failures = []
+    return [item["message"] for item in _readyz_failures(_parse_readyz_checks(text))]
+
+
+def _parse_readyz_checks(text: str) -> list[dict[str, Any]]:
+    checks = []
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("[-]"):
-            failures.append(_clean_text(stripped, limit=500))
-    return failures
+        if not stripped.startswith(("[+]", "[-]")):
+            continue
+        healthy = stripped.startswith("[+]")
+        rest = stripped[3:].strip()
+        check_name = rest
+        detail = ""
+        if ":" in rest:
+            check_name, detail = rest.split(":", 1)
+            detail = detail.strip()
+        elif rest.endswith(" ok"):
+            check_name = rest[:-3].strip()
+            detail = "ok"
+        elif rest.endswith(" failed"):
+            check_name = rest[:-7].strip()
+            detail = "failed"
+        checks.append(
+            {
+                "check": _clean_text(check_name, limit=120),
+                "healthy": healthy,
+                "status": "ok" if healthy else "failed",
+                "message": _clean_text(stripped, limit=500),
+                "detail": _clean_text(detail, limit=500),
+            }
+        )
+    return checks[:100]
+
+
+def _readyz_failures(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in checks if item.get("healthy") is False][:50]
+
+
+def _summarize_etcd_readyz(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in checks:
+        if str(item.get("check") or "").strip().lower() != "etcd":
+            continue
+        return {
+            "etcd_readyz_healthy": item.get("healthy") is True,
+            "etcd_readyz_message": item.get("message"),
+        }
+    return {"etcd_readyz_healthy": None, "etcd_readyz_message": None}
+
+
+def _summarize_api_requests(base: dict[str, Any], responses: list[tuple[str, dict[str, Any]]]) -> None:
+    latencies = []
+    errors = 0
+    timeout_detected = False
+    max_latency: float | None = None
+    for operation, response in responses:
+        if not isinstance(response, dict):
+            continue
+        latency = _safe_float(response.get("latency_ms"))
+        item = {
+            "operation": operation,
+            "ok": response.get("ok") is True,
+            "status_code": response.get("status_code"),
+        }
+        if latency is not None:
+            item["latency_ms"] = latency
+            max_latency = latency if max_latency is None else max(max_latency, latency)
+        if response.get("ok") is not True:
+            errors += 1
+            error = _clean_text(str(response.get("error") or ""), limit=300)
+            item["error"] = error
+            if response.get("timeout") is True or "timed out" in error.lower() or "timeout" in error.lower():
+                timeout_detected = True
+        latencies.append(item)
+    base["api_request_latencies"] = latencies[:50]
+    base["api_request_error_count"] = errors
+    base["api_timeout_detected"] = timeout_detected
+    base["api_server_latency_ms"] = max_latency
 
 
 def _list_items(value: Any) -> list[dict[str, Any]]:

@@ -235,6 +235,25 @@ public class RuleBasedRcaAnalyzer {
             ));
         }
         if (names.stream().anyMatch(Set.of(
+            "api_server_latency_high", "api_server_readyz_failed",
+            "api_server_livez_failed", "api_server_request_errors"
+        )::contains)) {
+            actions.add(policyEngine.classify(
+                "inspect_api_server_health",
+                "Inspect API server readiness, liveness, request latency, and failing dependency checks.",
+                "API server remediation must be based on read-only dependency evidence before any change."
+            ));
+        }
+        if (names.stream().anyMatch(Set.of(
+            "etcd_latency_high", "etcd_readyz_failed", "etcd_pod_unhealthy"
+        )::contains)) {
+            actions.add(policyEngine.classify(
+                "inspect_etcd_health",
+                "Inspect etcd endpoint health, quorum, fsync latency, pod restarts, and leader state.",
+                "Etcd changes can affect quorum and must remain manual or reviewed."
+            ));
+        }
+        if (names.stream().anyMatch(Set.of(
             "conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops",
             "cni_config_invalid", "dns_unconfigured", "dns_latency_high",
             "coredns_no_ready_endpoints", "coredns_pod_not_running", "cni_mtu_values_inconsistent",

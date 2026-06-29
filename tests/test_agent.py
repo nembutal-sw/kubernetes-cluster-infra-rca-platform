@@ -207,6 +207,24 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
                                 },
                                 "status": {"phase": "Running", "containerStatuses": [{"restartCount": 0}]},
                                 "spec": {"nodeName": "control-a"},
+                            },
+                            {
+                                "metadata": {
+                                    "namespace": "kube-system",
+                                    "name": "kube-apiserver-control-a",
+                                    "labels": {"component": "kube-apiserver"},
+                                },
+                                "status": {"phase": "Running", "containerStatuses": [{"restartCount": 1}]},
+                                "spec": {"nodeName": "control-a"},
+                            },
+                            {
+                                "metadata": {
+                                    "namespace": "kube-system",
+                                    "name": "etcd-control-a",
+                                    "labels": {"component": "etcd"},
+                                },
+                                "status": {"phase": "Running", "containerStatuses": [{"restartCount": 2}]},
+                                "spec": {"nodeName": "control-a"},
                             }
                         ]
                     },
@@ -291,8 +309,13 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
             raise AssertionError(f"unexpected Kubernetes API path: {path}")
 
         def get_text(self, path: str) -> dict[str, Any]:
-            assert path == "/readyz?verbose"
-            return {"ok": True, "body": "ok"}
+            assert path in {"/readyz?verbose", "/livez?verbose"}
+            return {
+                "ok": True,
+                "status_code": 200,
+                "latency_ms": 12.5 if path.startswith("/readyz") else 10.0,
+                "body": "[+]ping ok\n[+]etcd ok\nreadyz check passed\n",
+            }
 
     monkeypatch.setenv("NODE_NAME", "control-a")
     monkeypatch.setattr(collectors._legacy, "_KubernetesApiClient", FakeKubernetesClient)
@@ -306,6 +329,15 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
     assert evidence["cni_running_pod_count_on_node"] == 1
     assert evidence["cni_daemonset_count"] == 1
     assert evidence["cni_daemonset_unavailable_count"] == 0
+    assert evidence["api_server_pod_count_on_node"] == 1
+    assert evidence["api_server_restart_count_total"] == 1
+    assert evidence["etcd_pod_count_on_node"] == 1
+    assert evidence["etcd_restart_count_total"] == 2
+    assert evidence["api_readyz_latency_ms"] == 12.5
+    assert evidence["api_livez_latency_ms"] == 10.0
+    assert evidence["api_readyz_failed_check_count"] == 0
+    assert evidence["etcd_readyz_healthy"] is True
+    assert evidence["api_request_latencies"]
     assert evidence["coredns_pod_count"] == 1
     assert evidence["coredns_endpoint_count"] == 1
     assert evidence["coredns_ready_endpoint_count"] == (1 if endpoint_ok else 0)
