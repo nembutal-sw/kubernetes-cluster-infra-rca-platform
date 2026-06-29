@@ -479,7 +479,9 @@ code {
 .cluster-list,
 .evidence-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
+  min-width: 0;
 }
 
 .signal-row,
@@ -492,6 +494,7 @@ code {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+  min-width: 0;
 }
 
 .signal-row {
@@ -1274,6 +1277,95 @@ code {
   font-size: 0.8rem;
 }
 
+.diagnostics-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.diagnostic-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.diagnostic-summary > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 11px;
+  min-width: 0;
+}
+
+.diagnostic-summary span,
+.diagnostic-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-summary span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.diagnostic-summary strong {
+  font-size: 0.96rem;
+}
+
+.diagnostic-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #a6d5be;
+  border-radius: 8px;
+  background: var(--green-soft);
+  color: #0f6b3d;
+  padding: 12px;
+  font-weight: 800;
+}
+
+.diagnostic-list {
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostic-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.diagnostic-group > strong {
+  font-size: 0.86rem;
+}
+
+.diagnostic-item {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px;
+  min-width: 0;
+}
+
+.diagnostic-item code,
+.diagnostic-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.diagnostic-item code {
+  color: var(--primary-strong);
+  white-space: normal;
+}
+
+.diagnostic-item span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .login-screen,
 .boot-screen {
   min-height: 100vh;
@@ -1616,8 +1708,27 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .task-item strong,
+  .task-item span,
+  .request-item strong,
+  .request-item span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .task-item .status-badge,
+  .request-item .status-badge {
+    width: fit-content;
+  }
+
   .console-table {
     min-width: 640px;
+  }
+
+  .diagnostic-item {
+    grid-template-columns: 1fr;
   }
 }
 

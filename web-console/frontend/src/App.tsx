@@ -123,6 +123,17 @@ const KO = {
   "Current password": "현재 비밀번호",
   "New password": "새 비밀번호",
   Save: "저장",
+  "Console diagnostics": "콘솔 진단",
+  "Run layout check": "레이아웃 검사",
+  "Viewport": "뷰포트",
+  "Page overflow": "페이지 넘침",
+  "Offscreen elements": "화면 밖 요소",
+  "Overflow candidates": "넘침 후보",
+  "Clipped text candidates": "잘림 후보",
+  "Last checked": "마지막 검사",
+  "No layout issues detected.": "레이아웃 문제를 찾지 못했습니다.",
+  Yes: "예",
+  No: "아니오",
   "Platform info": "플랫폼 정보",
   open: "진행 중",
   resolved: "해결됨",
@@ -1477,6 +1488,7 @@ function WebhooksView({ endpoint, onCopy, t }) {
 
 function SettingsView({ locale, setLocale, platformInfo, onChangePassword, t }) {
   const [password, setPassword] = useState({ current_password: "", new_password: "" });
+  const [layoutAudit, setLayoutAudit] = useState(null);
   async function submit(event) {
     event.preventDefault();
     await onChangePassword(password);
@@ -1497,11 +1509,59 @@ function SettingsView({ locale, setLocale, platformInfo, onChangePassword, t }) 
           </form>
         </Surface>
       </div>
+      <Surface
+        title={t("Console diagnostics")}
+        subtitle="Run a client-side layout check on the current console view"
+        action={<button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => setLayoutAudit(runConsoleLayoutAudit())}><Icon name="display" /><span>{t("Run layout check")}</span></button>}
+      >
+        <LayoutAuditPanel audit={layoutAudit} t={t} />
+      </Surface>
       <Surface title={t("Platform info")} subtitle="Protocol compatibility">
         <div className="info-grid">
           {Object.entries(platformInfo || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{String(value)}</strong></div>)}
         </div>
       </Surface>
+    </div>
+  );
+}
+
+function LayoutAuditPanel({ audit, t }) {
+  if (!audit) return <EmptyState message="Run a check to inspect the current viewport for overflow or clipped text." />;
+  const issueCount = audit.offscreen.length + audit.overflowed.length + audit.clipped.length + (audit.page_overflow_x ? 1 : 0);
+  return (
+    <div className="diagnostics-panel">
+      <div className="diagnostic-summary">
+        <div><span>{t("Viewport")}</span><strong>{audit.viewport_width} x {audit.viewport_height}</strong></div>
+        <div><span>{t("Page overflow")}</span><strong>{audit.page_overflow_x ? t("Yes") : t("No")}</strong></div>
+        <div><span>{t("Offscreen elements")}</span><strong>{audit.offscreen.length}</strong></div>
+        <div><span>{t("Overflow candidates")}</span><strong>{audit.overflowed.length}</strong></div>
+        <div><span>{t("Clipped text candidates")}</span><strong>{audit.clipped.length}</strong></div>
+        <div><span>{t("Last checked")}</span><strong>{formatDate(audit.checked_at)}</strong></div>
+      </div>
+      {issueCount === 0 ? (
+        <div className="diagnostic-ok"><Icon name="check2-circle" /><span>{t("No layout issues detected.")}</span></div>
+      ) : (
+        <div className="diagnostic-list">
+          <DiagnosticGroup title={t("Offscreen elements")} items={audit.offscreen} />
+          <DiagnosticGroup title={t("Overflow candidates")} items={audit.overflowed} />
+          <DiagnosticGroup title={t("Clipped text candidates")} items={audit.clipped} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiagnosticGroup({ title, items }) {
+  if (!items.length) return null;
+  return (
+    <div className="diagnostic-group">
+      <strong>{title}</strong>
+      {items.map((item, index) => (
+        <div className="diagnostic-item" key={`${item.selector}-${index}`}>
+          <code>{item.selector}</code>
+          <span>{item.text || item.reason}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1867,6 +1927,64 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function runConsoleLayoutAudit() {
+  const doc = document.documentElement;
+  const body = document.body;
+  const viewportWidth = window.innerWidth || doc.clientWidth;
+  const viewportHeight = window.innerHeight || doc.clientHeight;
+  const allowedOverflow = ".table-responsive, .console-table-wrap, pre, code, .config-sample, .command-preview, .install-command";
+  const ignored = ".diagnostics-panel, script, style, noscript";
+  const issues = { offscreen: [], overflowed: [], clipped: [] };
+
+  Array.from(document.querySelectorAll("body *")).forEach((element) => {
+    if (element.closest(allowedOverflow) || element.closest(ignored)) return;
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden") return;
+
+    const tag = element.tagName.toLowerCase();
+    const text = layoutElementText(element);
+    const selector = layoutElementLabel(element);
+    const hasElementOverflow = !["html", "body"].includes(tag) && element.scrollWidth > element.clientWidth + 2;
+    const hidesOverflow = ["hidden", "clip"].includes(style.overflow) || ["hidden", "clip"].includes(style.overflowX) || style.textOverflow === "ellipsis";
+
+    if (rect.left < -1 || rect.right > viewportWidth + 1) {
+      issues.offscreen.push({ selector, text, reason: `${Math.round(rect.left)}..${Math.round(rect.right)}px` });
+    }
+    if (hasElementOverflow) {
+      issues.overflowed.push({ selector, text, reason: `${element.clientWidth}/${element.scrollWidth}px` });
+    }
+    if (hasElementOverflow && hidesOverflow && text) {
+      issues.clipped.push({ selector, text, reason: `${element.clientWidth}/${element.scrollWidth}px` });
+    }
+  });
+
+  const scrollWidth = Math.max(doc.scrollWidth, body?.scrollWidth || 0);
+  return {
+    checked_at: new Date().toISOString(),
+    viewport_width: Math.round(viewportWidth),
+    viewport_height: Math.round(viewportHeight),
+    scroll_width: Math.round(scrollWidth),
+    page_overflow_x: scrollWidth > viewportWidth + 1,
+    offscreen: issues.offscreen.slice(0, 12),
+    overflowed: issues.overflowed.slice(0, 12),
+    clipped: issues.clipped.slice(0, 12),
+  };
+}
+
+function layoutElementLabel(element) {
+  const id = element.id ? `#${element.id}` : "";
+  const className = typeof element.className === "string" ? element.className : "";
+  const classes = className.trim().split(/\s+/).filter(Boolean).slice(0, 3).map((name) => `.${name}`).join("");
+  return `${element.tagName.toLowerCase()}${id}${classes}`;
+}
+
+function layoutElementText(element) {
+  return String(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
 function relativeTime(value) {
