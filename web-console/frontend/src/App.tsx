@@ -34,7 +34,7 @@ const KO = {
   "Sign in": "로그인",
   Username: "계정",
   Password: "비밀번호",
-  "Default account": "기본 계정",
+  "Initial account": "초기 계정",
   "Invalid username or password": "계정 또는 비밀번호가 올바르지 않습니다",
   Logout: "로그아웃",
   Refresh: "새로고침",
@@ -737,7 +737,7 @@ function LoginPage({ onLogin, locale, setLocale, t, toast }) {
           </button>
         </form>
         <div className="login-footer">
-          <span>{t("Default account")}: admin / admin</span>
+          <span>{t("Initial account")}: admin</span>
           <LanguageSwitch locale={locale} setLocale={setLocale} />
         </div>
       </section>
