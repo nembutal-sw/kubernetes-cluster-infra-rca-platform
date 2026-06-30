@@ -12,6 +12,8 @@ Required environment for non-interactive use:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import sys
@@ -19,6 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -96,6 +99,20 @@ class Client:
             return None
         return json.loads(raw.decode("utf-8"))
 
+    def request_bytes(self, method: str, path: str) -> bytes:
+        url = self.base_url + path
+        headers = {"Accept": "application/octet-stream"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(url, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            raise ApiError(method, url, exc.code, exc.read().decode("utf-8", "replace")) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"{method} {url} failed: {exc}") from exc
+
     def login(self, username: str, password: str) -> dict[str, Any]:
         response = self.request(
             "POST",
@@ -152,6 +169,18 @@ def parse_args() -> argparse.Namespace:
         "--min-confidence-score",
         type=int,
         default=int(os.getenv("RCA_MIN_CONFIDENCE_SCORE", "50")),
+    )
+    parser.add_argument(
+        "--skip-audit-check",
+        action="store_true",
+        default=os.getenv("RCA_SKIP_AUDIT_CHECK", "").lower() in {"1", "true", "yes"},
+        help="Skip audit event verification for non-admin validation accounts.",
+    )
+    parser.add_argument(
+        "--save-bundles",
+        action="store_true",
+        default=os.getenv("RCA_SAVE_BUNDLES", "").lower() in {"1", "true", "yes"},
+        help="Persist downloaded evidence bundle ZIP files in the output directory.",
     )
     return parser.parse_args()
 
@@ -261,6 +290,65 @@ def validate_report(
     return errors
 
 
+def validate_bundle(bundle_bytes: bytes) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    required_entries = {"summary.json", "signals.json", "timeline.json", "rca-report.md", "manifest.json"}
+    try:
+        with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as bundle:
+            names = set(bundle.namelist())
+            missing = sorted(required_entries - names)
+            if missing:
+                errors.append("bundle missing entries: " + ",".join(missing))
+            if "manifest.json" not in names:
+                return {}, errors
+            if not any(name.startswith("evidence/") and name.endswith(".json") for name in names):
+                errors.append("bundle has no evidence/*.json entry")
+            manifest = json.loads(bundle.read("manifest.json").decode("utf-8"))
+            if manifest.get("hash_algorithm") != "SHA-256":
+                errors.append("manifest hash_algorithm is not SHA-256")
+            entries = manifest.get("entries")
+            if not isinstance(entries, list) or not entries:
+                errors.append("manifest entries is empty")
+                return manifest, errors
+            manifest_paths = {str(entry.get("path")) for entry in entries if isinstance(entry, dict)}
+            if "manifest.json" in manifest_paths:
+                errors.append("manifest should not hash itself")
+            for required in required_entries - {"manifest.json"}:
+                if required not in manifest_paths:
+                    errors.append(f"manifest missing hash for {required}")
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    errors.append("manifest entry is not an object")
+                    continue
+                path = str(entry.get("path") or "")
+                expected_hash = str(entry.get("sha256") or "")
+                if not path or not expected_hash:
+                    errors.append(f"manifest entry has blank path or sha256: {entry}")
+                    continue
+                if path not in names:
+                    errors.append(f"manifest hashes missing ZIP entry {path}")
+                    continue
+                actual_hash = hashlib.sha256(bundle.read(path)).hexdigest()
+                if actual_hash != expected_hash:
+                    errors.append(f"sha256 mismatch for {path}")
+            return manifest, errors
+    except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as exc:
+        return {}, [f"bundle validation failed: {exc}"]
+
+
+def audit_event_count(client: Client, report_id: str) -> int:
+    query = urllib.parse.urlencode({
+        "event_type": "evidence.bundle_exported",
+        "resource_id": report_id,
+        "outcome": "success",
+        "limit": 20,
+    })
+    events = client.request("GET", f"/api/audit/events?{query}")
+    if not isinstance(events, list):
+        raise RuntimeError("audit events response is not a list")
+    return len(events)
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -329,6 +417,27 @@ def main() -> int:
                 )
             errors.extend(validate_report(key, report, timeline, args.min_confidence_score))
 
+        bundle_manifest: dict[str, Any] | None = None
+        bundle_entry_count = 0
+        audit_export_count = 0
+        if report_id:
+            bundle_bytes = client.request_bytes(
+                "GET",
+                f"/api/rca/reports/{urllib.parse.quote(str(report_id))}/bundle",
+            )
+            if args.save_bundles:
+                bundle_path = run_dir / "bundles" / f"{key}.zip"
+                bundle_path.parent.mkdir(parents=True, exist_ok=True)
+                bundle_path.write_bytes(bundle_bytes)
+            bundle_manifest, bundle_errors = validate_bundle(bundle_bytes)
+            bundle_entry_count = len(bundle_manifest.get("entries") or []) if bundle_manifest else 0
+            errors.extend(bundle_errors)
+            write_json(run_dir / "bundle-manifests" / f"{key}.json", bundle_manifest)
+            if not args.skip_audit_check:
+                audit_export_count = audit_event_count(client, str(report_id))
+                if audit_export_count < 1:
+                    errors.append("bundle export audit event was not recorded")
+
         signal_names = [signal.get("signal") for signal in derived_signals(report or {})]
         result = {
             "scenario_key": key,
@@ -342,6 +451,8 @@ def main() -> int:
             "root_cause_count": len((report or {}).get("root_cause_candidates") or []),
             "recommended_action_count": len((report or {}).get("recommended_actions") or []),
             "timeline_node_count": 0 if timeline is None else len(timeline.get("nodes") or []),
+            "bundle_manifest_entry_count": bundle_entry_count,
+            "bundle_export_audit_event_count": audit_export_count,
             "passed": not errors,
             "errors": errors,
         }

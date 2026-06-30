@@ -79,6 +79,8 @@ python3 scripts/operational_scenario_validation.py \
 - incident timeline node가 생성되는지 확인
 - LLM action은 항상 `automation_allowed=false`
 - restart, cleanup, cordon, reboot, GitOps PR action은 자동 실행 불가
+- evidence bundle ZIP의 필수 entry와 `manifest.json` SHA-256 hash가 유효한지 확인
+- bundle export audit event가 생성되는지 확인 (`--skip-audit-check`로 비활성화 가능)
 
 결과는 `validation-results/operational-scenarios/<timestamp>/summary.json`에 저장됩니다.
 
