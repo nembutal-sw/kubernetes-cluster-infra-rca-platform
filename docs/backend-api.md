@@ -173,7 +173,7 @@ rca-report.md
 manifest.json
 ```
 
-Sensitive values are redacted before export. `manifest.json` contains bundle metadata and SHA-256 hashes for exported files except the manifest itself.
+Sensitive values are redacted before export. `manifest.json` contains bundle metadata and SHA-256 hashes for exported files except the manifest itself. If `RCA_EXPORT_SIGNATURE_SECRET` is configured, the manifest also includes an HMAC-SHA256 signature over the manifest metadata and entry hashes.
 
 ## Incident APIs
 

@@ -70,12 +70,14 @@ platform:
     analysisTaskRetentionDays: 30
     realtimeEventRetentionDays: 14
     reportRetentionDays: 365
+    exportSignatureKeyId: default
   secret:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
     webhookToken: dev-webhook-token
     metricsToken: ""
     encryptionSecret: ""
+    exportSignatureSecret: ""
     slackWebhookUrl: ""
 ```
 

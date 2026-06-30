@@ -619,6 +619,8 @@ public class RcaConsoleProperties {
 
     public static class Export {
         private long maxBundleBytes = 10 * 1024 * 1024;
+        private String signatureSecret = "";
+        private String signatureKeyId = "default";
 
         public long getMaxBundleBytes() {
             return maxBundleBytes;
@@ -626,6 +628,23 @@ public class RcaConsoleProperties {
 
         public void setMaxBundleBytes(long maxBundleBytes) {
             this.maxBundleBytes = maxBundleBytes;
+        }
+
+        public String getSignatureSecret() {
+            return signatureSecret == null ? "" : signatureSecret.trim();
+        }
+
+        public void setSignatureSecret(String signatureSecret) {
+            this.signatureSecret = signatureSecret;
+        }
+
+        public String getSignatureKeyId() {
+            String value = signatureKeyId == null ? "" : signatureKeyId.trim();
+            return value.isEmpty() ? "default" : value;
+        }
+
+        public void setSignatureKeyId(String signatureKeyId) {
+            this.signatureKeyId = signatureKeyId;
         }
     }
 

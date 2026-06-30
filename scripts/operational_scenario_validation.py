@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -182,6 +183,16 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("RCA_SAVE_BUNDLES", "").lower() in {"1", "true", "yes"},
         help="Persist downloaded evidence bundle ZIP files in the output directory.",
     )
+    parser.add_argument(
+        "--bundle-signature-secret",
+        default=os.getenv("RCA_BUNDLE_SIGNATURE_SECRET", os.getenv("RCA_EXPORT_SIGNATURE_SECRET", "")),
+        help="Optional HMAC secret used to verify signed evidence bundle manifests.",
+    )
+    parser.add_argument(
+        "--bundle-signature-key-id",
+        default=os.getenv("RCA_BUNDLE_SIGNATURE_KEY_ID", ""),
+        help="Optional expected manifest signature key_id.",
+    )
     return parser.parse_args()
 
 
@@ -290,8 +301,13 @@ def validate_report(
     return errors
 
 
-def validate_bundle(bundle_bytes: bytes) -> tuple[dict[str, Any], list[str]]:
+def validate_bundle(
+    bundle_bytes: bytes,
+    signature_secret: str = "",
+    signature_key_id: str = "",
+) -> tuple[dict[str, Any], list[str], bool]:
     errors: list[str] = []
+    signature_verified = False
     required_entries = {"summary.json", "signals.json", "timeline.json", "rca-report.md", "manifest.json"}
     try:
         with zipfile.ZipFile(io.BytesIO(bundle_bytes)) as bundle:
@@ -300,7 +316,7 @@ def validate_bundle(bundle_bytes: bytes) -> tuple[dict[str, Any], list[str]]:
             if missing:
                 errors.append("bundle missing entries: " + ",".join(missing))
             if "manifest.json" not in names:
-                return {}, errors
+                return {}, errors, signature_verified
             if not any(name.startswith("evidence/") and name.endswith(".json") for name in names):
                 errors.append("bundle has no evidence/*.json entry")
             manifest = json.loads(bundle.read("manifest.json").decode("utf-8"))
@@ -309,7 +325,7 @@ def validate_bundle(bundle_bytes: bytes) -> tuple[dict[str, Any], list[str]]:
             entries = manifest.get("entries")
             if not isinstance(entries, list) or not entries:
                 errors.append("manifest entries is empty")
-                return manifest, errors
+                return manifest, errors, signature_verified
             manifest_paths = {str(entry.get("path")) for entry in entries if isinstance(entry, dict)}
             if "manifest.json" in manifest_paths:
                 errors.append("manifest should not hash itself")
@@ -331,9 +347,71 @@ def validate_bundle(bundle_bytes: bytes) -> tuple[dict[str, Any], list[str]]:
                 actual_hash = hashlib.sha256(bundle.read(path)).hexdigest()
                 if actual_hash != expected_hash:
                     errors.append(f"sha256 mismatch for {path}")
-            return manifest, errors
+            signature_verified = validate_manifest_signature(
+                manifest,
+                signature_secret,
+                signature_key_id,
+                errors,
+            )
+            return manifest, errors, signature_verified
     except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as exc:
-        return {}, [f"bundle validation failed: {exc}"]
+        return {}, [f"bundle validation failed: {exc}"], signature_verified
+
+
+def validate_manifest_signature(
+    manifest: dict[str, Any],
+    signature_secret: str,
+    signature_key_id: str,
+    errors: list[str],
+) -> bool:
+    if not signature_secret:
+        return False
+    signature = manifest.get("signature")
+    if not isinstance(signature, dict):
+        errors.append("manifest signature is missing")
+        return False
+    if signature.get("enabled") is not True:
+        errors.append("manifest signature is not enabled")
+        return False
+    if signature.get("algorithm") != "HMAC-SHA256":
+        errors.append("manifest signature algorithm is not HMAC-SHA256")
+        return False
+    if signature.get("canonicalization") != "bundle-manifest-v1":
+        errors.append("manifest signature canonicalization is not bundle-manifest-v1")
+        return False
+    if signature_key_id and signature.get("key_id") != signature_key_id:
+        errors.append(
+            "manifest signature key_id mismatch: "
+            f"expected={signature_key_id}, actual={signature.get('key_id')}"
+        )
+        return False
+    expected = hmac.new(
+        signature_secret.encode("utf-8"),
+        canonical_manifest(manifest).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    actual = str(signature.get("value") or "")
+    if not hmac.compare_digest(actual, expected):
+        errors.append("manifest HMAC signature mismatch")
+        return False
+    return True
+
+
+def canonical_manifest(manifest: dict[str, Any]) -> str:
+    canonical = [
+        f"schema_version={manifest.get('schema_version', '')}",
+        f"generated_at={manifest.get('generated_at', '')}",
+        f"report_id={manifest.get('report_id', '')}",
+        f"incident_id={manifest.get('incident_id', '')}",
+        f"cluster_id={manifest.get('cluster_id', '')}",
+        f"node_name={manifest.get('node_name', '')}",
+        f"evidence_count={manifest.get('evidence_count', '')}",
+        f"hash_algorithm={manifest.get('hash_algorithm', '')}",
+    ]
+    entries = [entry for entry in manifest.get("entries", []) if isinstance(entry, dict)]
+    for entry in sorted(entries, key=lambda item: str(item.get("path") or "")):
+        canonical.append(f"entry:{entry.get('path', '')}={entry.get('sha256', '')}")
+    return "\n".join(canonical) + "\n"
 
 
 def audit_event_count(client: Client, report_id: str) -> int:
@@ -419,6 +497,7 @@ def main() -> int:
 
         bundle_manifest: dict[str, Any] | None = None
         bundle_entry_count = 0
+        bundle_signature_verified = False
         audit_export_count = 0
         if report_id:
             bundle_bytes = client.request_bytes(
@@ -429,7 +508,11 @@ def main() -> int:
                 bundle_path = run_dir / "bundles" / f"{key}.zip"
                 bundle_path.parent.mkdir(parents=True, exist_ok=True)
                 bundle_path.write_bytes(bundle_bytes)
-            bundle_manifest, bundle_errors = validate_bundle(bundle_bytes)
+            bundle_manifest, bundle_errors, bundle_signature_verified = validate_bundle(
+                bundle_bytes,
+                args.bundle_signature_secret,
+                args.bundle_signature_key_id,
+            )
             bundle_entry_count = len(bundle_manifest.get("entries") or []) if bundle_manifest else 0
             errors.extend(bundle_errors)
             write_json(run_dir / "bundle-manifests" / f"{key}.json", bundle_manifest)
@@ -452,6 +535,7 @@ def main() -> int:
             "recommended_action_count": len((report or {}).get("recommended_actions") or []),
             "timeline_node_count": 0 if timeline is None else len(timeline.get("nodes") or []),
             "bundle_manifest_entry_count": bundle_entry_count,
+            "bundle_signature_verified": bundle_signature_verified,
             "bundle_export_audit_event_count": audit_export_count,
             "passed": not errors,
             "errors": errors,

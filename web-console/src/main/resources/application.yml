@@ -138,6 +138,8 @@ rca:
     enabled: ${RCA_DEMO_ENABLED:false}
   export:
     max-bundle-bytes: ${RCA_EXPORT_MAX_BUNDLE_BYTES:10485760}
+    signature-secret: ${RCA_EXPORT_SIGNATURE_SECRET:}
+    signature-key-id: ${RCA_EXPORT_SIGNATURE_KEY_ID:default}
   notification:
     enabled: ${RCA_NOTIFICATION_ENABLED:false}
     slack-webhook-url: ${RCA_SLACK_WEBHOOK_URL:}

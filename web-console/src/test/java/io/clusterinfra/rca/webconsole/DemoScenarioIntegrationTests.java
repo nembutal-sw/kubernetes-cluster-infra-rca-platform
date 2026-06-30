@@ -2,6 +2,8 @@ package io.clusterinfra.rca.webconsole;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.DemoScenarioRunRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
@@ -13,13 +15,19 @@ import io.clusterinfra.rca.webconsole.service.EvidenceBundleExportService;
 import io.clusterinfra.rca.webconsole.service.RuleBasedRcaAnalyzer;
 import io.clusterinfra.rca.webconsole.service.RcaAnalysisWorker;
 import java.io.ByteArrayInputStream;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,9 +37,14 @@ import org.springframework.boot.test.context.SpringBootTest;
     "spring.ai.model.chat=none",
     "rca.llm.enabled=false",
     "rca.demo.enabled=true",
+    "rca.export.signature-secret=test-bundle-signing-secret",
+    "rca.export.signature-key-id=test-key-1",
     "rca.pipeline.initial-delay-ms=600000"
 })
 class DemoScenarioIntegrationTests {
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Autowired
     private DemoScenarioService demos;
 
@@ -105,6 +118,14 @@ class DemoScenarioIntegrationTests {
             .contains("\"path\" : \"summary.json\"")
             .contains("\"path\" : \"rca-report.md\"")
             .contains("\"sha256\"");
+        JsonNode manifestJson = objectMapper.readTree(manifest);
+        JsonNode signature = manifestJson.path("signature");
+        assertThat(signature.path("enabled").asBoolean()).isTrue();
+        assertThat(signature.path("algorithm").asText()).isEqualTo("HMAC-SHA256");
+        assertThat(signature.path("key_id").asText()).isEqualTo("test-key-1");
+        assertThat(signature.path("canonicalization").asText()).isEqualTo("bundle-manifest-v1");
+        assertThat(signature.path("value").asText())
+            .isEqualTo(hmacSha256("test-bundle-signing-secret", canonicalManifest(manifestJson)));
     }
 
     @Test
@@ -195,5 +216,39 @@ class DemoScenarioIntegrationTests {
             case "systemd-restart-loop" -> List.of("systemd_failed_units", "kubelet_unit_unhealthy");
             default -> List.of();
         };
+    }
+
+    private String canonicalManifest(JsonNode manifest) {
+        StringBuilder canonical = new StringBuilder();
+        canonical.append("schema_version=").append(manifest.path("schema_version").asText()).append('\n');
+        canonical.append("generated_at=").append(manifest.path("generated_at").asText()).append('\n');
+        canonical.append("report_id=").append(manifest.path("report_id").asText()).append('\n');
+        canonical.append("incident_id=").append(manifest.path("incident_id").asText()).append('\n');
+        canonical.append("cluster_id=").append(manifest.path("cluster_id").asText()).append('\n');
+        canonical.append("node_name=").append(manifest.path("node_name").asText()).append('\n');
+        canonical.append("evidence_count=").append(manifest.path("evidence_count").asInt()).append('\n');
+        canonical.append("hash_algorithm=").append(manifest.path("hash_algorithm").asText()).append('\n');
+
+        List<JsonNode> entries = new ArrayList<>();
+        manifest.path("entries").forEach(entries::add);
+        entries.stream()
+            .sorted(Comparator.comparing(entry -> entry.path("path").asText()))
+            .forEach(entry -> canonical
+                .append("entry:")
+                .append(entry.path("path").asText())
+                .append('=')
+                .append(entry.path("sha256").asText())
+                .append('\n'));
+        return canonical.toString();
+    }
+
+    private String hmacSha256(String secret, String canonical) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 }

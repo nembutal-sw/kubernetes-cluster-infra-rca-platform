@@ -60,6 +60,8 @@ on:
     secrets:
       RCA_SMOKE_PASSWORD:
         required: true
+      RCA_BUNDLE_SIGNATURE_SECRET:
+        required: false
       TAILSCALE_AUTHKEY:
         required: false
 
@@ -77,6 +79,8 @@ jobs:
       SMOKE_SCENARIOS: ${{ inputs.scenarios || 'disk-pressure' }}
       SMOKE_TASK_TIMEOUT_SECONDS: ${{ inputs.task_timeout_seconds || '180' }}
       SMOKE_SKIP_AUDIT_CHECK: ${{ inputs.skip_audit_check }}
+      SMOKE_BUNDLE_SIGNATURE_SECRET: ${{ secrets.RCA_BUNDLE_SIGNATURE_SECRET }}
+      SMOKE_BUNDLE_SIGNATURE_KEY_ID: ${{ vars.RCA_BUNDLE_SIGNATURE_KEY_ID }}
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
     steps:
       - uses: actions/checkout@v7
@@ -122,6 +126,12 @@ jobs:
           )
           if [ "${SMOKE_SKIP_AUDIT_CHECK}" = "true" ]; then
             args+=(--skip-audit-check)
+          fi
+          if [ -n "${SMOKE_BUNDLE_SIGNATURE_SECRET}" ]; then
+            args+=(--bundle-signature-secret "${SMOKE_BUNDLE_SIGNATURE_SECRET}")
+          fi
+          if [ -n "${SMOKE_BUNDLE_SIGNATURE_KEY_ID}" ]; then
+            args+=(--bundle-signature-key-id "${SMOKE_BUNDLE_SIGNATURE_KEY_ID}")
           fi
 
           python scripts/operational_scenario_validation.py "${args[@]}"

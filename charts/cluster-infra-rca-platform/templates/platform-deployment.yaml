@@ -152,6 +152,8 @@ spec:
               value: {{ .Values.platform.config.demoEnabled | quote }}
             - name: RCA_EXPORT_MAX_BUNDLE_BYTES
               value: {{ .Values.platform.config.exportMaxBundleBytes | quote }}
+            - name: RCA_EXPORT_SIGNATURE_KEY_ID
+              value: {{ .Values.platform.config.exportSignatureKeyId | quote }}
             - name: RCA_NOTIFICATION_ENABLED
               value: {{ .Values.platform.config.notificationEnabled | quote }}
             - name: RCA_NOTIFICATION_MINIMUM_SEVERITY

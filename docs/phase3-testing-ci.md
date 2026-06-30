@@ -18,7 +18,8 @@ Java, React, API 통합 테스트를 건너뛰지 않습니다.
 
 `Operational Smoke`는 push마다 자동 실행하지 않고 `workflow_dispatch` 또는 `workflow_call`로 실행합니다.
 Tailscale 내부 서버를 검증할 때는 `TAILSCALE_AUTHKEY` secret을 사용하고, platform 비밀번호는
-`RCA_SMOKE_PASSWORD` secret으로만 전달합니다.
+`RCA_SMOKE_PASSWORD` secret으로만 전달합니다. Signed bundle 검증이 필요한 환경에서는
+`RCA_BUNDLE_SIGNATURE_SECRET` secret과 `RCA_BUNDLE_SIGNATURE_KEY_ID` variable을 추가합니다.
 
 ## Added Regression Coverage
 

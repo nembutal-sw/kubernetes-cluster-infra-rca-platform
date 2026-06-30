@@ -14,16 +14,20 @@ import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -179,8 +183,9 @@ public class EvidenceBundleExportService {
         Map<String, String> hashes
     ) {
         Map<String, Object> manifest = new LinkedHashMap<>();
+        String generatedAt = Instant.now().toString();
         manifest.put("schema_version", "1.0");
-        manifest.put("generated_at", Instant.now().toString());
+        manifest.put("generated_at", generatedAt);
         manifest.put("report_id", report.reportId());
         manifest.put("incident_id", incident.incidentId());
         manifest.put("cluster_id", incident.clusterId());
@@ -193,6 +198,7 @@ public class EvidenceBundleExportService {
                 "sha256", entry.getValue()
             ))
             .toList());
+        manifest.put("signature", signature(report, incident, generatedAt, evidenceCount, hashes));
         return manifest;
     }
 
@@ -201,6 +207,68 @@ public class EvidenceBundleExportService {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 digest is not available", exception);
+        }
+    }
+
+    private Map<String, Object> signature(
+        RcaReport report,
+        Incident incident,
+        String generatedAt,
+        int evidenceCount,
+        Map<String, String> hashes
+    ) {
+        Map<String, Object> signature = new LinkedHashMap<>();
+        String secret = properties.getExport().getSignatureSecret();
+        if (secret.isBlank()) {
+            signature.put("enabled", false);
+            signature.put("reason", "signature_secret_not_configured");
+            return signature;
+        }
+        signature.put("enabled", true);
+        signature.put("algorithm", "HMAC-SHA256");
+        signature.put("key_id", properties.getExport().getSignatureKeyId());
+        signature.put("canonicalization", "bundle-manifest-v1");
+        signature.put(
+            "value",
+            hmacSha256(secret, canonicalManifest(report, incident, generatedAt, evidenceCount, hashes))
+        );
+        return signature;
+    }
+
+    private String canonicalManifest(
+        RcaReport report,
+        Incident incident,
+        String generatedAt,
+        int evidenceCount,
+        Map<String, String> hashes
+    ) {
+        StringBuilder canonical = new StringBuilder();
+        canonical.append("schema_version=1.0\n");
+        canonical.append("generated_at=").append(generatedAt).append('\n');
+        canonical.append("report_id=").append(report.reportId()).append('\n');
+        canonical.append("incident_id=").append(incident.incidentId()).append('\n');
+        canonical.append("cluster_id=").append(incident.clusterId()).append('\n');
+        canonical.append("node_name=").append(incident.nodeName()).append('\n');
+        canonical.append("evidence_count=").append(evidenceCount).append('\n');
+        canonical.append("hash_algorithm=SHA-256\n");
+        hashes.entrySet().stream()
+            .sorted(Comparator.comparing(Map.Entry::getKey))
+            .forEach(entry -> canonical
+                .append("entry:")
+                .append(entry.getKey())
+                .append('=')
+                .append(entry.getValue())
+                .append('\n'));
+        return canonical.toString();
+    }
+
+    private String hmacSha256(String secret, String canonical) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException exception) {
+            throw new IllegalStateException("HMAC-SHA256 signing is not available", exception);
         }
     }
 

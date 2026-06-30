@@ -115,6 +115,8 @@ Evidence bundle export:
 - redacts sensitive values
 - applies bundle size limits
 - includes a SHA-256 integrity manifest
+- can include an HMAC-SHA256 manifest signature when `RCA_EXPORT_SIGNATURE_SECRET` is configured
+- can be verified offline with `scripts/verify_evidence_bundle.py`
 - writes audit events
 - returns `application/zip`
 - uses `Cache-Control: no-store`

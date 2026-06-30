@@ -123,6 +123,7 @@ platform:
     reportRetentionDays: 365
     demoEnabled: false
     exportMaxBundleBytes: 10485760
+    exportSignatureKeyId: default
     notificationEnabled: false
     notificationMinimumSeverity: critical
     notificationMaxAttempts: 2
@@ -146,6 +147,7 @@ platform:
     webhookToken: ""
     metricsToken: ""
     encryptionSecret: ""
+    exportSignatureSecret: ""
     slackWebhookUrl: ""
     openaiApiKey: ""
     anthropicApiKey: ""

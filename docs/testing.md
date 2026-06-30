@@ -80,9 +80,33 @@ python3 scripts/operational_scenario_validation.py \
 - LLM action은 항상 `automation_allowed=false`
 - restart, cleanup, cordon, reboot, GitOps PR action은 자동 실행 불가
 - evidence bundle ZIP의 필수 entry와 `manifest.json` SHA-256 hash가 유효한지 확인
+- `--bundle-signature-secret`이 제공되면 `manifest.json` HMAC-SHA256 서명을 검증
 - bundle export audit event가 생성되는지 확인 (`--skip-audit-check`로 비활성화 가능)
 
 결과는 `validation-results/operational-scenarios/<timestamp>/summary.json`에 저장됩니다.
+
+### Evidence Bundle Offline Verification
+
+다운로드한 evidence bundle ZIP은 서버 없이 오프라인에서 검증할 수 있습니다.
+
+```bash
+python3 scripts/verify_evidence_bundle.py incident-123.zip
+```
+
+Signed bundle 검증:
+
+```bash
+python3 scripts/verify_evidence_bundle.py incident-123.zip \
+  --signature-secret "$RCA_EXPORT_SIGNATURE_SECRET" \
+  --signature-key-id default \
+  --require-signature
+```
+
+검증 항목:
+
+- ZIP 필수 entry 존재 여부
+- `manifest.json`의 SHA-256 hash와 실제 entry 내용 일치 여부
+- `--signature-secret` 제공 시 HMAC-SHA256 manifest signature
 
 ### GitHub Actions Operational Smoke
 
@@ -97,12 +121,14 @@ Operational Smoke
 Repository secret:
 
 - `RCA_SMOKE_PASSWORD`: smoke 검증 계정의 비밀번호
+- `RCA_BUNDLE_SIGNATURE_SECRET`: signed bundle manifest를 검증할 때 필요
 - `TAILSCALE_AUTHKEY`: Tailscale 내부 주소를 검증할 때 필요
 
 Repository variable:
 
 - `RCA_SMOKE_BASE_URL`: 예) `http://100.72.130.26:18080`
 - `RCA_SMOKE_USERNAME`: 생략 시 `admin`
+- `RCA_BUNDLE_SIGNATURE_KEY_ID`: signed bundle manifest의 예상 `key_id`
 
 수동 실행 시 `base_url`, `username`, `scenarios`, `use_tailscale`,
 `skip_audit_check`를 입력할 수 있습니다. 실행 결과는

@@ -130,6 +130,22 @@ manifest.json
 
 Sensitive values are redacted before export, and the export action is audited. `manifest.json` records bundle metadata and SHA-256 hashes for exported files except the manifest itself.
 
+When `RCA_EXPORT_SIGNATURE_SECRET` is configured, `manifest.json` also includes:
+
+```json
+{
+  "signature": {
+    "enabled": true,
+    "algorithm": "HMAC-SHA256",
+    "key_id": "default",
+    "canonicalization": "bundle-manifest-v1",
+    "value": "<hex-hmac>"
+  }
+}
+```
+
+If the secret is not configured, `signature.enabled` is `false`. The bundle still contains SHA-256 entry hashes.
+
 ## Incident Timeline
 
 Timeline nodes and edges are additive API fields.
