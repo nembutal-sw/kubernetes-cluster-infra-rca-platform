@@ -1,0 +1,135 @@
+name: Operational Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Platform base URL. Defaults to repository variable RCA_SMOKE_BASE_URL."
+        required: false
+        type: string
+      username:
+        description: "Platform username. Defaults to RCA_SMOKE_USERNAME or admin."
+        required: false
+        default: "admin"
+        type: string
+      scenarios:
+        description: "Comma-separated scenario keys or all."
+        required: true
+        default: "disk-pressure"
+        type: string
+      task_timeout_seconds:
+        description: "Maximum seconds to wait for each RCA task."
+        required: true
+        default: "180"
+        type: string
+      use_tailscale:
+        description: "Connect this runner to Tailscale before validation."
+        required: true
+        default: true
+        type: boolean
+      skip_audit_check:
+        description: "Skip audit event verification for non-admin validation users."
+        required: true
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      base_url:
+        required: true
+        type: string
+      username:
+        required: false
+        type: string
+        default: "admin"
+      scenarios:
+        required: false
+        type: string
+        default: "disk-pressure"
+      task_timeout_seconds:
+        required: false
+        type: string
+        default: "180"
+      use_tailscale:
+        required: false
+        type: boolean
+        default: true
+      skip_audit_check:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      RCA_SMOKE_PASSWORD:
+        required: true
+      TAILSCALE_AUTHKEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  operational-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SMOKE_BASE_URL: ${{ inputs.base_url || vars.RCA_SMOKE_BASE_URL }}
+      SMOKE_USERNAME: ${{ inputs.username || vars.RCA_SMOKE_USERNAME || 'admin' }}
+      SMOKE_PASSWORD: ${{ secrets.RCA_SMOKE_PASSWORD }}
+      SMOKE_SCENARIOS: ${{ inputs.scenarios || 'disk-pressure' }}
+      SMOKE_TASK_TIMEOUT_SECONDS: ${{ inputs.task_timeout_seconds || '180' }}
+      SMOKE_SKIP_AUDIT_CHECK: ${{ inputs.skip_audit_check }}
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Require Tailscale auth key
+        if: ${{ inputs.use_tailscale && env.TAILSCALE_AUTHKEY == '' }}
+        run: |
+          echo "TAILSCALE_AUTHKEY secret is required when use_tailscale is true." >&2
+          exit 2
+
+      - name: Connect runner to Tailscale
+        if: ${{ inputs.use_tailscale && env.TAILSCALE_AUTHKEY != '' }}
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ env.TAILSCALE_AUTHKEY }}
+
+      - name: Validate smoke script syntax
+        run: python -m py_compile scripts/operational_scenario_validation.py
+
+      - name: Run operational smoke validation
+        run: |
+          set -euo pipefail
+          if [ -z "${SMOKE_BASE_URL}" ]; then
+            echo "SMOKE_BASE_URL is empty. Set workflow input base_url or repository variable RCA_SMOKE_BASE_URL." >&2
+            exit 2
+          fi
+          if [ -z "${SMOKE_PASSWORD}" ]; then
+            echo "RCA_SMOKE_PASSWORD secret is required." >&2
+            exit 2
+          fi
+
+          args=(
+            --base-url "${SMOKE_BASE_URL}"
+            --username "${SMOKE_USERNAME}"
+            --password "${SMOKE_PASSWORD}"
+            --scenarios "${SMOKE_SCENARIOS}"
+            --task-timeout-seconds "${SMOKE_TASK_TIMEOUT_SECONDS}"
+            --output-dir validation-results/operational-smoke
+          )
+          if [ "${SMOKE_SKIP_AUDIT_CHECK}" = "true" ]; then
+            args+=(--skip-audit-check)
+          fi
+
+          python scripts/operational_scenario_validation.py "${args[@]}"
+
+      - name: Upload smoke validation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operational-smoke-results
+          path: validation-results/operational-smoke
+          if-no-files-found: ignore

@@ -84,6 +84,30 @@ python3 scripts/operational_scenario_validation.py \
 
 결과는 `validation-results/operational-scenarios/<timestamp>/summary.json`에 저장됩니다.
 
+### GitHub Actions Operational Smoke
+
+배포된 서버를 대상으로 같은 검증을 GitHub Actions에서 수동 실행할 수 있습니다.
+
+Workflow:
+
+```text
+Operational Smoke
+```
+
+Repository secret:
+
+- `RCA_SMOKE_PASSWORD`: smoke 검증 계정의 비밀번호
+- `TAILSCALE_AUTHKEY`: Tailscale 내부 주소를 검증할 때 필요
+
+Repository variable:
+
+- `RCA_SMOKE_BASE_URL`: 예) `http://100.72.130.26:18080`
+- `RCA_SMOKE_USERNAME`: 생략 시 `admin`
+
+수동 실행 시 `base_url`, `username`, `scenarios`, `use_tailscale`,
+`skip_audit_check`를 입력할 수 있습니다. 실행 결과는
+`operational-smoke-results` artifact로 저장됩니다.
+
 ## DaemonSet Smoke
 
 실제 Kubernetes 클러스터에 Agent를 배포한 뒤 read-only 검증을 실행합니다.
