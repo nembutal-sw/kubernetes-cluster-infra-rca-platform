@@ -720,6 +720,29 @@ class PlatformHttpTests {
 
     @Test
     @Order(14)
+    void evidenceBundleManifestSummaryIsAvailableForOperators() throws Exception {
+        ResponseEntity<String> manifest = exchange(
+            "/api/rca/reports/" + reportId + "/bundle/manifest",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(manifest.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode body = objectMapper.readTree(manifest.getBody());
+        assertThat(body.path("report_id").asText()).isEqualTo(reportId);
+        assertThat(body.path("filename").asText()).startsWith("rca-evidence-bundle-");
+        assertThat(body.path("hash_algorithm").asText()).isEqualTo("SHA-256");
+        assertThat(body.path("entry_count").asInt()).isGreaterThanOrEqualTo(5);
+        assertThat(body.path("entries")).isNotEmpty();
+        assertThat(body.path("signature_enabled").asBoolean()).isTrue();
+        assertThat(body.path("signature_key_id").asText()).isEqualTo("platform-info-key");
+        assertThat(body.path("verification_command").asText())
+            .contains("verify_evidence_bundle.py")
+            .contains("--require-signature");
+        assertThat(manifest.getBody()).doesNotContain("platform-info-signing-secret");
+    }
+
+    @Test
+    @Order(15)
     void adminCanRotateAgentBootstrapTokenAndOldTokenStopsWorking() throws Exception {
         ResponseEntity<String> rotation = exchange(
             "/api/clusters/" + clusterId + "/agent-token/rotate",

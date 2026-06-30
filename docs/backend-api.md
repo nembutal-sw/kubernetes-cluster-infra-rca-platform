@@ -168,6 +168,7 @@ GET  /api/rca/reports/{report_id}
 GET  /api/rca/reports/export
 GET  /api/rca/reports/{report_id}/export
 GET  /api/rca/reports/{report_id}/bundle
+GET  /api/rca/reports/{report_id}/bundle/manifest
 ```
 
 Export endpoints are restricted to `ADMIN` and `OPERATOR`.
@@ -185,6 +186,8 @@ manifest.json
 
 Sensitive values are redacted before export. `manifest.json` contains bundle metadata and SHA-256 hashes for exported files except the manifest itself. If `RCA_EXPORT_SIGNATURE_SECRET` is configured, the manifest also includes an HMAC-SHA256 signature over the manifest metadata and entry hashes.
 
+`GET /api/rca/reports/{report_id}/bundle/manifest` returns a redacted manifest summary for the current report evidence, including entry paths, SHA-256 hashes, signature status, size limits, and the offline verification command. It never returns the signing secret.
+
 ## Incident APIs
 
 ```text
@@ -192,6 +195,7 @@ GET /api/rca/incidents
 GET /api/rca/incidents/{incident_id}
 GET /api/rca/incidents/{incident_id}/timeline
 GET /api/rca/incidents/{incident_id}/bundle
+GET /api/rca/incidents/{incident_id}/bundle/manifest
 POST /api/rca/incidents/{incident_id}/resolve
 POST /api/rca/incidents/{incident_id}/reopen
 ```

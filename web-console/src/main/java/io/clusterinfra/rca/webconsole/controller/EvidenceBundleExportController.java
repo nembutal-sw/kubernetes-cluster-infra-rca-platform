@@ -1,12 +1,14 @@
 package io.clusterinfra.rca.webconsole.controller;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundleManifestSummary;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.EvidenceBundleExportService;
 import io.clusterinfra.rca.webconsole.service.EvidenceBundleExportService.ExportedBundle;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -44,6 +46,12 @@ public class EvidenceBundleExportController {
         return response(exports.exportReport(reportId), "report", reportId, authentication, servletRequest);
     }
 
+    @GetMapping("/api/rca/reports/{reportId}/bundle/manifest")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public EvidenceBundleManifestSummary reportBundleManifest(@PathVariable String reportId) {
+        return exports.reportManifest(reportId);
+    }
+
     @GetMapping("/api/rca/incidents/{incidentId}/bundle")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
     public ResponseEntity<byte[]> incidentBundle(
@@ -52,6 +60,12 @@ public class EvidenceBundleExportController {
         HttpServletRequest servletRequest
     ) {
         return response(exports.exportIncident(incidentId), "incident", incidentId, authentication, servletRequest);
+    }
+
+    @GetMapping("/api/rca/incidents/{incidentId}/bundle/manifest")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public EvidenceBundleManifestSummary incidentBundleManifest(@PathVariable String incidentId) {
+        return exports.incidentManifest(incidentId);
     }
 
     private ResponseEntity<byte[]> response(
@@ -77,6 +91,31 @@ public class EvidenceBundleExportController {
             .filename(bundle.filename(), StandardCharsets.UTF_8)
             .build());
         headers.setCacheControl("no-store");
+        headers.add("X-RCA-Bundle-Filename", bundle.filename());
+        headers.add("X-RCA-Bundle-Evidence-Count", String.valueOf(bundle.evidenceCount()));
+        headers.add("X-RCA-Bundle-Raw-Bytes", String.valueOf(bundle.rawBytes()));
+        headers.add("X-RCA-Bundle-Zip-Bytes", String.valueOf(bundle.zipBytes()));
+        headers.add("X-RCA-Bundle-Hash-Algorithm", String.valueOf(bundle.manifest().getOrDefault("hash_algorithm", "")));
+        headers.add("X-RCA-Bundle-Entry-Count", String.valueOf(entryCount(bundle.manifest().get("entries"))));
+        Map<String, Object> signature = signature(bundle.manifest());
+        headers.add("X-RCA-Bundle-Signature-Enabled", String.valueOf(Boolean.TRUE.equals(signature.get("enabled"))));
+        if (signature.get("key_id") != null) {
+            headers.add("X-RCA-Bundle-Signature-Key-Id", String.valueOf(signature.get("key_id")));
+        }
         return ResponseEntity.ok().headers(headers).body(bundle.content());
+    }
+
+    private int entryCount(Object value) {
+        return value instanceof java.util.Collection<?> collection ? collection.size() : 0;
+    }
+
+    private Map<String, Object> signature(Map<String, Object> manifest) {
+        Object signature = manifest.get("signature");
+        if (!(signature instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, value) -> result.put(String.valueOf(key), value));
+        return result;
     }
 }

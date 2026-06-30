@@ -146,6 +146,15 @@ When `RCA_EXPORT_SIGNATURE_SECRET` is configured, `manifest.json` also includes:
 
 If the secret is not configured, `signature.enabled` is `false`. The bundle still contains SHA-256 entry hashes.
 
+The platform also exposes a role-restricted manifest summary endpoint for the Web Console:
+
+```text
+GET /api/rca/reports/{report_id}/bundle/manifest
+GET /api/rca/incidents/{incident_id}/bundle/manifest
+```
+
+This endpoint returns the current redacted bundle profile and offline verification command without returning the signing secret. The downloaded ZIP remains the source of truth because it contains its own `manifest.json`.
+
 ## Incident Timeline
 
 Timeline nodes and edges are additive API fields.

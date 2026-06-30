@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundleManifestEntry;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundleManifestSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentTimeline;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
@@ -72,6 +74,14 @@ public class EvidenceBundleExportService {
         return createBundle(report, incident);
     }
 
+    public EvidenceBundleManifestSummary reportManifest(String reportId) {
+        return manifestSummary(exportReport(reportId));
+    }
+
+    public EvidenceBundleManifestSummary incidentManifest(String incidentId) {
+        return manifestSummary(exportIncident(incidentId));
+    }
+
     private Incident incidentFor(RcaReport report) {
         if (report.incidentId() == null || report.incidentId().isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "report is not associated with an incident");
@@ -119,13 +129,17 @@ public class EvidenceBundleExportService {
                 maxBytes,
                 hashes
             );
-            addJson(zip, "manifest.json", manifest(report, incident, bundles.size(), hashes), rawBytes, maxBytes, null);
+            Map<String, Object> manifest = manifest(report, incident, bundles.size(), hashes);
+            addJson(zip, "manifest.json", manifest, rawBytes, maxBytes, null);
             zip.finish();
+            byte[] content = output.toByteArray();
             return new ExportedBundle(
-                "incident-" + safeName(incident.incidentId()) + ".zip",
-                output.toByteArray(),
+                "rca-evidence-bundle-" + safeName(report.reportId()) + ".zip",
+                content,
                 bundles.size(),
-                rawBytes[0]
+                rawBytes[0],
+                content.length,
+                manifest
             );
         } catch (IOException exception) {
             throw new IllegalStateException("evidence bundle export failed", exception);
@@ -262,6 +276,89 @@ public class EvidenceBundleExportService {
         return canonical.toString();
     }
 
+    private EvidenceBundleManifestSummary manifestSummary(ExportedBundle bundle) {
+        Map<String, Object> manifest = bundle.manifest();
+        Map<String, Object> signature = asMap(manifest.get("signature"));
+        String keyId = text(signature.get("key_id"));
+        String command = verificationCommand(
+            bundle.filename(),
+            Boolean.TRUE.equals(signature.get("enabled")),
+            keyId
+        );
+        List<EvidenceBundleManifestEntry> entries = entries(manifest.get("entries"));
+        return new EvidenceBundleManifestSummary(
+            text(manifest.get("schema_version")),
+            text(manifest.get("generated_at")),
+            text(manifest.get("report_id")),
+            text(manifest.get("incident_id")),
+            text(manifest.get("cluster_id")),
+            text(manifest.get("node_name")),
+            integer(manifest.get("evidence_count")),
+            text(manifest.get("hash_algorithm")),
+            entries.size(),
+            entries,
+            Boolean.TRUE.equals(signature.get("enabled")),
+            text(signature.get("algorithm")),
+            keyId,
+            text(signature.get("canonicalization")),
+            text(signature.get("reason")),
+            bundle.filename(),
+            bundle.rawBytes(),
+            bundle.zipBytes(),
+            Math.max(1024, properties.getExport().getMaxBundleBytes()),
+            command
+        );
+    }
+
+    private List<EvidenceBundleManifestEntry> entries(Object value) {
+        if (!(value instanceof List<?> items)) {
+            return List.of();
+        }
+        return items.stream()
+            .filter(Map.class::isInstance)
+            .map(item -> asMap(item))
+            .map(item -> new EvidenceBundleManifestEntry(
+                text(item.get("path")),
+                text(item.get("sha256"))
+            ))
+            .toList();
+    }
+
+    private Map<String, Object> asMap(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        return stringKeyMap(map);
+    }
+
+    private String verificationCommand(String filename, boolean signed, String keyId) {
+        StringBuilder command = new StringBuilder("python3 scripts/verify_evidence_bundle.py ");
+        command.append(filename == null || filename.isBlank() ? "<bundle.zip>" : filename);
+        if (signed) {
+            command.append(" --signature-secret \"$RCA_EXPORT_SIGNATURE_SECRET\"");
+            if (keyId != null && !keyId.isBlank()) {
+                command.append(" --signature-key-id ").append(keyId);
+            }
+            command.append(" --require-signature");
+        }
+        return command.toString();
+    }
+
+    private int integer(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
+    }
+
+    private String text(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
     private String hmacSha256(String secret, String canonical) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -363,7 +460,9 @@ public class EvidenceBundleExportService {
         String filename,
         byte[] content,
         int evidenceCount,
-        long rawBytes
+        long rawBytes,
+        long zipBytes,
+        Map<String, Object> manifest
     ) {
     }
 }

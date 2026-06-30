@@ -298,6 +298,36 @@ public final class RcaModels {
     ) {
     }
 
+    public record EvidenceBundleManifestSummary(
+        String schemaVersion,
+        String generatedAt,
+        String reportId,
+        String incidentId,
+        String clusterId,
+        String nodeName,
+        int evidenceCount,
+        String hashAlgorithm,
+        int entryCount,
+        List<EvidenceBundleManifestEntry> entries,
+        boolean signatureEnabled,
+        String signatureAlgorithm,
+        String signatureKeyId,
+        String signatureCanonicalization,
+        String signatureReason,
+        String filename,
+        long rawBytes,
+        long zipBytes,
+        long maxBundleBytes,
+        String verificationCommand
+    ) {
+    }
+
+    public record EvidenceBundleManifestEntry(
+        String path,
+        String sha256
+    ) {
+    }
+
     public record EvidenceRequestCreateRequest(
         @NotBlank String clusterId,
         @NotBlank @Size(max = 255) String nodeName,

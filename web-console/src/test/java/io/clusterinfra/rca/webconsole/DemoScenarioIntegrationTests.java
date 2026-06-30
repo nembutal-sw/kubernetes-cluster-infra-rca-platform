@@ -126,6 +126,20 @@ class DemoScenarioIntegrationTests {
         assertThat(signature.path("canonicalization").asText()).isEqualTo("bundle-manifest-v1");
         assertThat(signature.path("value").asText())
             .isEqualTo(hmacSha256("test-bundle-signing-secret", canonicalManifest(manifestJson)));
+
+        var summary = exports.reportManifest(report.reportId());
+        assertThat(summary.filename()).isEqualTo("rca-evidence-bundle-" + report.reportId() + ".zip");
+        assertThat(summary.reportId()).isEqualTo(report.reportId());
+        assertThat(summary.evidenceCount()).isGreaterThanOrEqualTo(1);
+        assertThat(summary.entryCount()).isGreaterThanOrEqualTo(5);
+        assertThat(summary.entries()).extracting("path")
+            .contains("summary.json", "signals.json", "timeline.json", "rca-report.md");
+        assertThat(summary.signatureEnabled()).isTrue();
+        assertThat(summary.signatureKeyId()).isEqualTo("test-key-1");
+        assertThat(summary.verificationCommand())
+            .contains("verify_evidence_bundle.py")
+            .contains("--require-signature")
+            .doesNotContain("test-bundle-signing-secret");
     }
 
     @Test

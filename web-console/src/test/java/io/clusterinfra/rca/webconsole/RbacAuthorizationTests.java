@@ -92,6 +92,9 @@ class RbacAuthorizationTests {
             mockMvc.perform(get("/api/rca/reports/missing/bundle")
                     .with(authentication(user(role))))
                 .andExpect(status().isForbidden());
+            mockMvc.perform(get("/api/rca/reports/missing/bundle/manifest")
+                    .with(authentication(user(role))))
+                .andExpect(status().isForbidden());
             mockMvc.perform(get("/api/rca/action-executions")
                     .with(authentication(user(role))))
                 .andExpect(status().isForbidden());

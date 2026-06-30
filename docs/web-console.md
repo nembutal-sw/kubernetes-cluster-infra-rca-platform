@@ -76,6 +76,15 @@ Recommended label:
 Download redacted evidence bundle
 ```
 
+The report detail view should also show:
+
+- manifest entry count and evidence count
+- SHA-256 hash algorithm
+- signature enabled/disabled status
+- ZIP/raw payload size
+- offline verifier command
+- a short list of manifest entry hashes
+
 ## Demo Scenario UX
 
 Demo Scenario Mode should clearly indicate that it uses generated evidence fixtures.

@@ -112,6 +112,24 @@ const KO = {
   "Evidence bundle downloaded.": "Evidence Bundle을 다운로드했습니다.",
   "Signed bundle": "서명된 Bundle",
   "Unsigned bundle": "서명 없는 Bundle",
+  "Bundle verification": "Bundle 검증",
+  "Manifest summary": "Manifest 요약",
+  "Offline verify": "오프라인 검증",
+  "Copy verifier": "검증 명령 복사",
+  "Bundle file": "Bundle 파일",
+  "Entry count": "Entry 수",
+  "ZIP size": "ZIP 크기",
+  "Raw payload": "원본 Payload",
+  "Entry hashes": "Entry 해시",
+  "Last generated": "마지막 생성",
+  "Quick filters": "빠른 필터",
+  "All events": "전체 이벤트",
+  "Export events": "Export 이벤트",
+  "Auth failures": "인증 실패",
+  "Approvals": "승인",
+  "Selected audit event": "선택한 감사 이벤트",
+  "Request context": "요청 컨텍스트",
+  "No audit event selected.": "선택한 감사 이벤트가 없습니다.",
   "Cascading timeline": "장애 전파 타임라인",
   "Action requests": "조치 요청",
   "Analysis tasks": "분석 작업",
@@ -123,6 +141,7 @@ const KO = {
   "Audit search": "감사 검색",
   Search: "검색",
   Export: "내보내기",
+  Open: "열기",
   "Client IP": "클라이언트 IP",
   Actor: "행위자",
   Event: "이벤트",
@@ -166,6 +185,7 @@ const KO = {
   "Bundle signature": "Bundle 서명",
   "Signature algorithm": "서명 알고리즘",
   "Signature key": "서명 키",
+  Signature: "서명",
   "Offline verifier": "오프라인 검증기",
   Enabled: "활성화",
   Disabled: "비활성화",
@@ -485,13 +505,17 @@ function ConsoleApp() {
           ? callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`)
           : Promise.resolve([]),
         incidentId ? callApi(`/api/rca/incidents/${encodeURIComponent(incidentId)}/timeline`) : Promise.resolve(null),
+        ["admin", "operator"].includes(currentUser?.role)
+          ? callApi(`/api/rca/reports/${encodeURIComponent(reportId)}/bundle/manifest`)
+          : Promise.resolve(null),
       ];
-      const [actionReq, executions, timeline] = await Promise.allSettled(requests);
+      const [actionReq, executions, timeline, bundleManifest] = await Promise.allSettled(requests);
       setReportDetail({
         report,
         actionRequests: arrayResult(actionReq),
         actionExecutions: arrayResult(executions),
         timeline: timeline.status === "fulfilled" ? timeline.value : null,
+        bundleManifest: bundleManifest.status === "fulfilled" ? bundleManifest.value : null,
       });
     } catch (error) {
       notify(error.message || "Failed to load report.", "danger");
@@ -665,6 +689,7 @@ function ConsoleApp() {
               onExportBundle={exportEvidenceBundle}
               onExportAll={() => exportReports()}
               platformInfo={platformInfo}
+              onCopy={(text) => copyText(text, notify)}
               t={t}
             />
           )}
@@ -1103,7 +1128,7 @@ function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
   );
 }
 
-function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, onExportAll, platformInfo, t }) {
+function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, onExportAll, platformInfo, onCopy, t }) {
   const canExport = ["admin", "operator"].includes(currentUser.role);
   return (
     <div className="page-stack">
@@ -1133,6 +1158,7 @@ function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, c
               onExportReport={onExportReport}
               onExportBundle={onExportBundle}
               platformInfo={platformInfo}
+              onCopy={onCopy}
               t={t}
             />
           ) : <EmptyState message="Select an RCA report." />}
@@ -1142,7 +1168,7 @@ function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, c
   );
 }
 
-function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, platformInfo, t }) {
+function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, platformInfo, onCopy, t }) {
   const report = detail.report;
   const candidates = report.root_cause_candidates || [];
   const actions = report.recommended_actions || [];
@@ -1195,6 +1221,12 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
         </div>
       )}
 
+      {canExport && (
+        <Surface title={t("Bundle verification")} subtitle="Offline integrity check and current manifest preview">
+          <BundleVerificationPanel manifest={detail.bundleManifest} platformInfo={platformInfo} onCopy={onCopy} t={t} />
+        </Surface>
+      )}
+
       <Surface title={t("Cascading timeline")} subtitle="Observed evidence order and inferred propagation">
         <TimelineGraph timeline={detail.timeline} report={report} t={t} />
       </Surface>
@@ -1232,6 +1264,68 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
           t={t}
         />
       </Surface>
+    </div>
+  );
+}
+
+function BundleVerificationPanel({ manifest, platformInfo, onCopy, t }) {
+  const exportSecurity = platformInfo?.export_security || platformInfo?.exportSecurity || {};
+  const entries = manifest?.entries || [];
+  const command = manifest?.verification_command || manifest?.verificationCommand || "";
+  const signatureEnabled = Boolean(manifest?.signature_enabled ?? manifest?.signatureEnabled ?? exportSecurity.bundle_signature_enabled);
+  if (!manifest) {
+    return <EmptyState message="Manifest summary is available to export-authorized users after report detail loads." />;
+  }
+  return (
+    <div className="bundle-verification">
+      <div className="bundle-verify-grid">
+        <MetricTile label={t("Bundle file")} value={manifest.filename || "bundle.zip"} tone="blue" icon="file-earmark-zip" />
+        <MetricTile label={t("Entry count")} value={manifest.entry_count ?? manifest.entryCount ?? entries.length} tone="teal" icon="list-check" />
+        <MetricTile label={t("ZIP size")} value={formatBytes(manifest.zip_bytes ?? manifest.zipBytes)} tone="green" icon="archive" />
+        <MetricTile label={t("Raw payload")} value={formatBytes(manifest.raw_bytes ?? manifest.rawBytes)} tone="amber" icon="database" />
+      </div>
+
+      <div className="manifest-summary-grid">
+        <div>
+          <span>{t("Hash algorithm")}</span>
+          <strong>{manifest.hash_algorithm || manifest.hashAlgorithm || "SHA-256"}</strong>
+        </div>
+        <div>
+          <span>{t("Signature")}</span>
+          <strong>{signatureEnabled ? `${manifest.signature_algorithm || manifest.signatureAlgorithm || "HMAC-SHA256"} / ${manifest.signature_key_id || manifest.signatureKeyId || "default"}` : t("Unsigned bundle")}</strong>
+        </div>
+        <div>
+          <span>{t("Last generated")}</span>
+          <strong>{formatDate(manifest.generated_at || manifest.generatedAt)}</strong>
+        </div>
+        <div>
+          <span>{t("Max bundle size")}</span>
+          <strong>{formatBytes(manifest.max_bundle_bytes ?? manifest.maxBundleBytes ?? exportSecurity.max_bundle_bytes)}</strong>
+        </div>
+      </div>
+
+      <div className="verify-command-box">
+        <div>
+          <span>{t("Offline verify")}</span>
+          <code>{command || "python3 scripts/verify_evidence_bundle.py <bundle.zip>"}</code>
+        </div>
+        <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy?.(command)}>
+          <Icon name="clipboard-check" /><span>{t("Copy verifier")}</span>
+        </button>
+      </div>
+
+      <div className="manifest-entry-list">
+        <div className="manifest-entry-head">
+          <strong>{t("Entry hashes")}</strong>
+          <span>{entries.length} SHA-256</span>
+        </div>
+        {entries.slice(0, 6).map((entry) => (
+          <div key={entry.path} className="manifest-entry">
+            <code>{entry.path}</code>
+            <span>{shortHash(entry.sha256)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1551,14 +1645,37 @@ function DemoScenarios({ scenarios, clusters, onRunDemo, t }) {
 
 function AuditView({ events, onSearch, onExport, t }) {
   const [filters, setFilters] = useState({ q: "", client_ip: "", event_type: "", outcome: "", limit: 200 });
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const selectedEvent = events.find((event) => event.audit_event_id === selectedEventId) || events[0] || null;
+  const stats = auditStats(events);
+
+  useEffect(() => {
+    if (events.length && !events.some((event) => event.audit_event_id === selectedEventId)) {
+      setSelectedEventId(events[0].audit_event_id);
+    }
+  }, [events, selectedEventId]);
+
   async function submit(event) {
     event.preventDefault();
     await onSearch(filters);
   }
+
+  async function quickFilter(nextFilters) {
+    const merged = { ...filters, ...nextFilters };
+    setFilters(merged);
+    await onSearch(merged);
+  }
+
   return (
     <div className="page-stack">
       <PageHeader title={t("Audit")} subtitle="Access, approval, export, agent auth, and administrative records." />
       <Surface title={t("Audit search")} subtitle="Filter by event, IP, actor, outcome, or text">
+        <div className="quick-filter-row" aria-label={t("Quick filters")}>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "", event_type: "", outcome: "", client_ip: "" })}>{t("All events")}</button>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "export", event_type: "", outcome: "" })}>{t("Export events")}</button>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "auth", event_type: "", outcome: "failed" })}>{t("Auth failures")}</button>
+          <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "approval", event_type: "", outcome: "" })}>{t("Approvals")}</button>
+        </div>
         <form className="audit-form" onSubmit={submit}>
           <input className="form-control" placeholder="q" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} />
           <input className="form-control" placeholder={t("Client IP")} value={filters.client_ip} onChange={(event) => setFilters({ ...filters, client_ip: event.target.value })} />
@@ -1569,21 +1686,60 @@ function AuditView({ events, onSearch, onExport, t }) {
           <button type="button" className="btn btn-outline-secondary" onClick={() => onExport("csv", filters)}>CSV</button>
         </form>
       </Surface>
-      <Surface title={t("Audit")} subtitle={`${events.length} events`}>
-        <ResponsiveTable
-          empty={t("No audit events loaded.")}
-          columns={[t("Created at"), t("Actor"), t("Event"), t("Resource"), t("Outcome"), t("Client IP"), t("Details")]}
-          rows={events.map((event) => [
-            formatDate(event.created_at),
-            `${event.actor_type}/${event.actor_id || "-"}`,
-            event.event_type,
-            `${event.resource_type}/${event.resource_id || "-"}`,
-            <StatusBadge value={event.outcome} tone={auditTone(event.outcome)} t={t} />,
-            auditClientIp(event),
-            <span className="text-break">{auditSummary(event.details)}</span>,
-          ])}
-        />
-      </Surface>
+      <section className="audit-stats">
+        <MetricTile label={t("All events")} value={events.length} tone="blue" icon="journal-check" />
+        <MetricTile label={t("Export events")} value={stats.exports} tone="teal" icon="download" />
+        <MetricTile label={t("Auth failures")} value={stats.failures} tone={stats.failures ? "red" : "green"} icon="shield-x" />
+        <MetricTile label={t("Approvals")} value={stats.approvals} tone="amber" icon="person-check" />
+      </section>
+      <div className="audit-layout">
+        <Surface title={t("Audit")} subtitle={`${events.length} events`}>
+          <ResponsiveTable
+            empty={t("No audit events loaded.")}
+            columns={[t("Created at"), t("Actor"), t("Event"), t("Resource"), t("Outcome"), t("Client IP"), t("Details"), ""]}
+            rows={events.map((event) => [
+              formatDate(event.created_at),
+              `${event.actor_type}/${event.actor_id || "-"}`,
+              <span className={event.event_type?.includes("export") ? "audit-export-event" : ""}>{event.event_type}</span>,
+              `${event.resource_type}/${event.resource_id || "-"}`,
+              <StatusBadge value={event.outcome} tone={auditTone(event.outcome)} t={t} />,
+              auditClientIp(event),
+              <span className="text-break">{auditSummary(event.details)}</span>,
+              <button className="btn btn-sm btn-outline-secondary" onClick={() => setSelectedEventId(event.audit_event_id)}>{t("Open")}</button>,
+            ])}
+          />
+        </Surface>
+        <Surface title={t("Selected audit event")} subtitle={selectedEvent ? selectedEvent.audit_event_id : ""}>
+          <AuditEventDetail event={selectedEvent} t={t} />
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
+function AuditEventDetail({ event, t }) {
+  if (!event) return <EmptyState message={t("No audit event selected.")} />;
+  const details = event.details || {};
+  const requestKeys = ["client_ip", "client_ip_source", "remote_addr", "method", "path", "user_agent", "origin", "referer_path", "request_id"];
+  return (
+    <div className="audit-detail">
+      <div className="audit-kv">
+        <div><span>{t("Created at")}</span><strong>{formatDate(event.created_at)}</strong></div>
+        <div><span>{t("Actor")}</span><strong>{event.actor_type}/{event.actor_id || "-"}</strong></div>
+        <div><span>{t("Event")}</span><strong>{event.event_type}</strong></div>
+        <div><span>{t("Resource")}</span><strong>{event.resource_type}/{event.resource_id || "-"}</strong></div>
+        <div><span>{t("Outcome")}</span><strong><StatusBadge value={event.outcome} tone={auditTone(event.outcome)} t={t} /></strong></div>
+        <div><span>{t("Client IP")}</span><strong>{auditClientIp(event)}</strong></div>
+      </div>
+      <div className="audit-context">
+        <strong>{t("Request context")}</strong>
+        <div className="audit-context-grid">
+          {requestKeys.filter((key) => details[key]).map((key) => (
+            <div key={key}><span>{key}</span><code>{String(details[key])}</code></div>
+          ))}
+        </div>
+      </div>
+      <pre className="audit-json">{JSON.stringify(details, null, 2)}</pre>
     </div>
   );
 }
@@ -2003,6 +2159,17 @@ function buildAuditQuery(filters) {
   return query.toString();
 }
 
+function auditStats(events) {
+  return (events || []).reduce((stats, event) => {
+    const type = String(event.event_type || "").toLowerCase();
+    const outcome = String(event.outcome || "").toLowerCase();
+    if (type.includes("export") || type.includes("bundle")) stats.exports += 1;
+    if (outcome.includes("fail") || outcome.includes("unauthorized") || outcome.includes("forbidden")) stats.failures += 1;
+    if (type.includes("approval") || type.includes("approve") || type.includes("action_request")) stats.approvals += 1;
+    return stats;
+  }, { exports: 0, failures: 0, approvals: 0 });
+}
+
 function buildSignalDigest(reports, incidents) {
   const fromReports = (reports || []).flatMap((report) => {
     const candidates = report.root_cause_candidates || [];
@@ -2163,6 +2330,11 @@ function formatBytes(value) {
     unitIndex += 1;
   }
   return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function shortHash(value) {
+  const text = String(value || "");
+  return text.length > 18 ? `${text.slice(0, 12)}…${text.slice(-6)}` : text || "n/a";
 }
 
 function formatDate(value) {
