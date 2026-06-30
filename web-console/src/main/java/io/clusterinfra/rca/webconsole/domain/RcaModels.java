@@ -283,7 +283,18 @@ public final class RcaModels {
         String apiVersion,
         String agentProtocolVersion,
         String minimumSupportedAgentProtocolVersion,
-        String minimumSupportedAgentVersion
+        String minimumSupportedAgentVersion,
+        ExportSecurityInfo exportSecurity
+    ) {
+    }
+
+    public record ExportSecurityInfo(
+        long maxBundleBytes,
+        String hashAlgorithm,
+        boolean bundleSignatureEnabled,
+        String bundleSignatureAlgorithm,
+        String bundleSignatureKeyId,
+        String offlineVerifier
     ) {
     }
 

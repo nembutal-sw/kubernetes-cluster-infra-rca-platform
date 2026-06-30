@@ -151,6 +151,20 @@ const KO = {
   Yes: "예",
   No: "아니오",
   "Platform info": "플랫폼 정보",
+  "Platform version": "플랫폼 버전",
+  "API version": "API 버전",
+  "Agent protocol": "Agent 프로토콜",
+  "Minimum agent protocol": "최소 Agent 프로토콜",
+  "Minimum agent version": "최소 Agent 버전",
+  "Export security": "Export 보안",
+  "Max bundle size": "Bundle 최대 크기",
+  "Hash algorithm": "Hash 알고리즘",
+  "Bundle signature": "Bundle 서명",
+  "Signature algorithm": "서명 알고리즘",
+  "Signature key": "서명 키",
+  "Offline verifier": "오프라인 검증기",
+  Enabled: "활성화",
+  Disabled: "비활성화",
   open: "진행 중",
   resolved: "해결됨",
   high: "높음",
@@ -1642,9 +1656,14 @@ function SettingsView({ locale, setLocale, platformInfo, currentUser, onChangeLo
       >
         <LayoutAuditPanel audit={layoutAudit} t={t} />
       </Surface>
-      <Surface title={t("Platform info")} subtitle="Protocol compatibility">
+      <Surface title={t("Platform info")} subtitle="Protocol compatibility and export integrity">
         <div className="info-grid">
-          {Object.entries(platformInfo || {}).map(([key, value]) => <div key={key}><span>{key}</span><strong>{String(value)}</strong></div>)}
+          {platformInfoRows(platformInfo, t).map((row) => (
+            <div key={row.key} className={row.tone ? `info-card-${row.tone}` : ""}>
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </div>
+          ))}
         </div>
       </Surface>
     </div>
@@ -2050,6 +2069,75 @@ function shortValue(value) {
   if (value === null || value === undefined) return "n/a";
   if (typeof value === "object") return JSON.stringify(value).slice(0, 180);
   return String(value).slice(0, 180);
+}
+
+function platformInfoRows(platformInfo, t) {
+  const exportSecurity = platformInfo?.export_security || {};
+  const rows = [
+    { key: "platform_version", label: t("Platform version"), value: platformInfo?.platform_version || "n/a" },
+    { key: "api_version", label: t("API version"), value: platformInfo?.api_version || "n/a" },
+    { key: "agent_protocol_version", label: t("Agent protocol"), value: platformInfo?.agent_protocol_version || "n/a" },
+    {
+      key: "minimum_supported_agent_protocol_version",
+      label: t("Minimum agent protocol"),
+      value: platformInfo?.minimum_supported_agent_protocol_version || "n/a",
+    },
+    {
+      key: "minimum_supported_agent_version",
+      label: t("Minimum agent version"),
+      value: platformInfo?.minimum_supported_agent_version || "n/a",
+    },
+  ];
+  if (platformInfo?.export_security) {
+    rows.push(
+      {
+        key: "export_security.max_bundle_bytes",
+        label: `${t("Export security")} · ${t("Max bundle size")}`,
+        value: formatBytes(exportSecurity.max_bundle_bytes),
+      },
+      {
+        key: "export_security.hash_algorithm",
+        label: `${t("Export security")} · ${t("Hash algorithm")}`,
+        value: exportSecurity.hash_algorithm || "n/a",
+      },
+      {
+        key: "export_security.bundle_signature_enabled",
+        label: `${t("Export security")} · ${t("Bundle signature")}`,
+        value: exportSecurity.bundle_signature_enabled ? t("Enabled") : t("Disabled"),
+        tone: exportSecurity.bundle_signature_enabled ? "ok" : "muted",
+      },
+      {
+        key: "export_security.bundle_signature_algorithm",
+        label: `${t("Export security")} · ${t("Signature algorithm")}`,
+        value: exportSecurity.bundle_signature_algorithm || "n/a",
+      },
+      {
+        key: "export_security.bundle_signature_key_id",
+        label: `${t("Export security")} · ${t("Signature key")}`,
+        value: exportSecurity.bundle_signature_key_id || "n/a",
+      },
+      {
+        key: "export_security.offline_verifier",
+        label: `${t("Export security")} · ${t("Offline verifier")}`,
+        value: exportSecurity.offline_verifier || "n/a",
+      },
+    );
+  }
+  return rows;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "n/a";
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let amount = bytes / 1024;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  return `${amount.toFixed(amount >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function formatDate(value) {

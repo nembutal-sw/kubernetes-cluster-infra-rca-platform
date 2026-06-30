@@ -125,7 +125,15 @@ Response shape:
   "api_version": "v1",
   "agent_protocol_version": "1",
   "minimum_supported_agent_protocol_version": "1",
-  "minimum_supported_agent_version": "0.1.0"
+  "minimum_supported_agent_version": "0.1.0",
+  "export_security": {
+    "max_bundle_bytes": 10485760,
+    "hash_algorithm": "SHA-256",
+    "bundle_signature_enabled": false,
+    "bundle_signature_algorithm": "none",
+    "bundle_signature_key_id": "",
+    "offline_verifier": "scripts/verify_evidence_bundle.py"
+  }
 }
 ```
 

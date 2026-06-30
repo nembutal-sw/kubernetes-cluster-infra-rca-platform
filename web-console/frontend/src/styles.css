@@ -1427,6 +1427,16 @@ code {
   font-size: 0.8rem;
 }
 
+.info-grid .info-card-ok {
+  border-color: rgba(44, 123, 229, 0.28);
+  background: rgba(44, 123, 229, 0.06);
+}
+
+.info-grid .info-card-muted {
+  border-color: rgba(120, 130, 150, 0.26);
+  background: rgba(120, 130, 150, 0.06);
+}
+
 .diagnostics-panel {
   display: grid;
   gap: 14px;

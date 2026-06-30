@@ -69,6 +69,8 @@ class PlatformHttpTests {
         registry.add("rca.observability.metrics-token", () -> "metrics-contract-token");
         registry.add("rca.security.standard-request-max-bytes", () -> "1024");
         registry.add("rca.security.evidence-request-max-bytes", () -> "4096");
+        registry.add("rca.export.signature-secret", () -> "platform-info-signing-secret");
+        registry.add("rca.export.signature-key-id", () -> "platform-info-key");
     }
 
     @Test
@@ -589,6 +591,13 @@ class PlatformHttpTests {
         assertThat(info.path("api_version").asText()).isEqualTo("v1");
         assertThat(info.path("agent_protocol_version").asText()).isEqualTo("1");
         assertThat(info.path("minimum_supported_agent_protocol_version").asText()).isEqualTo("1");
+        JsonNode exportSecurity = info.path("export_security");
+        assertThat(exportSecurity.path("hash_algorithm").asText()).isEqualTo("SHA-256");
+        assertThat(exportSecurity.path("bundle_signature_enabled").asBoolean()).isTrue();
+        assertThat(exportSecurity.path("bundle_signature_algorithm").asText()).isEqualTo("HMAC-SHA256");
+        assertThat(exportSecurity.path("bundle_signature_key_id").asText()).isEqualTo("platform-info-key");
+        assertThat(exportSecurity.path("offline_verifier").asText()).isEqualTo("scripts/verify_evidence_bundle.py");
+        assertThat(info.toString()).doesNotContain("platform-info-signing-secret");
     }
 
     @Test

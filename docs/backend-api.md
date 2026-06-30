@@ -90,9 +90,19 @@ Requires an authenticated platform user.
   "api_version": "v1",
   "agent_protocol_version": "1",
   "minimum_supported_agent_protocol_version": "1",
-  "minimum_supported_agent_version": "0.1.0"
+  "minimum_supported_agent_version": "0.1.0",
+  "export_security": {
+    "max_bundle_bytes": 10485760,
+    "hash_algorithm": "SHA-256",
+    "bundle_signature_enabled": true,
+    "bundle_signature_algorithm": "HMAC-SHA256",
+    "bundle_signature_key_id": "default",
+    "offline_verifier": "scripts/verify_evidence_bundle.py"
+  }
 }
 ```
+
+`export_security` reports export integrity settings only. It never returns signing secrets.
 
 ## Cluster APIs
 
