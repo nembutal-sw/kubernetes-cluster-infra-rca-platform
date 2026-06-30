@@ -75,6 +75,7 @@ class DemoScenarioIntegrationTests {
         var bundle = exports.exportReport(report.reportId());
         List<String> entries = new ArrayList<>();
         String markdown = "";
+        String manifest = "";
         try (ZipInputStream zip = new ZipInputStream(
             new ByteArrayInputStream(bundle.content()),
             StandardCharsets.UTF_8
@@ -85,16 +86,25 @@ class DemoScenarioIntegrationTests {
                 if ("rca-report.md".equals(entry.getName())) {
                     markdown = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
                 }
+                if ("manifest.json".equals(entry.getName())) {
+                    manifest = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                }
             }
         }
         assertThat(entries)
-            .contains("summary.json", "signals.json", "timeline.json", "rca-report.md")
+            .contains("summary.json", "signals.json", "timeline.json", "rca-report.md", "manifest.json")
             .anyMatch(name -> name.startsWith("evidence/"));
         assertThat(markdown)
             .contains("DiskPressure")
             .contains("## Derived Rule Signals")
             .contains("disk_usage_critical")
             .contains("automation_allowed=");
+        assertThat(manifest)
+            .contains(report.reportId())
+            .contains("\"hash_algorithm\" : \"SHA-256\"")
+            .contains("\"path\" : \"summary.json\"")
+            .contains("\"path\" : \"rca-report.md\"")
+            .contains("\"sha256\"");
     }
 
     @Test

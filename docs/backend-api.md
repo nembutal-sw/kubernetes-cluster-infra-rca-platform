@@ -159,9 +159,10 @@ evidence/*.json
 signals.json
 timeline.json
 rca-report.md
+manifest.json
 ```
 
-Sensitive values are redacted before export.
+Sensitive values are redacted before export. `manifest.json` contains bundle metadata and SHA-256 hashes for exported files except the manifest itself.
 
 ## Incident APIs
 

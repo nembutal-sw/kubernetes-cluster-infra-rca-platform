@@ -114,6 +114,7 @@ Evidence bundle export:
 
 - redacts sensitive values
 - applies bundle size limits
+- includes a SHA-256 integrity manifest
 - writes audit events
 - returns `application/zip`
 - uses `Cache-Control: no-store`

@@ -14,7 +14,11 @@ import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,30 +88,34 @@ public class EvidenceBundleExportService {
         long[] rawBytes = {0};
         try (ByteArrayOutputStream output = new ByteArrayOutputStream();
              ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
+            Map<String, String> hashes = new LinkedHashMap<>();
             Map<String, Object> summary = new LinkedHashMap<>();
             summary.put("schema_version", "1.0");
             summary.put("report", safeMap(report));
             summary.put("incident", safeMap(incident));
             summary.put("evidence_count", bundles.size());
-            addJson(zip, "summary.json", summary, rawBytes, maxBytes);
+            addJson(zip, "summary.json", summary, rawBytes, maxBytes, hashes);
             for (EvidenceBundle bundle : bundles) {
                 addJson(
                     zip,
                     "evidence/" + safeName(bundle.evidenceId()) + ".json",
                     safeMap(bundle),
                     rawBytes,
-                    maxBytes
+                    maxBytes,
+                    hashes
                 );
             }
-            addJson(zip, "signals.json", report.evidence(), rawBytes, maxBytes);
-            addJson(zip, "timeline.json", safeMap(timeline), rawBytes, maxBytes);
+            addJson(zip, "signals.json", report.evidence(), rawBytes, maxBytes, hashes);
+            addJson(zip, "timeline.json", safeMap(timeline), rawBytes, maxBytes, hashes);
             addEntry(
                 zip,
                 "rca-report.md",
                 SensitiveDataRedactor.redactText(markdown(report, incident)).getBytes(StandardCharsets.UTF_8),
                 rawBytes,
-                maxBytes
+                maxBytes,
+                hashes
             );
+            addJson(zip, "manifest.json", manifest(report, incident, bundles.size(), hashes), rawBytes, maxBytes, null);
             zip.finish();
             return new ExportedBundle(
                 "incident-" + safeName(incident.incidentId()) + ".zip",
@@ -125,7 +133,8 @@ public class EvidenceBundleExportService {
         String name,
         Object value,
         long[] rawBytes,
-        long maxBytes
+        long maxBytes,
+        Map<String, String> hashes
     ) throws IOException {
         Object redacted = value instanceof Map<?, ?> map
             ? SensitiveDataRedactor.redactMap(stringKeyMap(map))
@@ -135,7 +144,8 @@ public class EvidenceBundleExportService {
             name,
             objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(redacted),
             rawBytes,
-            maxBytes
+            maxBytes,
+            hashes
         );
     }
 
@@ -144,7 +154,8 @@ public class EvidenceBundleExportService {
         String name,
         byte[] content,
         long[] rawBytes,
-        long maxBytes
+        long maxBytes,
+        Map<String, String> hashes
     ) throws IOException {
         rawBytes[0] += content.length;
         if (rawBytes[0] > maxBytes) {
@@ -153,9 +164,44 @@ public class EvidenceBundleExportService {
                 "evidence bundle exceeds the configured export size limit"
             );
         }
+        if (hashes != null) {
+            hashes.put(name, sha256(content));
+        }
         zip.putNextEntry(new ZipEntry(name));
         zip.write(content);
         zip.closeEntry();
+    }
+
+    private Map<String, Object> manifest(
+        RcaReport report,
+        Incident incident,
+        int evidenceCount,
+        Map<String, String> hashes
+    ) {
+        Map<String, Object> manifest = new LinkedHashMap<>();
+        manifest.put("schema_version", "1.0");
+        manifest.put("generated_at", Instant.now().toString());
+        manifest.put("report_id", report.reportId());
+        manifest.put("incident_id", incident.incidentId());
+        manifest.put("cluster_id", incident.clusterId());
+        manifest.put("node_name", incident.nodeName());
+        manifest.put("evidence_count", evidenceCount);
+        manifest.put("hash_algorithm", "SHA-256");
+        manifest.put("entries", hashes.entrySet().stream()
+            .map(entry -> Map.of(
+                "path", entry.getKey(),
+                "sha256", entry.getValue()
+            ))
+            .toList());
+        return manifest;
+    }
+
+    private String sha256(byte[] content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 digest is not available", exception);
+        }
     }
 
     private Map<String, Object> safeMap(Object value) {

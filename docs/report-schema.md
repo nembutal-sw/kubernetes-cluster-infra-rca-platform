@@ -4,7 +4,7 @@
 
 RCA Report는 단순히 “원인 하나”를 보여주는 문서가 아니라, **어떤 evidence가 어떤 signal로 해석되었고, 어떤 근거로 원인 후보와 권장 조치가 나왔는지** 보여주는 결과물입니다.
 
-현재 report는 timeline, confidence score, impact scope, policy-classified actions, trigger metadata를 포함합니다. Evidence bundle export를 통해 report에 사용된 redacted evidence와 timeline을 ZIP으로 내려받을 수 있습니다.
+현재 report는 timeline, confidence score, impact scope, policy-classified actions, trigger metadata를 포함합니다. Evidence bundle export를 통해 report에 사용된 redacted evidence, timeline, 무결성 manifest를 ZIP으로 내려받을 수 있습니다.
 
 ---
 
@@ -125,9 +125,10 @@ evidence/*.json
 signals.json
 timeline.json
 rca-report.md
+manifest.json
 ```
 
-Sensitive values are redacted before export, and the export action is audited.
+Sensitive values are redacted before export, and the export action is audited. `manifest.json` records bundle metadata and SHA-256 hashes for exported files except the manifest itself.
 
 ## Incident Timeline
 
