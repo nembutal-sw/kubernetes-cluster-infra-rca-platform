@@ -108,6 +108,10 @@ const KO = {
   "Automation blocked": "자동화 차단",
   "Export report": "보고서 내보내기",
   "Export all": "전체 내보내기",
+  "Download bundle": "Evidence Bundle 다운로드",
+  "Evidence bundle downloaded.": "Evidence Bundle을 다운로드했습니다.",
+  "Signed bundle": "서명된 Bundle",
+  "Unsigned bundle": "서명 없는 Bundle",
   "Cascading timeline": "장애 전파 타임라인",
   "Action requests": "조치 요청",
   "Analysis tasks": "분석 작업",
@@ -580,6 +584,11 @@ function ConsoleApp() {
     notify("Report exported.");
   }
 
+  async function exportEvidenceBundle(reportId) {
+    await downloadApi(`/api/rca/reports/${encodeURIComponent(reportId)}/bundle`, `rca-evidence-bundle-${reportId}.zip`);
+    notify(t("Evidence bundle downloaded."));
+  }
+
   async function exportAudit(format = "json", filters = {}) {
     const query = buildAuditQuery({ ...filters, format, limit: 5000 });
     await downloadApi(`/api/audit/events/export?${query}`, `audit-events.${format}`);
@@ -653,7 +662,9 @@ function ConsoleApp() {
               onDecideAction={decideActionRequest}
               onCompleteManual={completeManualAction}
               onExportReport={exportReport}
+              onExportBundle={exportEvidenceBundle}
               onExportAll={() => exportReports()}
+              platformInfo={platformInfo}
               t={t}
             />
           )}
@@ -1092,7 +1103,7 @@ function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
   );
 }
 
-function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportAll, t }) {
+function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, onExportAll, platformInfo, t }) {
   const canExport = ["admin", "operator"].includes(currentUser.role);
   return (
     <div className="page-stack">
@@ -1120,6 +1131,8 @@ function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, c
               onDecideAction={onDecideAction}
               onCompleteManual={onCompleteManual}
               onExportReport={onExportReport}
+              onExportBundle={onExportBundle}
+              platformInfo={platformInfo}
               t={t}
             />
           ) : <EmptyState message="Select an RCA report." />}
@@ -1129,7 +1142,7 @@ function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, c
   );
 }
 
-function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, t }) {
+function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, platformInfo, t }) {
   const report = detail.report;
   const candidates = report.root_cause_candidates || [];
   const actions = report.recommended_actions || [];
@@ -1137,6 +1150,9 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
   const evidenceItems = evidenceSummary(report);
   const signals = derivedSignals(report);
   const llmActions = actions.filter((action) => action.source === "llm");
+  const canExport = ["admin", "operator"].includes(currentUser.role);
+  const exportSecurity = platformInfo?.export_security || platformInfo?.exportSecurity || {};
+  const bundleSignatureEnabled = Boolean(exportSecurity.bundle_signature_enabled ?? exportSecurity.bundleSignatureEnabled);
   return (
     <div className="report-detail">
       <div className="report-detail-head">
@@ -1149,10 +1165,19 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
             <span>{formatDate(report.created_at)}</span>
           </div>
         </div>
-        {["admin", "operator"].includes(currentUser.role) && (
-          <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onExportReport(report.report_id)}>
-            <Icon name="download" /><span>{t("Export report")}</span>
-          </button>
+        {canExport && (
+          <div className="report-export-actions">
+            <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onExportReport(report.report_id)}>
+              <Icon name="download" /><span>{t("Export report")}</span>
+            </button>
+            <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onExportBundle(report.report_id)}>
+              <Icon name="file-earmark-zip" /><span>{t("Download bundle")}</span>
+            </button>
+            <span className={`bundle-signature-pill ${bundleSignatureEnabled ? "signed" : "unsigned"}`}>
+              <Icon name={bundleSignatureEnabled ? "shield-check" : "shield-slash"} />
+              <span>{bundleSignatureEnabled ? t("Signed bundle") : t("Unsigned bundle")}</span>
+            </span>
+          </div>
         )}
       </div>
 
