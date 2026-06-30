@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
@@ -475,6 +476,17 @@ public final class RcaModels {
         @NotBlank @Size(max = 256) String currentPassword,
         @NotBlank @Size(min = 8, max = 256) String newPassword
     ) {
+    }
+
+    public record UserLoginIdChangeRequest(
+        @NotBlank @Size(max = 256) String currentPassword,
+        @NotBlank @Size(min = 3, max = 255)
+        @Pattern(regexp = "^[A-Za-z0-9._@+-]+$")
+        String newUsername
+    ) {
+        public String normalizedUsername() {
+            return newUsername.trim().toLowerCase();
+        }
     }
 
     public record UserAccount(

@@ -64,6 +64,17 @@ User API calls use:
 Authorization: Bearer <access_token>
 ```
 
+### Account management
+
+```text
+POST /api/auth/change-login-id
+POST /api/auth/change-password
+POST /api/auth/logout
+```
+
+`change-login-id` and `change-password` require the current password. If the bootstrap admin account
+changes its login ID, later application restarts do not recreate the original default login.
+
 ## Platform Info
 
 ```text

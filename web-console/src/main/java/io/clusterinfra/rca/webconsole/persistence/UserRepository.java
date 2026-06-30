@@ -27,4 +27,8 @@ public class UserRepository {
     public boolean changePassword(String userId, String currentPassword, String newPassword) {
         return store.changeUserPassword(userId, currentPassword, newPassword);
     }
+
+    public Optional<UserAccount> changeLoginId(String userId, String currentPassword, String newUsername) {
+        return store.changeUserLoginId(userId, currentPassword, newUsername);
+    }
 }

@@ -3,9 +3,11 @@ package io.clusterinfra.rca.webconsole.controller;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AuthSessionResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.UserLoginIdChangeRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserLoginRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserPasswordChangeRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
+import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore.DuplicateLoginIdException;
 import io.clusterinfra.rca.webconsole.persistence.UserRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
@@ -150,6 +153,54 @@ public class AuthController {
         }
         audit.user(user, "auth.password_change", "user", user.userId(), "success", Map.of(), servletRequest);
         return Map.of("changed", true);
+    }
+
+    @PostMapping("/change-login-id")
+    public UserAccount changeLoginId(
+        @Valid @RequestBody UserLoginIdChangeRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        UserAccount user = access.currentUser(authentication);
+        try {
+            UserAccount changed = users.changeLoginId(
+                user.userId(),
+                request.currentPassword(),
+                request.normalizedUsername()
+            ).orElseThrow(() -> {
+                audit.user(
+                    user,
+                    "auth.login_id_change",
+                    "user",
+                    user.userId(),
+                    "failed",
+                    Map.of("reason", "invalid_password"),
+                    servletRequest
+                );
+                return new ResponseStatusException(UNAUTHORIZED, "current password is invalid");
+            });
+            audit.user(
+                changed,
+                "auth.login_id_change",
+                "user",
+                changed.userId(),
+                "success",
+                Map.of("previous_login_id", user.email(), "new_login_id", changed.email()),
+                servletRequest
+            );
+            return changed;
+        } catch (DuplicateLoginIdException exception) {
+            audit.user(
+                user,
+                "auth.login_id_change",
+                "user",
+                user.userId(),
+                "failed",
+                Map.of("reason", "duplicate_login_id"),
+                servletRequest
+            );
+            throw new ResponseStatusException(CONFLICT, "login id already exists");
+        }
     }
 
     private ResponseCookie sessionCookie(String value, Duration maxAge, boolean secure) {

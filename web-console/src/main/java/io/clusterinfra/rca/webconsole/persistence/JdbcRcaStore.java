@@ -1589,11 +1589,25 @@ public class JdbcRcaStore {
             return getUserById(user.userId()).orElseThrow();
         }
 
-        String userId = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM user_accounts WHERE user_id = ?",
-            Integer.class,
-            "user-admin"
-        ) == 0 ? "user-admin" : id("user");
+        Optional<UserRow> primaryAdmin = getUserRowById("user-admin");
+        if (primaryAdmin.isPresent()) {
+            UserAccount user = primaryAdmin.get().account();
+            jdbc.update(
+                """
+                    UPDATE user_accounts SET requested_role = ?, role = ?, status = ?,
+                        approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, ?)
+                    WHERE user_id = ?
+                    """,
+                UserRole.admin.name(),
+                UserRole.admin.name(),
+                UserStatus.active.name(),
+                "system",
+                timestamp(now),
+                user.userId()
+            );
+            return getUserById(user.userId()).orElseThrow();
+        }
+
         jdbc.update(
             """
                 INSERT INTO user_accounts
@@ -1601,7 +1615,7 @@ public class JdbcRcaStore {
                      approval_note, approved_by, created_at, approved_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-            userId,
+            "user-admin",
             normalized,
             "Administrator",
             tokens.hashPassword(password),
@@ -1614,15 +1628,11 @@ public class JdbcRcaStore {
             timestamp(now),
             timestamp(now)
         );
-        return getUserById(userId).orElseThrow();
+        return getUserById("user-admin").orElseThrow();
     }
 
     public Optional<UserAccount> getUserById(String userId) {
-        return optionalQuery(
-            "SELECT * FROM user_accounts WHERE user_id = ?",
-            (resultSet, rowNumber) -> mapUserRow(resultSet).account(),
-            userId
-        );
+        return getUserRowById(userId).map(UserRow::account);
     }
 
     public Optional<UserAccount> getUserBySessionToken(String token) {
@@ -1692,11 +1702,48 @@ public class JdbcRcaStore {
         }
     }
 
+    @Transactional
+    public Optional<UserAccount> changeUserLoginId(String userId, String currentPassword, String newUsername) {
+        String normalized = newUsername.trim().toLowerCase();
+        try {
+            UserRow current = jdbc.queryForObject(
+                "SELECT * FROM user_accounts WHERE user_id = ?",
+                (resultSet, rowNumber) -> mapUserRow(resultSet),
+                userId
+            );
+            if (current == null || !tokens.verifyPassword(currentPassword, current.passwordHash())) {
+                return Optional.empty();
+            }
+            Optional<UserRow> existing = getUserRowByEmail(normalized);
+            if (existing.isPresent() && !existing.get().account().userId().equals(userId)) {
+                throw new DuplicateLoginIdException(normalized);
+            }
+            if (!current.account().email().equals(normalized)) {
+                jdbc.update(
+                    "UPDATE user_accounts SET email = ? WHERE user_id = ?",
+                    normalized,
+                    userId
+                );
+            }
+            return getUserById(userId);
+        } catch (EmptyResultDataAccessException exception) {
+            return Optional.empty();
+        }
+    }
+
     private Optional<UserRow> getUserRowByEmail(String email) {
         return optionalQuery(
             "SELECT * FROM user_accounts WHERE email = ?",
             (resultSet, rowNumber) -> mapUserRow(resultSet),
             email.trim().toLowerCase()
+        );
+    }
+
+    private Optional<UserRow> getUserRowById(String userId) {
+        return optionalQuery(
+            "SELECT * FROM user_accounts WHERE user_id = ?",
+            (resultSet, rowNumber) -> mapUserRow(resultSet),
+            userId
         );
     }
 
@@ -2027,5 +2074,11 @@ public class JdbcRcaStore {
     }
 
     private record UserRow(UserAccount account, String passwordHash) {
+    }
+
+    public static class DuplicateLoginIdException extends RuntimeException {
+        public DuplicateLoginIdException(String loginId) {
+            super("login id already exists: " + loginId);
+        }
     }
 }

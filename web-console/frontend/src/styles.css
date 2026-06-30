@@ -617,7 +617,8 @@ code {
 }
 
 .cluster-form label,
-.password-form label {
+.password-form label,
+.credential-form label {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
@@ -1370,13 +1371,42 @@ code {
   border-radius: 7px;
 }
 
-.password-form {
+.password-form,
+.credential-form {
   display: grid;
   gap: 12px;
 }
 
-.password-form button {
+.password-form button,
+.credential-form button {
   width: fit-content;
+}
+
+.credential-warning {
+  border: 1px solid #d8ab61;
+  background: #fff8eb;
+  color: #5d3d08;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.credential-warning i {
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+
+.credential-warning strong,
+.credential-warning span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.credential-warning span {
+  margin-top: 2px;
+  font-size: 0.86rem;
 }
 
 .info-grid > div {

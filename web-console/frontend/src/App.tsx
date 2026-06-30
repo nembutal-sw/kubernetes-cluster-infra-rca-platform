@@ -128,9 +128,16 @@ const KO = {
   Language: "언어",
   English: "영어",
   Korean: "한국어",
+  "Default admin account is active": "기본 관리자 계정이 활성화되어 있습니다",
+  "Change the login ID and password after the first sign-in.": "최초 로그인 후 로그인 ID와 비밀번호를 변경하세요.",
+  "Change login ID": "로그인 ID 변경",
+  "Current login ID": "현재 로그인 ID",
+  "New login ID": "새 로그인 ID",
+  "Login ID changed.": "로그인 ID가 변경되었습니다.",
   "Change password": "비밀번호 변경",
   "Current password": "현재 비밀번호",
   "New password": "새 비밀번호",
+  "Password changed.": "비밀번호가 변경되었습니다.",
   Save: "저장",
   "Console diagnostics": "콘솔 진단",
   "Run layout check": "레이아웃 검사",
@@ -536,7 +543,16 @@ function ConsoleApp() {
       method: "POST",
       body: { current_password: form.current_password, new_password: form.new_password },
     });
-    notify("Password changed.");
+    notify(t("Password changed."));
+  }
+
+  async function changeLoginId(form) {
+    const updatedUser = await callApi("/api/auth/change-login-id", {
+      method: "POST",
+      body: { current_password: form.current_password, new_username: form.new_username },
+    });
+    setCurrentUser(updatedUser);
+    notify(t("Login ID changed."));
   }
 
   async function exportReports(clusterId = "") {
@@ -670,6 +686,8 @@ function ConsoleApp() {
               locale={locale}
               setLocale={setLocale}
               platformInfo={platformInfo}
+              currentUser={currentUser}
+              onChangeLoginId={changeLoginId}
               onChangePassword={changePassword}
               t={t}
             />
@@ -1560,25 +1578,59 @@ function WebhooksView({ endpoint, onCopy, t }) {
   );
 }
 
-function SettingsView({ locale, setLocale, platformInfo, onChangePassword, t }) {
+function SettingsView({ locale, setLocale, platformInfo, currentUser, onChangeLoginId, onChangePassword, t }) {
+  const [loginId, setLoginId] = useState({
+    current_password: "",
+    new_username: currentUser?.email || "",
+  });
   const [password, setPassword] = useState({ current_password: "", new_password: "" });
   const [layoutAudit, setLayoutAudit] = useState(null);
-  async function submit(event) {
+  const defaultCredentialVisible = currentUser?.email === "admin";
+
+  useEffect(() => {
+    setLoginId((current) => ({ ...current, new_username: currentUser?.email || "" }));
+  }, [currentUser?.email]);
+
+  async function submitLoginId(event) {
+    event.preventDefault();
+    await onChangeLoginId(loginId);
+    setLoginId((current) => ({ ...current, current_password: "" }));
+  }
+
+  async function submitPassword(event) {
     event.preventDefault();
     await onChangePassword(password);
     setPassword({ current_password: "", new_password: "" });
   }
+
   return (
     <div className="page-stack">
       <PageHeader title={t("Settings")} subtitle="Console preferences and local admin credential rotation." />
+      {defaultCredentialVisible && (
+        <div className="credential-warning">
+          <Icon name="shield-lock" />
+          <div>
+            <strong>{t("Default admin account is active")}</strong>
+            <span>{t("Change the login ID and password after the first sign-in.")}</span>
+          </div>
+        </div>
+      )}
       <div className="split-grid">
         <Surface title={t("Language")} subtitle="Preference is stored in this browser">
           <LanguageSwitch locale={locale} setLocale={setLocale} expanded />
         </Surface>
-        <Surface title={t("Change password")} subtitle="The built-in admin account should be rotated after install">
-          <form className="password-form" onSubmit={submit}>
-            <label>{t("Current password")}<input className="form-control" type="password" value={password.current_password} onChange={(event) => setPassword({ ...password, current_password: event.target.value })} /></label>
-            <label>{t("New password")}<input className="form-control" type="password" value={password.new_password} onChange={(event) => setPassword({ ...password, new_password: event.target.value })} /></label>
+        <Surface title={t("Change login ID")} subtitle="Use this after the first default admin sign-in">
+          <form className="credential-form" onSubmit={submitLoginId}>
+            <label>{t("Current login ID")}<input className="form-control" value={currentUser?.email || ""} readOnly /></label>
+            <label>{t("New login ID")}<input className="form-control" autoComplete="username" minLength={3} maxLength={255} pattern="[A-Za-z0-9._@+-]+" value={loginId.new_username} onChange={(event) => setLoginId({ ...loginId, new_username: event.target.value })} required /></label>
+            <label>{t("Current password")}<input className="form-control" type="password" autoComplete="current-password" value={loginId.current_password} onChange={(event) => setLoginId({ ...loginId, current_password: event.target.value })} required /></label>
+            <button className="btn btn-primary">{t("Save")}</button>
+          </form>
+        </Surface>
+        <Surface title={t("Change password")} subtitle="Rotate the built-in admin password after install">
+          <form className="credential-form" onSubmit={submitPassword}>
+            <label>{t("Current password")}<input className="form-control" type="password" autoComplete="current-password" value={password.current_password} onChange={(event) => setPassword({ ...password, current_password: event.target.value })} required /></label>
+            <label>{t("New password")}<input className="form-control" type="password" autoComplete="new-password" minLength={8} maxLength={256} value={password.new_password} onChange={(event) => setPassword({ ...password, new_password: event.target.value })} required /></label>
             <button className="btn btn-primary">{t("Save")}</button>
           </form>
         </Surface>

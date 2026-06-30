@@ -616,6 +616,37 @@ class PlatformHttpTests {
 
     @Test
     @Order(11)
+    void adminCanChangeLoginIdAfterDefaultCredentialLogin() throws Exception {
+        ResponseEntity<String> invalidPassword = exchange(
+            "/api/auth/change-login-id",
+            HttpMethod.POST,
+            Map.of("current_password", "wrong-password", "new_username", "platform-admin")
+        );
+        assertThat(invalidPassword.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> changed = exchange(
+            "/api/auth/change-login-id",
+            HttpMethod.POST,
+            Map.of("current_password", "admin", "new_username", "platform-admin")
+        );
+        assertThat(changed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(changed.getBody()).path("email").asText()).isEqualTo("platform-admin");
+        assertThat(users.authenticate("platform-admin", "admin")).isPresent();
+        assertThat(users.authenticate("admin", "admin")).isEmpty();
+        assertThat(users.ensureDefaultAdmin("admin", "admin").email()).isEqualTo("platform-admin");
+        assertThat(users.authenticate("admin", "admin")).isEmpty();
+
+        ResponseEntity<String> restored = exchange(
+            "/api/auth/change-login-id",
+            HttpMethod.POST,
+            Map.of("current_password", "admin", "new_username", "admin")
+        );
+        assertThat(restored.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(restored.getBody()).path("email").asText()).isEqualTo("admin");
+    }
+
+    @Test
+    @Order(12)
     void expiredSessionCannotAccessProtectedApi() {
         String expiredToken = sessions.create(
             users.authenticate("admin", "admin").orElseThrow().userId(),
@@ -636,7 +667,7 @@ class PlatformHttpTests {
     }
 
     @Test
-    @Order(12)
+    @Order(13)
     void paginatedEvidenceAndAuditExportsUseBoundedOperationalApis() throws Exception {
         ResponseEntity<String> requests = exchange(
             "/api/clusters/" + clusterId + "/evidence-requests?limit=1",
@@ -679,7 +710,7 @@ class PlatformHttpTests {
     }
 
     @Test
-    @Order(13)
+    @Order(14)
     void adminCanRotateAgentBootstrapTokenAndOldTokenStopsWorking() throws Exception {
         ResponseEntity<String> rotation = exchange(
             "/api/clusters/" + clusterId + "/agent-token/rotate",
