@@ -82,6 +82,21 @@ class RuleBasedRegressionFixtureTests {
         assertThat(report.rootCauseCandidates()).as(key + " candidate evidence paths")
             .allSatisfy(candidate -> assertThat(candidate.evidencePaths()).isNotNull());
 
+        Map<String, Object> qualityGate = evidenceMap(report, "quality_gate", "gate");
+        assertThat(qualityGate).as(key + " quality gate").containsKeys(
+            "status",
+            "rule_signal_count",
+            "top_candidate_score",
+            "evidence_quality_status",
+            "rule_based_sufficient",
+            "additional_evidence_required"
+        );
+        assertThat(String.valueOf(qualityGate.get("status"))).as(key + " quality gate status").isNotBlank();
+        assertThat(number(qualityGate.get("rule_signal_count"))).as(key + " gate signal count")
+            .isGreaterThanOrEqualTo(strings(expected, "signals").size());
+        assertThat(String.valueOf(qualityGate.get("status"))).as(key + " sufficient fixture gate")
+            .isNotEqualTo("insufficient");
+
         List<String> actionKeys = report.recommendedActions().stream()
             .map(RecommendedAction::actionKey)
             .toList();
@@ -125,6 +140,22 @@ class RuleBasedRegressionFixtureTests {
             .findFirst()
             .map(section -> (List<Map<String, Object>>) section.get(field))
             .orElse(List.of());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> evidenceMap(RcaReport report, String sectionType, String field) {
+        return report.evidence().stream()
+            .filter(section -> sectionType.equals(section.get("type")))
+            .findFirst()
+            .map(section -> (Map<String, Object>) section.get(field))
+            .orElseThrow(() -> new AssertionError("missing evidence section " + sectionType));
+    }
+
+    private int number(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return Integer.parseInt(String.valueOf(value));
     }
 
     private List<String> strings(JsonNode node, String field) {

@@ -71,11 +71,14 @@ public class RuleBasedRcaAnalyzer {
         List<RootCauseCandidate> candidates = candidates(evidence.alertName(), signals);
         List<RecommendedAction> actions = actions(evidence.alertName(), signals);
         Map<String, Object> evidenceQuality = evidenceQualityAnalyzer.assess(evidence);
-        Map<String, Object> preprocessed = preprocess(evidence, signals, candidates, actions, evidenceQuality);
+        Map<String, Object> qualityGate = qualityGate(signals, candidates, evidenceQuality);
+        Map<String, Object> preprocessed = preprocess(evidence, signals, candidates, actions, evidenceQuality, qualityGate);
         Map<String, Object> llmAnalysis = llm.analyze(preprocessed);
         candidates = mergeLlmCandidates(candidates, llmAnalysis);
         candidates = applyEvidenceQualityPenalty(candidates, evidenceQuality);
         actions = mergeLlmActions(actions, llmAnalysis);
+        qualityGate = qualityGate(signals, candidates, evidenceQuality);
+        preprocessed.put("final_quality_gate", qualityGate);
 
         List<Map<String, Object>> reportEvidence = new ArrayList<>();
         reportEvidence.add(Map.of(
@@ -86,6 +89,10 @@ public class RuleBasedRcaAnalyzer {
         reportEvidence.add(Map.of(
             "type", "evidence_quality",
             "quality", evidenceQuality
+        ));
+        reportEvidence.add(Map.of(
+            "type", "quality_gate",
+            "gate", qualityGate
         ));
         reportEvidence.add(Map.of(
             "type", "derived_signals",
@@ -340,7 +347,8 @@ public class RuleBasedRcaAnalyzer {
         List<Signal> signals,
         List<RootCauseCandidate> candidates,
         List<RecommendedAction> actions,
-        Map<String, Object> evidenceQuality
+        Map<String, Object> evidenceQuality,
+        Map<String, Object> qualityGate
     ) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schema_version", "1.0");
@@ -351,9 +359,76 @@ public class RuleBasedRcaAnalyzer {
         result.put("collectors", sanitize(evidence.collectors(), 0));
         result.put("collector_status", evidenceQuality.getOrDefault("collector_status", Map.of()));
         result.put("evidence_quality", evidenceQuality);
+        result.put("quality_gate", qualityGate);
         result.put("derived_signals", signals.stream().map(Signal::asMap).toList());
         result.put("rule_candidates", candidates);
         result.put("policy_classified_actions", actions);
+        return result;
+    }
+
+    private Map<String, Object> qualityGate(
+        List<Signal> signals,
+        List<RootCauseCandidate> candidates,
+        Map<String, Object> evidenceQuality
+    ) {
+        int signalCount = signals == null ? 0 : signals.size();
+        long highConfidenceSignals = signals == null
+            ? 0
+            : signals.stream().filter(signal -> signal.confidence() == Confidence.high).count();
+        int topCandidateScore = candidates == null || candidates.isEmpty()
+            ? 0
+            : candidates.getFirst().confidenceScore();
+        int penalty = evidenceQualityAnalyzer.confidencePenalty(evidenceQuality);
+        String evidenceQualityStatus = String.valueOf(
+            evidenceQuality == null ? "unknown" : evidenceQuality.getOrDefault("status", "unknown")
+        );
+
+        List<String> reasons = new ArrayList<>();
+        List<String> followUp = new ArrayList<>();
+        if (signalCount == 0) {
+            reasons.add("No rule-based signal crossed an RCA threshold.");
+            followUp.add("Collect full node diagnostics for the incident window.");
+        }
+        if (topCandidateScore < 60) {
+            reasons.add("Top root-cause candidate score is below the high-confidence gate.");
+            followUp.add("Review matched evidence paths and collect missing subsystem evidence.");
+        }
+        if (penalty > 0) {
+            reasons.add("Evidence quality reduced report confidence.");
+            followUp.add("Refresh stale, failed, or degraded collector output before remediation.");
+        }
+        if (!"complete".equals(evidenceQualityStatus)) {
+            reasons.add("Evidence set is " + evidenceQualityStatus + ".");
+        }
+
+        String status;
+        if (signalCount == 0 || topCandidateScore < 25 || penalty >= 50) {
+            status = "insufficient";
+        } else if (topCandidateScore < 60 || penalty > 0 || !"complete".equals(evidenceQualityStatus)) {
+            status = "limited";
+        } else {
+            status = "pass";
+        }
+        if (reasons.isEmpty()) {
+            reasons.add("Rule-based evidence is sufficient for an initial RCA report.");
+        }
+        if (followUp.isEmpty()) {
+            followUp.add("Proceed with read-only verification commands before remediation.");
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", status);
+        result.put("rule_signal_count", signalCount);
+        result.put("high_confidence_signal_count", highConfidenceSignals);
+        result.put("top_candidate_score", topCandidateScore);
+        result.put("confidence_penalty", penalty);
+        result.put("evidence_quality_status", evidenceQualityStatus);
+        result.put("rule_based_sufficient", !"insufficient".equals(status));
+        result.put("additional_evidence_required", !"pass".equals(status));
+        result.put("llm_diagnostic_allowed", true);
+        result.put("llm_should_not_raise_confidence", !"pass".equals(status));
+        result.put("reasons", reasons);
+        result.put("follow_up", followUp);
         return result;
     }
 

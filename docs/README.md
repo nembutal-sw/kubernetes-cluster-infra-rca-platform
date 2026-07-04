@@ -1,39 +1,41 @@
 # Documentation Index
 
-이 디렉터리는 Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 절차를 정리합니다.
-
-문서 작성 기준:
-
-- 설명은 한글로 간결하게 작성합니다.
-- API, 설정 키, 명령어, 스키마 이름은 원문 그대로 둡니다.
-- 운영 절차는 재현 가능한 명령과 검증 기준을 함께 남깁니다.
-- Agent와 Platform은 운영 변경을 직접 실행하지 않는다는 안전 원칙을 유지합니다.
+Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문서를 모아둔 인덱스입니다.
 
 ## Documents
 
 | Document | Purpose |
 | --- | --- |
-| `agent-api.md` | Agent registration, heartbeat, evidence, protocol contract |
-| `backend-api.md` | Platform API, auth boundaries, reports, actions, demo, metrics |
-| `node-agent.md` | Python Agent runtime, collectors, spool, safety boundary |
+| `architecture.md` | 전체 아키텍처와 주요 컴포넌트 |
+| `agent-api.md` | Agent 등록, heartbeat, evidence API 계약 |
+| `collector-output-contract.md` | Collector 출력 envelope, 안정 필드, degraded 상태 |
+| `node-agent.md` | Python Node Agent runtime, collectors, spool, safety boundary |
+| `agent-evidence-fields.md` | Collector별 evidence field 참고 |
+| `agent-permission-model.md` | `safe`, `node-diagnostics`, `ebpf` 권한 모델 |
+| `backend-api.md` | Platform API, 인증 경계, report/action/demo/metrics |
+| `report-schema.md` | RCA report, quality gate, timeline, bundle schema |
+| `rca-analysis-rules.md` | Rule-based detector와 action classification 기준 |
+| `rca-scenario-matrix.md` | 필수 RCA 장애 시나리오와 fixture 검증 기준 |
+| `incident-correlation.md` | multi-signal correlation, root-cause promotion, timeline |
+| `evidence-preprocessing.md` | LLM 입력용 evidence 전처리 payload |
+| `llm-analyzer.md` | LLM provider, fallback, diagnostic-only 원칙 |
+| `policy-engine.md` | 조치 등급, guardrail, manual-only workflow |
+| `audit-and-actions.md` | Audit event와 human-in-the-loop action request lifecycle |
+| `web-console.md` | Web Console 화면 구성과 운영자 workflow |
 | `security.md` | 인증 필터, RBAC, production validation, export 제한 |
 | `threat-model.md` | 자산, 신뢰 경계, abuse case, mitigation |
-| `agent-permission-model.md` | `safe`, `node-diagnostics`, `ebpf` 권한 모델 |
+| `observability.md` | Metrics, Actuator, ServiceMonitor, SLO 지표 |
+| `database.md` | PostgreSQL/MariaDB 호환, migration, backup |
+| `retention-policy.md` | 보존 기간과 FK-safe cleanup |
 | `daemonset-operations-checklist.md` | Agent DaemonSet 운영 배포 체크리스트 |
-| `testing.md` | 개발/운영 검증 명령과 회귀 테스트 기준 |
+| `daemonset-production-validation.md` | read-only canary rollout과 운영 검증 절차 |
+| `helm-platform-chart.md` | Platform Helm chart values와 production note |
+| `helm-agent-chart.md` | Agent Helm chart values와 배포 예시 |
+| `testing.md` | 로컬/운영/Helm/DaemonSet 검증 명령 |
 | `operations.md` | 백업, 복구, HA, credential rotation |
-| `policy-engine.md` | 조치 분류, guardrail, manual-only workflow |
-| `audit-and-actions.md` | audit event와 수동 action request lifecycle |
-| `report-schema.md` | RCA report 필드, confidence, impact scope, bundle |
-| `incident-correlation.md` | multi-signal correlation, root-cause promotion, timeline |
-| `observability.md` | Metrics, Actuator, ServiceMonitor, operational gauges |
-| `retention-policy.md` | retention period, FK-safe cleanup |
-| `helm-platform-chart.md` | Platform Helm values와 production note |
-| `helm-agent-chart.md` | Agent Helm values와 배포 예시 |
-| `web-console.md` | UI view와 운영 콘솔 방향 |
-| `roadmap.md` | 완료된 단계와 다음 우선순위 |
+| `roadmap.md` | 완료 단계와 다음 우선순위 |
 
-## Current Architecture Summary
+## Architecture Flow
 
 ```text
 Alertmanager / Platform Scheduler / Demo Scenario
@@ -42,6 +44,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Node Agent read-only collection
   -> Durable Analysis Task
   -> Rule-based Detector Engine
+  -> Evidence Quality / Report Quality Gate
   -> Multi-signal Incident Correlation
   -> Optional LLM explanation
   -> Policy Engine
@@ -50,27 +53,24 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Manual Action Workflow / Audit / Notification
 ```
 
-## Current Safety Position
+## Safety Position
 
-- Agent는 read-only evidence collection을 수행합니다.
-- eBPF realtime event는 선택 기능입니다.
-- Agent-side action execution은 제거되었습니다.
-- Approval은 자동 실행이 아니라 수동 처리 기록입니다.
-- LLM 제안은 진단 보조이며 자동화할 수 없습니다.
-- Report/evidence bundle export는 역할 기반으로 제한하고 audit을 남깁니다.
-- Retention cleanup은 open incident, active action workflow, 참조 중인 evidence를 보존합니다.
+- Agent는 read-only evidence collection만 수행합니다.
+- Agent-side action execution은 사용하지 않습니다.
+- 승인 workflow는 실행이 아니라 승인/거절 기록, 수동 처리 완료, runbook/GitOps PR 안내입니다.
+- LLM 제안은 진단 보조이며 `automation_allowed=false`를 유지합니다.
+- Report/export는 역할 기반으로 제한하고 audit event를 남깁니다.
 - Production profile은 위험한 기본 설정을 fail-fast로 차단합니다.
 
 ## Suggested Reading Order
 
-1. 루트 [README.md](../README.md)
-2. `docs/node-agent.md`
-3. `docs/backend-api.md`
-4. `docs/report-schema.md`
-5. `docs/policy-engine.md`
-6. `docs/security.md`
-7. `docs/daemonset-operations-checklist.md`
-8. `docs/testing.md`
-9. `docs/observability.md`
-10. `docs/retention-policy.md`
-11. `docs/roadmap.md`
+1. `architecture.md`
+2. `node-agent.md`
+3. `collector-output-contract.md`
+4. `backend-api.md`
+5. `report-schema.md`
+6. `rca-scenario-matrix.md`
+7. `policy-engine.md`
+8. `security.md`
+9. `daemonset-production-validation.md`
+10. `testing.md`

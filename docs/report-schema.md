@@ -249,6 +249,45 @@ compact quality value in timeline nodes.
 `confidence_penalty` is applied before report confidence is returned. Missing or
 stale evidence lowers confidence, but does not remove the original signal.
 
+## Report Quality Gate
+
+Rule-based RCA also adds a `quality_gate` section. This gate is not an
+automation policy. It tells operators and LLM adapters whether the evidence is
+strong enough for an initial RCA conclusion.
+
+```json
+{
+  "type": "quality_gate",
+  "gate": {
+    "status": "limited",
+    "rule_signal_count": 3,
+    "high_confidence_signal_count": 2,
+    "top_candidate_score": 72,
+    "confidence_penalty": 25,
+    "evidence_quality_status": "stale",
+    "rule_based_sufficient": true,
+    "additional_evidence_required": true,
+    "llm_diagnostic_allowed": true,
+    "llm_should_not_raise_confidence": true,
+    "reasons": [
+      "Evidence quality reduced report confidence.",
+      "Evidence set is stale."
+    ],
+    "follow_up": [
+      "Refresh stale, failed, or degraded collector output before remediation."
+    ]
+  }
+}
+```
+
+Status values:
+
+| Status | Meaning |
+| --- | --- |
+| `pass` | Rule signals, candidate score, and evidence quality are enough for an initial RCA. |
+| `limited` | RCA is usable, but stale/partial/degraded evidence or weaker score requires extra verification. |
+| `insufficient` | Report should be treated as a collection gap or weak signal, not a root-cause conclusion. |
+
 ## Incident Lifecycle Fields
 
 Incident responses include additive lifecycle fields:

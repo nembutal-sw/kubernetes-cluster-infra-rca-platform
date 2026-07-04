@@ -76,6 +76,15 @@ class RuleBasedScenarioTests {
             .orElseThrow();
         assertThat(quality).containsEntry("status", "stale");
         assertThat(quality).containsEntry("confidence_penalty", 25);
+        Map<String, Object> gate = report.evidence().stream()
+            .filter(section -> "quality_gate".equals(section.get("type")))
+            .findFirst()
+            .map(section -> (Map<String, Object>) section.get("gate"))
+            .orElseThrow();
+        assertThat(gate).containsEntry("status", "limited");
+        assertThat(gate).containsEntry("confidence_penalty", 25);
+        assertThat(gate).containsEntry("additional_evidence_required", true);
+        assertThat(gate).containsEntry("llm_should_not_raise_confidence", true);
         assertThat(report.rootCauseCandidates().getFirst().supportingEvidence())
             .anyMatch(line -> line.contains("Evidence quality"));
     }
