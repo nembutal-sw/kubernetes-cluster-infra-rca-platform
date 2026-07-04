@@ -200,6 +200,27 @@ public class PolicyEngine {
                 false,
                 30
             );
+            case "inspect_memory_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("free -m", "vmstat 1 5", "dmesg -T | grep -i -E 'oom|out of memory'"),
+                false,
+                30
+            );
+            case "inspect_process_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("ps -eLf | wc -l", "ps -eo stat,ppid,pid,cmd | grep '^Z'"),
+                false,
+                30
+            );
+            case "inspect_systemd_state" -> plan(
+                "read_only_preview",
+                Map.of(),
+                List.of("systemctl --failed --no-pager", "journalctl -p warning..alert --since '-30 min'"),
+                false,
+                30
+            );
             case "inspect_api_server_health" -> plan(
                 "read_only_preview",
                 Map.of(),
@@ -241,6 +262,9 @@ public class PolicyEngine {
         rules.put("collect_more_evidence", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("collect_linux_low_level_evidence", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_kernel_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
+        rules.put("inspect_memory_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
+        rules.put("inspect_process_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
+        rules.put("inspect_systemd_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_network_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_storage_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
         rules.put("inspect_api_server_health", rule(PolicyLevel.AUTO_SAFE, "read_only"));

@@ -175,6 +175,36 @@ public class RuleBasedRcaAnalyzer {
                 "Low-level Linux inspection is read-only and should precede any remediation."
             ));
         }
+        if (components.contains("kernel") || names.stream().anyMatch(Set.of(
+            "kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"
+        )::contains)) {
+            actions.add(policyEngine.classify(
+                "inspect_kernel_state",
+                "Inspect kernel logs, blocked tasks, filesystem state, and device driver errors.",
+                "Kernel inspection is read-only."
+            ));
+        }
+        if (components.contains("systemd")) {
+            actions.add(policyEngine.classify(
+                "inspect_systemd_state",
+                "Inspect failed systemd units, restart counters, dependencies, and recent journal entries.",
+                "Systemd inspection is read-only."
+            ));
+        }
+        if (components.contains("memory")) {
+            actions.add(policyEngine.classify(
+                "inspect_memory_state",
+                "Inspect memory pressure, reclaim activity, OOM events, and top memory consumers.",
+                "Memory inspection is read-only."
+            ));
+        }
+        if (components.contains("process")) {
+            actions.add(policyEngine.classify(
+                "inspect_process_state",
+                "Inspect PID usage, thread fan-out, zombie processes, and runtime shim counts.",
+                "Process inspection is read-only."
+            ));
+        }
         if (components.contains("disk") || components.contains("inode") || "DiskPressure".equals(alertName)) {
             actions.add(policyEngine.classify(
                 "inspect_storage_state",
@@ -217,7 +247,9 @@ public class RuleBasedRcaAnalyzer {
                 "Disk cleanup can cause data loss if the target path is incorrect."
             ));
         }
-        if (names.contains("memory_pressure_critical") || names.contains("kernel_oom_detected")) {
+        if (names.contains("memory_pressure_critical")
+            || names.contains("kernel_oom_detected")
+            || names.contains("ebpf_oom_kill")) {
             actions.add(policyEngine.classify(
                 "cordon_node",
                 "If memory pressure continues, consider operator-approved node cordon or drain.",
@@ -257,7 +289,8 @@ public class RuleBasedRcaAnalyzer {
             "conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops",
             "cni_config_invalid", "dns_unconfigured", "dns_latency_high",
             "coredns_no_ready_endpoints", "coredns_pod_not_running", "cni_mtu_values_inconsistent",
-            "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running"
+            "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running",
+            "ebpf_tcp_retransmit", "ebpf_dns_timeout"
         )::contains)) {
             actions.add(policyEngine.classify(
                 "open_gitops_pr",
@@ -393,6 +426,7 @@ public class RuleBasedRcaAnalyzer {
     private List<Map<String, Object>> resolutionChecklist(String alertName, List<Signal> signals) {
         LinkedHashMap<String, Map<String, Object>> items = new LinkedHashMap<>();
         addCheck(items, "Node conditions", "kubectl describe node <node>", "Confirm pressure and readiness transition timing.");
+        Set<String> names = signals.stream().map(Signal::name).collect(java.util.stream.Collectors.toSet());
         for (Signal signal : signals) {
             switch (signal.component()) {
                 case "disk", "inode" ->
@@ -404,6 +438,10 @@ public class RuleBasedRcaAnalyzer {
                 case "process" ->
                     addCheck(items, "PID pressure", "ps -eLf | wc -l; ps -eo stat,ppid,pid,cmd | grep '^Z'",
                         "Find process fan-out and zombie parents.");
+                case "systemd" ->
+                    addCheck(items, "Systemd failed units",
+                        "systemctl --failed --no-pager; journalctl -p warning..alert --since '-30 min'",
+                        "Confirm failed or restart-looping services and dependency failures.");
                 case "kubelet" ->
                     addCheck(items, "Kubelet state", "systemctl status kubelet --no-pager; journalctl -u kubelet --since '-30 min'",
                         "Confirm failure, restart, runtime, or API connectivity errors.");
@@ -429,6 +467,12 @@ public class RuleBasedRcaAnalyzer {
         if ("CoreDNSUnhealthy".equals(alertName) || "CoreDNSLatencyHigh".equals(alertName)) {
             addCheck(items, "CoreDNS endpoints", "kubectl -n kube-system get pods,svc,endpoints -l k8s-app=kube-dns -o wide",
                 "Confirm pod readiness and endpoint availability.");
+        }
+        if (names.stream().anyMatch(Set.of(
+            "kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"
+        )::contains)) {
+            addCheck(items, "Kernel errors", "dmesg -T | tail -n 300",
+                "Confirm I/O, filesystem, blocked task, driver, and link errors.");
         }
         return List.copyOf(items.values());
     }

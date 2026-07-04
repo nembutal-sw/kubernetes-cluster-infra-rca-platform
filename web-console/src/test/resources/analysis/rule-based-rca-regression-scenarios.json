@@ -1,0 +1,488 @@
+[
+  {
+    "key": "node-not-ready",
+    "alert_name": "NodeNotReady",
+    "description": "Kubernetes reports the node Ready condition as false.",
+    "collectors": {
+      "kubernetes": {
+        "node_ready": false,
+        "node_conditions": {
+          "Ready": { "status": "False" },
+          "DiskPressure": { "status": "False" },
+          "MemoryPressure": { "status": "False" }
+        }
+      }
+    },
+    "expected": {
+      "signals": ["node_not_ready"],
+      "components": ["kubernetes"],
+      "actions": ["collect_more_evidence", "collect_linux_low_level_evidence"],
+      "manual_only_actions": [],
+      "checklists": ["Node conditions"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "disk-pressure-capacity",
+    "alert_name": "DiskPressure",
+    "description": "Root filesystem capacity and block-device latency exceed thresholds.",
+    "collectors": {
+      "disk": {
+        "root_usage_percent": 97.0,
+        "await_ms": 55.0,
+        "largest_paths": [
+          { "path": "/var/lib/containerd", "size_bytes": 32212254720 },
+          { "path": "/var/log", "size_bytes": 4294967296 }
+        ]
+      },
+      "inode": {
+        "inode_usage_percent": 68.0
+      }
+    },
+    "expected": {
+      "signals": ["disk_usage_critical", "disk_io_latency_high"],
+      "components": ["disk"],
+      "actions": ["inspect_storage_state", "cleanup_disk"],
+      "manual_only_actions": ["cleanup_disk"],
+      "checklists": ["Storage capacity and latency"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "inode-exhaustion",
+    "alert_name": "DiskPressure",
+    "description": "Filesystem byte usage is acceptable but inode usage is exhausted.",
+    "collectors": {
+      "disk": {
+        "root_usage_percent": 72.0
+      },
+      "inode": {
+        "inode_usage_percent": 98.0,
+        "hot_paths": [
+          { "path": "/var/lib/kubelet/pods", "file_count": 1540000 }
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["inode_usage_critical"],
+      "components": ["inode"],
+      "actions": ["inspect_storage_state", "cleanup_disk"],
+      "manual_only_actions": ["cleanup_disk"],
+      "checklists": ["Storage capacity and latency"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "memory-pressure-oom",
+    "alert_name": "MemoryPressure",
+    "description": "Node memory pressure is critical and kernel logs show an OOM kill.",
+    "collectors": {
+      "memory": {
+        "usage_percent": 96.0,
+        "available_bytes": 268435456
+      },
+      "kernel": {
+        "messages": [
+          "Out of memory: Killed process 4242 (java) total-vm:2048000kB"
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["memory_pressure_critical", "kernel_oom_detected"],
+      "components": ["memory"],
+      "actions": ["inspect_memory_state", "cordon_node"],
+      "manual_only_actions": ["cordon_node"],
+      "checklists": ["Memory pressure"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "pid-pressure",
+    "alert_name": "PIDPressure",
+    "description": "PID capacity is close to exhaustion.",
+    "collectors": {
+      "process": {
+        "pid_usage_percent": 96.0,
+        "thread_count": 123000,
+        "zombie_count": 17
+      }
+    },
+    "expected": {
+      "signals": ["pid_usage_high"],
+      "components": ["process"],
+      "actions": ["inspect_process_state"],
+      "manual_only_actions": [],
+      "checklists": ["PID pressure"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "kubelet-failure",
+    "alert_name": "KubeletUnhealthy",
+    "description": "Kubelet unit is failed and systemd reports repeated failure.",
+    "collectors": {
+      "kubelet": {
+        "status": "failed",
+        "active": false
+      },
+      "systemd": {
+        "failed_units": [
+          { "unit": "kubelet.service", "status": "failed" }
+        ],
+        "messages": [
+          "kubelet.service: Start request repeated too quickly."
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["kubelet_unit_unhealthy", "systemd_failed_units"],
+      "components": ["kubelet", "systemd"],
+      "actions": ["inspect_systemd_state", "restart_kubelet"],
+      "manual_only_actions": ["restart_kubelet"],
+      "checklists": ["Kubelet state", "Systemd failed units"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "runtime-failure",
+    "alert_name": "ContainerRuntimeUnhealthy",
+    "description": "Generic CRI runtime and containerd health checks are failing.",
+    "collectors": {
+      "runtime": {
+        "status": "unhealthy",
+        "socket_healthy": false
+      },
+      "containerd": {
+        "status": "failed",
+        "active": false
+      }
+    },
+    "expected": {
+      "signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy"],
+      "components": ["runtime", "containerd"],
+      "actions": ["restart_container_runtime", "restart_containerd"],
+      "manual_only_actions": ["restart_container_runtime", "restart_containerd"],
+      "checklists": ["Container runtime"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "cni-mtu-mismatch",
+    "alert_name": "NetworkUnavailable",
+    "description": "CNI and host MTU values are inconsistent.",
+    "collectors": {
+      "cni": {
+        "configured": true,
+        "mtu_mismatch": true,
+        "host_mtu": 1500,
+        "overlay_mtu": 1450
+      }
+    },
+    "expected": {
+      "signals": ["cni_mtu_values_inconsistent"],
+      "components": ["cni"],
+      "actions": ["inspect_network_state", "open_gitops_pr"],
+      "manual_only_actions": ["open_gitops_pr"],
+      "checklists": ["Node network"],
+      "min_top_candidate_score": 50,
+      "summary_confidence": "medium"
+    }
+  },
+  {
+    "key": "cni-daemonset-unavailable",
+    "alert_name": "NetworkUnavailable",
+    "description": "CNI DaemonSet pods are unavailable on intended nodes.",
+    "collectors": {
+      "kubernetes": {
+        "cni_daemonsets_unavailable": [
+          {
+            "namespace": "kube-system",
+            "name": "calico-node",
+            "desired_number_scheduled": 3,
+            "number_ready": 1
+          }
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["cni_daemonset_unavailable"],
+      "components": ["cni"],
+      "actions": ["inspect_network_state", "open_gitops_pr"],
+      "manual_only_actions": ["open_gitops_pr"],
+      "checklists": ["Node network"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "coredns-no-ready-endpoints",
+    "alert_name": "CoreDNSUnhealthy",
+    "description": "CoreDNS service exists but has no ready endpoints.",
+    "collectors": {
+      "kubernetes": {
+        "coredns_service_observed": true,
+        "coredns_endpoint_count": 2,
+        "coredns_ready_endpoint_count": 0
+      }
+    },
+    "expected": {
+      "signals": ["coredns_no_ready_endpoints"],
+      "components": ["dns"],
+      "actions": ["inspect_network_state", "open_gitops_pr"],
+      "manual_only_actions": ["open_gitops_pr"],
+      "checklists": ["Node network", "CoreDNS endpoints"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "dns-configuration",
+    "alert_name": "CoreDNSLatencyHigh",
+    "description": "Node resolver configuration is missing.",
+    "collectors": {
+      "dns": {
+        "dns_configured": false,
+        "nameserver_count": 0
+      }
+    },
+    "expected": {
+      "signals": ["dns_unconfigured"],
+      "components": ["dns"],
+      "actions": ["inspect_network_state", "open_gitops_pr"],
+      "manual_only_actions": ["open_gitops_pr"],
+      "checklists": ["Node network", "CoreDNS endpoints"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "conntrack-exhaustion",
+    "alert_name": "NetworkUnavailable",
+    "description": "Conntrack table is close to full and insertion/drop counters increased.",
+    "collectors": {
+      "conntrack": {
+        "count": 990,
+        "max": 1000,
+        "insert_failed": 8,
+        "drop": 3,
+        "early_drop": 2
+      },
+      "kernel": {
+        "messages": [
+          "nf_conntrack: table full, dropping packet"
+        ]
+      }
+    },
+    "expected": {
+      "signals": [
+        "conntrack_table_full",
+        "conntrack_insert_failures",
+        "conntrack_packet_drops",
+        "conntrack_near_limit"
+      ],
+      "components": ["conntrack"],
+      "actions": ["inspect_network_state", "increase_conntrack_limit", "open_gitops_pr"],
+      "manual_only_actions": ["increase_conntrack_limit", "open_gitops_pr"],
+      "checklists": ["Node network"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "network-link-flap",
+    "alert_name": "NetworkUnavailable",
+    "description": "Kernel and interface counters show NIC link flapping.",
+    "collectors": {
+      "network": {
+        "carrier_changes": 9,
+        "tx_errors": 5,
+        "rx_dropped": 12
+      },
+      "kernel": {
+        "messages": [
+          "e1000e 0000:00:19.0 eth0: NIC Link is Down",
+          "e1000e 0000:00:19.0 eth0: NIC Link is Up 1000 Mbps"
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["nic_link_flap"],
+      "components": ["network"],
+      "actions": ["inspect_network_state", "inspect_kernel_state", "manual_hardware_check"],
+      "manual_only_actions": ["manual_hardware_check"],
+      "checklists": ["Node network", "Kernel errors"],
+      "min_top_candidate_score": 50,
+      "summary_confidence": "medium"
+    }
+  },
+  {
+    "key": "etcd-latency",
+    "alert_name": "EtcdLatencyHigh",
+    "description": "Etcd fsync latency and readyz dependency health are degraded.",
+    "collectors": {
+      "etcd": {
+        "fsync_latency_ms": 920.0
+      },
+      "kubernetes": {
+        "etcd_readyz_healthy": false,
+        "etcd_non_running_pods": [
+          {
+            "namespace": "kube-system",
+            "name": "etcd-control-a",
+            "phase": "CrashLoopBackOff",
+            "restart_count": 7
+          }
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["etcd_latency_high", "etcd_readyz_failed", "etcd_pod_unhealthy"],
+      "components": ["etcd"],
+      "actions": ["inspect_etcd_health"],
+      "manual_only_actions": [],
+      "checklists": ["Etcd health"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "api-server-latency",
+    "alert_name": "APIServerLatencyHigh",
+    "description": "API server readiness and request latency are degraded.",
+    "collectors": {
+      "kubernetes": {
+        "api_server_latency_ms": 1650.0,
+        "api_readyz_failed_check_count": 1,
+        "api_livez_failed_check_count": 1,
+        "api_request_error_count": 2,
+        "api_timeout_detected": true
+      }
+    },
+    "expected": {
+      "signals": [
+        "api_server_latency_high",
+        "api_server_readyz_failed",
+        "api_server_livez_failed",
+        "api_server_request_errors"
+      ],
+      "components": ["api-server"],
+      "actions": ["inspect_api_server_health"],
+      "manual_only_actions": [],
+      "checklists": ["API server readiness"],
+      "min_top_candidate_score": 80,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "kernel-io-error",
+    "alert_name": "DiskPressure",
+    "description": "Kernel logs contain filesystem I/O errors and disk latency is high.",
+    "collectors": {
+      "disk": {
+        "await_ms": 88.0,
+        "root_usage_percent": 58.0
+      },
+      "kernel": {
+        "messages": [
+          "EXT4-fs error (device sda1): ext4_find_entry: inode read failed: I/O error"
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["kernel_io_error", "disk_io_latency_high"],
+      "components": ["kernel", "disk"],
+      "actions": ["inspect_storage_state", "inspect_kernel_state", "manual_hardware_check"],
+      "manual_only_actions": ["manual_hardware_check"],
+      "checklists": ["Storage capacity and latency", "Kernel errors"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "systemd-restart-loop",
+    "alert_name": "NodeNotReady",
+    "description": "A systemd unit repeatedly restarts during the incident window.",
+    "collectors": {
+      "systemd": {
+        "failed_units": [
+          { "unit": "containerd.service", "status": "failed" }
+        ],
+        "messages": [
+          "containerd.service: Scheduled restart job, restart counter is at 8.",
+          "containerd.service: Start request repeated too quickly."
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["systemd_failed_units"],
+      "components": ["systemd"],
+      "actions": ["inspect_systemd_state"],
+      "manual_only_actions": [],
+      "checklists": ["Systemd failed units"],
+      "min_top_candidate_score": 50,
+      "summary_confidence": "medium"
+    }
+  },
+  {
+    "key": "ebpf-oom-kill",
+    "alert_name": "MemoryPressure",
+    "description": "An eBPF OOM kill event was captured between polling intervals.",
+    "collectors": {
+      "ebpf": {
+        "events": [
+          {
+            "event_type": "oom_kill",
+            "pid": 777,
+            "comm": "java",
+            "cgroup": "/kubepods.slice/pod-a"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["ebpf_oom_kill"],
+      "components": ["memory"],
+      "actions": ["inspect_memory_state", "cordon_node"],
+      "manual_only_actions": ["cordon_node"],
+      "checklists": ["Memory pressure"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
+    "key": "ebpf-network-dns-burst",
+    "alert_name": "NetworkUnavailable",
+    "description": "eBPF captures TCP retransmissions and DNS timeouts during a network microburst.",
+    "collectors": {
+      "ebpf": {
+        "events": [
+          {
+            "event_type": "tcp_retransmit",
+            "src": "10.42.1.10:443",
+            "dst": "10.42.2.20:53321"
+          },
+          {
+            "event_type": "dns_timeout",
+            "query": "kubernetes.default.svc.cluster.local"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "signals": ["ebpf_tcp_retransmit", "ebpf_dns_timeout"],
+      "components": ["network", "dns"],
+      "actions": ["inspect_network_state", "open_gitops_pr"],
+      "manual_only_actions": ["open_gitops_pr"],
+      "checklists": ["Node network"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  }
+]
