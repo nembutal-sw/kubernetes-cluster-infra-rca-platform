@@ -161,6 +161,15 @@ Timeline nodes and edges are additive API fields.
 
 ```json
 {
+  "summary": {
+    "node_count": 3,
+    "causal_edge_count": 2,
+    "temporal_edge_count": 0,
+    "root_node_id": "timeline-1",
+    "root_signal_family": "storage",
+    "root_event_type": "disk_io_latency_high",
+    "quality_status": "complete"
+  },
   "nodes": [
     {
       "id": "timeline-1",
@@ -169,7 +178,16 @@ Timeline nodes and edges are additive API fields.
       "event_type": "disk_io_latency_high",
       "signal_family": "storage",
       "severity": "critical",
-      "root_trigger": true
+      "root_trigger": true,
+      "evidence_type": "derived_signal",
+      "evidence_paths": ["disk.io.util_percent"],
+      "root_cause_candidate": true,
+      "root_cause_score": 96,
+      "evidence_quality": {
+        "status": "complete",
+        "freshness": "fresh",
+        "collector_status": "complete"
+      }
     }
   ],
   "edges": [
@@ -177,9 +195,12 @@ Timeline nodes and edges are additive API fields.
       "source": "timeline-1",
       "target": "timeline-2",
       "relationship": "storage pressure propagated to node readiness",
-      "rule_id": "storage_node",
+      "rule_id": "disk_io_to_kubelet",
       "confidence": 0.94,
-      "inferred": true
+      "inferred": true,
+      "evidence_basis": "rule_based_causal_relation",
+      "direction": "upstream_to_downstream",
+      "strength": "strong"
     }
   ]
 }
@@ -187,6 +208,46 @@ Timeline nodes and edges are additive API fields.
 
 `inferred=true` means the edge was selected from a Rule-based causal relation. A
 `temporal_sequence` edge only records observation order and uses lower confidence.
+
+Timeline rendering should treat causal edges as RCA model output, not as a strict
+event log. If a root-cause signal is collected after a downstream symptom, the
+edge direction can be `retroactive_root_cause_promotion`.
+
+## Evidence Quality
+
+Rule-based RCA now adds an `evidence_quality` report section and also embeds the
+compact quality value in timeline nodes.
+
+```json
+{
+  "type": "evidence_quality",
+  "quality": {
+    "status": "stale",
+    "quality_score": 75,
+    "confidence_penalty": 25,
+    "freshness": {
+      "status": "stale",
+      "collected_at": "2026-06-21T00:00:00Z",
+      "age_seconds": 7200,
+      "stale_threshold_seconds": 600
+    },
+    "collector_status": {
+      "status": "complete",
+      "expected": ["disk", "kubelet"],
+      "missing": [],
+      "failures": []
+    },
+    "agent_health": {
+      "status": "healthy",
+      "node_name": "worker-1"
+    },
+    "notes": ["Evidence collected 7200 seconds ago."]
+  }
+}
+```
+
+`confidence_penalty` is applied before report confidence is returned. Missing or
+stale evidence lowers confidence, but does not remove the original signal.
 
 ## Incident Lifecycle Fields
 

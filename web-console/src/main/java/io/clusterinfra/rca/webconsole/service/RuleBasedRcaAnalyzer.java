@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
+import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
 import io.clusterinfra.rca.webconsole.analysis.Signal;
@@ -39,6 +40,7 @@ public class RuleBasedRcaAnalyzer {
     private final RootCauseCandidateBuilder candidateBuilder;
     private final ImpactScopeAnalyzer impactScopeAnalyzer;
     private final TopologyService topology;
+    private final EvidenceQualityAnalyzer evidenceQualityAnalyzer;
 
     public RuleBasedRcaAnalyzer(
         PolicyEngine policyEngine,
@@ -49,7 +51,8 @@ public class RuleBasedRcaAnalyzer {
         ConfidenceScorer confidenceScorer,
         RootCauseCandidateBuilder candidateBuilder,
         ImpactScopeAnalyzer impactScopeAnalyzer,
-        TopologyService topology
+        TopologyService topology,
+        EvidenceQualityAnalyzer evidenceQualityAnalyzer
     ) {
         this.policyEngine = policyEngine;
         this.llm = llm;
@@ -60,15 +63,18 @@ public class RuleBasedRcaAnalyzer {
         this.candidateBuilder = candidateBuilder;
         this.impactScopeAnalyzer = impactScopeAnalyzer;
         this.topology = topology;
+        this.evidenceQualityAnalyzer = evidenceQualityAnalyzer;
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
         List<Signal> signals = deriveSignals(evidence.collectors());
         List<RootCauseCandidate> candidates = candidates(evidence.alertName(), signals);
         List<RecommendedAction> actions = actions(evidence.alertName(), signals);
-        Map<String, Object> preprocessed = preprocess(evidence, signals, candidates, actions);
+        Map<String, Object> evidenceQuality = evidenceQualityAnalyzer.assess(evidence);
+        Map<String, Object> preprocessed = preprocess(evidence, signals, candidates, actions, evidenceQuality);
         Map<String, Object> llmAnalysis = llm.analyze(preprocessed);
         candidates = mergeLlmCandidates(candidates, llmAnalysis);
+        candidates = applyEvidenceQualityPenalty(candidates, evidenceQuality);
         actions = mergeLlmActions(actions, llmAnalysis);
 
         List<Map<String, Object>> reportEvidence = new ArrayList<>();
@@ -76,6 +82,10 @@ public class RuleBasedRcaAnalyzer {
             "type", "collector_summary",
             "collectors", new ArrayList<>(evidence.collectors().keySet()),
             "collected_at", evidence.collectedAt().toString()
+        ));
+        reportEvidence.add(Map.of(
+            "type", "evidence_quality",
+            "quality", evidenceQuality
         ));
         reportEvidence.add(Map.of(
             "type", "derived_signals",
@@ -95,7 +105,10 @@ public class RuleBasedRcaAnalyzer {
         ));
 
         RootCauseCandidate mostLikely = candidates.getFirst();
-        Confidence confidence = confidenceScorer.reportConfidence(signals);
+        Confidence confidence = adjustConfidence(
+            confidenceScorer.reportConfidence(signals),
+            evidenceQualityAnalyzer.confidencePenalty(evidenceQuality)
+        );
         Set<String> components = new LinkedHashSet<>();
         signals.forEach(signal -> components.add(signal.component()));
         if (components.isEmpty()) {
@@ -326,7 +339,8 @@ public class RuleBasedRcaAnalyzer {
         EvidenceBundle evidence,
         List<Signal> signals,
         List<RootCauseCandidate> candidates,
-        List<RecommendedAction> actions
+        List<RecommendedAction> actions,
+        Map<String, Object> evidenceQuality
     ) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schema_version", "1.0");
@@ -335,6 +349,8 @@ public class RuleBasedRcaAnalyzer {
         result.put("alert_name", evidence.alertName());
         result.put("collected_at", evidence.collectedAt().toString());
         result.put("collectors", sanitize(evidence.collectors(), 0));
+        result.put("collector_status", evidenceQuality.getOrDefault("collector_status", Map.of()));
+        result.put("evidence_quality", evidenceQuality);
         result.put("derived_signals", signals.stream().map(Signal::asMap).toList());
         result.put("rule_candidates", candidates);
         result.put("policy_classified_actions", actions);
@@ -399,6 +415,46 @@ public class RuleBasedRcaAnalyzer {
             ));
         });
         return merged;
+    }
+
+    private List<RootCauseCandidate> applyEvidenceQualityPenalty(
+        List<RootCauseCandidate> candidates,
+        Map<String, Object> quality
+    ) {
+        int penalty = evidenceQualityAnalyzer.confidencePenalty(quality);
+        if (penalty <= 0) {
+            return candidates;
+        }
+        return candidates.stream().map(candidate -> new RootCauseCandidate(
+            candidate.cause(),
+            adjustConfidence(candidate.confidence(), penalty),
+            withQualityNote(candidate.supportingEvidence(), quality),
+            Math.max(0, candidate.confidenceScore() - penalty),
+            candidate.evidencePaths()
+        )).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> withQualityNote(List<String> supportingEvidence, Map<String, Object> quality) {
+        List<String> values = new ArrayList<>(supportingEvidence == null ? List.of() : supportingEvidence);
+        Object notes = quality.get("notes");
+        if (notes instanceof List<?> list && !list.isEmpty()) {
+            values.add("Evidence quality: " + String.join("; ", list.stream().map(String::valueOf).toList()));
+        }
+        return values;
+    }
+
+    private Confidence adjustConfidence(Confidence confidence, int penalty) {
+        if (penalty >= 40) {
+            return Confidence.low;
+        }
+        if (penalty >= 20 && confidence == Confidence.high) {
+            return Confidence.medium;
+        }
+        if (penalty >= 20 && confidence == Confidence.medium) {
+            return Confidence.low;
+        }
+        return confidence;
     }
 
     private List<RecommendedAction> mergeLlmActions(

@@ -1175,6 +1175,7 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
   const checks = report.additional_checks || report.next_steps || [];
   const evidenceItems = evidenceSummary(report);
   const signals = derivedSignals(report);
+  const quality = reportEvidenceQuality(report);
   const llmActions = actions.filter((action) => action.source === "llm");
   const canExport = ["admin", "operator"].includes(currentUser.role);
   const exportSecurity = platformInfo?.export_security || platformInfo?.exportSecurity || {};
@@ -1210,6 +1211,7 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
       <div className="summary-strip">
         <MetricTile label="Confidence" value={report.summary?.confidence || "n/a"} tone={confidenceTone(report.summary?.confidence)} icon="bar-chart-line" />
         <MetricTile label={t("Rule signals")} value={signals.length} tone={signals.length ? "blue" : "muted"} icon="diagram-3" />
+        <MetricTile label={t("Evidence quality")} value={quality?.status || "unknown"} tone={qualityTone(quality?.status)} icon="clipboard2-pulse" />
         <MetricTile label={t("Policy blocked")} value={actions.filter((action) => !action.automation_allowed).length} tone="amber" icon="shield-lock" />
         <MetricTile label="LLM" value={llmActions.length ? t("LLM diagnostic only") : "n/a"} tone={llmActions.length ? "amber" : "muted"} icon="stars" />
       </div>
@@ -1220,6 +1222,10 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
           <span>{t("LLM diagnostic only")}: LLM-origin actions stay automation_allowed=false. Operators can create a request, record approval/rejection, or mark manual handling complete.</span>
         </div>
       )}
+
+      <Surface title={t("Evidence quality")} subtitle="Freshness, collector coverage, and agent health used to adjust RCA confidence">
+        <EvidenceQualityPanel quality={quality} t={t} />
+      </Surface>
 
       {canExport && (
         <Surface title={t("Bundle verification")} subtitle="Offline integrity check and current manifest preview">
@@ -1264,6 +1270,55 @@ function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, on
           t={t}
         />
       </Surface>
+    </div>
+  );
+}
+
+function EvidenceQualityPanel({ quality, t }) {
+  if (!quality) return <EmptyState message="Evidence quality is not available for this report." />;
+  const freshness = quality.freshness || {};
+  const collectorStatus = quality.collector_status || quality.collectorStatus || {};
+  const agentHealth = quality.agent_health || quality.agentHealth || {};
+  const notes = Array.isArray(quality.notes) ? quality.notes : [];
+  const expected = collectorStatus.expected || [];
+  const missing = collectorStatus.missing || [];
+  const failures = collectorStatus.failures || [];
+  const degraded = collectorStatus.degraded || [];
+  return (
+    <div className="evidence-quality-panel">
+      <div className="quality-metric-grid">
+        <MetricTile label={t("Quality status")} value={quality.status || "unknown"} tone={qualityTone(quality.status)} icon="clipboard2-pulse" />
+        <MetricTile label={t("Quality score")} value={quality.quality_score ?? quality.qualityScore ?? "n/a"} tone={qualityTone(quality.status)} icon="speedometer2" />
+        <MetricTile label={t("Confidence penalty")} value={quality.confidence_penalty ?? quality.confidencePenalty ?? 0} tone={(quality.confidence_penalty ?? quality.confidencePenalty ?? 0) > 0 ? "amber" : "green"} icon="shield-exclamation" />
+        <MetricTile label={t("Agent health")} value={agentHealth.status || "unknown"} tone={qualityTone(agentHealth.status)} icon="hdd-network" />
+      </div>
+      <div className="quality-detail-grid">
+        <article>
+          <span>{t("Freshness")}</span>
+          <strong>{formatFreshness(freshness)}</strong>
+          <small>{freshness.collected_at ? `${t("Collected at")}: ${formatDate(freshness.collected_at)}` : t("No collection timestamp")}</small>
+        </article>
+        <article>
+          <span>{t("Collector coverage")}</span>
+          <strong>{expected.length ? `${Math.max(0, expected.length - missing.length)}/${expected.length}` : "n/a"}</strong>
+          <small>{missing.length ? `${t("Missing")}: ${missing.slice(0, 4).join(", ")}` : t("Expected collectors reported")}</small>
+        </article>
+        <article>
+          <span>{t("Collector status")}</span>
+          <strong>{collectorStatus.status || "unknown"}</strong>
+          <small>{[...failures, ...degraded].slice(0, 4).join(", ") || t("No collector degradation reported")}</small>
+        </article>
+        <article>
+          <span>{t("Agent detail")}</span>
+          <strong>{agentHealth.node_name || agentHealth.nodeName || "cluster scope"}</strong>
+          <small>{agentHealth.last_heartbeat_at ? `${t("Last heartbeat")}: ${formatDate(agentHealth.last_heartbeat_at)}` : t("No heartbeat data")}</small>
+        </article>
+      </div>
+      {notes.length > 0 && (
+        <div className="quality-note-list">
+          {notes.slice(0, 6).map((note, index) => <span key={`${note}-${index}`}><Icon name="exclamation-triangle" />{note}</span>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1960,23 +2015,89 @@ function RecentReport({ report, onOpenReport, t }) {
   );
 }
 
-function TimelineGraph({ timeline, report }) {
+function TimelineGraph({ timeline, report, t = (x) => x }) {
   const nodes = timeline?.nodes?.length ? timeline.nodes : fallbackTimeline(report);
   if (!nodes.length) return <EmptyState message="Timeline evidence is not available." />;
+  const edges = Array.isArray(timeline?.edges) ? timeline.edges : [];
+  const summary = timeline?.summary || {};
+  const edgeByTarget = new Map(edges.map((edge) => [edge.target, edge]));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const rootNode = nodes.find((node) => node.root_trigger || node.rootTrigger) || nodeById.get(summary.root_node_id);
   return (
-    <div className="timeline-graph">
-      {nodes.slice(0, 10).map((node, index) => (
-        <article key={node.id || `${node.title}-${index}`} className={node.root_trigger ? "root" : ""}>
-          <div className="timeline-dot"><Icon name={node.root_trigger ? "bullseye" : signalIcon(node.component || node.signal_family)} /></div>
-          <div>
-            <time>{formatDate(node.timestamp || node.observed_at || report.created_at)}</time>
-            <strong>{node.title || node.event_type || node.component}</strong>
-            <span>{node.detail || node.signal_family || node.evidence_id}</span>
-          </div>
-          {index < nodes.length - 1 && <div className="timeline-edge" />}
+    <>
+      <div className="timeline-summary-bar">
+        <article>
+          <span>{t("Root trigger")}</span>
+          <strong>{rootNode?.title || summary.root_title || "unknown"}</strong>
         </article>
-      ))}
-    </div>
+        <article>
+          <span>{t("Causal edges")}</span>
+          <strong>{summary.causal_edge_count ?? edges.filter((edge) => edge.inferred).length}</strong>
+        </article>
+        <article>
+          <span>{t("Observed edges")}</span>
+          <strong>{summary.temporal_edge_count ?? edges.filter((edge) => !edge.inferred).length}</strong>
+        </article>
+        <article>
+          <span>{t("Evidence quality")}</span>
+          <StatusBadge value={summary.quality_status || "unknown"} tone={qualityTone(summary.quality_status)} t={t} />
+        </article>
+      </div>
+      <div className="timeline-graph enhanced">
+        {nodes.slice(0, 12).map((node, index) => {
+          const root = Boolean(node.root_trigger || node.rootTrigger);
+          const incoming = edgeByTarget.get(node.id);
+          const source = incoming ? nodeById.get(incoming.source) : null;
+          const evidencePaths = node.evidence_paths || node.evidencePaths || [];
+          const quality = node.evidence_quality || node.evidenceQuality || {};
+          const qualityStatus = quality.status || quality.evidence_status || quality.evidenceStatus;
+          const score = node.root_cause_score ?? node.rootCauseScore;
+          return (
+            <article key={node.id || `${node.title}-${index}`} className={`${root ? "root" : ""} ${incoming?.inferred ? "inferred" : "observed"}`}>
+              <div className="timeline-card-head">
+                <div className="timeline-dot"><Icon name={root ? "bullseye" : signalIcon(node.component || node.signal_family || node.signalFamily)} /></div>
+                <div className="timeline-badges">
+                  {root && <StatusBadge value={t("Root trigger")} tone="amber" />}
+                  <StatusBadge value={node.signal_family || node.signalFamily || node.component || "signal"} tone={severityTone(node.severity)} t={t} />
+                  {node.evidence_type && <StatusBadge value={node.evidence_type} tone="blue" t={t} />}
+                  {qualityStatus && qualityStatus !== "complete" && <StatusBadge value={qualityStatus} tone={qualityTone(qualityStatus)} t={t} />}
+                </div>
+              </div>
+              <div className="timeline-body">
+                <time>{formatDate(node.timestamp || node.observed_at || report.created_at)}</time>
+                <strong>{node.title || node.event_type || node.eventType || node.component}</strong>
+                <span>{node.detail || node.signal_family || node.signalFamily || node.evidence_id}</span>
+              </div>
+              {score !== undefined && score !== null && (
+                <div className="timeline-score">
+                  <span>{t("Root candidate score")}</span>
+                  <strong>{formatPercentValue(score)}</strong>
+                </div>
+              )}
+              {incoming && (
+                <div className={`timeline-relation ${incoming.inferred ? "causal" : "temporal"}`}>
+                  <div>
+                    <Icon name={incoming.inferred ? "diagram-3" : "arrow-right"} />
+                    <span>{source?.title || incoming.source}</span>
+                  </div>
+                  <strong>{incoming.relationship || "observed sequence"}</strong>
+                  <small>
+                    {[incoming.rule_id || incoming.ruleId || incoming.evidence_basis || incoming.evidenceBasis, incoming.direction, incoming.strength || formatPercentValue(incoming.confidence)]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </small>
+                </div>
+              )}
+              {evidencePaths.length > 0 && (
+                <div className="timeline-paths">
+                  {evidencePaths.slice(0, 4).map((path) => <code key={path}>{path}</code>)}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -2242,6 +2363,38 @@ function derivedSignals(report) {
   const preprocessed = evidence.find((section) => section?.type === "preprocessed_evidence");
   const nested = preprocessed?.payload?.derived_signals || preprocessed?.payload?.derivedSignals;
   return Array.isArray(nested) ? nested : [];
+}
+
+function reportEvidenceQuality(report) {
+  const evidence = Array.isArray(report?.evidence) ? report.evidence : [];
+  const direct = evidence.find((section) => section?.type === "evidence_quality");
+  if (direct?.quality) return direct.quality;
+  const preprocessed = evidence.find((section) => section?.type === "preprocessed_evidence");
+  return preprocessed?.payload?.evidence_quality || preprocessed?.payload?.evidenceQuality || null;
+}
+
+function qualityTone(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["complete", "healthy", "ok", "fresh"].includes(normalized)) return "green";
+  if (["partial", "stale", "warning", "limited", "unknown"].includes(normalized)) return "amber";
+  if (["degraded", "offline", "unauthorized", "collector_degraded", "version_mismatch", "failed", "error"].includes(normalized)) return "red";
+  return "muted";
+}
+
+function formatFreshness(freshness) {
+  if (!freshness) return "unknown";
+  const status = freshness.status || "unknown";
+  const ageSeconds = freshness.age_seconds ?? freshness.ageSeconds;
+  if (ageSeconds === undefined || ageSeconds === null) return status;
+  if (ageSeconds < 60) return `${status} · ${ageSeconds}s`;
+  if (ageSeconds < 3600) return `${status} · ${Math.round(ageSeconds / 60)}m`;
+  return `${status} · ${(ageSeconds / 3600).toFixed(1)}h`;
+}
+
+function formatPercentValue(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/a";
+  const numeric = Number(value);
+  return numeric <= 1 ? `${Math.round(numeric * 100)}%` : `${Math.round(numeric)}%`;
 }
 
 function fallbackTimeline(report) {

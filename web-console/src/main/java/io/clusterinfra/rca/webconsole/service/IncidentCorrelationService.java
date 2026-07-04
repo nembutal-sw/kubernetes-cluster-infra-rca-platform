@@ -34,6 +34,10 @@ public class IncidentCorrelationService {
         "etcd",
         "api_server"
     );
+    private static final Set<String> GENERIC_SHARED_FAMILIES = Set.of(
+        "systemd",
+        "kubernetes"
+    );
 
     public IncidentCorrelationService(
         IncidentRepository incidents,
@@ -242,8 +246,8 @@ public class IncidentCorrelationService {
             ? null
             : reports.findReport(incident.latestReportId()).orElse(null);
         SignalProfile current = causality.profile(incident, currentReport);
-        Optional<CausalRelation> downstream = causality.bestRelation(current, incoming);
-        Optional<CausalRelation> upstream = causality.bestRelation(incoming, current);
+        Optional<CausalRelation> downstream = correlationRelation(current, incoming);
+        Optional<CausalRelation> upstream = correlationRelation(incoming, current);
         CausalRelation relation;
         boolean promote;
         int baseScore;
@@ -261,7 +265,10 @@ public class IncidentCorrelationService {
             relation = downstream.get();
             promote = false;
             baseScore = 82;
-        } else if (!java.util.Collections.disjoint(current.families(), incoming.families())) {
+        } else if (!java.util.Collections.disjoint(
+            correlationFamilies(current.families()),
+            correlationFamilies(incoming.families())
+        )) {
             relation = new CausalRelation(
                 "shared_signal_family",
                 "signals share an infrastructure subsystem",
@@ -284,6 +291,35 @@ public class IncidentCorrelationService {
             crossNode,
             connection
         ));
+    }
+
+    private Optional<CausalRelation> correlationRelation(SignalProfile source, SignalProfile target) {
+        CausalRelation best = null;
+        for (String sourceFamily : source.families()) {
+            for (String targetFamily : target.families()) {
+                Optional<CausalRelation> candidate = causality.relation(sourceFamily, targetFamily)
+                    .filter(this::correlationSafeRelation);
+                if (candidate.isPresent()
+                    && (best == null || candidate.get().confidence() > best.confidence())) {
+                    best = candidate.get();
+                }
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    private boolean correlationSafeRelation(CausalRelation relation) {
+        if (!relation.ruleId().startsWith("same_")) {
+            return true;
+        }
+        String family = relation.ruleId().substring("same_".length());
+        return !GENERIC_SHARED_FAMILIES.contains(family);
+    }
+
+    private Set<String> correlationFamilies(Set<String> families) {
+        return families.stream()
+            .filter(family -> !GENERIC_SHARED_FAMILIES.contains(family))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private Optional<Candidate> crossNodeCandidate(

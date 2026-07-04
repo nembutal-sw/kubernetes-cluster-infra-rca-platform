@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -872,8 +874,51 @@ public final class RcaModels {
         String title,
         String detail,
         String evidenceId,
-        boolean rootTrigger
+        boolean rootTrigger,
+        String evidenceType,
+        List<String> evidencePaths,
+        boolean rootCauseCandidate,
+        Integer rootCauseScore,
+        Map<String, Object> evidenceQuality
     ) {
+        public TimelineNode(
+            String id,
+            Instant timestamp,
+            String component,
+            String eventType,
+            String signalFamily,
+            String severity,
+            String title,
+            String detail,
+            String evidenceId,
+            boolean rootTrigger
+        ) {
+            this(
+                id,
+                timestamp,
+                component,
+                eventType,
+                signalFamily,
+                severity,
+                title,
+                detail,
+                evidenceId,
+                rootTrigger,
+                "derived_signal",
+                List.of(),
+                false,
+                null,
+                Map.of()
+            );
+        }
+
+        public TimelineNode {
+            evidenceType = evidenceType == null || evidenceType.isBlank() ? "derived_signal" : evidenceType;
+            evidencePaths = evidencePaths == null ? List.of() : List.copyOf(evidencePaths);
+            evidenceQuality = evidenceQuality == null
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(evidenceQuality));
+        }
     }
 
     public record TimelineEdge(
@@ -882,8 +927,41 @@ public final class RcaModels {
         String relationship,
         String ruleId,
         double confidence,
-        boolean inferred
+        boolean inferred,
+        String evidenceBasis,
+        String direction,
+        String strength
     ) {
+        public TimelineEdge(
+            String source,
+            String target,
+            String relationship,
+            String ruleId,
+            double confidence,
+            boolean inferred
+        ) {
+            this(
+                source,
+                target,
+                relationship,
+                ruleId,
+                confidence,
+                inferred,
+                inferred ? "rule_based_causal_relation" : "observed_temporal_sequence",
+                "upstream_to_downstream",
+                confidence >= 0.9 ? "strong" : confidence >= 0.7 ? "moderate" : "weak"
+            );
+        }
+
+        public TimelineEdge {
+            evidenceBasis = evidenceBasis == null || evidenceBasis.isBlank()
+                ? inferred ? "rule_based_causal_relation" : "observed_temporal_sequence"
+                : evidenceBasis;
+            direction = direction == null || direction.isBlank() ? "upstream_to_downstream" : direction;
+            strength = strength == null || strength.isBlank()
+                ? confidence >= 0.9 ? "strong" : confidence >= 0.7 ? "moderate" : "weak"
+                : strength;
+        }
     }
 
     public record IncidentTimeline(
@@ -891,8 +969,24 @@ public final class RcaModels {
         Instant from,
         Instant to,
         List<TimelineNode> nodes,
-        List<TimelineEdge> edges
+        List<TimelineEdge> edges,
+        Map<String, Object> summary
     ) {
+        public IncidentTimeline(
+            String incidentId,
+            Instant from,
+            Instant to,
+            List<TimelineNode> nodes,
+            List<TimelineEdge> edges
+        ) {
+            this(incidentId, from, to, nodes, edges, Map.of());
+        }
+
+        public IncidentTimeline {
+            nodes = nodes == null ? List.of() : List.copyOf(nodes);
+            edges = edges == null ? List.of() : List.copyOf(edges);
+            summary = summary == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(summary));
+        }
     }
 
     public record TopologyEntity(

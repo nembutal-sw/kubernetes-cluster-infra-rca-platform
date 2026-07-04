@@ -6,6 +6,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.service.RuleBasedRcaAnalyzer;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -50,6 +51,33 @@ class RuleBasedScenarioTests {
             .contains("[redacted]")
             .doesNotContain("secret-session")
             .doesNotContain("secret-password");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void staleEvidenceLowersReportConfidenceAndAddsQualitySection() {
+        RcaReport report = analyzer.analyze(
+            "report-stale",
+            new EvidenceBundle(
+                "evidence-stale",
+                "cluster-scenario",
+                "worker-a",
+                "DiskPressure",
+                Instant.now().minus(2, ChronoUnit.HOURS),
+                Map.of("disk", Map.of("root_usage_percent", 96.0))
+            )
+        );
+
+        assertThat(report.summary().confidence()).isEqualTo(io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence.medium);
+        Map<String, Object> quality = report.evidence().stream()
+            .filter(section -> "evidence_quality".equals(section.get("type")))
+            .findFirst()
+            .map(section -> (Map<String, Object>) section.get("quality"))
+            .orElseThrow();
+        assertThat(quality).containsEntry("status", "stale");
+        assertThat(quality).containsEntry("confidence_penalty", 25);
+        assertThat(report.rootCauseCandidates().getFirst().supportingEvidence())
+            .anyMatch(line -> line.contains("Evidence quality"));
     }
 
     @ParameterizedTest(name = "{0}")

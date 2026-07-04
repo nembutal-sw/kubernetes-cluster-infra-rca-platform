@@ -28,8 +28,6 @@ import org.springframework.core.io.ClassPathResource;
 class RuleBasedRegressionFixtureTests {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
-    private static final Instant COLLECTED_AT = Instant.parse("2026-01-01T00:00:00Z");
-
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -60,7 +58,7 @@ class RuleBasedRegressionFixtureTests {
                 "cluster-regression",
                 "worker-regression-01",
                 scenario.path("alert_name").asText(),
-                COLLECTED_AT,
+                Instant.now(),
                 collectors
             )
         );

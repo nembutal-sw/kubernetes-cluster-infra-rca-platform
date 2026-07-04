@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.clusterinfra.rca.webconsole.analysis.IncidentCausalityRules;
+import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
@@ -31,11 +32,13 @@ class IncidentTimelineServiceTests {
         RuleBasedRcaAnalyzer analyzer = mock(RuleBasedRcaAnalyzer.class);
         ReportRepository reports = mock(ReportRepository.class);
         IncidentCausalityRules causality = new IncidentCausalityRules();
+        EvidenceQualityAnalyzer quality = mock(EvidenceQualityAnalyzer.class);
         IncidentTimelineService service = new IncidentTimelineService(
             evidence,
             analyzer,
             reports,
-            causality
+            causality,
+            quality
         );
         Instant first = Instant.parse("2026-06-21T02:00:00Z");
         EvidenceBundle nodeSymptom = new EvidenceBundle(
@@ -95,6 +98,8 @@ class IncidentTimelineServiceTests {
             any(Instant.class),
             any(Instant.class)
         )).thenReturn(List.of(nodeSymptom, storageCause));
+        when(quality.assess(any(EvidenceBundle.class))).thenReturn(Map.of("status", "complete", "quality_score", 100));
+        when(quality.compact(any())).thenReturn(Map.of("status", "complete", "quality_score", 100));
         when(analyzer.deriveTimelineSignals(nodeSymptom.collectors())).thenReturn(List.of(Map.of(
             "component", "node",
             "signal", "node_not_ready",
@@ -122,6 +127,91 @@ class IncidentTimelineServiceTests {
             .anySatisfy(edge -> {
                 assertThat(edge.ruleId()).isEqualTo("storage_node");
                 assertThat(edge.confidence()).isGreaterThan(0.9);
+                assertThat(edge.inferred()).isTrue();
+            });
+        assertThat(timeline.summary()).containsEntry("root_signal_family", "storage");
+    }
+
+    @Test
+    void prefersSpecificSignalCausalityForStorageKubeletNodeChain() {
+        EvidenceRepository evidence = mock(EvidenceRepository.class);
+        RuleBasedRcaAnalyzer analyzer = mock(RuleBasedRcaAnalyzer.class);
+        ReportRepository reports = mock(ReportRepository.class);
+        IncidentCausalityRules causality = new IncidentCausalityRules();
+        EvidenceQualityAnalyzer quality = mock(EvidenceQualityAnalyzer.class);
+        IncidentTimelineService service = new IncidentTimelineService(
+            evidence,
+            analyzer,
+            reports,
+            causality,
+            quality
+        );
+        Instant first = Instant.parse("2026-06-21T02:00:00Z");
+        EvidenceBundle bundle = new EvidenceBundle(
+            "evidence-chain",
+            "cluster-1",
+            "worker-a",
+            "NodeNotReady",
+            first,
+            Map.of("disk", Map.of(), "kubelet", Map.of(), "node", Map.of())
+        );
+        Incident incident = new Incident(
+            "incident-1",
+            "cluster-1",
+            "worker-a",
+            "NodeNotReady",
+            "Disk I/O latency",
+            IncidentStatus.open,
+            1,
+            first,
+            first,
+            bundle.evidenceId(),
+            null
+        );
+
+        when(evidence.listRealtimeEvents(eq("cluster-1"), eq("worker-a"), any(Instant.class), any(Instant.class)))
+            .thenReturn(List.of());
+        when(evidence.listForNodeWindow(eq("cluster-1"), eq("worker-a"), any(Instant.class), any(Instant.class)))
+            .thenReturn(List.of(bundle));
+        when(quality.assess(bundle)).thenReturn(Map.of("status", "complete", "quality_score", 100));
+        when(quality.compact(any())).thenReturn(Map.of("status", "complete", "quality_score", 100));
+        when(analyzer.deriveTimelineSignals(bundle.collectors())).thenReturn(List.of(
+            Map.of(
+                "component", "disk",
+                "signal", "disk_io_latency_high",
+                "severity", "warning",
+                "interpretation", "Block device latency exceeded the threshold.",
+                "matched_fields", List.of("disk.await_ms")
+            ),
+            Map.of(
+                "component", "kubelet",
+                "signal", "kubelet_unit_unhealthy",
+                "severity", "critical",
+                "interpretation", "Kubelet is not active.",
+                "matched_fields", List.of("kubelet.status")
+            ),
+            Map.of(
+                "component", "node",
+                "signal", "node_not_ready",
+                "severity", "critical",
+                "interpretation", "Node readiness was lost.",
+                "matched_fields", List.of("kubernetes.node_ready")
+            )
+        ));
+
+        var timeline = service.build(incident);
+
+        assertThat(timeline.nodes()).hasSize(3);
+        assertThat(timeline.nodes().getFirst().eventType()).isEqualTo("disk_io_latency_high");
+        assertThat(timeline.edges())
+            .extracting(edge -> edge.ruleId())
+            .contains("disk_io_to_kubelet", "kubelet_to_node_ready");
+        assertThat(timeline.edges())
+            .filteredOn(edge -> "disk_io_to_kubelet".equals(edge.ruleId()))
+            .singleElement()
+            .satisfies(edge -> {
+                assertThat(edge.evidenceBasis()).isEqualTo("rule_based_causal_relation");
+                assertThat(edge.strength()).isEqualTo("strong");
                 assertThat(edge.inferred()).isTrue();
             });
     }
