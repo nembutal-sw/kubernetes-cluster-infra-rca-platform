@@ -21,6 +21,7 @@
   --amber-soft: #fff4e5;
   --red-soft: #fff0ee;
   --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  --shadow-tight: 0 4px 14px rgba(15, 23, 42, 0.06);
 }
 
 * {
@@ -72,6 +73,8 @@ code {
   flex-direction: column;
   gap: 22px;
   z-index: 20;
+  border-right: 1px solid #24313d;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
 }
 
 .sidebar-brand,
@@ -79,6 +82,11 @@ code {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.sidebar-brand {
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid rgba(231, 237, 244, 0.08);
 }
 
 .brand-icon {
@@ -121,12 +129,17 @@ code {
   gap: 10px;
   text-align: left;
   min-height: 40px;
+  border-left: 3px solid transparent;
 }
 
 .sidebar-nav button:hover,
 .sidebar-nav button.active {
   background: var(--nav-soft);
   color: #ffffff;
+}
+
+.sidebar-nav button.active {
+  border-left-color: #84d0da;
 }
 
 .sidebar-nav i {
@@ -154,6 +167,7 @@ code {
   gap: 16px;
   padding: 14px 28px;
   backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
 
 .topbar-eyebrow,
@@ -190,6 +204,28 @@ code {
 .topbar-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.ops-live-pill {
+  height: 31px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.ops-live-pill span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(35, 122, 87, 0.13);
 }
 
 .icon-button {
@@ -268,6 +304,12 @@ code {
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-tight);
 }
 
 .page-header h1,
@@ -316,6 +358,7 @@ code {
   min-height: 112px;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-left: 4px solid #d8e2ec;
   border-radius: 8px;
   padding: 16px;
   display: grid;
@@ -355,9 +398,17 @@ code {
   background: var(--green-soft);
 }
 
+.metric-tile.green {
+  border-left-color: var(--green);
+}
+
 .metric-tile.amber .metric-icon {
   color: var(--amber);
   background: var(--amber-soft);
+}
+
+.metric-tile.amber {
+  border-left-color: var(--amber);
 }
 
 .metric-tile.red .metric-icon {
@@ -365,9 +416,17 @@ code {
   background: var(--red-soft);
 }
 
+.metric-tile.red {
+  border-left-color: var(--red);
+}
+
 .metric-tile.teal .metric-icon {
   color: var(--teal);
   background: var(--teal-soft);
+}
+
+.metric-tile.teal {
+  border-left-color: var(--teal);
 }
 
 .metric-tile.muted .metric-icon {
@@ -467,6 +526,7 @@ code {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-top: 3px solid #d8e2ec;
   border-radius: 8px;
   padding: 18px;
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
@@ -477,7 +537,9 @@ code {
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin: -2px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 .surface-head h2 {
@@ -577,6 +639,18 @@ code {
   border-radius: 8px;
   background: var(--surface-soft);
   min-width: 0;
+  box-shadow: inset 3px 0 0 rgba(35, 100, 170, 0.14);
+}
+
+.signal-row:hover,
+.candidate-item:hover,
+.task-item:hover,
+.request-item:hover,
+.incident-item:hover,
+.cluster-row:hover,
+.evidence-item:hover {
+  border-color: var(--line-strong);
+  background: #ffffff;
 }
 
 .signal-row {
@@ -2004,6 +2078,8 @@ code {
 .console-table-wrap {
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
 .console-table {
@@ -2015,14 +2091,21 @@ code {
   color: var(--muted);
   font-size: 0.76rem;
   text-transform: uppercase;
-  background: var(--surface-soft);
+  background: #eef3f7;
   border-bottom-color: var(--line);
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .console-table td {
   border-color: var(--line);
   vertical-align: middle;
   font-size: 0.88rem;
+  background: #ffffff;
+}
+
+.console-table tbody tr:hover td {
+  background: #f8fafc;
 }
 
 .endpoint-box {
