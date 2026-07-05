@@ -1,8 +1,13 @@
-// @ts-nocheck
+import { Icon, PageHeader, Surface } from "../components/common";
+import type { TFunction } from "../types";
 
-import { EmptyState, Icon, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+interface WebhooksViewProps {
+  endpoint: string;
+  onCopy: (text: string) => void;
+  t: TFunction;
+}
 
-export function WebhooksView({ endpoint, onCopy, t }) {
+export function WebhooksView({ endpoint, onCopy, t }: WebhooksViewProps) {
   const sample = `receivers:
   - name: cluster-infra-rca
     webhook_configs:

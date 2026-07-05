@@ -1,12 +1,126 @@
-// @ts-nocheck
-
+import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 
 import { POLICY_HELP } from "../constants";
+import type { Locale, NavItem } from "../constants";
 
 import { policyTone, statusTone } from "../lib/consoleUtils";
+import type { ClusterView, RcaReport, RecommendedAction, TFunction, UserAccount } from "../types";
 
-export function BootScreen({ t = (x) => x }) {
+type LocaleSetter = (locale: Locale) => void;
+type MaybePromise<T = void> = T | Promise<T>;
+
+interface ToastState {
+  tone?: string;
+  message: string;
+}
+
+interface LoginForm {
+  username: string;
+  password: string;
+}
+
+interface BootScreenProps {
+  t?: TFunction;
+}
+
+interface LoginPageProps {
+  onLogin: (form: LoginForm) => MaybePromise;
+  locale: Locale;
+  setLocale: LocaleSetter;
+  t: TFunction;
+  toast?: ToastState | null;
+}
+
+interface SidebarProps {
+  items: readonly NavItem[];
+  activeView: string;
+  setActiveView: (view: string) => void;
+  t: TFunction;
+}
+
+interface TopbarProps {
+  user: UserAccount;
+  locale: Locale;
+  setLocale: LocaleSetter;
+  onRefresh: () => MaybePromise;
+  onLogout: () => MaybePromise;
+  loading?: boolean;
+  t: TFunction;
+}
+
+interface ActionDialogState {
+  report: RcaReport;
+  action: RecommendedAction;
+  index: number;
+}
+
+interface ActionDialogProps {
+  state: ActionDialogState;
+  onClose: () => void;
+  onConfirm: (report: RcaReport, index: number, note: string) => MaybePromise;
+  t: TFunction;
+}
+
+interface DeleteClusterDialogProps {
+  state: { cluster: ClusterView };
+  onClose: () => void;
+  onConfirm: (cluster: ClusterView, confirmName: string) => MaybePromise;
+  t: TFunction;
+}
+
+interface SurfaceProps {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}
+
+interface PageHeaderProps {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}
+
+interface MetricTileProps {
+  label: ReactNode;
+  value: ReactNode;
+  tone?: string;
+  icon: string;
+}
+
+interface ResponsiveTableProps {
+  columns: string[];
+  rows: ReactNode[][];
+  empty: string;
+}
+
+interface StatusBadgeProps {
+  value?: unknown;
+  tone?: string;
+  t?: TFunction;
+}
+
+interface EmptyStateProps {
+  message: string;
+}
+
+interface LanguageSwitchProps {
+  locale: Locale;
+  setLocale: LocaleSetter;
+  expanded?: boolean;
+}
+
+interface ToastProps {
+  tone?: string;
+  message: string;
+}
+
+interface IconProps {
+  name: string;
+}
+
+export function BootScreen({ t = (x) => x }: BootScreenProps) {
   return (
     <div className="boot-screen">
       <div className="boot-mark">
@@ -20,10 +134,10 @@ export function BootScreen({ t = (x) => x }) {
   );
 }
 
-export function LoginPage({ onLogin, locale, setLocale, t, toast }) {
+export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPageProps) {
   const [form, setForm] = useState({ username: "admin", password: "" });
   const [busy, setBusy] = useState(false);
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     try {
@@ -81,7 +195,7 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }) {
   );
 }
 
-export function Sidebar({ items, activeView, setActiveView, t }) {
+export function Sidebar({ items, activeView, setActiveView, t }: SidebarProps) {
   return (
     <aside className="console-sidebar">
       <div className="sidebar-brand">
@@ -109,7 +223,7 @@ export function Sidebar({ items, activeView, setActiveView, t }) {
   );
 }
 
-export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, t }) {
+export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, t }: TopbarProps) {
   return (
     <header className="console-topbar">
       <div>
@@ -140,10 +254,11 @@ export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, 
   );
 }
 
-export function ActionDialog({ state, onClose, onConfirm, t }) {
+export function ActionDialog({ state, onClose, onConfirm, t }: ActionDialogProps) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const { report, action, index } = state;
+  const commandPreview = action.execution_plan?.command_preview || [];
   async function submit() {
     setBusy(true);
     try {
@@ -164,7 +279,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }) {
         </header>
         <div className="policy-warning">
           <Icon name="shield-lock" />
-          <span>{action.source === "llm" ? t("LLM diagnostic only") : t(POLICY_HELP[action.policy] || "Policy controlled workflow.")}</span>
+          <span>{action.source === "llm" ? t("LLM diagnostic only") : t(POLICY_HELP[action.policy || ""] || "Policy controlled workflow.")}</span>
         </div>
         <div className="action-card blocked">
           <div className="action-head">
@@ -173,7 +288,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }) {
           </div>
           <h3>{action.action}</h3>
           <p>{action.reason}</p>
-          {action.execution_plan?.command_preview?.length > 0 && <pre className="command-preview">{action.execution_plan.command_preview.join("\n")}</pre>}
+          {commandPreview.length > 0 && <pre className="command-preview">{commandPreview.join("\n")}</pre>}
         </div>
         <textarea className="form-control" rows={3} placeholder={t("Operator note")} value={note} onChange={(event) => setNote(event.target.value)} />
         <footer>
@@ -185,7 +300,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }) {
   );
 }
 
-export function DeleteClusterDialog({ state, onClose, onConfirm, t }) {
+export function DeleteClusterDialog({ state, onClose, onConfirm, t }: DeleteClusterDialogProps) {
   const [confirmName, setConfirmName] = useState("");
   const cluster = state.cluster;
   return (
@@ -211,7 +326,7 @@ export function DeleteClusterDialog({ state, onClose, onConfirm, t }) {
   );
 }
 
-export function Surface({ title, subtitle, action, children }) {
+export function Surface({ title, subtitle, action, children }: SurfaceProps) {
   return (
     <section className="surface">
       <header className="surface-head">
@@ -226,7 +341,7 @@ export function Surface({ title, subtitle, action, children }) {
   );
 }
 
-export function PageHeader({ title, subtitle, actions }) {
+export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
     <div className="page-header">
       <div>
@@ -239,7 +354,7 @@ export function PageHeader({ title, subtitle, actions }) {
   );
 }
 
-export function MetricTile({ label, value, tone = "blue", icon }) {
+export function MetricTile({ label, value, tone = "blue", icon }: MetricTileProps) {
   return (
     <article className={`metric-tile ${tone}`}>
       <div className="metric-icon"><Icon name={icon} /></div>
@@ -249,7 +364,7 @@ export function MetricTile({ label, value, tone = "blue", icon }) {
   );
 }
 
-export function ResponsiveTable({ columns, rows, empty }) {
+export function ResponsiveTable({ columns, rows, empty }: ResponsiveTableProps) {
   if (!rows.length) return <EmptyState message={empty} />;
   return (
     <div className="table-responsive console-table-wrap">
@@ -265,11 +380,11 @@ export function ResponsiveTable({ columns, rows, empty }) {
   );
 }
 
-export function StatusBadge({ value, tone, t = (x) => x }) {
+export function StatusBadge({ value, tone, t = (x) => x }: StatusBadgeProps) {
   return <span className={`status-badge ${tone || statusTone(value)}`}>{t(String(value || "n/a"))}</span>;
 }
 
-export function EmptyState({ message }) {
+export function EmptyState({ message }: EmptyStateProps) {
   return (
     <div className="empty-state">
       <Icon name="inbox" />
@@ -278,7 +393,7 @@ export function EmptyState({ message }) {
   );
 }
 
-export function LanguageSwitch({ locale, setLocale, expanded = false }) {
+export function LanguageSwitch({ locale, setLocale, expanded = false }: LanguageSwitchProps) {
   return (
     <div className={`language-switch ${expanded ? "expanded" : ""}`}>
       <button className={locale === "en" ? "active" : ""} onClick={() => setLocale("en")} type="button">EN</button>
@@ -287,10 +402,10 @@ export function LanguageSwitch({ locale, setLocale, expanded = false }) {
   );
 }
 
-export function Toast({ tone, message }) {
+export function Toast({ tone, message }: ToastProps) {
   return <div className={`console-toast ${tone || "success"}`}>{message}</div>;
 }
 
-export function Icon({ name }) {
+export function Icon({ name }: IconProps) {
   return <i className={`bi bi-${name}`} aria-hidden="true" />;
 }

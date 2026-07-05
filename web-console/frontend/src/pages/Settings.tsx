@@ -1,39 +1,99 @@
-// @ts-nocheck
-
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import {
   EmptyState,
   Icon,
   LanguageSwitch,
-  MetricTile,
   PageHeader,
-  ResponsiveTable,
-  StatusBadge,
   Surface,
 } from "../components/common";
-import { arrayResult, sortByTime, copyText, buildAuditQuery, auditStats, buildSignalDigest, scoreStage, occurrences, escapeRegExp, inferSignalFamily, evidenceSummary, derivedSignals, reportEvidenceQuality, reportQualityGate, qualityTone, qualityGateTone, formatFreshness, formatPercentValue, fallbackTimeline, shortValue, platformInfoRows, formatBytes, shortHash, formatDate, runConsoleLayoutAudit, layoutElementLabel, layoutElementText, relativeTime, statusTone, policyTone, confidenceTone, severityTone, requestTone, taskTone, summarizeAgentFleet, normalizedAgentStatus, agentReason, summarizePipeline, withinHours, auditTone, agentHealthTone, signalIcon, auditClientIp, auditSummary } from "../lib/consoleUtils";
+import type { Locale } from "../constants";
+import { formatDate, platformInfoRows, runConsoleLayoutAudit } from "../lib/consoleUtils";
+import type { PlatformInfo, TFunction, UserAccount } from "../types";
 
-export function SettingsView({ locale, setLocale, platformInfo, currentUser, onChangeLoginId, onChangePassword, t }) {
+interface LoginIdForm {
+  current_password: string;
+  new_username: string;
+}
+
+interface PasswordForm {
+  current_password: string;
+  new_password: string;
+}
+
+interface LayoutIssue {
+  selector: string;
+  text?: string;
+  reason?: string;
+}
+
+interface LayoutAudit {
+  viewport_width: number;
+  viewport_height: number;
+  page_overflow_x: boolean;
+  offscreen: LayoutIssue[];
+  overflowed: LayoutIssue[];
+  clipped: LayoutIssue[];
+  checked_at?: string;
+}
+
+interface SettingsViewProps {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  platformInfo: PlatformInfo | null;
+  currentUser: UserAccount | null;
+  onChangeLoginId: (form: LoginIdForm) => void | Promise<void>;
+  onChangePassword: (form: PasswordForm) => void | Promise<void>;
+  t: TFunction;
+}
+
+interface LayoutAuditPanelProps {
+  audit: LayoutAudit | null;
+  t: TFunction;
+}
+
+interface DiagnosticGroupProps {
+  title: string;
+  items: LayoutIssue[];
+}
+
+interface PlatformInfoRow {
+  key: string;
+  label: ReactNode;
+  value: ReactNode;
+  tone?: string;
+}
+
+export function SettingsView({
+  locale,
+  setLocale,
+  platformInfo,
+  currentUser,
+  onChangeLoginId,
+  onChangePassword,
+  t,
+}: SettingsViewProps) {
   const [loginId, setLoginId] = useState({
     current_password: "",
     new_username: currentUser?.email || "",
   });
   const [password, setPassword] = useState({ current_password: "", new_password: "" });
-  const [layoutAudit, setLayoutAudit] = useState(null);
+  const [layoutAudit, setLayoutAudit] = useState<LayoutAudit | null>(null);
   const defaultCredentialVisible = currentUser?.email === "admin";
+  const infoRows = platformInfoRows(platformInfo, t) as PlatformInfoRow[];
 
   useEffect(() => {
     setLoginId((current) => ({ ...current, new_username: currentUser?.email || "" }));
   }, [currentUser?.email]);
 
-  async function submitLoginId(event) {
+  async function submitLoginId(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await onChangeLoginId(loginId);
     setLoginId((current) => ({ ...current, current_password: "" }));
   }
 
-  async function submitPassword(event) {
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await onChangePassword(password);
     setPassword({ current_password: "", new_password: "" });
@@ -80,7 +140,7 @@ export function SettingsView({ locale, setLocale, platformInfo, currentUser, onC
       </Surface>
       <Surface title={t("Platform info")} subtitle={t("Protocol compatibility and export integrity")}>
         <div className="info-grid">
-          {platformInfoRows(platformInfo, t).map((row) => (
+          {infoRows.map((row) => (
             <div key={row.key} className={row.tone ? `info-card-${row.tone}` : ""}>
               <span>{row.label}</span>
               <strong>{row.value}</strong>
@@ -92,7 +152,7 @@ export function SettingsView({ locale, setLocale, platformInfo, currentUser, onC
   );
 }
 
-export function LayoutAuditPanel({ audit, t }) {
+export function LayoutAuditPanel({ audit, t }: LayoutAuditPanelProps) {
   if (!audit) return <EmptyState message={t("Run a check to inspect the current viewport for overflow or clipped text.")} />;
   const issueCount = audit.offscreen.length + audit.overflowed.length + audit.clipped.length + (audit.page_overflow_x ? 1 : 0);
   return (
@@ -118,7 +178,7 @@ export function LayoutAuditPanel({ audit, t }) {
   );
 }
 
-export function DiagnosticGroup({ title, items }) {
+export function DiagnosticGroup({ title, items }: DiagnosticGroupProps) {
   if (!items.length) return null;
   return (
     <div className="diagnostic-group">

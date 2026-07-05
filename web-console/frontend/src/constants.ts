@@ -1,10 +1,17 @@
-// @ts-nocheck
+export type Locale = "en" | "ko";
 
-export const STORAGE_KEYS = {
+export interface NavItem {
+  id: string;
+  label: string;
+  icon: string;
+  roles?: readonly string[];
+}
+
+export const STORAGE_KEYS: Record<string, string> = {
   locale: "rca_console_language",
 };
 
-export const NAV_ITEMS = [
+export const NAV_ITEMS: readonly NavItem[] = [
   { id: "overview", label: "Overview", icon: "speedometer2" },
   { id: "clusters", label: "Clusters", icon: "hdd-network" },
   { id: "reports", label: "RCA Reports", icon: "clipboard2-pulse" },
@@ -15,7 +22,7 @@ export const NAV_ITEMS = [
   { id: "settings", label: "Settings", icon: "gear" },
 ];
 
-export const KO = {
+export const KO: Record<string, string> = {
   Overview: "개요",
   Clusters: "클러스터",
   "RCA Reports": "RCA 보고서",
@@ -377,7 +384,7 @@ export const KO = {
   "Service Impact": "서비스 영향",
 };
 
-export const POLICY_HELP = {
+export const POLICY_HELP: Record<string, string> = {
   AUTO_SAFE: "Read-only evidence collection can be requested from the agent.",
   APPROVAL_REQUIRED: "A human approval record is required. Execution remains manual.",
   GITOPS_PR_ONLY: "Use a GitOps PR or runbook. Do not execute directly from the console.",
