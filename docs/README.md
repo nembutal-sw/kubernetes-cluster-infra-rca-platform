@@ -29,6 +29,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문�
 | `retention-policy.md` | 보존 기간과 FK-safe cleanup |
 | `daemonset-operations-checklist.md` | Agent DaemonSet 운영 배포 체크리스트 |
 | `daemonset-production-validation.md` | read-only canary rollout과 운영 검증 절차 |
+| `release-readiness.md` | Helm, container, smoke, Agent, Kubernetes canary release gate |
 | `helm-platform-chart.md` | Platform Helm chart values와 production note |
 | `helm-agent-chart.md` | Agent Helm chart values와 배포 예시 |
 | `testing.md` | 로컬/운영/Helm/DaemonSet 검증 명령 |

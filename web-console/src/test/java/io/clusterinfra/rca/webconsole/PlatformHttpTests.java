@@ -310,6 +310,9 @@ class PlatformHttpTests {
         );
         assertThat(authorized.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(authorized.getBody()).contains("\"kind\":\"DaemonSet\"");
+        assertThat(authorized.getBody()).contains("\"kind\":\"Secret\"");
+        assertThat(authorized.getBody()).contains("\"cluster-id\"");
+        assertThat(authorized.getBody()).contains("\"agent-token\"");
         assertThat(authorized.getBody()).contains("KUBERNETES_TOPOLOGY_ENABLED");
         assertThat(authorized.getBody()).contains("endpointslices");
 

@@ -9,10 +9,12 @@ import org.springframework.stereotype.Component;
 public class PlatformBootstrap implements ApplicationRunner {
     private final UserRepository users;
     private final RcaConsoleProperties properties;
+    private final BootstrapReadiness readiness;
 
-    public PlatformBootstrap(UserRepository users, RcaConsoleProperties properties) {
+    public PlatformBootstrap(UserRepository users, RcaConsoleProperties properties, BootstrapReadiness readiness) {
         this.users = users;
         this.properties = properties;
+        this.readiness = readiness;
     }
 
     @Override
@@ -21,11 +23,13 @@ public class PlatformBootstrap implements ApplicationRunner {
             || properties.getDefaultAdminUsername().isBlank()
             || properties.getDefaultAdminPassword() == null
             || properties.getDefaultAdminPassword().isBlank()) {
+            readiness.markCompleted();
             return;
         }
         users.ensureDefaultAdmin(
             properties.getDefaultAdminUsername(),
             properties.getDefaultAdminPassword()
         );
+        readiness.markCompleted();
     }
 }

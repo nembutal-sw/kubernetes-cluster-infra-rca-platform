@@ -141,8 +141,28 @@ public class AgentManifestService {
                 "AGENT_STATE_DIR", "/var/lib/cluster-infra-rca-agent"
             )
         ));
+        items.add(secret(cluster, options.namespace()));
         items.add(daemonSet(options, configMapName));
         return map("apiVersion", "v1", "kind", "List", "items", items);
+    }
+
+    private Map<String, Object> secret(Cluster cluster, String namespace) {
+        return map(
+            "apiVersion", "v1",
+            "kind", "Secret",
+            "metadata", map(
+                "name", APP_NAME,
+                "namespace", namespace,
+                "annotations", map(
+                    "cluster-infra-rca.io/cluster-id", cluster.clusterId()
+                )
+            ),
+            "type", "Opaque",
+            "stringData", map(
+                "cluster-id", cluster.clusterId(),
+                "agent-token", cluster.bootstrapToken()
+            )
+        );
     }
 
     private Map<String, Object> clusterRole() {
