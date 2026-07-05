@@ -47,6 +47,10 @@
 - 최초 관리자 로그인
 - cluster 생성 API
 - cluster 목록 조회
+- backend 자체 monitoring 옵션 확인
+  - `RCA_MONITORING_ENABLED`
+  - `RCA_MONITORING_INTERVAL_MS`
+  - `RCA_MONITORING_INITIAL_DELAY_MS`
 
 주의:
 
@@ -116,6 +120,7 @@ Node diagnostics mode:
 릴리스 후보는 아래 조건을 만족해야 합니다.
 
 - Helm lint/template 통과
+- `scripts/release-readiness-check.py` 통과
 - platform/agent image build 성공
 - Maven test 성공
 - smoke deploy에서 ready/login/cluster create 성공
@@ -124,3 +129,11 @@ Node diagnostics mode:
 - canary evidence collection 완료
 - 검증 중 발견한 회귀는 테스트로 고정
 
+CI에서 확인하는 운영 계약:
+
+- platform/agent Helm chart 필수 템플릿 존재
+- `/api/agent-manifest` Secret 포함
+- `/health/ready` bootstrap/database 상태 포함
+- backend scheduled monitoring evidence context 포함
+- kind smoke에서 agent 등록, evidence 완료, report 생성 확인
+- DaemonSet hostPath/read-only posture 검사 스크립트 유지

@@ -375,6 +375,88 @@ code {
   background: var(--surface-soft);
 }
 
+.ops-readiness-grid,
+.pipeline-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pipeline-stats {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.ops-readiness-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+}
+
+.ops-readiness-card.ok {
+  border-left: 4px solid var(--green);
+}
+
+.ops-readiness-card.warn {
+  border-left: 4px solid var(--amber);
+}
+
+.ops-readiness-card.danger {
+  border-left: 4px solid var(--red);
+}
+
+.ops-readiness-head,
+.mini-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.ops-readiness-head i {
+  color: var(--primary);
+}
+
+.ops-readiness-card strong {
+  font-size: 1.15rem;
+}
+
+.readiness-meter {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+
+.readiness-meter span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  background: var(--green);
+}
+
+.mini-stat-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.mini-stat-row span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--surface-soft);
+  white-space: nowrap;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.85fr);
@@ -747,6 +829,71 @@ code {
 
 .cluster-detail-grid .wide {
   grid-column: 1 / -1;
+}
+
+.agent-health-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(92px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.agent-health-stat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+}
+
+.agent-health-stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.agent-health-stat strong {
+  font-size: 1.2rem;
+}
+
+.agent-health-stat.ok strong {
+  color: var(--green);
+}
+
+.agent-health-stat.warn strong {
+  color: var(--amber);
+}
+
+.agent-health-stat.danger strong {
+  color: var(--red);
+}
+
+.agent-health-reasons {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.agent-health-reasons span {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.agent-health-reasons i {
+  color: var(--amber);
+}
+
+.health-reason {
+  color: var(--muted);
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .section-toolbar {
@@ -2295,6 +2442,11 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .ops-readiness-grid,
+  .pipeline-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .report-list {
     position: static;
     max-height: none;
@@ -2370,11 +2522,14 @@ code {
   .quality-metric-grid,
   .quality-detail-grid,
   .timeline-detail-grid,
+  .ops-readiness-grid,
+  .pipeline-stats,
   .ops-strip,
   .bundle-verify-grid,
   .audit-stats,
   .audit-layout,
-  .cluster-detail-grid {
+  .cluster-detail-grid,
+  .agent-health-summary {
     grid-template-columns: 1fr;
   }
 

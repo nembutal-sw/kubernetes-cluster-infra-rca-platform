@@ -112,12 +112,30 @@ jobs:
             --set ebpf.enabled=true \
             --set secret.existingSecret.name=agent-auth > /dev/null
 
+  release-readiness-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Compile operational scripts
+        run: |
+          python -m py_compile \
+            scripts/release-readiness-check.py \
+            scripts/daemonset_operational_check.py \
+            scripts/operational_scenario_validation.py
+      - name: Validate release readiness contracts
+        run: python scripts/release-readiness-check.py
+
   docker-build:
     needs:
       - node-agent-test
       - frontend-build
       - web-console-test
       - helm-validate
+      - release-readiness-gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

@@ -42,6 +42,9 @@ const KO = {
   "RCA reports": "RCA 보고서",
   "Registered clusters": "등록 클러스터",
   "Healthy agents": "정상 에이전트",
+  "Agent fleet": "에이전트 상태",
+  "Analysis pipeline": "분석 파이프라인",
+  "Policy queue": "정책 큐",
   "Policy blocked": "정책 차단",
   "APM Failure Surface": "APM 장애 표면",
   "Failure propagation": "장애 전파",
@@ -77,6 +80,7 @@ const KO = {
   Node: "노드",
   Version: "버전",
   "Last heartbeat": "마지막 하트비트",
+  "Risk reason": "위험 사유",
   "Alert name": "알림명",
   "Created at": "생성일",
   "Completed at": "완료일",
@@ -251,6 +255,7 @@ function ConsoleApp() {
   const [incidents, setIncidents] = useState([]);
   const [analysisTasks, setAnalysisTasks] = useState([]);
   const [actionRequests, setActionRequests] = useState([]);
+  const [agentHealth, setAgentHealth] = useState([]);
   const [auditEvents, setAuditEvents] = useState([]);
   const [demoScenarios, setDemoScenarios] = useState([]);
   const [platformInfo, setPlatformInfo] = useState(null);
@@ -336,7 +341,8 @@ function ConsoleApp() {
         requests.push(callApi("/api/audit/events?limit=200"));
       }
       const results = await Promise.allSettled(requests);
-      setClusters(arrayResult(results[0]));
+      const clusterItems = arrayResult(results[0]);
+      setClusters(clusterItems);
       setReports(sortByTime(arrayResult(results[1]), "created_at"));
       setIncidents(sortByTime(arrayResult(results[2]), "last_seen_at"));
       setAnalysisTasks(sortByTime(arrayResult(results[3]), "created_at"));
@@ -347,6 +353,14 @@ function ConsoleApp() {
         setAuditEvents(sortByTime(arrayResult(results[7]), "created_at"));
       } else {
         setAuditEvents([]);
+      }
+      if (clusterItems.length) {
+        const healthResults = await Promise.allSettled(
+          clusterItems.map((cluster) => callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-health`)),
+        );
+        setAgentHealth(healthResults.flatMap((result) => arrayResult(result)));
+      } else {
+        setAgentHealth([]);
       }
     } catch (error) {
       notify(error.message || "Failed to load console data.", "danger");
@@ -651,6 +665,7 @@ function ConsoleApp() {
               incidents={incidents}
               analysisTasks={analysisTasks}
               actionRequests={actionRequests}
+              agentHealth={agentHealth}
               onNavigate={setActiveView}
               onOpenReport={setSelectedReportId}
               onOpenCluster={loadClusterDetail}
@@ -663,6 +678,7 @@ function ConsoleApp() {
               clusters={clusters}
               selectedCluster={selectedCluster}
               clusterDetail={clusterDetail}
+              agentHealth={agentHealth}
               installCommand={installCommand}
               currentUser={currentUser}
               onCreate={createCluster}
@@ -711,6 +727,7 @@ function ConsoleApp() {
               actionRequests={actionRequests}
               demoScenarios={demoScenarios}
               clusters={clusters}
+              agentHealth={agentHealth}
               onRetry={retryAnalysisTask}
               onRunDemo={runDemoScenario}
               t={t}
@@ -894,9 +911,10 @@ function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, t }) {
   );
 }
 
-function OverviewView({ clusters, reports, incidents, analysisTasks, actionRequests, onNavigate, onOpenReport, onOpenCluster, webhookEndpoint, t }) {
+function OverviewView({ clusters, reports, incidents, analysisTasks, actionRequests, agentHealth, onNavigate, onOpenReport, onOpenCluster, webhookEndpoint, t }) {
   const openIncidents = incidents.filter((item) => item.status === "open");
-  const agents = clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0);
+  const fleet = summarizeAgentFleet(agentHealth, clusters);
+  const agents = fleet.total || clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0);
   const blockedActions = reports.flatMap((report) => report.recommended_actions || []).filter((action) => action.automation_allowed !== true).length;
   const signalDigest = buildSignalDigest(reports, incidents);
   const latestReport = reports[0];
@@ -926,8 +944,19 @@ function OverviewView({ clusters, reports, incidents, analysisTasks, actionReque
         <MetricTile label={t("Open incidents")} value={openIncidents.length} tone={openIncidents.length ? "red" : "green"} icon="exclamation-diamond" />
         <MetricTile label={t("RCA reports")} value={reports.length} tone="blue" icon="clipboard2-pulse" />
         <MetricTile label={t("Registered clusters")} value={clusters.length} tone="teal" icon="hdd-network" />
-        <MetricTile label={t("Policy blocked")} value={blockedActions} tone={blockedActions ? "amber" : "green"} icon="shield-lock" />
+        <MetricTile label={t("Healthy agents")} value={fleet.total ? `${fleet.healthy}/${fleet.total}` : "n/a"} tone={fleet.unhealthy ? "amber" : "green"} icon="hdd-network" />
       </section>
+
+      <OperationsReadinessPanel
+        clusters={clusters}
+        reports={reports}
+        incidents={incidents}
+        analysisTasks={analysisTasks}
+        actionRequests={actionRequests}
+        agentHealth={agentHealth}
+        blockedActions={blockedActions}
+        t={t}
+      />
 
       <div className="dashboard-grid">
         <Surface title={t("Failure propagation")} subtitle="Evidence sequence by system layer" action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}>
@@ -963,6 +992,60 @@ function OverviewView({ clusters, reports, incidents, analysisTasks, actionReque
         </div>
       </section>
     </div>
+  );
+}
+
+function OperationsReadinessPanel({ clusters, reports, incidents, analysisTasks, actionRequests, agentHealth, blockedActions, t }) {
+  const fleet = summarizeAgentFleet(agentHealth, clusters);
+  const pipeline = summarizePipeline(analysisTasks);
+  const approvals = actionRequests.filter((item) => item.status === "pending_approval").length;
+  const manual = actionRequests.filter((item) => ["accepted", "approved_manual"].includes(item.status)).length;
+  const openIncidents = incidents.filter((item) => item.status === "open").length;
+  const recentReports = reports.filter((report) => withinHours(report.created_at, 24)).length;
+  const healthPercent = fleet.total ? Math.round((fleet.healthy / fleet.total) * 100) : 0;
+  return (
+    <section className="ops-readiness-grid" aria-label="Operations readiness">
+      <article className={`ops-readiness-card ${fleet.unhealthy ? "warn" : "ok"}`}>
+        <div className="ops-readiness-head">
+          <span>{t("Agent fleet")}</span>
+          <Icon name={fleet.unhealthy ? "exclamation-triangle" : "check2-circle"} />
+        </div>
+        <strong>{fleet.total ? `${healthPercent}% healthy` : "No agents"}</strong>
+        <div className="readiness-meter"><span style={{ width: `${healthPercent}%` }} /></div>
+        <div className="mini-stat-row">
+          <span>{t("Healthy agents")} <b>{fleet.healthy}</b></span>
+          <span>Stale <b>{fleet.stale}</b></span>
+          <span>Degraded <b>{fleet.degraded}</b></span>
+          <span>Offline <b>{fleet.offline}</b></span>
+        </div>
+      </article>
+      <article className={`ops-readiness-card ${pipeline.deadLetter || pipeline.failed ? "danger" : pipeline.backlog ? "warn" : "ok"}`}>
+        <div className="ops-readiness-head">
+          <span>{t("Analysis pipeline")}</span>
+          <Icon name="diagram-3" />
+        </div>
+        <strong>{pipeline.backlog} active tasks</strong>
+        <div className="mini-stat-row">
+          <span>Queued <b>{pipeline.queued}</b></span>
+          <span>Processing <b>{pipeline.processing}</b></span>
+          <span>Retry <b>{pipeline.retry}</b></span>
+          <span>Dead letter <b>{pipeline.deadLetter}</b></span>
+        </div>
+      </article>
+      <article className={`ops-readiness-card ${approvals || blockedActions ? "warn" : "ok"}`}>
+        <div className="ops-readiness-head">
+          <span>{t("Policy queue")}</span>
+          <Icon name="shield-lock" />
+        </div>
+        <strong>{approvals} approvals pending</strong>
+        <div className="mini-stat-row">
+          <span>{t("Policy blocked")} <b>{blockedActions}</b></span>
+          <span>Manual <b>{manual}</b></span>
+          <span>{t("Open incidents")} <b>{openIncidents}</b></span>
+          <span>Reports 24h <b>{recentReports}</b></span>
+        </div>
+      </article>
+    </section>
   );
 }
 
@@ -1085,6 +1168,7 @@ function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
   const evidence = detail?.evidence || [];
   const topology = detail?.topology || {};
   const entities = topology.entities || [];
+  const fleet = summarizeAgentFleet(agents, [cluster]);
   return (
     <div className="cluster-detail-grid">
       <div>
@@ -1092,14 +1176,16 @@ function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
           <h3>{t("Agents")}</h3>
           {canOperate && <button className="btn btn-sm btn-primary icon-button" onClick={() => onStartCollection(cluster)}><Icon name="collection" /><span>{t("Collect evidence")}</span></button>}
         </div>
+        <AgentHealthSummary fleet={fleet} agents={agents} t={t} />
         <ResponsiveTable
           empty={t("No agents registered.")}
-          columns={[t("Node"), t("Status"), t("Version"), t("Last heartbeat")]}
+          columns={[t("Node"), t("Status"), t("Version"), t("Last heartbeat"), t("Risk reason")]}
           rows={agents.map((agent) => [
             agent.node_name,
             <StatusBadge value={agent.health_status || agent.status || agent.reported_status} tone={agentHealthTone(agent)} t={t} />,
             agent.agent_version || "n/a",
             relativeTime(agent.last_heartbeat_at),
+            <span className="health-reason">{agentReason(agent)}</span>,
           ])}
         />
       </div>
@@ -1123,6 +1209,25 @@ function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
           ))}
           {!entities.length && <span className="text-muted">Topology observation is not loaded yet.</span>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentHealthSummary({ fleet, agents, t }) {
+  const degradedAgents = agents.filter((agent) => !["healthy", "registered"].includes(agent.health_status || agent.status || agent.reported_status));
+  return (
+    <div className="agent-health-summary">
+      <div className="agent-health-stat ok"><span>{t("Healthy agents")}</span><strong>{fleet.healthy}</strong></div>
+      <div className="agent-health-stat warn"><span>Stale</span><strong>{fleet.stale}</strong></div>
+      <div className="agent-health-stat warn"><span>Degraded</span><strong>{fleet.degraded}</strong></div>
+      <div className="agent-health-stat danger"><span>Offline</span><strong>{fleet.offline}</strong></div>
+      <div className="agent-health-reasons">
+        {degradedAgents.length ? degradedAgents.slice(0, 4).map((agent) => (
+          <span key={agent.agent_id || agent.node_name}>
+            <Icon name="exclamation-circle" /> {agent.node_name}: {agentReason(agent)}
+          </span>
+        )) : <span><Icon name="check2-circle" /> All registered agents are reporting healthy posture.</span>}
       </div>
     </div>
   );
@@ -1642,10 +1747,21 @@ function IncidentsView({ incidents, onOpenReport, onChangeStatus, currentUser, t
   );
 }
 
-function PipelineView({ tasks, actionRequests, demoScenarios, clusters, onRetry, onRunDemo, t }) {
+function PipelineView({ tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }) {
+  const pipeline = summarizePipeline(tasks);
+  const fleet = summarizeAgentFleet(agentHealth, clusters);
+  const pendingApprovals = actionRequests.filter((item) => item.status === "pending_approval").length;
+  const blockedRequests = actionRequests.filter((item) => ["blocked", "rejected"].includes(item.status)).length;
   return (
     <div className="page-stack">
       <PageHeader title={t("Pipeline")} subtitle="Analysis worker, approval queue, and built-in RCA scenario generator." />
+      <section className="pipeline-stats">
+        <MetricTile label="Active tasks" value={pipeline.backlog} tone={pipeline.backlog ? "amber" : "green"} icon="cpu" />
+        <MetricTile label="Dead letter" value={pipeline.deadLetter} tone={pipeline.deadLetter ? "red" : "green"} icon="exclamation-octagon" />
+        <MetricTile label="Pending approvals" value={pendingApprovals} tone={pendingApprovals ? "amber" : "green"} icon="person-check" />
+        <MetricTile label="Blocked requests" value={blockedRequests} tone={blockedRequests ? "red" : "green"} icon="shield-lock" />
+        <MetricTile label={t("Healthy agents")} value={fleet.total ? `${fleet.healthy}/${fleet.total}` : "n/a"} tone={fleet.unhealthy ? "amber" : "green"} icon="hdd-network" />
+      </section>
       <div className="split-grid">
         <Surface title={t("Analysis tasks")} subtitle={`${tasks.length} tasks`}>
           <TaskList tasks={tasks} onRetry={onRetry} t={t} />
@@ -2724,6 +2840,72 @@ function taskTone(value) {
   return "amber";
 }
 
+function summarizeAgentFleet(agentHealth = [], clusters = []) {
+  const summary = {
+    total: Array.isArray(agentHealth) && agentHealth.length
+      ? agentHealth.length
+      : clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0),
+    healthy: 0,
+    stale: 0,
+    degraded: 0,
+    offline: 0,
+    unauthorized: 0,
+    versionMismatch: 0,
+    unknown: 0,
+    unhealthy: 0,
+  };
+  (agentHealth || []).forEach((agent) => {
+    const status = normalizedAgentStatus(agent);
+    if (["healthy", "registered"].includes(status)) summary.healthy += 1;
+    else if (status === "stale") summary.stale += 1;
+    else if (status === "offline") summary.offline += 1;
+    else if (status === "unauthorized") summary.unauthorized += 1;
+    else if (status === "version_mismatch") summary.versionMismatch += 1;
+    else if (["collector_degraded", "degraded"].includes(status)) summary.degraded += 1;
+    else summary.unknown += 1;
+  });
+  summary.unhealthy = Math.max(0, summary.total - summary.healthy);
+  return summary;
+}
+
+function normalizedAgentStatus(agent) {
+  return String(agent?.health_status || agent?.status || agent?.reported_status || "unknown");
+}
+
+function agentReason(agent) {
+  const reasons = agent?.reasons || agent?.health_reasons || [];
+  if (Array.isArray(reasons) && reasons.length) return String(reasons[0]);
+  const status = normalizedAgentStatus(agent);
+  if (status === "collector_degraded") return "Collector self-check reported degraded prerequisites.";
+  if (status === "version_mismatch") return "Agent version or protocol is outside the supported range.";
+  if (status === "unauthorized") return "Agent reported authentication or authorization failure.";
+  if (status === "stale") return "Heartbeat is older than the stale threshold.";
+  if (status === "offline") return "Heartbeat exceeded the offline threshold.";
+  const collectors = agent?.supported_collectors || agent?.supportedCollectors || [];
+  return collectors.length ? `${collectors.length} collectors available` : "No risk reason reported.";
+}
+
+function summarizePipeline(tasks = []) {
+  const summary = { queued: 0, processing: 0, retry: 0, completed: 0, failed: 0, deadLetter: 0, backlog: 0 };
+  (tasks || []).forEach((task) => {
+    if (task.status === "queued") summary.queued += 1;
+    else if (task.status === "processing") summary.processing += 1;
+    else if (task.status === "retry_wait") summary.retry += 1;
+    else if (task.status === "completed") summary.completed += 1;
+    else if (task.status === "dead_letter") summary.deadLetter += 1;
+    else if (task.status === "failed") summary.failed += 1;
+  });
+  summary.backlog = summary.queued + summary.processing + summary.retry;
+  return summary;
+}
+
+function withinHours(value, hours) {
+  if (!value) return false;
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return false;
+  return Date.now() - time <= hours * 60 * 60 * 1000;
+}
+
 function auditTone(value) {
   if (String(value).includes("success")) return "green";
   if (String(value).includes("fail") || String(value).includes("denied")) return "red";
@@ -2731,7 +2913,7 @@ function auditTone(value) {
 }
 
 function agentHealthTone(agent) {
-  const value = agent.health_status || agent.status || agent.reported_status;
+  const value = normalizedAgentStatus(agent);
   if (value === "healthy") return "green";
   if (["offline", "unauthorized", "version_mismatch"].includes(value)) return "red";
   return "amber";
