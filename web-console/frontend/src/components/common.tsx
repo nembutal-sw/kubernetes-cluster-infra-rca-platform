@@ -6,7 +6,7 @@ import { POLICY_HELP } from "../constants";
 
 import { policyTone, statusTone } from "../lib/consoleUtils";
 
-export function BootScreen() {
+export function BootScreen({ t = (x) => x }) {
   return (
     <div className="boot-screen">
       <div className="boot-mark">
@@ -14,7 +14,7 @@ export function BootScreen() {
       </div>
       <div>
         <strong>Cluster Infra RCA</strong>
-        <p>Loading console</p>
+        <p>{t("Loading console")}</p>
       </div>
     </div>
   );
@@ -43,9 +43,9 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }) {
           </div>
         </div>
         <div className="login-observability">
-          <div><span>Disk I/O</span><strong>watch</strong></div>
-          <div><span>Kubelet</span><strong>rule gate</strong></div>
-          <div><span>Network</span><strong>timeline</strong></div>
+          <div><span>{t("Disk I/O")}</span><strong>{t("watch")}</strong></div>
+          <div><span>{t("Kubelet")}</span><strong>{t("rule gate")}</strong></div>
+          <div><span>{t("Network")}</span><strong>{t("timeline")}</strong></div>
         </div>
         <form onSubmit={submit} className="login-form">
           <label>
@@ -91,7 +91,7 @@ export function Sidebar({ items, activeView, setActiveView, t }) {
           <span>APM Console</span>
         </div>
       </div>
-      <nav className="sidebar-nav" aria-label="Console navigation">
+      <nav className="sidebar-nav" aria-label={t("Console navigation")}>
         {items.map((item) => (
           <button
             key={item.id}
@@ -118,7 +118,7 @@ export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, 
       <div className="topbar-actions">
         <div className="ops-live-pill">
           <span />
-          <strong>Ops live</strong>
+          <strong>{t("Ops live")}</strong>
         </div>
         <LanguageSwitch locale={locale} setLocale={setLocale} />
         <button className="btn btn-outline-secondary btn-sm icon-button" onClick={onRefresh} disabled={loading}>
@@ -163,7 +163,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }) {
         </header>
         <div className="policy-warning">
           <Icon name="shield-lock" />
-          <span>{action.source === "llm" ? t("LLM diagnostic only") : POLICY_HELP[action.policy] || "Policy controlled workflow."}</span>
+          <span>{action.source === "llm" ? t("LLM diagnostic only") : t(POLICY_HELP[action.policy] || "Policy controlled workflow.")}</span>
         </div>
         <div className="action-card blocked">
           <div className="action-head">
@@ -174,7 +174,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }) {
           <p>{action.reason}</p>
           {action.execution_plan?.command_preview?.length > 0 && <pre className="command-preview">{action.execution_plan.command_preview.join("\n")}</pre>}
         </div>
-        <textarea className="form-control" rows={3} placeholder="Operator note" value={note} onChange={(event) => setNote(event.target.value)} />
+        <textarea className="form-control" rows={3} placeholder={t("Operator note")} value={note} onChange={(event) => setNote(event.target.value)} />
         <footer>
           <button className="btn btn-outline-secondary" onClick={onClose}>{t("Cancel")}</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? "..." : t("Confirm")}</button>

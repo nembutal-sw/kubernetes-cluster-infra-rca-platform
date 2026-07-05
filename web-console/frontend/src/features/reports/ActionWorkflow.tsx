@@ -7,7 +7,7 @@ import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../compon
 import { policyTone, relativeTime, requestTone } from "../../lib/consoleUtils";
 
 export function ActionList({ report, actions, onPrepareAction, t }) {
-  if (!actions.length) return <EmptyState message="No recommended actions." />;
+  if (!actions.length) return <EmptyState message={t("No recommended actions.")} />;
   return (
     <div className="action-grid">
       {actions.map((action, index) => {
@@ -68,7 +68,7 @@ export function ActionRequestList({ items, executions, currentUser, onDecideActi
             {execution && <pre className="command-preview">{execution.status}: {execution.command_key}</pre>}
             {(canApprove || canComplete) && (
               <div className="request-actions">
-                <input className="form-control form-control-sm" placeholder="Decision note" value={noteById[item.action_request_id] || ""} onChange={(event) => setNoteById({ ...noteById, [item.action_request_id]: event.target.value })} />
+                <input className="form-control form-control-sm" placeholder={t("Decision note")} value={noteById[item.action_request_id] || ""} onChange={(event) => setNoteById({ ...noteById, [item.action_request_id]: event.target.value })} />
                 {canApprove && <button className="btn btn-sm btn-success" onClick={() => onDecideAction(item, "approve", noteById[item.action_request_id] || "")}>{t("Approve")}</button>}
                 {canApprove && <button className="btn btn-sm btn-outline-danger" onClick={() => onDecideAction(item, "reject", noteById[item.action_request_id] || "")}>{t("Reject")}</button>}
                 {canComplete && <button className="btn btn-sm btn-primary" disabled={!noteById[item.action_request_id]} onClick={() => onCompleteManual(item, noteById[item.action_request_id])}>{t("Complete manual")}</button>}

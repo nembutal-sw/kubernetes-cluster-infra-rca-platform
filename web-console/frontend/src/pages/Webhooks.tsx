@@ -14,9 +14,9 @@ export function WebhooksView({ endpoint, onCopy, t }) {
             credentials_file: /etc/alertmanager/secrets/rca-webhook-token`;
   return (
     <div className="page-stack">
-      <PageHeader title={t("Webhooks")} subtitle="Alertmanager is optional; the backend can also request evidence collection directly." />
+      <PageHeader title={t("Webhooks")} subtitle={t("Alertmanager is optional; the backend can also request evidence collection directly.")} />
       <div className="split-grid">
-        <Surface title={t("Alertmanager endpoint")} subtitle="Protected by webhook token">
+        <Surface title={t("Alertmanager endpoint")} subtitle={t("Protected by webhook token")}>
           <div className="endpoint-box">
             <code>{endpoint}</code>
             <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy(endpoint)}><Icon name="clipboard" /><span>{t("Copy")}</span></button>

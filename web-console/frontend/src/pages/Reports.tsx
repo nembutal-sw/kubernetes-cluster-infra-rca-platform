@@ -34,7 +34,7 @@ export function ReportsView({ reports, selectedReportId, setSelectedReportId, de
     <div className="page-stack">
       <PageHeader
         title={t("RCA Reports")}
-        subtitle="Root cause candidates, evidence, policy gates, and operator workflow."
+        subtitle={t("Root cause candidates, evidence, policy gates, and operator workflow.")}
         actions={canExport && <button className="btn btn-sm btn-outline-secondary icon-button" onClick={onExportAll}><Icon name="download" /><span>{t("Export all")}</span></button>}
       />
       <div className="report-layout">
@@ -61,7 +61,7 @@ export function ReportsView({ reports, selectedReportId, setSelectedReportId, de
               onCopy={onCopy}
               t={t}
             />
-          ) : <EmptyState message="Select an RCA report." />}
+          ) : <EmptyState message={t("Select an RCA report.")} />}
         </section>
       </div>
     </div>

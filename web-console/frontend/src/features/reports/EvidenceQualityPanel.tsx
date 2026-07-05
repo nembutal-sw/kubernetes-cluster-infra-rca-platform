@@ -5,7 +5,7 @@ import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../compon
 import { formatDate, formatFreshness, qualityGateTone, qualityTone } from "../../lib/consoleUtils";
 
 export function EvidenceQualityPanel({ quality, gate, t }) {
-  if (!quality && !gate) return <EmptyState message="Report quality is not available for this report." />;
+  if (!quality && !gate) return <EmptyState message={t("Report quality is not available for this report.")} />;
   const gateReasons = Array.isArray(gate?.reasons) ? gate.reasons : [];
   const gateFollowUp = Array.isArray(gate?.follow_up || gate?.followUp) ? (gate.follow_up || gate.followUp) : [];
   const safeQuality = quality || {};

@@ -67,48 +67,48 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
       {llmActions.length > 0 && (
         <div className="policy-warning">
           <Icon name="shield-exclamation" />
-          <span>{t("LLM diagnostic only")}: LLM-origin actions stay automation_allowed=false. Operators can create a request, record approval/rejection, or mark manual handling complete.</span>
+          <span>{t("LLM diagnostic only")}: {t("LLM-origin actions stay automation_allowed=false. Operators can create a request, record approval/rejection, or mark manual handling complete.")}</span>
         </div>
       )}
 
-      <Surface title={t("Report quality")} subtitle="Rule signal sufficiency, freshness, collector coverage, and confidence gate">
+      <Surface title={t("Report quality")} subtitle={t("Rule signal sufficiency, freshness, collector coverage, and confidence gate")}>
         <EvidenceQualityPanel quality={quality} gate={gate} t={t} />
       </Surface>
 
       {canExport && (
-        <Surface title={t("Bundle verification")} subtitle="Offline integrity check and current manifest preview">
+        <Surface title={t("Bundle verification")} subtitle={t("Offline integrity check and current manifest preview")}>
           <BundleVerificationPanel manifest={detail.bundleManifest} platformInfo={platformInfo} onCopy={onCopy} t={t} />
         </Surface>
       )}
 
-      <Surface title={t("Cascading timeline")} subtitle="Observed evidence order and inferred propagation">
+      <Surface title={t("Cascading timeline")} subtitle={t("Observed evidence order and inferred propagation")}>
         <TimelineGraph timeline={detail.timeline} report={report} t={t} />
       </Surface>
 
-      <Surface title={t("Rule evidence")} subtitle="Rule-based detector output before LLM analysis">
+      <Surface title={t("Rule evidence")} subtitle={t("Rule-based detector output before LLM analysis")}>
         <RuleEvidencePanel signals={signals} t={t} />
       </Surface>
 
       <div className="detail-grid">
-        <Surface title={t("Root cause candidates")} subtitle="Ranked by rule and evidence confidence">
+        <Surface title={t("Root cause candidates")} subtitle={t("Ranked by rule and evidence confidence")}>
           <CandidateList candidates={candidates} t={t} />
         </Surface>
-        <Surface title={t("Evidence summary")} subtitle="Signals used by analyzer">
+        <Surface title={t("Evidence summary")} subtitle={t("Signals used by analyzer")}>
           <EvidenceSummary items={evidenceItems} t={t} />
         </Surface>
-        <Surface title={t("Additional checks")} subtitle="Commands to verify before remediation">
-          <CheckList checks={checks} />
+        <Surface title={t("Additional checks")} subtitle={t("Commands to verify before remediation")}>
+          <CheckList checks={checks} t={t} />
         </Surface>
-        <Surface title={t("Policy gate")} subtitle="Policy Engine result before any action request">
+        <Surface title={t("Policy gate")} subtitle={t("Policy Engine result before any action request")}>
           <PolicySummary actions={actions} t={t} />
         </Surface>
       </div>
 
-      <Surface title={t("Recommended actions")} subtitle="Every action remains behind policy and human confirmation">
+      <Surface title={t("Recommended actions")} subtitle={t("Every action remains behind policy and human confirmation")}>
         <ActionList report={report} actions={actions} onPrepareAction={onPrepareAction} t={t} />
       </Surface>
 
-      <Surface title={t("Action requests")} subtitle="Approval records and manual completion">
+      <Surface title={t("Action requests")} subtitle={t("Approval records and manual completion")}>
         <ActionRequestList
           items={detail.actionRequests}
           executions={detail.actionExecutions}

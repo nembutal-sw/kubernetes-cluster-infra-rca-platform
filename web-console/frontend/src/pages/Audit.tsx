@@ -31,8 +31,8 @@ export function AuditView({ events, onSearch, onExport, t }) {
 
   return (
     <div className="page-stack">
-      <PageHeader title={t("Audit")} subtitle="Access, approval, export, agent auth, and administrative records." />
-      <Surface title={t("Audit search")} subtitle="Filter by event, IP, actor, outcome, or text">
+      <PageHeader title={t("Audit")} subtitle={t("Access, approval, export, agent auth, and administrative records.")} />
+      <Surface title={t("Audit search")} subtitle={t("Filter by event, IP, actor, outcome, or text")}>
         <div className="quick-filter-row" aria-label={t("Quick filters")}>
           <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "", event_type: "", outcome: "", client_ip: "" })}>{t("All events")}</button>
           <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "export", event_type: "", outcome: "" })}>{t("Export events")}</button>
@@ -56,7 +56,7 @@ export function AuditView({ events, onSearch, onExport, t }) {
         <MetricTile label={t("Approvals")} value={stats.approvals} tone="amber" icon="person-check" />
       </section>
       <div className="audit-layout">
-        <Surface title={t("Audit")} subtitle={`${events.length} events`}>
+        <Surface title={t("Audit")} subtitle={`${events.length} ${t("events")}`}>
           <ResponsiveTable
             empty={t("No audit events loaded.")}
             columns={[t("Created at"), t("Actor"), t("Event"), t("Resource"), t("Outcome"), t("Client IP"), t("Details"), ""]}

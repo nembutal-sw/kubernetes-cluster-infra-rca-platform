@@ -25,13 +25,13 @@ export function ClustersView(props) {
   const canOperate = ["admin", "operator"].includes(currentUser.role);
   return (
     <div className="page-stack">
-      <PageHeader title={t("Clusters")} subtitle="Register clusters, install node agents, and inspect collected evidence." />
+      <PageHeader title={t("Clusters")} subtitle={t("Register clusters, install node agents, and inspect collected evidence.")} />
       <div className="split-grid">
-        <Surface title={t("Create cluster")} subtitle="Minimal registration flow">
+        <Surface title={t("Create cluster")} subtitle={t("Minimal registration flow")}>
           <ClusterForm onCreate={onCreate} disabled={!canOperate} t={t} />
           {installCommand && <InstallCommand command={installCommand} onCopy={onCopy} t={t} />}
         </Surface>
-        <Surface title={t("Cluster topology")} subtitle={`${clusters.length} registered`}>
+        <Surface title={t("Cluster topology")} subtitle={`${clusters.length} ${t("registered")}`}>
           <ClusterList clusters={clusters} selectedCluster={selectedCluster} onSelect={onSelect} onGenerateInstall={onGenerateInstall} onDelete={onDelete} onRotateToken={onRotateToken} canOperate={canOperate} currentUser={currentUser} t={t} />
         </Surface>
       </div>
@@ -137,14 +137,14 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
       <div className="section-toolbar">
         <div>
           <h3>{t("Agents")}</h3>
-          <p className="text-muted mb-0">Node agent posture, evidence requests, and observed topology for this cluster.</p>
+          <p className="text-muted mb-0">{t("Node agent posture, evidence requests, and observed topology for this cluster.")}</p>
         </div>
         {canOperate && <button className="btn btn-sm btn-primary icon-button" onClick={() => onStartCollection(cluster)}><Icon name="collection" /><span>{t("Collect evidence")}</span></button>}
       </div>
 
       <AgentHealthSummary fleet={fleet} agents={agents} t={t} />
 
-      <div className="cluster-detail-tabs" role="tablist" aria-label="Cluster detail sections">
+      <div className="cluster-detail-tabs" role="tablist" aria-label={t("Cluster detail sections")}>
         {tabs.map((tab) => (
           <button key={tab.id} type="button" className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
             <Icon name={tab.icon} />
@@ -176,7 +176,7 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
                 <span>{item.node_name}</span>
                 <StatusBadge value={item.status} tone={item.status === "completed" ? "green" : item.status === "failed" ? "red" : "amber"} t={t} />
               </article>
-            )) : <EmptyState message="No evidence requests." />}
+            )) : <EmptyState message={t("No evidence requests.")} />}
           </div>
         )}
         {activeTab === "topology" && (
@@ -184,7 +184,7 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
             {entities.slice(0, 24).map((entity) => (
               <span key={entity.id} className="entity-pill">{entity.kind}/{entity.name}</span>
             ))}
-            {!entities.length && <span className="text-muted">Topology observation is not loaded yet.</span>}
+            {!entities.length && <span className="text-muted">{t("Topology observation is not loaded yet.")}</span>}
           </div>
         )}
         </div>
@@ -197,15 +197,15 @@ export function AgentHealthSummary({ fleet, agents, t }) {
   return (
     <div className="agent-health-summary">
       <div className="agent-health-stat ok"><span>{t("Healthy agents")}</span><strong>{fleet.healthy}</strong></div>
-      <div className="agent-health-stat warn"><span>Stale</span><strong>{fleet.stale}</strong></div>
-      <div className="agent-health-stat warn"><span>Degraded</span><strong>{fleet.degraded}</strong></div>
-      <div className="agent-health-stat danger"><span>Offline</span><strong>{fleet.offline}</strong></div>
+      <div className="agent-health-stat warn"><span>{t("Stale")}</span><strong>{fleet.stale}</strong></div>
+      <div className="agent-health-stat warn"><span>{t("Degraded")}</span><strong>{fleet.degraded}</strong></div>
+      <div className="agent-health-stat danger"><span>{t("Offline")}</span><strong>{fleet.offline}</strong></div>
       <div className="agent-health-reasons">
         {degradedAgents.length ? degradedAgents.slice(0, 4).map((agent) => (
           <span key={agent.agent_id || agent.node_name}>
             <Icon name="exclamation-circle" /> {agent.node_name}: {agentReason(agent)}
           </span>
-        )) : <span><Icon name="check2-circle" /> All registered agents are reporting healthy posture.</span>}
+        )) : <span><Icon name="check2-circle" /> {t("All registered agents are reporting healthy posture.")}</span>}
       </div>
     </div>
   );

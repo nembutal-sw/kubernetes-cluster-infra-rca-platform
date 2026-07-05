@@ -4,12 +4,20 @@ import { useState } from "react";
 
 import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../components/common";
 
-import { fallbackTimeline, formatDate, severityTone } from "../../lib/consoleUtils";
+import {
+  derivedSignals,
+  fallbackTimeline,
+  formatDate,
+  formatPercentValue,
+  qualityTone,
+  severityTone,
+  signalIcon,
+} from "../../lib/consoleUtils";
 
 export function TimelineGraph({ timeline, report, t = (x) => x }) {
   const nodes = timeline?.nodes?.length ? timeline.nodes : fallbackTimeline(report);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  if (!nodes.length) return <EmptyState message="Timeline evidence is not available." />;
+  if (!nodes.length) return <EmptyState message={t("Timeline evidence is not available.")} />;
   const edges = Array.isArray(timeline?.edges) ? timeline.edges : [];
   const summary = timeline?.summary || {};
   const edgeByTarget = new Map(edges.map((edge) => [edge.target, edge]));

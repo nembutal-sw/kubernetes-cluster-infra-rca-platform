@@ -94,7 +94,7 @@ function ConsoleApp() {
         setAgentHealth([]);
       }
     } catch (error) {
-      notify(error.message || "Failed to load console data.", "danger");
+      notify(error.message || t("Failed to load console data."), "danger");
     } finally {
       setLoading((value) => ({ ...value, data: false }));
     }
@@ -134,7 +134,7 @@ function ConsoleApp() {
       const nextSession = await callApi("/api/auth/login", { method: "POST", body: form });
       setSession(nextSession);
       setCurrentUser(nextSession.user);
-      notify("Signed in.");
+      notify(t("Signed in."));
     } catch (error) {
       notify(t("Invalid username or password"), "danger");
     }
@@ -161,7 +161,7 @@ function ConsoleApp() {
         description: form.description,
       },
     });
-    notify("Cluster created.");
+    notify(t("Cluster created."));
     await loadConsoleData(true);
     await generateInstallCommand(cluster.cluster_id, form.backend_url);
     setSelectedCluster(cluster);
@@ -200,7 +200,7 @@ function ConsoleApp() {
     setDeleteDialog(null);
     setSelectedCluster(null);
     setClusterDetail(null);
-    notify("Cluster deleted.");
+    notify(t("Cluster deleted."));
     await loadConsoleData(true);
   }
 
@@ -208,7 +208,7 @@ function ConsoleApp() {
     const result = await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`, {
       method: "POST",
     });
-    notify("Agent token rotated.");
+    notify(t("Agent token rotated."));
     setInstallCommand({
       cluster_id: cluster.cluster_id,
       namespace: "cluster-infra-rca",
@@ -229,7 +229,7 @@ function ConsoleApp() {
         context: { source: "web_console" },
       },
     });
-    notify("Evidence collection requested.");
+    notify(t("Evidence collection requested."));
     await loadClusterDetail(cluster);
   }
 
@@ -256,7 +256,7 @@ function ConsoleApp() {
         bundleManifest: bundleManifest.status === "fulfilled" ? bundleManifest.value : null,
       });
     } catch (error) {
-      notify(error.message || "Failed to load report.", "danger");
+      notify(error.message || t("Failed to load report."), "danger");
     }
   }
 
@@ -266,7 +266,7 @@ function ConsoleApp() {
       { method: "POST", body: { confirmed: true, note } },
     );
     setActionDialog(null);
-    notify(response.message || "Action request updated.");
+    notify(response.message || t("Action request updated."));
     await loadReportDetail(report.report_id);
     await loadConsoleData(true);
   }
@@ -276,7 +276,7 @@ function ConsoleApp() {
       method: "POST",
       body: { confirmed: true, note },
     });
-    notify(`Action request ${decision}.`);
+    notify(t(decision === "approve" ? "Action request approved." : "Action request rejected."));
     await loadReportDetail(actionRequest.report_id);
     await loadConsoleData(true);
   }
@@ -286,7 +286,7 @@ function ConsoleApp() {
       method: "POST",
       body: { confirmed: true, note },
     });
-    notify("Manual handling completed.");
+    notify(t("Manual handling completed."));
     await loadReportDetail(actionRequest.report_id);
     await loadConsoleData(true);
   }
@@ -296,7 +296,7 @@ function ConsoleApp() {
       method: "POST",
       body: { confirmed: true, note: "Updated from Web Console." },
     });
-    notify(`Incident ${nextStatus}.`);
+    notify(t(nextStatus === "resolve" ? "Incident resolved." : "Incident reopened."));
     await loadConsoleData(true);
   }
 
@@ -305,7 +305,7 @@ function ConsoleApp() {
       method: "POST",
       body: { confirmed: true, note: "Retry requested from Web Console." },
     });
-    notify("Analysis task requeued.");
+    notify(t("Analysis task requeued."));
     await loadConsoleData(true);
   }
 
@@ -314,7 +314,7 @@ function ConsoleApp() {
       method: "POST",
       body: { confirmed: true, cluster_id: clusterId || null, node_name: nodeName || null },
     });
-    notify("Demo scenario started.");
+    notify(t("Demo scenario started."));
     await loadConsoleData(true);
   }
 
@@ -338,12 +338,12 @@ function ConsoleApp() {
   async function exportReports(clusterId = "") {
     const suffix = clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : "";
     await downloadApi(`/api/rca/reports/export${suffix}`, clusterId ? `rca-reports-${clusterId}.json` : "rca-reports.json");
-    notify("Export downloaded.");
+    notify(t("Export downloaded."));
   }
 
   async function exportReport(reportId) {
     await downloadApi(`/api/rca/reports/${encodeURIComponent(reportId)}/export`, `rca-report-${reportId}.json`);
-    notify("Report exported.");
+    notify(t("Report exported."));
   }
 
   async function exportEvidenceBundle(reportId) {
@@ -354,11 +354,11 @@ function ConsoleApp() {
   async function exportAudit(format = "json", filters = {}) {
     const query = buildAuditQuery({ ...filters, format, limit: 5000 });
     await downloadApi(`/api/audit/events/export?${query}`, `audit-events.${format}`);
-    notify("Audit export downloaded.");
+    notify(t("Audit export downloaded."));
   }
 
   if (loading.boot) {
-    return <BootScreen />;
+    return <BootScreen t={t} />;
   }
 
   if (!currentUser) {

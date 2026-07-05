@@ -17,10 +17,10 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
     <div className="page-stack">
       <section className="apm-hero">
         <div>
-          <p className="section-kicker">APM-style infrastructure lens</p>
+          <p className="section-kicker">{t("APM-style infrastructure lens")}</p>
           <h1>{t("APM Failure Surface")}</h1>
           <p>
-            Node pressure, kernel/runtime evidence, control-plane latency, and policy-gated remediation in one operational surface.
+            {t("Node pressure, kernel/runtime evidence, control-plane latency, and policy-gated remediation in one operational surface.")}
           </p>
         </div>
         <div className="hero-actions">
@@ -54,27 +54,27 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
       />
 
       <div className="dashboard-grid">
-        <Surface title={t("Failure propagation")} subtitle="Evidence sequence by system layer" action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}>
+        <Surface title={t("Failure propagation")} subtitle={t("Evidence sequence by system layer")} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}>
           <FailureSurface reports={reports} incidents={incidents} t={t} />
         </Surface>
-        <Surface title={t("Signal stream")} subtitle="Prioritized recent infrastructure signals">
+        <Surface title={t("Signal stream")} subtitle={t("Prioritized recent infrastructure signals")}>
           <SignalStream items={signalDigest} t={t} />
         </Surface>
-        <Surface title={t("Cluster topology")} subtitle="Registration and agent posture">
+        <Surface title={t("Cluster topology")} subtitle={t("Registration and agent posture")}>
           <ClusterTopologyPreview clusters={clusters} onOpenCluster={onOpenCluster} t={t} />
         </Surface>
-        <Surface title={t("Recent RCA")} subtitle={latestReport ? latestReport.report_id : "No report selected"} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>Open</button>}>
+        <Surface title={t("Recent RCA")} subtitle={latestReport ? latestReport.report_id : t("No report selected")} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("Open")}</button>}>
           <RecentReport report={latestReport} onOpenReport={onOpenReport} t={t} />
         </Surface>
       </div>
 
       <section className="ops-strip">
         <div>
-          <span>Webhook</span>
+          <span>{t("Webhook")}</span>
           <strong>{webhookEndpoint}</strong>
         </div>
         <div>
-          <span>Pipeline backlog</span>
+          <span>{t("Pipeline backlog")}</span>
           <strong>{analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status)).length}</strong>
         </div>
         <div>
@@ -99,19 +99,19 @@ export function OperationsReadinessPanel({ clusters, reports, incidents, analysi
   const recentReports = reports.filter((report) => withinHours(report.created_at, 24)).length;
   const healthPercent = fleet.total ? Math.round((fleet.healthy / fleet.total) * 100) : 0;
   return (
-    <section className="ops-readiness-grid" aria-label="Operations readiness">
+    <section className="ops-readiness-grid" aria-label={t("Operations readiness")}>
       <article className={`ops-readiness-card ${fleet.unhealthy ? "warn" : "ok"}`}>
         <div className="ops-readiness-head">
           <span>{t("Agent fleet")}</span>
           <Icon name={fleet.unhealthy ? "exclamation-triangle" : "check2-circle"} />
         </div>
-        <strong>{fleet.total ? `${healthPercent}% healthy` : "No agents"}</strong>
+        <strong>{fleet.total ? `${healthPercent}% ${t("healthy")}` : t("No agents")}</strong>
         <div className="readiness-meter"><span style={{ width: `${healthPercent}%` }} /></div>
         <div className="mini-stat-row">
           <span>{t("Healthy agents")} <b>{fleet.healthy}</b></span>
-          <span>Stale <b>{fleet.stale}</b></span>
-          <span>Degraded <b>{fleet.degraded}</b></span>
-          <span>Offline <b>{fleet.offline}</b></span>
+          <span>{t("Stale")} <b>{fleet.stale}</b></span>
+          <span>{t("Degraded")} <b>{fleet.degraded}</b></span>
+          <span>{t("Offline")} <b>{fleet.offline}</b></span>
         </div>
       </article>
       <article className={`ops-readiness-card ${pipeline.deadLetter || pipeline.failed ? "danger" : pipeline.backlog ? "warn" : "ok"}`}>
@@ -119,12 +119,12 @@ export function OperationsReadinessPanel({ clusters, reports, incidents, analysi
           <span>{t("Analysis pipeline")}</span>
           <Icon name="diagram-3" />
         </div>
-        <strong>{pipeline.backlog} active tasks</strong>
+        <strong>{pipeline.backlog} {t("active tasks")}</strong>
         <div className="mini-stat-row">
-          <span>Queued <b>{pipeline.queued}</b></span>
-          <span>Processing <b>{pipeline.processing}</b></span>
-          <span>Retry <b>{pipeline.retry}</b></span>
-          <span>Dead letter <b>{pipeline.deadLetter}</b></span>
+          <span>{t("Queued")} <b>{pipeline.queued}</b></span>
+          <span>{t("Processing")} <b>{pipeline.processing}</b></span>
+          <span>{t("Retry")} <b>{pipeline.retry}</b></span>
+          <span>{t("Dead letter")} <b>{pipeline.deadLetter}</b></span>
         </div>
       </article>
       <article className={`ops-readiness-card ${approvals || blockedActions ? "warn" : "ok"}`}>
@@ -132,19 +132,19 @@ export function OperationsReadinessPanel({ clusters, reports, incidents, analysi
           <span>{t("Policy queue")}</span>
           <Icon name="shield-lock" />
         </div>
-        <strong>{approvals} approvals pending</strong>
+        <strong>{approvals} {t("approvals pending")}</strong>
         <div className="mini-stat-row">
           <span>{t("Policy blocked")} <b>{blockedActions}</b></span>
-          <span>Manual <b>{manual}</b></span>
+          <span>{t("Manual")} <b>{manual}</b></span>
           <span>{t("Open incidents")} <b>{openIncidents}</b></span>
-          <span>Reports 24h <b>{recentReports}</b></span>
+          <span>{t("Reports 24h")} <b>{recentReports}</b></span>
         </div>
       </article>
     </section>
   );
 }
 
-export function FailureSurface({ reports, incidents }) {
+export function FailureSurface({ reports, incidents, t }) {
   const counts = SIGNAL_STAGES.map((stage) => ({
     ...stage,
     count: scoreStage(stage.key, reports, incidents),
@@ -155,9 +155,9 @@ export function FailureSurface({ reports, incidents }) {
       {counts.map((stage, index) => (
         <div key={stage.key} className={`surface-stage ${stage.count ? "hot" : ""}`}>
           <div className="stage-icon"><Icon name={stage.icon} /></div>
-          <strong>{stage.label}</strong>
+          <strong>{t(stage.label)}</strong>
           <div className="stage-bar"><span style={{ width: `${Math.max(8, (stage.count / max) * 100)}%` }} /></div>
-          <small>{stage.count} signals</small>
+          <small>{stage.count} {t("signals")}</small>
           {index < counts.length - 1 && <div className="stage-link" />}
         </div>
       ))}
@@ -166,7 +166,7 @@ export function FailureSurface({ reports, incidents }) {
 }
 
 export function SignalStream({ items, t }) {
-  if (!items.length) return <EmptyState message="New node or control-plane evidence will appear here." />;
+  if (!items.length) return <EmptyState message={t("New node or control-plane evidence will appear here.")} />;
   return (
     <div className="signal-list">
       {items.slice(0, 8).map((item) => (
@@ -206,7 +206,7 @@ export function RecentReport({ report, onOpenReport, t }) {
         <span>{report.summary?.confidence || "unknown"}</span>
         <strong>{report.summary?.most_likely_cause || report.summary?.symptom}</strong>
       </div>
-      <p>{(report.root_cause_candidates || [])[0]?.supporting_evidence?.[0] || "No evidence summary available."}</p>
+      <p>{(report.root_cause_candidates || [])[0]?.supporting_evidence?.[0] || t("No evidence summary available.")}</p>
       <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(report.report_id)}>{t("Report detail")}</button>
     </article>
   );

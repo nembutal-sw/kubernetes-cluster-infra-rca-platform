@@ -10,7 +10,7 @@ export function BundleVerificationPanel({ manifest, platformInfo, onCopy, t }) {
   const command = manifest?.verification_command || manifest?.verificationCommand || "";
   const signatureEnabled = Boolean(manifest?.signature_enabled ?? manifest?.signatureEnabled ?? exportSecurity.bundle_signature_enabled);
   if (!manifest) {
-    return <EmptyState message="Manifest summary is available to export-authorized users after report detail loads." />;
+    return <EmptyState message={t("Manifest summary is available to export-authorized users after report detail loads.")} />;
   }
   return (
     <div className="bundle-verification">

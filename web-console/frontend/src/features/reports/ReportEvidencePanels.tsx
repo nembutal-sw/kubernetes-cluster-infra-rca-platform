@@ -7,7 +7,7 @@ import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../compon
 import { confidenceTone, formatPercentValue, policyTone, severityTone, shortValue, signalIcon } from "../../lib/consoleUtils";
 
 export function CandidateList({ candidates, t }) {
-  if (!candidates.length) return <EmptyState message="No root cause candidates." />;
+  if (!candidates.length) return <EmptyState message={t("No root cause candidates.")} />;
   return (
     <div className="candidate-list">
       {candidates.map((candidate, index) => (
@@ -81,8 +81,8 @@ export function RuleEvidencePanel({ signals, t }) {
   );
 }
 
-export function EvidenceSummary({ items }) {
-  if (!items.length) return <EmptyState message="No evidence summary." />;
+export function EvidenceSummary({ items, t = (x) => x }) {
+  if (!items.length) return <EmptyState message={t("No evidence summary.")} />;
   return (
     <div className="signal-list compact">
       {items.slice(0, 10).map((item, index) => (
@@ -98,9 +98,9 @@ export function EvidenceSummary({ items }) {
   );
 }
 
-export function CheckList({ checks }) {
+export function CheckList({ checks, t = (x) => x }) {
   const normalized = Array.isArray(checks) ? checks : [];
-  if (!normalized.length) return <EmptyState message="No additional checks." />;
+  if (!normalized.length) return <EmptyState message={t("No additional checks.")} />;
   return (
     <div className="command-list">
       {normalized.map((item, index) => {
@@ -112,7 +112,7 @@ export function CheckList({ checks }) {
 }
 
 export function PolicySummary({ actions, t }) {
-  if (!actions.length) return <EmptyState message="No policy decisions." />;
+  if (!actions.length) return <EmptyState message={t("No policy decisions.")} />;
   const counts = actions.reduce((acc, action) => {
     const key = action.policy || "UNKNOWN";
     acc[key] = (acc[key] || 0) + 1;
@@ -124,7 +124,7 @@ export function PolicySummary({ actions, t }) {
         <article key={policy} className={`policy-tile ${policyTone(policy)}`}>
           <StatusBadge value={policy} tone={policyTone(policy)} t={t} />
           <strong>{count}</strong>
-          <span>{POLICY_HELP[policy] || "Policy decision"}</span>
+          <span>{t(POLICY_HELP[policy] || "Policy decision")}</span>
         </article>
       ))}
     </div>
