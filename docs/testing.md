@@ -119,6 +119,49 @@ python3 scripts/operational_scenario_validation.py \
 
 결과는 `validation-results/operational-scenarios/<timestamp>/summary.json`에 저장됩니다.
 
+## Web Console Route Smoke
+
+Web Console이 실제 브라우저에서 빈 화면으로 깨지지 않는지 확인합니다.
+
+검증 범위:
+
+- 관리자 로그인
+- 주요 메뉴 전체 클릭
+- React runtime/page error 확인
+- console error 확인
+- 데스크톱/모바일 viewport 확인
+- 영어/한국어 locale 전환 확인
+- 모바일 수평 overflow 확인
+
+로컬 또는 배포 서버를 대상으로 실행합니다.
+
+```bash
+cd web-console/frontend
+CONSOLE_BASE_URL=http://127.0.0.1:18080 \
+CONSOLE_USERNAME=admin \
+CONSOLE_PASSWORD='<admin-password>' \
+npm run smoke:routes
+```
+
+브라우저가 설치되어 있지 않으면 먼저 Playwright Chromium을 설치합니다.
+
+```bash
+npx playwright install chromium
+```
+
+서버에서 Docker로 실행할 때는 Playwright 공식 이미지를 사용할 수 있습니다.
+
+```bash
+docker run --rm --network host \
+  -v "$PWD/web-console/frontend:/workspace" \
+  -w /workspace \
+  -e CONSOLE_BASE_URL=http://127.0.0.1:18080 \
+  -e CONSOLE_USERNAME=admin \
+  -e CONSOLE_PASSWORD='<admin-password>' \
+  mcr.microsoft.com/playwright:v1.57.0-noble \
+  sh -lc 'npm ci --no-audit --no-fund && npm run smoke:routes'
+```
+
 ## Evidence Bundle Verification
 
 다운로드한 evidence bundle ZIP은 서버 없이 오프라인에서 검증할 수 있습니다.

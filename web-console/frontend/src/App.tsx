@@ -381,7 +381,7 @@ function ConsoleApp() {
           loading={loading.data}
           t={t}
         />
-        <main className="console-content">
+        <main className="console-content" data-testid={`view-${activeView}`}>
           {activeView === "overview" && (
             <OverviewView
               clusters={clusters}

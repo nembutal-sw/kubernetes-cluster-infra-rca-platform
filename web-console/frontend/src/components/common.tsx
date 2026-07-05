@@ -96,6 +96,7 @@ export function Sidebar({ items, activeView, setActiveView, t }) {
           <button
             key={item.id}
             type="button"
+            data-testid={`nav-${item.id}`}
             className={item.id === activeView ? "active" : ""}
             onClick={() => setActiveView(item.id)}
           >
