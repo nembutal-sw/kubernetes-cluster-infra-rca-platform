@@ -1,10 +1,34 @@
-// @ts-nocheck
-
 import { EmptyState, Icon, PageHeader } from "../components/common";
 import { relativeTime } from "../lib/consoleUtils";
 import { ReportDetail } from "../features/reports/ReportDetail";
+import type {
+  ActionRequestView,
+  PlatformInfo,
+  RcaReport,
+  RecommendedAction,
+  ReportDetailState,
+  TFunction,
+  UserAccount,
+} from "../types";
 
-export function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, onExportAll, platformInfo, onCopy, t }) {
+interface ReportsViewProps {
+  reports: RcaReport[];
+  selectedReportId: string | null;
+  setSelectedReportId: (reportId: string) => void;
+  detail: ReportDetailState | null;
+  currentUser: UserAccount;
+  onPrepareAction: (report: RcaReport, action: RecommendedAction, index: number) => void;
+  onDecideAction: (actionRequest: ActionRequestView, decision: string, note?: string) => Promise<void> | void;
+  onCompleteManual: (actionRequest: ActionRequestView, note: string) => Promise<void> | void;
+  onExportReport: (reportId: string) => Promise<void> | void;
+  onExportBundle: (reportId: string) => Promise<void> | void;
+  onExportAll: () => Promise<void> | void;
+  platformInfo: PlatformInfo | null;
+  onCopy: (text: string) => void;
+  t: TFunction;
+}
+
+export function ReportsView({ reports, selectedReportId, setSelectedReportId, detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, onExportAll, platformInfo, onCopy, t }: ReportsViewProps) {
   const canExport = ["admin", "operator"].includes(currentUser.role);
   return (
     <div className="page-stack">

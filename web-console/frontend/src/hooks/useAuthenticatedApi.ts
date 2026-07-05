@@ -1,21 +1,20 @@
-// @ts-nocheck
-
 import { useCallback } from "react";
 import { downloadFromApi, requestApi } from "../api/client";
+import type { ApiRequestOptions, AuthHeaders, AuthSession } from "../types";
 
-export function useAuthenticatedApi(session) {
-  const authHeaders = useCallback(() => {
+export function useAuthenticatedApi(session: AuthSession | null) {
+  const authHeaders = useCallback((): AuthHeaders => {
     const token = session?.access_token || session?.accessToken;
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, [session]);
 
   const callApi = useCallback(
-    (path, options = {}) => requestApi(path, options, authHeaders()),
+    <T = unknown>(path: string, options: ApiRequestOptions = {}) => requestApi<T>(path, options, authHeaders()),
     [authHeaders],
   );
 
   const downloadApi = useCallback(
-    (path, filename) => downloadFromApi(path, filename, authHeaders()),
+    (path: string, filename: string) => downloadFromApi(path, filename, authHeaders()),
     [authHeaders],
   );
 

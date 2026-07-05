@@ -1,6 +1,10 @@
-// @ts-nocheck
+import type { ApiRequestOptions, AuthHeaders, UserAccount } from "../types";
 
-export async function requestApi(path, options = {}, authHeaders = {}) {
+export async function requestApi<T = unknown>(
+  path: string,
+  options: ApiRequestOptions = {},
+  authHeaders: AuthHeaders = {},
+): Promise<T> {
   const headers = {
     Accept: "application/json",
     ...authHeaders,
@@ -17,12 +21,16 @@ export async function requestApi(path, options = {}, authHeaders = {}) {
     const text = await response.text();
     throw new Error(text || `${response.status} ${response.statusText}`);
   }
-  if (response.status === 204) return null;
+  if (response.status === 204) return null as T;
   const contentType = response.headers.get("content-type") || "";
-  return contentType.includes("application/json") ? response.json() : response.text();
+  return (contentType.includes("application/json") ? response.json() : response.text()) as Promise<T>;
 }
 
-export async function downloadFromApi(path, filename, authHeaders = {}) {
+export async function downloadFromApi(
+  path: string,
+  filename: string,
+  authHeaders: AuthHeaders = {},
+): Promise<void> {
   const response = await fetch(path, {
     credentials: "same-origin",
     headers: { ...authHeaders },
@@ -41,7 +49,7 @@ export async function downloadFromApi(path, filename, authHeaders = {}) {
   URL.revokeObjectURL(url);
 }
 
-export async function requestCurrentUser() {
+export async function requestCurrentUser(): Promise<UserAccount> {
   const response = await fetch("/api/auth/me", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },

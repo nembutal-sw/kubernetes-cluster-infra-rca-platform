@@ -121,52 +121,73 @@ export function InstallCommand({ command, onCopy, t }) {
 }
 
 export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }) {
+  const [activeTab, setActiveTab] = useState("agents");
   const agents = detail?.agents || [];
   const evidence = detail?.evidence || [];
   const topology = detail?.topology || {};
   const entities = topology.entities || [];
   const fleet = summarizeAgentFleet(agents, [cluster]);
+  const tabs = [
+    { id: "agents", label: t("Agents"), icon: "hdd-network", count: agents.length },
+    { id: "evidence", label: t("Evidence"), icon: "clipboard2-pulse", count: evidence.length },
+    { id: "topology", label: t("Topology"), icon: "diagram-3", count: entities.length },
+  ];
   return (
-    <div className="cluster-detail-grid">
-      <div>
-        <div className="section-toolbar">
+    <div className="cluster-detail-ops">
+      <div className="section-toolbar">
+        <div>
           <h3>{t("Agents")}</h3>
-          {canOperate && <button className="btn btn-sm btn-primary icon-button" onClick={() => onStartCollection(cluster)}><Icon name="collection" /><span>{t("Collect evidence")}</span></button>}
+          <p className="text-muted mb-0">Node agent posture, evidence requests, and observed topology for this cluster.</p>
         </div>
-        <AgentHealthSummary fleet={fleet} agents={agents} t={t} />
-        <ResponsiveTable
-          empty={t("No agents registered.")}
-          columns={[t("Node"), t("Status"), t("Version"), t("Last heartbeat"), t("Risk reason")]}
-          rows={agents.map((agent) => [
-            agent.node_name,
-            <StatusBadge value={agent.health_status || agent.status || agent.reported_status} tone={agentHealthTone(agent)} t={t} />,
-            agent.agent_version || "n/a",
-            relativeTime(agent.last_heartbeat_at),
-            <span className="health-reason">{agentReason(agent)}</span>,
-          ])}
-        />
+        {canOperate && <button className="btn btn-sm btn-primary icon-button" onClick={() => onStartCollection(cluster)}><Icon name="collection" /><span>{t("Collect evidence")}</span></button>}
       </div>
-      <div>
-        <h3>{t("Evidence")}</h3>
-        <div className="evidence-list">
-          {evidence.length ? evidence.slice(0, 8).map((item) => (
-            <article key={item.request_id} className="evidence-item">
-              <strong>{item.alert_name}</strong>
-              <span>{item.node_name}</span>
-              <StatusBadge value={item.status} tone={item.status === "completed" ? "green" : item.status === "failed" ? "red" : "amber"} t={t} />
-            </article>
-          )) : <EmptyState message="No evidence requests." />}
+
+      <AgentHealthSummary fleet={fleet} agents={agents} t={t} />
+
+      <div className="cluster-detail-tabs" role="tablist" aria-label="Cluster detail sections">
+        {tabs.map((tab) => (
+          <button key={tab.id} type="button" className={activeTab === tab.id ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
+            <Icon name={tab.icon} />
+            <span>{tab.label}</span>
+            <strong>{tab.count}</strong>
+          </button>
+        ))}
+      </div>
+
+      <div className="cluster-detail-panel">
+        {activeTab === "agents" && (
+          <ResponsiveTable
+            empty={t("No agents registered.")}
+            columns={[t("Node"), t("Status"), t("Version"), t("Last heartbeat"), t("Risk reason")]}
+            rows={agents.map((agent) => [
+              agent.node_name,
+              <StatusBadge value={agent.health_status || agent.status || agent.reported_status} tone={agentHealthTone(agent)} t={t} />,
+              agent.agent_version || "n/a",
+              relativeTime(agent.last_heartbeat_at),
+              <span className="health-reason">{agentReason(agent)}</span>,
+            ])}
+          />
+        )}
+        {activeTab === "evidence" && (
+          <div className="evidence-list">
+            {evidence.length ? evidence.slice(0, 12).map((item) => (
+              <article key={item.request_id} className="evidence-item">
+                <strong>{item.alert_name}</strong>
+                <span>{item.node_name}</span>
+                <StatusBadge value={item.status} tone={item.status === "completed" ? "green" : item.status === "failed" ? "red" : "amber"} t={t} />
+              </article>
+            )) : <EmptyState message="No evidence requests." />}
+          </div>
+        )}
+        {activeTab === "topology" && (
+          <div className="topology-entities">
+            {entities.slice(0, 24).map((entity) => (
+              <span key={entity.id} className="entity-pill">{entity.kind}/{entity.name}</span>
+            ))}
+            {!entities.length && <span className="text-muted">Topology observation is not loaded yet.</span>}
+          </div>
+        )}
         </div>
-      </div>
-      <div className="wide">
-        <h3>{t("Topology")}</h3>
-        <div className="topology-entities">
-          {entities.slice(0, 18).map((entity) => (
-            <span key={entity.id} className="entity-pill">{entity.kind}/{entity.name}</span>
-          ))}
-          {!entities.length && <span className="text-muted">Topology observation is not loaded yet.</span>}
-        </div>
-      </div>
     </div>
   );
 }

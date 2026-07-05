@@ -905,6 +905,59 @@ code {
   grid-column: 1 / -1;
 }
 
+.cluster-detail-ops {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cluster-detail-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cluster-detail-tabs button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  font-weight: 800;
+}
+
+.cluster-detail-tabs button.active {
+  border-color: var(--primary);
+  background: #ffffff;
+  box-shadow: inset 0 -3px 0 var(--primary);
+}
+
+.cluster-detail-tabs button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-detail-tabs button strong {
+  min-width: 28px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--blue-soft);
+  color: var(--primary);
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.cluster-detail-panel {
+  min-width: 0;
+}
+
 .agent-health-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(92px, 1fr));
@@ -2612,6 +2665,7 @@ code {
   .audit-stats,
   .audit-layout,
   .cluster-detail-grid,
+  .cluster-detail-tabs,
   .agent-health-summary {
     grid-template-columns: 1fr;
   }
