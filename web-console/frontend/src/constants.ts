@@ -31,7 +31,7 @@ export const KO: Record<string, string> = {
   Audit: "감사로그",
   Webhooks: "웹훅",
   Settings: "설정",
-  "Cluster Infra RCA": "클러스터 인프라 RCA",
+  "Cluster RCA Console": "클러스터 RCA 콘솔",
   "Linux and Kubernetes infrastructure root cause console": "Linux 및 Kubernetes 인프라 원인 분석 콘솔",
   "Sign in": "로그인",
   Username: "계정",

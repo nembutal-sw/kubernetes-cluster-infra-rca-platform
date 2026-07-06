@@ -127,7 +127,7 @@ export function BootScreen({ t = (x) => x }: BootScreenProps) {
         <Icon name="activity" />
       </div>
       <div>
-        <strong>Cluster Infra RCA</strong>
+        <strong>Cluster RCA Console</strong>
         <p>{t("Loading console")}</p>
       </div>
     </div>
@@ -152,7 +152,7 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
         <div className="brand-row">
           <div className="brand-icon"><Icon name="activity" /></div>
           <div>
-            <h1>{t("Cluster Infra RCA")}</h1>
+            <h1>{t("Cluster RCA Console")}</h1>
             <p>{t("Linux and Kubernetes infrastructure root cause console")}</p>
           </div>
         </div>
@@ -201,8 +201,8 @@ export function Sidebar({ items, activeView, setActiveView, t }: SidebarProps) {
       <div className="sidebar-brand">
         <div className="brand-icon"><Icon name="activity" /></div>
         <div>
-          <strong>Infra RCA</strong>
-          <span>APM Console</span>
+          <strong>Cluster RCA</strong>
+          <span>Console</span>
         </div>
       </div>
       <nav className="sidebar-nav" aria-label={t("Console navigation")}>
@@ -227,7 +227,7 @@ export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, 
   return (
     <header className="console-topbar">
       <div>
-        <div className="topbar-eyebrow">Cluster Infra RCA</div>
+        <div className="topbar-eyebrow">Cluster RCA Console</div>
         <h2>{t("Linux and Kubernetes infrastructure root cause console")}</h2>
       </div>
       <div className="topbar-actions">
