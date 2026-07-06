@@ -2246,6 +2246,25 @@ code {
   background: rgba(120, 130, 150, 0.06);
 }
 
+.info-grid .info-card-warn {
+  border-color: rgba(164, 93, 18, 0.32);
+  background: rgba(164, 93, 18, 0.08);
+}
+
+.settings-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.settings-note i {
+  color: var(--accent);
+  margin-top: 2px;
+}
+
 .diagnostics-panel {
   display: grid;
   gap: 14px;

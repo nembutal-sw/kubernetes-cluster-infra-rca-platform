@@ -186,5 +186,41 @@ export interface ReportDetailState {
 export interface PlatformInfo {
   export_security?: JsonObject;
   exportSecurity?: JsonObject;
+  llm?: LlmConfigurationInfo;
+  [key: string]: unknown;
+}
+
+export interface LlmConfigurationInfo {
+  enabled?: boolean;
+  provider?: string;
+  model?: string;
+  spring_ai_chat_model?: string;
+  springAiChatModel?: string;
+  credential_required?: boolean;
+  credentialRequired?: boolean;
+  credential_configured?: boolean;
+  credentialConfigured?: boolean;
+  credential_property?: string;
+  credentialProperty?: string;
+  credential_env?: string;
+  credentialEnv?: string;
+  base_url_configured?: boolean;
+  baseUrlConfigured?: boolean;
+  base_url_required?: boolean;
+  baseUrlRequired?: boolean;
+  base_url_property?: string;
+  baseUrlProperty?: string;
+  base_url_env?: string;
+  baseUrlEnv?: string;
+  timeout_seconds?: number;
+  timeoutSeconds?: number;
+  max_attempts?: number;
+  maxAttempts?: number;
+  max_output_tokens?: number;
+  maxOutputTokens?: number;
+  failure_threshold?: number;
+  failureThreshold?: number;
+  cooldown_seconds?: number;
+  cooldownSeconds?: number;
   [key: string]: unknown;
 }

@@ -286,7 +286,8 @@ public final class RcaModels {
         String agentProtocolVersion,
         String minimumSupportedAgentProtocolVersion,
         String minimumSupportedAgentVersion,
-        ExportSecurityInfo exportSecurity
+        ExportSecurityInfo exportSecurity,
+        LlmConfigurationInfo llm
     ) {
     }
 
@@ -297,6 +298,27 @@ public final class RcaModels {
         String bundleSignatureAlgorithm,
         String bundleSignatureKeyId,
         String offlineVerifier
+    ) {
+    }
+
+    public record LlmConfigurationInfo(
+        boolean enabled,
+        String provider,
+        String model,
+        String springAiChatModel,
+        boolean credentialRequired,
+        boolean credentialConfigured,
+        String credentialProperty,
+        String credentialEnv,
+        boolean baseUrlRequired,
+        boolean baseUrlConfigured,
+        String baseUrlProperty,
+        String baseUrlEnv,
+        int timeoutSeconds,
+        int maxAttempts,
+        int maxOutputTokens,
+        int failureThreshold,
+        int cooldownSeconds
     ) {
     }
 

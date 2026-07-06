@@ -10,7 +10,7 @@ import {
 } from "../components/common";
 import type { Locale } from "../constants";
 import { formatDate, platformInfoRows, runConsoleLayoutAudit } from "../lib/consoleUtils";
-import type { PlatformInfo, TFunction, UserAccount } from "../types";
+import type { LlmConfigurationInfo, PlatformInfo, TFunction, UserAccount } from "../types";
 
 interface LoginIdForm {
   current_password: string;
@@ -65,6 +65,13 @@ interface PlatformInfoRow {
   tone?: string;
 }
 
+interface LlmInfoRow {
+  key: string;
+  label: ReactNode;
+  value: ReactNode;
+  tone?: string;
+}
+
 export function SettingsView({
   locale,
   setLocale,
@@ -82,6 +89,7 @@ export function SettingsView({
   const [layoutAudit, setLayoutAudit] = useState<LayoutAudit | null>(null);
   const defaultCredentialVisible = currentUser?.email === "admin";
   const infoRows = platformInfoRows(platformInfo, t) as PlatformInfoRow[];
+  const llmRows = buildLlmRows(platformInfo?.llm, t);
 
   useEffect(() => {
     setLoginId((current) => ({ ...current, new_username: currentUser?.email || "" }));
@@ -138,6 +146,20 @@ export function SettingsView({
       >
         <LayoutAuditPanel audit={layoutAudit} t={t} />
       </Surface>
+      <Surface title={t("LLM configuration")} subtitle={t("Provider, model, and Secret wiring status")}>
+        <div className="settings-note">
+          <Icon name="shield-lock" />
+          <span>{t("LLM secrets are read from environment variables or Kubernetes Secret. API keys are never rendered in the browser.")}</span>
+        </div>
+        <div className="info-grid">
+          {llmRows.map((row) => (
+            <div key={row.key} className={row.tone ? `info-card-${row.tone}` : ""}>
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </div>
+          ))}
+        </div>
+      </Surface>
       <Surface title={t("Platform info")} subtitle={t("Protocol compatibility and export integrity")}>
         <div className="info-grid">
           {infoRows.map((row) => (
@@ -150,6 +172,46 @@ export function SettingsView({
       </Surface>
     </div>
   );
+}
+
+function buildLlmRows(llm: LlmConfigurationInfo | undefined, t: TFunction): LlmInfoRow[] {
+  const enabled = Boolean(llm?.enabled);
+  const credentialRequired = Boolean(llm?.credential_required ?? llm?.credentialRequired);
+  const credentialConfigured = Boolean(llm?.credential_configured ?? llm?.credentialConfigured);
+  const baseUrlRequired = Boolean(llm?.base_url_required ?? llm?.baseUrlRequired);
+  const baseUrlConfigured = Boolean(llm?.base_url_configured ?? llm?.baseUrlConfigured);
+  const credentialEnv = stringValue(llm?.credential_env ?? llm?.credentialEnv);
+  const baseUrlEnv = stringValue(llm?.base_url_env ?? llm?.baseUrlEnv);
+  const springAiChatModel = stringValue(llm?.spring_ai_chat_model ?? llm?.springAiChatModel) || "none";
+  const credentialValue = !enabled
+    ? t("Disabled")
+    : !credentialRequired
+      ? t("Not required")
+      : credentialConfigured
+        ? t("Configured")
+        : `${t("Missing")} ${credentialEnv || t("Credential env")}`;
+  return [
+    { key: "llm.enabled", label: t("Enabled"), value: enabled ? t("Enabled") : t("Disabled"), tone: enabled ? "ok" : "muted" },
+    { key: "llm.provider", label: t("Provider"), value: stringValue(llm?.provider) || "none" },
+    { key: "llm.model", label: t("Model"), value: stringValue(llm?.model) || "n/a" },
+    { key: "llm.spring_ai_chat_model", label: t("Spring AI chat model"), value: springAiChatModel, tone: springAiChatModel === "none" ? "muted" : "ok" },
+    { key: "llm.credential", label: t("Credential"), value: credentialValue, tone: !enabled || !credentialRequired ? "muted" : credentialConfigured ? "ok" : "warn" },
+    { key: "llm.credential_env", label: t("Credential env"), value: credentialRequired ? credentialEnv || t("Credential env") : t("Not required") },
+    { key: "llm.base_url_env", label: t("Base URL env"), value: baseUrlEnv ? (baseUrlRequired && !baseUrlConfigured ? `${t("Missing")} ${baseUrlEnv}` : baseUrlEnv) : t("Provider default"), tone: baseUrlRequired && !baseUrlConfigured ? "warn" : "muted" },
+    { key: "llm.timeout", label: t("Timeout"), value: `${numberValue(llm?.timeout_seconds ?? llm?.timeoutSeconds, 30)}s` },
+    { key: "llm.max_attempts", label: t("Attempts"), value: numberValue(llm?.max_attempts ?? llm?.maxAttempts, 2) },
+    { key: "llm.max_output_tokens", label: t("Max output tokens"), value: numberValue(llm?.max_output_tokens ?? llm?.maxOutputTokens, 1800) },
+    { key: "llm.circuit_breaker", label: t("Circuit breaker"), value: `${numberValue(llm?.failure_threshold ?? llm?.failureThreshold, 3)} / ${numberValue(llm?.cooldown_seconds ?? llm?.cooldownSeconds, 60)}s` },
+  ];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 export function LayoutAuditPanel({ audit, t }: LayoutAuditPanelProps) {

@@ -96,6 +96,8 @@ spec:
               value: {{ .Values.platform.config.springAiChatModel | quote }}
             - name: RCA_LLM_TIMEOUT_SECONDS
               value: {{ .Values.platform.config.llmTimeoutSeconds | quote }}
+            - name: RCA_LLM_MAX_OUTPUT_TOKENS
+              value: {{ .Values.platform.config.llmMaxOutputTokens | quote }}
             - name: RCA_LLM_MAX_ATTEMPTS
               value: {{ .Values.platform.config.llmMaxAttempts | quote }}
             - name: RCA_LLM_FAILURE_THRESHOLD

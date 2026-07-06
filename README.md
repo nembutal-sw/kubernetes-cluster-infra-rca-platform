@@ -128,12 +128,14 @@ RCA_SPRING_AI_CHAT_MODEL=openai-sdk
 SPRING_AI_OPENAI_SDK_API_KEY=...
 ```
 
-지원 방향:
+Provider별 secret/env:
 
-- OpenAI
-- Anthropic Claude
-- Google Gemini
-- Ollama/local model
+- OpenAI/OpenAI-compatible: `SPRING_AI_OPENAI_SDK_API_KEY`
+- Anthropic Claude: `SPRING_AI_ANTHROPIC_API_KEY`
+- Google Gemini: `SPRING_AI_GOOGLE_GENAI_API_KEY`
+- Ollama/local model: `SPRING_AI_OLLAMA_BASE_URL`
+
+Web Console의 Settings 화면에서는 provider, model, key 설정 여부만 확인할 수 있습니다. API key 값은 브라우저로 내려주지 않습니다.
 
 LLM 실패는 RCA report 생성을 실패시키지 않습니다. Rule-based 분석은 계속 동작합니다.
 

@@ -95,6 +95,7 @@ platform:
     llmModel: ""
     springAiChatModel: none
     llmTimeoutSeconds: 30
+    llmMaxOutputTokens: 1800
     llmMaxAttempts: 2
     llmFailureThreshold: 3
     llmCooldownSeconds: 60
@@ -150,6 +151,7 @@ platform:
     exportSignatureSecret: ""
     slackWebhookUrl: ""
     openaiApiKey: ""
+    openaiBaseUrl: ""
     anthropicApiKey: ""
     geminiApiKey: ""
     ollamaBaseUrl: ""

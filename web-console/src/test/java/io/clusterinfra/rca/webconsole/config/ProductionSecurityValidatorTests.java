@@ -78,6 +78,49 @@ class ProductionSecurityValidatorTests {
             });
     }
 
+    @Test
+    void selfHostedLlmCanLoadWithoutCloudCredential() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=true",
+                "rca.llm.provider=self_hosted",
+                "rca.llm.model=local-rca-model",
+                "spring.ai.model.chat=openai-sdk",
+                "spring.ai.openai-sdk.base-url=http://localhost:11434/v1"
+            )
+            .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void selfHostedLlmRequiresBaseUrl() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=true",
+                "rca.llm.provider=self_hosted",
+                "rca.llm.model=local-rca-model",
+                "spring.ai.model.chat=openai-sdk"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("spring.ai.openai-sdk.base-url");
+            });
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(RcaConsoleProperties.class)
     static class ValidatorConfiguration {

@@ -600,7 +600,13 @@ class PlatformHttpTests {
         assertThat(exportSecurity.path("bundle_signature_algorithm").asText()).isEqualTo("HMAC-SHA256");
         assertThat(exportSecurity.path("bundle_signature_key_id").asText()).isEqualTo("platform-info-key");
         assertThat(exportSecurity.path("offline_verifier").asText()).isEqualTo("scripts/verify_evidence_bundle.py");
+        JsonNode llm = info.path("llm");
+        assertThat(llm.path("enabled").asBoolean()).isFalse();
+        assertThat(llm.path("provider").asText()).isEqualTo("none");
+        assertThat(llm.path("spring_ai_chat_model").asText()).isEqualTo("none");
+        assertThat(llm.path("credential_configured").asBoolean()).isFalse();
         assertThat(info.toString()).doesNotContain("platform-info-signing-secret");
+        assertThat(info.toString()).doesNotContain("api-key");
     }
 
     @Test

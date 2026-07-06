@@ -11,23 +11,28 @@ Backend는 provider별 SDK에 직접 묶이지 않습니다. 공통 `LlmAnalyzer
 - `openai`
 - `anthropic`
 - `gemini`
+- `ollama`
 - `openai_compatible`
 - `self_hosted`
-- `disabled`
+- `none`
 
-기본값은 `disabled`입니다. 설정이 빠져 있거나 provider가 맞지 않으면 RCA report 생성은 실패하지 않고 `llm_analysis.status = "skipped"`로 남습니다.
+기본값은 `none`이며 `RCA_LLM_ENABLED=false`입니다. 설정이 빠져 있거나 provider가 맞지 않으면 RCA report 생성은 실패하지 않고 `llm_analysis.status = "skipped"`로 남습니다.
 
 ## 환경변수
 
 | 이름 | 설명 |
 | --- | --- |
-| `RCA_LLM_PROVIDER` | `disabled`, `openai`, `anthropic`, `gemini`, `openai_compatible`, `self_hosted` |
+| `RCA_LLM_ENABLED` | `true`일 때만 LLM 보조 분석을 실행 |
+| `RCA_LLM_PROVIDER` | `none`, `openai`, `anthropic`, `gemini`, `ollama`, `openai_compatible`, `self_hosted` |
 | `RCA_LLM_MODEL` | provider model name |
-| `RCA_LLM_API_KEY` | provider API key. self-hosted는 필요 없을 수 있음 |
-| `RCA_LLM_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint base URL |
-| `RCA_LLM_TIMEOUT_SECONDS` | 요청 timeout. 기본 `20`, 적용 범위 `1`-`120` |
-| `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token. 기본 `1200`, 적용 범위 `128`-`8000` |
+| `RCA_SPRING_AI_CHAT_MODEL` | Spring AI chat model: `openai-sdk`, `anthropic`, `google-genai`, `ollama`, `none` |
+| `SPRING_AI_OPENAI_SDK_API_KEY` | OpenAI 또는 OpenAI-compatible API key |
+| `SPRING_AI_ANTHROPIC_API_KEY` | Claude API key |
+| `SPRING_AI_GOOGLE_GENAI_API_KEY` | Gemini API key |
+| `SPRING_AI_OPENAI_SDK_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint base URL. Docker Compose 기본 env에는 넣지 않고 필요할 때 직접 주입 |
+| `SPRING_AI_OLLAMA_BASE_URL` | Ollama endpoint base URL |
 | `RCA_LLM_TIMEOUT_SECONDS` | provider 호출 timeout. 기본 `30` |
+| `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token. 기본 `1800`, 최소 `128` |
 | `RCA_LLM_MAX_ATTEMPTS` | 진단 호출 최대 시도 횟수. 기본 `2`, 최대 `3` |
 | `RCA_LLM_FAILURE_THRESHOLD` | circuit breaker를 여는 연속 실패 횟수. 기본 `3` |
 | `RCA_LLM_COOLDOWN_SECONDS` | circuit breaker 대기 시간. 기본 `60` |
@@ -39,33 +44,51 @@ Provider 호출이 실패해도 RCA report 생성은 계속됩니다. 실패 메
 OpenAI:
 
 ```powershell
+$env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "openai"
 $env:RCA_LLM_MODEL = "gpt-4.1-mini"
-$env:RCA_LLM_API_KEY = "..."
+$env:RCA_SPRING_AI_CHAT_MODEL = "openai-sdk"
+$env:SPRING_AI_OPENAI_SDK_API_KEY = "..."
 ```
 
 Claude:
 
 ```powershell
+$env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "anthropic"
 $env:RCA_LLM_MODEL = "claude-3-5-sonnet-latest"
-$env:RCA_LLM_API_KEY = "..."
+$env:RCA_SPRING_AI_CHAT_MODEL = "anthropic"
+$env:SPRING_AI_ANTHROPIC_API_KEY = "..."
 ```
 
 Gemini:
 
 ```powershell
+$env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "gemini"
 $env:RCA_LLM_MODEL = "gemini-2.0-flash"
-$env:RCA_LLM_API_KEY = "..."
+$env:RCA_SPRING_AI_CHAT_MODEL = "google-genai"
+$env:SPRING_AI_GOOGLE_GENAI_API_KEY = "..."
+```
+
+Ollama:
+
+```powershell
+$env:RCA_LLM_ENABLED = "true"
+$env:RCA_LLM_PROVIDER = "ollama"
+$env:RCA_LLM_MODEL = "llama3.1"
+$env:RCA_SPRING_AI_CHAT_MODEL = "ollama"
+$env:SPRING_AI_OLLAMA_BASE_URL = "http://localhost:11434"
 ```
 
 Self-hosted 또는 OpenAI-compatible:
 
 ```powershell
+$env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "self_hosted"
 $env:RCA_LLM_MODEL = "local-rca-model"
-$env:RCA_LLM_BASE_URL = "http://localhost:11434/v1"
+$env:RCA_SPRING_AI_CHAT_MODEL = "openai-sdk"
+$env:SPRING_AI_OPENAI_SDK_BASE_URL = "http://localhost:11434/v1"
 ```
 
 ## 입력 계약
