@@ -222,6 +222,23 @@ python3 scripts/daemonset_operational_check.py \
 
 이 스크립트는 리소스를 생성하거나 삭제하지 않습니다. `kubectl get`, `kubectl auth can-i`, `kubectl logs`만 사용합니다.
 
+## LLM Staging Smoke
+
+LLM provider API key는 Platform 환경 변수 또는 Kubernetes Secret으로 주입하고, smoke script에는 관리자 계정만 전달합니다.
+
+```bash
+export RCA_BASE_URL=https://rca.example.com
+export RCA_ADMIN_USERNAME=admin
+export RCA_ADMIN_PASSWORD='...'
+
+python3 scripts/llm-staging-smoke.py \
+  --scenario disk-pressure \
+  --expected-llm-status completed
+```
+
+검증 결과는 `validation-results/llm-staging-smoke/<run-id>/llm-staging-smoke-result.json`에 저장됩니다.
+LLM이 비활성화된 baseline 환경을 확인할 때만 `--allow-disabled --expected-llm-status skipped`를 사용합니다.
+
 ## Kind E2E
 
 개발용 Kubernetes smoke test:

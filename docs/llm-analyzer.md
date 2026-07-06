@@ -91,6 +91,31 @@ $env:RCA_SPRING_AI_CHAT_MODEL = "openai-sdk"
 $env:SPRING_AI_OPENAI_SDK_BASE_URL = "http://localhost:11434/v1"
 ```
 
+## LLM Staging Smoke
+
+LLM credential은 코드나 script 인자로 넘기지 않습니다. 먼저 Platform 실행 환경에 provider별 Secret/env를 주입한 뒤, 운영 API를 통해 smoke test를 실행합니다.
+
+```bash
+export RCA_BASE_URL=https://rca.example.com
+export RCA_ADMIN_USERNAME=admin
+export RCA_ADMIN_PASSWORD='...'
+
+python3 scripts/llm-staging-smoke.py \
+  --scenario disk-pressure \
+  --expected-llm-status completed
+```
+
+검증 범위:
+
+- `/api/v1/platform/info`의 LLM enabled/provider/model/credential/base URL 상태
+- Demo scenario 기반 RCA report 생성
+- report evidence의 `llm_analysis.status`
+- LLM 결과가 비어 있지 않은지
+- LLM-origin action이 `automation_allowed=false`와 `execution_plan.executable=false`를 유지하는지
+- LLM 실패 메시지에 secret-like 문자열이 노출되지 않는지
+
+Baseline 환경처럼 LLM이 꺼져 있는 상태를 확인할 때만 `--allow-disabled --expected-llm-status skipped`를 사용합니다. 실제 staging 검증에서는 기본값인 `completed`를 유지합니다.
+
 ## 입력 계약
 
 LLM에는 raw collector output을 넘기지 않습니다. `preprocessed_evidence.payload`만 넘깁니다.

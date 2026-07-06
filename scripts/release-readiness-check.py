@@ -91,6 +91,18 @@ def main() -> int:
             "DaemonSet operational manifest check validates host mounts and read-only posture.",
         ),
         check(
+            "llm-staging-smoke",
+            exists("scripts/llm-staging-smoke.py")
+            and contains(
+                "scripts/llm-staging-smoke.py",
+                "validate_llm_configuration",
+                "validate_llm_report",
+                "automation_allowed",
+            )
+            and contains("docs/llm-analyzer.md", "LLM Staging Smoke", "llm-staging-smoke.py"),
+            "LLM staging smoke validates provider configuration, report output, and automation guardrails.",
+        ),
+        check(
             "container-build-inputs",
             exists("Dockerfile.web-console")
             and exists("Dockerfile.agent")
