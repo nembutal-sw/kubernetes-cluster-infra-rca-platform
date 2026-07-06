@@ -103,6 +103,16 @@ def main() -> int:
             "LLM staging smoke validates provider configuration, report output, and automation guardrails.",
         ),
         check(
+            "operational-smoke-llm-workflow",
+            contains(
+                ".github/workflows/operational-smoke.yml",
+                "run_llm_smoke",
+                "scripts/llm-staging-smoke.py",
+                "validation-results/llm-staging-smoke",
+            ),
+            "Operational Smoke workflow can optionally run LLM staging validation.",
+        ),
+        check(
             "container-build-inputs",
             exists("Dockerfile.web-console")
             and exists("Dockerfile.agent")

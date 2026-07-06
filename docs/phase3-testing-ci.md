@@ -11,7 +11,7 @@ Phase 3는 테스트와 배포 산출물이 서로 다른 경로를 사용하지
 | `web-console-test` | Spring Boot test, package, PostgreSQL/MariaDB Testcontainers |
 | `helm-validate` | platform/agent lint와 주요 values 변형 렌더링 |
 | `docker-build` | 선행 job 통과 후 platform/agent image build |
-| `Operational Smoke` | 배포된 platform API 대상 demo RCA, evidence bundle manifest, audit 검증 |
+| `Operational Smoke` | 배포된 platform API 대상 demo RCA, evidence bundle manifest, audit, 선택적 LLM staging smoke 검증 |
 
 `Dockerfile.web-console`도 `mvn verify`를 실행합니다. CI 밖에서 이미지를 직접 빌드하더라도
 Java, React, API 통합 테스트를 건너뛰지 않습니다.
@@ -20,6 +20,9 @@ Java, React, API 통합 테스트를 건너뛰지 않습니다.
 Tailscale 내부 서버를 검증할 때는 `TAILSCALE_AUTHKEY` secret을 사용하고, platform 비밀번호는
 `RCA_SMOKE_PASSWORD` secret으로만 전달합니다. Signed bundle 검증이 필요한 환경에서는
 `RCA_BUNDLE_SIGNATURE_SECRET` secret과 `RCA_BUNDLE_SIGNATURE_KEY_ID` variable을 추가합니다.
+LLM provider가 staging 환경에 설정된 경우 `run_llm_smoke=true`로 실행하면 같은 API endpoint에서
+`scripts/llm-staging-smoke.py`를 추가 실행합니다. LLM API key는 workflow secret으로 넘기지 않고,
+검증 대상 Platform의 환경 변수 또는 Kubernetes Secret에 미리 주입합니다.
 
 ## Added Regression Coverage
 

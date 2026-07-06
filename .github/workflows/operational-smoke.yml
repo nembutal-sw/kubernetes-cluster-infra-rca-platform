@@ -32,6 +32,26 @@ on:
         required: true
         default: false
         type: boolean
+      run_llm_smoke:
+        description: "Also run LLM staging smoke against the same platform."
+        required: true
+        default: false
+        type: boolean
+      llm_scenario:
+        description: "Demo scenario key for LLM staging smoke."
+        required: false
+        default: "disk-pressure"
+        type: string
+      llm_expected_status:
+        description: "Comma-separated acceptable llm_analysis statuses."
+        required: false
+        default: "completed"
+        type: string
+      llm_allow_disabled:
+        description: "Allow LLM smoke to pass when LLM is disabled."
+        required: true
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       base_url:
@@ -54,6 +74,22 @@ on:
         type: boolean
         default: true
       skip_audit_check:
+        required: false
+        type: boolean
+        default: false
+      run_llm_smoke:
+        required: false
+        type: boolean
+        default: false
+      llm_scenario:
+        required: false
+        type: string
+        default: "disk-pressure"
+      llm_expected_status:
+        required: false
+        type: string
+        default: "completed"
+      llm_allow_disabled:
         required: false
         type: boolean
         default: false
@@ -81,6 +117,9 @@ jobs:
       SMOKE_SKIP_AUDIT_CHECK: ${{ inputs.skip_audit_check }}
       SMOKE_BUNDLE_SIGNATURE_SECRET: ${{ secrets.RCA_BUNDLE_SIGNATURE_SECRET }}
       SMOKE_BUNDLE_SIGNATURE_KEY_ID: ${{ vars.RCA_BUNDLE_SIGNATURE_KEY_ID }}
+      LLM_SMOKE_SCENARIO: ${{ inputs.llm_scenario || 'disk-pressure' }}
+      LLM_SMOKE_EXPECTED_STATUS: ${{ inputs.llm_expected_status || 'completed' }}
+      LLM_SMOKE_ALLOW_DISABLED: ${{ inputs.llm_allow_disabled }}
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
     steps:
       - uses: actions/checkout@v7
@@ -102,7 +141,10 @@ jobs:
           authkey: ${{ env.TAILSCALE_AUTHKEY }}
 
       - name: Validate smoke script syntax
-        run: python -m py_compile scripts/operational_scenario_validation.py
+        run: |
+          python -m py_compile \
+            scripts/operational_scenario_validation.py \
+            scripts/llm-staging-smoke.py
 
       - name: Run operational smoke validation
         run: |
@@ -136,10 +178,40 @@ jobs:
 
           python scripts/operational_scenario_validation.py "${args[@]}"
 
+      - name: Run LLM staging smoke validation
+        if: ${{ inputs.run_llm_smoke }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SMOKE_BASE_URL}" ]; then
+            echo "SMOKE_BASE_URL is empty. Set workflow input base_url or repository variable RCA_SMOKE_BASE_URL." >&2
+            exit 2
+          fi
+          if [ -z "${SMOKE_PASSWORD}" ]; then
+            echo "RCA_SMOKE_PASSWORD secret is required." >&2
+            exit 2
+          fi
+
+          args=(
+            --base-url "${SMOKE_BASE_URL}"
+            --username "${SMOKE_USERNAME}"
+            --password "${SMOKE_PASSWORD}"
+            --scenario "${LLM_SMOKE_SCENARIO}"
+            --expected-llm-status "${LLM_SMOKE_EXPECTED_STATUS}"
+            --task-timeout-seconds "${SMOKE_TASK_TIMEOUT_SECONDS}"
+            --output-dir validation-results/llm-staging-smoke
+          )
+          if [ "${LLM_SMOKE_ALLOW_DISABLED}" = "true" ]; then
+            args+=(--allow-disabled)
+          fi
+
+          python scripts/llm-staging-smoke.py "${args[@]}"
+
       - name: Upload smoke validation results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: operational-smoke-results
-          path: validation-results/operational-smoke
+          path: |
+            validation-results/operational-smoke
+            validation-results/llm-staging-smoke
           if-no-files-found: ignore

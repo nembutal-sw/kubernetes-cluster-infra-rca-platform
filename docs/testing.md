@@ -208,6 +208,8 @@ Repository variable:
 - `RCA_BUNDLE_SIGNATURE_KEY_ID`
 
 수동 실행 시 `base_url`, `username`, `scenarios`, `use_tailscale`, `skip_audit_check`를 입력할 수 있습니다.
+LLM staging 검증까지 같이 실행하려면 `run_llm_smoke=true`, `llm_scenario=disk-pressure`,
+`llm_expected_status=completed`를 지정합니다.
 결과는 `operational-smoke-results` artifact로 저장됩니다.
 
 ## DaemonSet Smoke

@@ -125,7 +125,8 @@ jobs:
           python -m py_compile \
             scripts/release-readiness-check.py \
             scripts/daemonset_operational_check.py \
-            scripts/operational_scenario_validation.py
+            scripts/operational_scenario_validation.py \
+            scripts/llm-staging-smoke.py
       - name: Validate release readiness contracts
         run: python scripts/release-readiness-check.py
 
