@@ -112,3 +112,11 @@ app.kubernetes.io/component: platform
 {{ include "cluster-infra-rca-platform.selectorLabels" . }}
 app.kubernetes.io/component: database
 {{- end -}}
+
+{{- define "cluster-infra-rca-platform.integerEnv" -}}
+{{- if kindIs "float64" . -}}
+{{- printf "%.0f" . -}}
+{{- else -}}
+{{- toString . -}}
+{{- end -}}
+{{- end -}}
