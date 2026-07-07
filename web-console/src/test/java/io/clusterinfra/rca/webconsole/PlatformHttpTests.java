@@ -149,6 +149,22 @@ class PlatformHttpTests {
         bootstrapToken = cluster.path("bootstrap_token").asText();
         assertThat(clusterId).startsWith("cluster-");
         assertThat(bootstrapToken).isNotBlank();
+
+        ResponseEntity<String> thresholds = exchange(
+            "/api/clusters/" + clusterId + "/thresholds",
+            HttpMethod.PUT,
+            Map.of(
+                "thresholds", Map.of(
+                    "disk.warning.percent", 93.0,
+                    "disk.critical.percent", 95.0
+                ),
+                "reason", "integration threshold override"
+            )
+        );
+        assertThat(thresholds.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode thresholdBody = objectMapper.readTree(thresholds.getBody());
+        assertThat(thresholdBody.path("overrides").path("disk.critical.percent").asDouble()).isEqualTo(95.0);
+        assertThat(thresholdBody.path("effective").path("disk.warning.percent").asDouble()).isEqualTo(93.0);
     }
 
     @Test
@@ -269,6 +285,7 @@ class PlatformHttpTests {
         assertThat(report.path("root_cause_candidates").size()).isGreaterThan(0);
         assertThat(report.path("recommended_actions").size()).isGreaterThan(0);
         assertThat(report.path("evidence").toString()).contains("derived_signals");
+        assertThat(report.path("evidence").toString()).contains("\"threshold\":95.0");
         JsonNode tasks = objectMapper.readTree(
             exchange("/api/rca/analysis-tasks", HttpMethod.GET, null).getBody()
         );

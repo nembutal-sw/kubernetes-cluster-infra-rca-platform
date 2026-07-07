@@ -5,6 +5,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ExportSecurityInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationConfigurationInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PlatformInfo;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
+import io.clusterinfra.rca.webconsole.service.ClusterThresholdService;
 import io.clusterinfra.rca.webconsole.service.LlmConfigurationService;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,15 +18,18 @@ public class PlatformInfoController {
     private final RcaConsoleProperties properties;
     private final LlmConfigurationService llmConfiguration;
     private final OperationalCatalogService catalogService;
+    private final ClusterThresholdService thresholdService;
 
     public PlatformInfoController(
         RcaConsoleProperties properties,
         LlmConfigurationService llmConfiguration,
-        OperationalCatalogService catalogService
+        OperationalCatalogService catalogService,
+        ClusterThresholdService thresholdService
     ) {
         this.properties = properties;
         this.llmConfiguration = llmConfiguration;
         this.catalogService = catalogService;
+        this.thresholdService = thresholdService;
     }
 
     @GetMapping({"/api/platform/info", "/api/v1/platform/info"})
@@ -50,7 +54,8 @@ public class PlatformInfoController {
             ),
             llmConfiguration.info(),
             notificationInfo(),
-            catalogService.info()
+            catalogService.info(),
+            thresholdService.info()
         );
     }
 

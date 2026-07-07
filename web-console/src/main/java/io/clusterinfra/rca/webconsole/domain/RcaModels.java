@@ -113,6 +113,36 @@ public final class RcaModels {
         }
     }
 
+    public record ClusterThresholdOverride(
+        String clusterId,
+        String key,
+        double value,
+        String reason,
+        String updatedBy,
+        Instant createdAt,
+        Instant updatedAt
+    ) {
+    }
+
+    public record ClusterThresholdSettings(
+        String clusterId,
+        Map<String, Double> defaults,
+        Map<String, Double> overrides,
+        Map<String, Double> effective,
+        List<String> supportedKeys,
+        Instant updatedAt
+    ) {
+    }
+
+    public record ClusterThresholdUpdateRequest(
+        Map<String, Double> thresholds,
+        @Size(max = 500) String reason
+    ) {
+        public Map<String, Double> thresholdsOrEmpty() {
+            return thresholds == null ? Map.of() : thresholds;
+        }
+    }
+
     public record InstallCommandResponse(
         String clusterId,
         String namespace,
@@ -289,7 +319,8 @@ public final class RcaModels {
         ExportSecurityInfo exportSecurity,
         LlmConfigurationInfo llm,
         NotificationConfigurationInfo notification,
-        Map<String, Object> catalog
+        Map<String, Object> catalog,
+        Map<String, Object> thresholds
     ) {
     }
 

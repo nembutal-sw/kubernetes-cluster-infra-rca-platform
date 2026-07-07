@@ -139,6 +139,17 @@ export interface ClusterDetailState {
   agents: AgentHealthView[];
   evidence: EvidenceRequestView[];
   topology: JsonObject | null;
+  thresholds?: ClusterThresholdSettings | null;
+}
+
+export interface ClusterThresholdSettings {
+  cluster_id?: string;
+  defaults?: Record<string, number>;
+  overrides?: Record<string, number>;
+  effective?: Record<string, number>;
+  supported_keys?: string[];
+  updated_at?: string;
+  [key: string]: unknown;
 }
 
 export interface AgentTokenRotateResponse {
@@ -282,6 +293,7 @@ export interface PlatformInfo {
   llm?: LlmConfigurationInfo;
   notification?: NotificationConfigurationInfo;
   catalog?: JsonObject;
+  thresholds?: JsonObject;
   [key: string]: unknown;
 }
 

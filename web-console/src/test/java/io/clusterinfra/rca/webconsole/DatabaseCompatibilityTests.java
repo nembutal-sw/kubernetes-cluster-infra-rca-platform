@@ -31,6 +31,7 @@ import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterThresholdRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
@@ -86,6 +87,7 @@ class DatabaseCompatibilityTests {
         "realtime_events",
         "topology_observations",
         "manifest_download_tokens",
+        "cluster_threshold_overrides",
         "evidence_bundles",
         "node_agents",
         "user_accounts",
@@ -138,7 +140,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(15);
+        assertThat(migration.migrationsExecuted).isEqualTo(16);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         UserRepository users = userRepository(dataSource);
@@ -146,6 +148,7 @@ class DatabaseCompatibilityTests {
         ActionRepository actions = actionRepository(dataSource);
         AuditRepository audits = auditRepository(dataSource);
         ClusterRepository clusters = clusterRepository(dataSource);
+        ClusterThresholdRepository thresholds = thresholdRepository(dataSource);
         AgentRepository agents = agentRepository(dataSource);
         AnalysisTaskRepository tasks = analysisTaskRepository(dataSource);
         EvidenceRepository evidence = evidenceRepository(dataSource);
@@ -171,6 +174,14 @@ class DatabaseCompatibilityTests {
         assertThat(storedBootstrapTokenHash(jdbc, cluster.clusterId())).isNotBlank();
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), cluster.bootstrapToken())).isTrue();
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), "wrong-token")).isFalse();
+        thresholds.replace(
+            cluster.clusterId(),
+            Map.of("disk.critical.percent", 95.0),
+            "database compatibility",
+            "test"
+        );
+        assertThat(thresholds.values(cluster.clusterId()))
+            .containsEntry("disk.critical.percent", 95.0);
         assertThat(jdbc.queryForObject(
             "SELECT bootstrap_token_last_used_at FROM clusters WHERE cluster_id = ?",
             Timestamp.class,
@@ -531,7 +542,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(14);
+        assertThat(migration.migrationsExecuted).isEqualTo(15);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class
@@ -539,6 +550,7 @@ class DatabaseCompatibilityTests {
 
         UserRepository users = userRepository(dataSource);
         ClusterRepository clusters = clusterRepository(dataSource);
+        ClusterThresholdRepository thresholds = thresholdRepository(dataSource);
         ReportRepository reports = reportRepository(dataSource);
         assertThat(users.authenticate("admin", "admin")).isPresent();
         assertThat(clusters.find("cluster-legacy").orElseThrow().name()).isEqualTo("legacy-cluster");
@@ -553,7 +565,15 @@ class DatabaseCompatibilityTests {
             "test",
             null
         ));
+        thresholds.replace(
+            newCluster.clusterId(),
+            Map.of("pid.critical.percent", 97.0),
+            "post migration threshold check",
+            "test"
+        );
         assertThat(clusters.find(newCluster.clusterId())).isPresent();
+        assertThat(thresholds.values(newCluster.clusterId()))
+            .containsEntry("pid.critical.percent", 97.0);
     }
 
     private void verifyConcurrentClaimContract(
@@ -672,6 +692,10 @@ class DatabaseCompatibilityTests {
 
     private ClusterRepository clusterRepository(DataSource dataSource) {
         return new ClusterRepository(new JdbcTemplate(dataSource), new TokenService());
+    }
+
+    private ClusterThresholdRepository thresholdRepository(DataSource dataSource) {
+        return new ClusterThresholdRepository(new JdbcTemplate(dataSource));
     }
 
     private ObjectMapper objectMapper() {

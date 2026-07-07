@@ -7,6 +7,7 @@ import type {
   AgentHealthView,
   ClusterCreateForm,
   ClusterDetailState,
+  ClusterThresholdSettings,
   ClusterView,
   EvidenceRequestView,
   InstallCommandView,
@@ -210,10 +211,12 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
   const agents = detail?.agents || [];
   const evidence = detail?.evidence || [];
   const entities = topologyEntities(detail?.topology);
+  const thresholdOverrides = Object.keys(detail?.thresholds?.overrides || {}).length;
   const tabs = [
     { id: "agents", label: t("Agents"), icon: "hdd-network", count: agents.length },
     { id: "evidence", label: t("Evidence"), icon: "clipboard2-pulse", count: evidence.length },
     { id: "topology", label: t("Topology"), icon: "diagram-3", count: entities.length },
+    { id: "thresholds", label: t("Thresholds"), icon: "sliders", count: thresholdOverrides },
   ];
 
   return (
@@ -247,6 +250,7 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
         {activeTab === "agents" && <AgentTable agents={agents} t={t} />}
         {activeTab === "evidence" && <EvidenceList evidence={evidence} t={t} />}
         {activeTab === "topology" && <TopologyEntities entities={entities} t={t} />}
+        {activeTab === "thresholds" && <ThresholdSettings settings={detail?.thresholds} t={t} />}
       </div>
     </div>
   );
@@ -301,6 +305,35 @@ function TopologyEntities({ entities, t }: { entities: TopologyEntity[]; t: TFun
   );
 }
 
+function ThresholdSettings({ settings, t }: { settings?: ClusterThresholdSettings | null; t: TFunction }) {
+  const effective = settings?.effective || {};
+  const defaults = settings?.defaults || {};
+  const overrides = settings?.overrides || {};
+  const rows = Object.keys(effective).sort().map((key) => {
+    const overridden = Object.prototype.hasOwnProperty.call(overrides, key);
+    return [
+      <span className="threshold-key">{key}</span>,
+      formatThreshold(defaults[key]),
+      <strong className={overridden ? "threshold-override" : ""}>{formatThreshold(effective[key])}</strong>,
+      overridden ? <StatusBadge value={t("Overridden")} tone="amber" t={t} /> : <span className="text-muted">{t("Default")}</span>,
+    ];
+  });
+  return (
+    <div className="threshold-settings">
+      <div className="threshold-summary">
+        <span>{t("Cluster threshold overrides")}</span>
+        <strong>{Object.keys(overrides).length}</strong>
+        {settings?.updated_at && <em>{t("Updated")} {relativeTime(settings.updated_at)}</em>}
+      </div>
+      <ResponsiveTable
+        empty={t("No threshold settings loaded.")}
+        columns={[t("Key"), t("Default"), t("Effective"), t("Source")]}
+        rows={rows}
+      />
+    </div>
+  );
+}
+
 export function AgentHealthSummary({ agents, cluster, t }: AgentHealthSummaryProps) {
   const fleet = summarizeAgentFleet(agents, [cluster]);
   const degradedAgents = agents.filter((agent) => !["healthy", "registered"].includes(agent.health_status || agent.status || agent.reported_status || ""));
@@ -343,4 +376,8 @@ function topologyEntity(item: JsonValue, index: number): TopologyEntity | null {
 
 function stringValue(value: JsonValue | undefined): string {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function formatThreshold(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "n/a";
 }

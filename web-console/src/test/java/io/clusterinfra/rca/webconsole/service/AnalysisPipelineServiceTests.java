@@ -94,12 +94,12 @@ class AnalysisPipelineServiceTests {
         EvidenceBundle evidence = evidence(Map.of("node", Map.of("status", "healthy")));
         AnalysisTask task = task(evidence.evidenceId(), true);
         when(evidenceRepository.find(evidence.evidenceId())).thenReturn(Optional.of(evidence));
-        when(analyzer.hasActionableSignals(evidence.collectors())).thenReturn(false);
+        when(analyzer.hasActionableSignals(evidence.clusterId(), evidence.collectors())).thenReturn(false);
 
         assertThat(service.processAnalysisTask(task)).isNull();
 
         verify(topology).observe(evidence);
-        verify(analyzer).hasActionableSignals(evidence.collectors());
+        verify(analyzer).hasActionableSignals(evidence.clusterId(), evidence.collectors());
         verifyNoInteractions(incidents, reports, audit, notifications);
     }
 

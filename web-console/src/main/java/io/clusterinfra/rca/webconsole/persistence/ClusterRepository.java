@@ -106,6 +106,7 @@ public class ClusterRepository {
         jdbc.update("DELETE FROM realtime_events WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM topology_observations WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM manifest_download_tokens WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM cluster_threshold_overrides WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM node_agents WHERE cluster_id = ?", clusterId);
         return jdbc.update("DELETE FROM clusters WHERE cluster_id = ?", clusterId) == 1;

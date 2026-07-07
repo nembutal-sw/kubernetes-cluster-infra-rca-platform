@@ -69,6 +69,14 @@ class ClusterRepositoryTests {
                      health_json, registered_at, last_heartbeat_at)
                 VALUES ('agent-1', ?, 'node-a', 'hash', '0.1.0', '1', 'healthy',
                         '[]', '{}', '{}', CURRENT_TIMESTAMP, NULL)
+            """,
+            cluster.clusterId()
+        );
+        jdbc.update(
+            """
+                INSERT INTO cluster_threshold_overrides
+                    (cluster_id, threshold_key, threshold_value, reason, updated_by, created_at, updated_at)
+                VALUES (?, 'disk.critical.percent', 95.0, 'test', 'operator', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
             cluster.clusterId()
         );
@@ -78,6 +86,11 @@ class ClusterRepositoryTests {
         assertThat(repository.find(cluster.clusterId())).isEmpty();
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM node_agents WHERE cluster_id = ?",
+            Integer.class,
+            cluster.clusterId()
+        )).isZero();
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM cluster_threshold_overrides WHERE cluster_id = ?",
             Integer.class,
             cluster.clusterId()
         )).isZero();

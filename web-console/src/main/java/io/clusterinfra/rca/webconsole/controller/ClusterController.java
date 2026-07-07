@@ -6,6 +6,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterThresholdSettings;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterThresholdUpdateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterView;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterTopology;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.TopologyObservation;
@@ -24,6 +26,7 @@ import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptio
 import io.clusterinfra.rca.webconsole.service.CollectorSelectionService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.clusterinfra.rca.webconsole.service.AuditService;
+import io.clusterinfra.rca.webconsole.service.ClusterThresholdService;
 import io.clusterinfra.rca.webconsole.service.TopologyService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -41,6 +44,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -64,6 +68,7 @@ public class ClusterController {
     private final AuditService audit;
     private final RcaMetrics metrics;
     private final TopologyService topology;
+    private final ClusterThresholdService thresholds;
 
     public ClusterController(
         ClusterRepository clusters,
@@ -75,7 +80,8 @@ public class ClusterController {
         RcaConsoleProperties properties,
         AuditService audit,
         RcaMetrics metrics,
-        TopologyService topology
+        TopologyService topology,
+        ClusterThresholdService thresholds
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -87,6 +93,7 @@ public class ClusterController {
         this.audit = audit;
         this.metrics = metrics;
         this.topology = topology;
+        this.thresholds = thresholds;
     }
 
     @PostMapping
@@ -121,6 +128,61 @@ public class ClusterController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public ClusterView get(@PathVariable String clusterId) {
         return ClusterView.from(requireCluster(clusterId));
+    }
+
+    @GetMapping("/{clusterId}/thresholds")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public ClusterThresholdSettings thresholds(@PathVariable String clusterId) {
+        requireCluster(clusterId);
+        return thresholds.settings(clusterId);
+    }
+
+    @PutMapping("/{clusterId}/thresholds")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public ClusterThresholdSettings updateThresholds(
+        @PathVariable String clusterId,
+        @Valid @RequestBody ClusterThresholdUpdateRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        requireCluster(clusterId);
+        UserAccount user = access.currentUser(authentication);
+        ClusterThresholdSettings settings = thresholds.replace(clusterId, request, user.email());
+        audit.user(
+            user,
+            "cluster.thresholds.update",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of(
+                "override_count", settings.overrides().size(),
+                "keys", new ArrayList<>(settings.overrides().keySet())
+            ),
+            servletRequest
+        );
+        return settings;
+    }
+
+    @DeleteMapping("/{clusterId}/thresholds")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public ClusterThresholdSettings clearThresholds(
+        @PathVariable String clusterId,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        requireCluster(clusterId);
+        UserAccount user = access.currentUser(authentication);
+        ClusterThresholdSettings settings = thresholds.clear(clusterId);
+        audit.user(
+            user,
+            "cluster.thresholds.clear",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of("override_count", 0),
+            servletRequest
+        );
+        return settings;
     }
 
     @GetMapping("/{clusterId}/topology")

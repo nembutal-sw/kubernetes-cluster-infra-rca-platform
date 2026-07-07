@@ -271,6 +271,7 @@ export function shortValue(value: unknown): string {
 export function platformInfoRows(platformInfo: PlatformInfo | null | undefined, t: TFunction): SummaryRow[] {
   const exportSecurity = recordValue(platformInfo?.export_security || platformInfo?.exportSecurity);
   const catalog = recordValue(platformInfo?.catalog);
+  const thresholds = recordValue(platformInfo?.thresholds);
   const rows: SummaryRow[] = [
     { key: "platform_version", label: t("Platform version"), value: String(platformInfo?.platform_version || "n/a") },
     { key: "api_version", label: t("API version"), value: String(platformInfo?.api_version || "n/a") },
@@ -329,6 +330,22 @@ export function platformInfoRows(platformInfo: PlatformInfo | null | undefined, 
       { key: "catalog.collectors", label: `${t("Catalog")} / ${t("Collectors")}`, value: String(catalog.collector_count || "0") },
       { key: "catalog.actions", label: `${t("Catalog")} / ${t("Actions")}`, value: String(catalog.action_count || "0") },
       { key: "catalog.rules", label: `${t("Catalog")} / ${t("Rules")}`, value: String(catalog.rule_count || "0") },
+    );
+  }
+  if (platformInfo?.thresholds) {
+    const supportedKeys = Array.isArray(thresholds.supported_keys) ? thresholds.supported_keys.length : 0;
+    rows.push(
+      {
+        key: "thresholds.cluster_override_enabled",
+        label: `${t("Thresholds")} / ${t("Cluster overrides")}`,
+        value: thresholds.cluster_override_enabled ? t("Enabled") : t("Disabled"),
+        tone: thresholds.cluster_override_enabled ? "ok" : "muted",
+      },
+      {
+        key: "thresholds.supported_keys",
+        label: `${t("Thresholds")} / ${t("Supported keys")}`,
+        value: String(supportedKeys),
+      },
     );
   }
   return rows;

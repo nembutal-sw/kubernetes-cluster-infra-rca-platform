@@ -913,7 +913,7 @@ code {
 
 .cluster-detail-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1062,6 +1062,47 @@ code {
   border-radius: 999px;
   padding: 6px 9px;
   font-size: 0.8rem;
+}
+
+.threshold-settings {
+  display: grid;
+  gap: 10px;
+}
+
+.threshold-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+
+.threshold-summary span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.threshold-summary strong {
+  color: var(--primary);
+  font-size: 1.1rem;
+}
+
+.threshold-summary em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.82rem;
+}
+
+.threshold-key {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.threshold-override {
+  color: var(--amber);
 }
 
 .report-layout {

@@ -98,7 +98,7 @@ public class RuleBasedRcaAnalyzer {
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
-        List<Signal> signals = deriveSignals(evidence.collectors());
+        List<Signal> signals = deriveSignals(evidence.clusterId(), evidence.collectors());
         List<RootCauseCandidate> candidates = candidates(evidence.alertName(), signals);
         List<RecommendedAction> actions = actions(evidence.alertName(), signals);
         Map<String, Object> evidenceQuality = evidenceQualityAnalyzer.assess(evidence);
@@ -198,12 +198,20 @@ public class RuleBasedRcaAnalyzer {
         return !deriveSignals(collectors).isEmpty();
     }
 
+    public boolean hasActionableSignals(String clusterId, Map<String, Object> collectors) {
+        return !deriveSignals(clusterId, collectors).isEmpty();
+    }
+
     public List<Map<String, Object>> deriveTimelineSignals(Map<String, Object> collectors) {
         return deriveSignals(collectors).stream().map(Signal::asMap).toList();
     }
 
     private List<Signal> deriveSignals(Map<String, Object> collectors) {
         return detectionEngine.detect(collectors);
+    }
+
+    private List<Signal> deriveSignals(String clusterId, Map<String, Object> collectors) {
+        return detectionEngine.detect(clusterId, collectors);
     }
 
     private List<RootCauseCandidate> candidates(String alertName, List<Signal> signals) {

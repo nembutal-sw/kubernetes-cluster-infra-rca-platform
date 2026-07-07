@@ -56,7 +56,7 @@ public class AnalysisPipelineService {
             throw new IllegalStateException("analysis evidence not found: " + task.evidenceId());
         }
         topology.observe(evidence);
-        if (task.skipIfHealthy() && !analyzer.hasActionableSignals(evidence.collectors())) {
+        if (task.skipIfHealthy() && !analyzer.hasActionableSignals(evidence.clusterId(), evidence.collectors())) {
             return null;
         }
         return createCompletedJob(evidence);

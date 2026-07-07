@@ -4,6 +4,7 @@ import type {
   AgentHealthView,
   ApiCall,
   ClusterDetailState,
+  ClusterThresholdSettings,
   ClusterView,
   EvidenceRequestView,
   InstallCommandView,
@@ -38,15 +39,17 @@ export function useClusterDetail(callApi: ApiCall) {
     if (!cluster) return;
     setSelectedCluster(cluster);
     const clusterId = cluster.cluster_id;
-    const [agents, evidence, topology] = await Promise.allSettled([
+    const [agents, evidence, topology, thresholds] = await Promise.allSettled([
       callApi<AgentHealthView[]>(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`),
       callApi<EvidenceRequestView[]>(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests?limit=100`),
       callApi<JsonObject>(`/api/clusters/${encodeURIComponent(clusterId)}/topology`),
+      callApi<ClusterThresholdSettings>(`/api/clusters/${encodeURIComponent(clusterId)}/thresholds`),
     ]);
     setClusterDetail({
       agents: settledArray<AgentHealthView>(agents),
       evidence: settledArray<EvidenceRequestView>(evidence),
       topology: settledValue<JsonObject>(topology),
+      thresholds: settledValue<ClusterThresholdSettings>(thresholds),
     });
   }, [callApi]);
 

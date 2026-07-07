@@ -1,6 +1,6 @@
 # Roadmap
 
-이 문서는 현재 구현 상태와 다음 고도화 대상을 정리한다. 목표는 데모 수준을 넘어서 실제 운영 환경에서 쓸 수 있는 Cluster RCA Console로 안정화하는 것이다.
+이 문서는 현재 구현 상태와 다음 고도화 대상을 정리한다. 목표는 Kubernetes 애플리케이션 장애가 아니라, 노드와 Linux 시스템 레벨 장애를 근거 기반으로 수집하고 분석하는 Cluster RCA Console이다.
 
 ## Completed Phases
 
@@ -48,7 +48,55 @@
 - PostgreSQL/MariaDB backup/restore 검증 문서
 - Kubernetes/Helm chart 정리
 
+## Recently Completed
+
+### Catalog Externalization
+
+- classpath 기본 catalog와 외부 JSON override path 추가
+- collector selection을 catalog 기반으로 전환
+- action policy, action plan, recommendation trigger를 catalog 기반으로 전환
+- detector enablement를 rule catalog 기반으로 전환
+- catalog schema validation과 unsafe executable plan 차단 테스트 추가
+
+### Cluster Threshold Override Persistence
+
+- `cluster_threshold_overrides` DB 테이블 추가
+- cluster별 detector threshold override 저장/조회/초기화 API 추가
+- RCA 분석 시 `EvidenceBundle.clusterId` 기준 effective threshold 사용
+- 잘못된 key, percent 범위, warning/critical 역전 validation 추가
+- Platform Info와 Cluster Detail UI에 threshold 정보 노출
+- PostgreSQL/MariaDB 호환 테스트와 HTTP E2E 반영
+
 ## Active Backlog
+
+### Supply Chain Security
+
+목표:
+
+- CI에서 Gitleaks, Syft, Grype 또는 Trivy를 release gate로 실행
+- build artifact와 container image에 대한 SBOM 첨부
+- high/critical 취약점 예외 처리 기준 문서화
+
+완료 기준:
+
+- Gitleaks secret scan workflow
+- Syft SBOM artifact 생성
+- Grype/Trivy vulnerability scan 결과 보존
+- release readiness check와 연결
+
+### Catalog Management UI Or DB Model
+
+목표:
+
+- collector/action/rule catalog override를 운영자가 안전하게 검토
+- catalog version, checksum, source를 UI에서 명확히 확인
+- unsafe action plan은 저장 전 차단
+
+완료 기준:
+
+- catalog override preview와 validation endpoint
+- 변경 전후 diff 표시
+- audit event 기록
 
 ### Agent And Webhook Auth Regression
 
@@ -59,85 +107,11 @@
 - `/api/clusters/{cluster_id}/agent-manifest`
 - metrics/export 계열 인증 경계
 
-현재 진행:
-
-- Agent/Webhook/Manifest 인증 실패와 성공 경로를 별도 회귀 테스트로 고정
-- webhook/manifest 인증 실패 audit에 client IP, user-agent, query redaction 컨텍스트 기록
-
 완료 기준:
 
-- token 없음, 잘못된 token, bearer/header token, one-time manifest token 재사용을 모두 검증
-- 인증 실패도 audit event로 남고 민감 token 값은 저장하지 않음
+- token 없음, 잘못된 token, bearer/header token, one-time manifest token 재사용 검증
+- 인증 실패가 audit event로 남고 민감 token 값은 저장하지 않음
 - 새 endpoint 추가 시 인증 누락을 CI에서 빠르게 감지
-
-### Catalog Externalization
-
-대상:
-
-- collector catalog
-- action catalog
-- rule catalog
-
-현재 진행:
-
-- classpath 기본 catalog와 외부 JSON override path 추가
-- collector selection을 catalog 기반으로 전환
-- action policy, action plan, recommendation trigger를 catalog 기반으로 전환
-- detector enablement를 rule catalog 기반으로 전환
-- catalog schema validation과 unsafe executable plan 차단 테스트 추가
-
-목표:
-
-- 코드에 고정된 collector/action/rule 정의를 YAML 또는 JSON catalog로 분리
-- 기본 catalog는 classpath에 두고, 운영 override는 외부 config path로 주입
-- catalog version, source, checksum을 platform info 또는 별도 endpoint에서 확인
-
-완료 기준:
-
-- catalog schema validation 실패 시 boot 단계에서 명확히 실패
-- rule/action key 변경이 report, policy, audit과 호환되는지 regression test 추가
-- 잘못된 action catalog가 자동 실행 경로를 만들지 않도록 정책 검증 추가
-- 다음 단계: UI 또는 DB 기반 cluster별 catalog/threshold override 관리
-
-### Cluster Threshold Override Persistence
-
-대상:
-
-- cluster별 detector threshold override 저장 모델
-
-목표:
-
-- global threshold는 기본값으로 유지
-- cluster별 override를 DB에 저장하고 RCA analyzer가 cluster context에 맞는 기준을 사용
-- report에 적용된 threshold 값과 source를 표시
-
-완료 기준:
-
-- threshold override CRUD API와 RBAC 적용
-- PostgreSQL/MariaDB migration과 repository test 추가
-- override가 없으면 global default로 fallback
-- 잘못된 threshold 값은 저장 전에 validation
-
-### Supply Chain Security
-
-대상:
-
-- SBOM 생성
-- image/dependency vulnerability scan
-- secret scan
-
-목표:
-
-- CI에서 Gitleaks, Syft, Grype 또는 Trivy를 release gate로 실행
-- build artifact와 container image에 대해 SBOM을 남김
-- high/critical 취약점 예외 처리 기준을 문서화
-
-완료 기준:
-
-- Gitleaks secret scan workflow
-- Syft SBOM artifact 생성
-- Grype/Trivy vulnerability scan 결과 보존
-- release readiness check와 연결
 
 ### Real Cluster Validation
 
@@ -145,12 +119,6 @@
 
 - kubeadm, k3s/RKE2, EKS/AKS/GKE, OpenShift 계열
 - 실제 DaemonSet Agent canary
-
-목표:
-
-- runtime socket 자동 감지와 override 검증
-- hostPath, RBAC, ServiceAccount 최소 권한 검증
-- evidence payload 크기, UTF-8, redaction 검증
 
 완료 기준:
 
@@ -160,9 +128,9 @@
 
 ## Next Priority
 
-1. cluster별 threshold override 저장 모델 구현
-2. supply-chain scan workflow와 SBOM artifact 추가
-3. catalog override 운영 UI 또는 DB 관리 모델 검토
+1. supply-chain scan workflow와 SBOM artifact 추가
+2. catalog override 운영 UI 또는 DB 관리 모델 검토
+3. agent/webhook 인증 regression test 강화
 4. 실제 Kubernetes canary 검증 반복
 5. 플랫폼별 collector compatibility matrix 보강
 
