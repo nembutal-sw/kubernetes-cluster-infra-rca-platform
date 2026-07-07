@@ -122,6 +122,19 @@ platform:
     realtimeEventRetentionDays: 14
     topologyObservationRetentionDays: 30
     reportRetentionDays: 365
+    thresholdDiskWarningPercent: 85
+    thresholdDiskCriticalPercent: 90
+    thresholdInodeWarningPercent: 85
+    thresholdInodeCriticalPercent: 90
+    thresholdMemoryCriticalPercent: 90
+    thresholdPidWarningPercent: 85
+    thresholdPidCriticalPercent: 95
+    thresholdConntrackWarningPercent: 80
+    thresholdConntrackCriticalPercent: 95
+    thresholdDiskAwaitWarningMs: 20
+    thresholdDnsLatencyWarningMs: 500
+    thresholdApiServerLatencyWarningMs: 1000
+    thresholdEtcdLatencyWarningMs: 500
     demoEnabled: false
     exportMaxBundleBytes: 10485760
     exportSignatureKeyId: default

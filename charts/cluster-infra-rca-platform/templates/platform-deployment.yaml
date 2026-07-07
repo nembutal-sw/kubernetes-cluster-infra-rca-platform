@@ -181,31 +181,31 @@ spec:
             - name: RCA_PIPELINE_RETRY_MAX_SECONDS
               value: {{ .Values.platform.config.pipelineRetryMaxSeconds | quote }}
             - name: RCA_THRESHOLD_DISK_WARNING_PERCENT
-              value: {{ .Values.platform.config.thresholdDiskWarningPercent | quote }}
+              value: {{ default 85 .Values.platform.config.thresholdDiskWarningPercent | quote }}
             - name: RCA_THRESHOLD_DISK_CRITICAL_PERCENT
-              value: {{ .Values.platform.config.thresholdDiskCriticalPercent | quote }}
+              value: {{ default 90 .Values.platform.config.thresholdDiskCriticalPercent | quote }}
             - name: RCA_THRESHOLD_INODE_WARNING_PERCENT
-              value: {{ .Values.platform.config.thresholdInodeWarningPercent | quote }}
+              value: {{ default 85 .Values.platform.config.thresholdInodeWarningPercent | quote }}
             - name: RCA_THRESHOLD_INODE_CRITICAL_PERCENT
-              value: {{ .Values.platform.config.thresholdInodeCriticalPercent | quote }}
+              value: {{ default 90 .Values.platform.config.thresholdInodeCriticalPercent | quote }}
             - name: RCA_THRESHOLD_MEMORY_CRITICAL_PERCENT
-              value: {{ .Values.platform.config.thresholdMemoryCriticalPercent | quote }}
+              value: {{ default 90 .Values.platform.config.thresholdMemoryCriticalPercent | quote }}
             - name: RCA_THRESHOLD_PID_WARNING_PERCENT
-              value: {{ .Values.platform.config.thresholdPidWarningPercent | quote }}
+              value: {{ default 85 .Values.platform.config.thresholdPidWarningPercent | quote }}
             - name: RCA_THRESHOLD_PID_CRITICAL_PERCENT
-              value: {{ .Values.platform.config.thresholdPidCriticalPercent | quote }}
+              value: {{ default 95 .Values.platform.config.thresholdPidCriticalPercent | quote }}
             - name: RCA_THRESHOLD_CONNTRACK_WARNING_PERCENT
-              value: {{ .Values.platform.config.thresholdConntrackWarningPercent | quote }}
+              value: {{ default 80 .Values.platform.config.thresholdConntrackWarningPercent | quote }}
             - name: RCA_THRESHOLD_CONNTRACK_CRITICAL_PERCENT
-              value: {{ .Values.platform.config.thresholdConntrackCriticalPercent | quote }}
+              value: {{ default 95 .Values.platform.config.thresholdConntrackCriticalPercent | quote }}
             - name: RCA_THRESHOLD_DISK_AWAIT_WARNING_MS
-              value: {{ .Values.platform.config.thresholdDiskAwaitWarningMs | quote }}
+              value: {{ default 20 .Values.platform.config.thresholdDiskAwaitWarningMs | quote }}
             - name: RCA_THRESHOLD_DNS_LATENCY_WARNING_MS
-              value: {{ .Values.platform.config.thresholdDnsLatencyWarningMs | quote }}
+              value: {{ default 500 .Values.platform.config.thresholdDnsLatencyWarningMs | quote }}
             - name: RCA_THRESHOLD_API_SERVER_LATENCY_WARNING_MS
-              value: {{ .Values.platform.config.thresholdApiServerLatencyWarningMs | quote }}
+              value: {{ default 1000 .Values.platform.config.thresholdApiServerLatencyWarningMs | quote }}
             - name: RCA_THRESHOLD_ETCD_LATENCY_WARNING_MS
-              value: {{ .Values.platform.config.thresholdEtcdLatencyWarningMs | quote }}
+              value: {{ default 500 .Values.platform.config.thresholdEtcdLatencyWarningMs | quote }}
             - name: SERVER_SHUTDOWN
               value: graceful
             {{- range $key, $value := .Values.platform.env }}
