@@ -50,7 +50,7 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
             );
             filterChain.doFilter(request, response);
         } catch (ResponseStatusException exception) {
-            auditFailure(exception.getReason());
+            auditFailure(request, exception.getReason());
             SecurityFilterSupport.writeError(
                 objectMapper,
                 response,
@@ -60,15 +60,17 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private void auditFailure(String reason) {
+    private void auditFailure(HttpServletRequest request, String reason) {
         try {
-            audit.system(
+            audit.record(
+                "system",
                 "alertmanager",
                 "webhook.auth_failed",
                 "webhook",
                 "alertmanager",
                 "failed",
-                Map.of("reason", reason == null ? "authentication_failed" : reason)
+                Map.of("reason", reason == null ? "authentication_failed" : reason),
+                request
             );
         } catch (RuntimeException ignored) {
             // Authentication failure responses must not depend on audit storage availability.
