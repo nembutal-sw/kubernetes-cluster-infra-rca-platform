@@ -279,7 +279,7 @@ bash scripts/kind-smoke.sh
 | Agent mTLS | `AgentMtlsFilterTests` |
 | Manifest token/request limits | `PlatformHttpTests` |
 | Audit export/token rotation | `PlatformHttpTests`, `RbacAuthorizationTests` |
-| LLM fallback | `LlmAnalysisServiceTests` |
+| LLM fallback | `LlmAnalysisServiceTests`, `RuleBasedLlmFallbackTests` |
 
 ## CI Intent
 
