@@ -76,9 +76,14 @@ export interface RcaSummary {
 export interface RootCauseCandidate {
   category?: string;
   component?: string;
+  cause?: string;
   reason?: string;
+  confidence?: string;
   confidence_score?: number;
   evidence_refs?: string[];
+  evidence_paths?: string[];
+  supporting_evidence?: string[];
+  score_reason?: string;
   [key: string]: unknown;
 }
 
@@ -116,6 +121,8 @@ export interface ActionRequestView {
   action_request_id: string;
   report_id?: string;
   action_key?: string;
+  policy?: string;
+  source?: string;
   status?: string;
   created_at?: string;
   [key: string]: unknown;
@@ -124,6 +131,7 @@ export interface ActionRequestView {
 export interface ActionExecutionView {
   action_execution_id?: string;
   action_request_id?: string;
+  command_key?: string;
   status?: string;
   [key: string]: unknown;
 }
@@ -131,6 +139,9 @@ export interface ActionExecutionView {
 export interface IncidentView {
   incident_id: string;
   latest_report_id?: string;
+  cluster_id?: string;
+  alert_name?: string;
+  root_cause?: string;
   status?: string;
   severity?: string;
   last_seen_at?: string;

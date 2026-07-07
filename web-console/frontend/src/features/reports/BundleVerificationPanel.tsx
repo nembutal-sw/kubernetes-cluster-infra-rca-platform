@@ -1,13 +1,19 @@
-// @ts-nocheck
-
-import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../components/common";
+import { EmptyState, Icon, MetricTile } from "../../components/common";
 
 import { formatBytes, formatDate, shortHash } from "../../lib/consoleUtils";
+import type { EvidenceBundleManifest, PlatformInfo, TFunction } from "../../types";
 
-export function BundleVerificationPanel({ manifest, platformInfo, onCopy, t }) {
-  const exportSecurity = platformInfo?.export_security || platformInfo?.exportSecurity || {};
+interface BundleVerificationPanelProps {
+  manifest?: EvidenceBundleManifest | null;
+  platformInfo?: PlatformInfo | null;
+  onCopy?: (text: string) => void;
+  t: TFunction;
+}
+
+export function BundleVerificationPanel({ manifest, platformInfo, onCopy, t }: BundleVerificationPanelProps) {
+  const exportSecurity = (platformInfo?.export_security || platformInfo?.exportSecurity || {}) as Record<string, unknown>;
   const entries = manifest?.entries || [];
-  const command = manifest?.verification_command || manifest?.verificationCommand || "";
+  const command = String(manifest?.verification_command || manifest?.verificationCommand || "");
   const signatureEnabled = Boolean(manifest?.signature_enabled ?? manifest?.signatureEnabled ?? exportSecurity.bundle_signature_enabled);
   if (!manifest) {
     return <EmptyState message={t("Manifest summary is available to export-authorized users after report detail loads.")} />;
@@ -24,7 +30,7 @@ export function BundleVerificationPanel({ manifest, platformInfo, onCopy, t }) {
       <div className="manifest-summary-grid">
         <div>
           <span>{t("Hash algorithm")}</span>
-          <strong>{manifest.hash_algorithm || manifest.hashAlgorithm || "SHA-256"}</strong>
+          <strong>{String(manifest.hash_algorithm || manifest.hashAlgorithm || "SHA-256")}</strong>
         </div>
         <div>
           <span>{t("Signature")}</span>

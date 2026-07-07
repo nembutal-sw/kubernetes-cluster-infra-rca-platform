@@ -1,8 +1,7 @@
-// @ts-nocheck
-
-import { EmptyState, Icon, MetricTile, StatusBadge, Surface } from "../../components/common";
+import { Icon, MetricTile, Surface } from "../../components/common";
 
 import { confidenceTone, derivedSignals, evidenceSummary, formatDate, qualityGateTone, qualityTone, reportEvidenceQuality, reportQualityGate } from "../../lib/consoleUtils";
+import type { ActionRequestView, PlatformInfo, RcaReport, RecommendedAction, ReportDetailState, TFunction, UserAccount } from "../../types";
 
 import { EvidenceQualityPanel } from "./EvidenceQualityPanel";
 
@@ -14,18 +13,31 @@ import { ActionList, ActionRequestList } from "./ActionWorkflow";
 
 import { TimelineGraph } from "./TimelineGraph";
 
-export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, platformInfo, onCopy, t }) {
+interface ReportDetailProps {
+  detail: ReportDetailState;
+  currentUser: UserAccount;
+  onPrepareAction: (report: RcaReport, action: RecommendedAction, index: number) => void;
+  onDecideAction: (actionRequest: ActionRequestView, decision: "approve" | "reject", note?: string) => Promise<void> | void;
+  onCompleteManual: (actionRequest: ActionRequestView, note: string) => Promise<void> | void;
+  onExportReport: (reportId: string) => Promise<void> | void;
+  onExportBundle: (reportId: string) => Promise<void> | void;
+  platformInfo?: PlatformInfo | null;
+  onCopy: (text: string) => void;
+  t: TFunction;
+}
+
+export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAction, onCompleteManual, onExportReport, onExportBundle, platformInfo, onCopy, t }: ReportDetailProps) {
   const report = detail.report;
   const candidates = report.root_cause_candidates || [];
   const actions = report.recommended_actions || [];
   const checks = report.additional_checks || report.next_steps || [];
   const evidenceItems = evidenceSummary(report);
   const signals = derivedSignals(report);
-  const quality = reportEvidenceQuality(report);
-  const gate = reportQualityGate(report);
+  const quality = recordOrNull(reportEvidenceQuality(report));
+  const gate = recordOrNull(reportQualityGate(report));
   const llmActions = actions.filter((action) => action.source === "llm");
   const canExport = ["admin", "operator"].includes(currentUser.role);
-  const exportSecurity = platformInfo?.export_security || platformInfo?.exportSecurity || {};
+  const exportSecurity = recordValue(platformInfo?.export_security || platformInfo?.exportSecurity);
   const bundleSignatureEnabled = Boolean(exportSecurity.bundle_signature_enabled ?? exportSecurity.bundleSignatureEnabled);
   return (
     <div className="report-detail">
@@ -58,8 +70,8 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
       <div className="summary-strip">
         <MetricTile label="Confidence" value={report.summary?.confidence || "n/a"} tone={confidenceTone(report.summary?.confidence)} icon="bar-chart-line" />
         <MetricTile label={t("Rule signals")} value={signals.length} tone={signals.length ? "blue" : "muted"} icon="diagram-3" />
-        <MetricTile label={t("Quality gate")} value={gate?.status || "unknown"} tone={qualityGateTone(gate?.status)} icon="shield-check" />
-        <MetricTile label={t("Evidence quality")} value={quality?.status || "unknown"} tone={qualityTone(quality?.status)} icon="clipboard2-pulse" />
+        <MetricTile label={t("Quality gate")} value={String(gate?.status || "unknown")} tone={qualityGateTone(gate?.status)} icon="shield-check" />
+        <MetricTile label={t("Evidence quality")} value={String(quality?.status || "unknown")} tone={qualityTone(quality?.status)} icon="clipboard2-pulse" />
         <MetricTile label={t("Policy blocked")} value={actions.filter((action) => !action.automation_allowed).length} tone="amber" icon="shield-lock" />
         <MetricTile label="LLM" value={llmActions.length ? t("LLM diagnostic only") : "n/a"} tone={llmActions.length ? "amber" : "muted"} icon="stars" />
       </div>
@@ -120,4 +132,12 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
       </Surface>
     </div>
   );
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return recordOrNull(value) || {};
 }

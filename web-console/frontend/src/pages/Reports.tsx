@@ -18,7 +18,7 @@ interface ReportsViewProps {
   detail: ReportDetailState | null;
   currentUser: UserAccount;
   onPrepareAction: (report: RcaReport, action: RecommendedAction, index: number) => void;
-  onDecideAction: (actionRequest: ActionRequestView, decision: string, note?: string) => Promise<void> | void;
+  onDecideAction: (actionRequest: ActionRequestView, decision: "approve" | "reject", note?: string) => Promise<void> | void;
   onCompleteManual: (actionRequest: ActionRequestView, note: string) => Promise<void> | void;
   onExportReport: (reportId: string) => Promise<void> | void;
   onExportBundle: (reportId: string) => Promise<void> | void;
