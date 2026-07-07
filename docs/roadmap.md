@@ -90,6 +90,50 @@
 - UTF-8 Korean documentation cleanup for key docs
 - regression test for demo scenario report quality and unsafe action guardrails
 
+## Active Backlog
+
+### Catalog Externalization
+
+- 대상: collector catalog, action catalog, rule catalog
+- 현재 상태: 주요 detector와 action 정책은 코드 중심으로 관리된다.
+- 목표: YAML/JSON catalog를 classpath 또는 외부 config path에서 읽고, 기본 catalog와 운영 override를 병합한다.
+- 완료 기준:
+  - catalog schema validation 실패 시 boot 단계에서 명확히 실패
+  - catalog version, source, checksum을 `/api/v1/platform/info` 또는 별도 endpoint에서 확인
+  - rule/action key 변경이 report, policy, audit 기록과 호환되는지 regression test 추가
+
+### Cluster Threshold Override Persistence
+
+- 대상: cluster별 detector threshold override 저장 모델
+- 현재 상태: 기본 threshold와 일부 config override는 존재하지만 cluster registry와 연결된 영속 모델은 없다.
+- 목표: cluster별 threshold override를 DB에 저장하고 rule analyzer가 cluster context에 맞는 기준을 사용한다.
+- 완료 기준:
+  - override CRUD API와 RBAC 적용
+  - PostgreSQL/MariaDB migration과 repository test 추가
+  - report evidence에 적용된 threshold source가 표시
+  - override가 없으면 global default로 fallback
+
+### Supply Chain Security
+
+- 대상: SBOM, image/dependency scan, secret scan
+- 현재 상태: release readiness 문서에는 Gitleaks, Trivy, Syft, Grype 기준이 정리되어 있다.
+- 목표: CI에서 secret scan, dependency/image vulnerability scan, SBOM 생성을 release gate로 수행한다.
+- 완료 기준:
+  - Gitleaks secret scan workflow
+  - Syft SBOM artifact 생성
+  - Grype 또는 Trivy vulnerability scan 결과 보존
+  - high/critical 취약점 정책과 예외 처리 문서화
+
+### Agent And Webhook Auth Regression
+
+- 대상: Agent 인증, webhook 인증, manifest token 인증 회귀 테스트
+- 현재 상태: 주요 인증 필터와 HTTP test는 존재하지만 우회 경로 방지를 더 넓게 검증해야 한다.
+- 목표: `/api/agents/**`, `/api/webhooks/**`, manifest download, metrics/export endpoint의 인증 실패/성공 matrix를 고정한다.
+- 완료 기준:
+  - token 없음, 잘못된 token, bearer/header token, 만료 token, 권한 부족 케이스 테스트
+  - audit event와 metric이 인증 실패에도 기록되는지 검증
+  - production profile fail-fast와 HTTP filter 동작을 함께 검증
+
 ## Near-Term Priorities
 
 ### Real Cluster Validation

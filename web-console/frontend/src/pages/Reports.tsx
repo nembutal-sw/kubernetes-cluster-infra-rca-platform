@@ -1,6 +1,6 @@
 import { EmptyState, Icon, PageHeader } from "../components/common";
-import { relativeTime } from "../lib/consoleUtils";
 import { ReportDetail } from "../features/reports/ReportDetail";
+import { ReportListPanel } from "../features/reports/ReportListPanel";
 import type {
   ActionRequestView,
   PlatformInfo,
@@ -39,13 +39,7 @@ export function ReportsView({ reports, selectedReportId, setSelectedReportId, de
       />
       <div className="report-layout">
         <aside className="report-list">
-          {reports.length ? reports.map((report) => (
-            <button key={report.report_id} className={selectedReportId === report.report_id ? "selected" : ""} onClick={() => setSelectedReportId(report.report_id)}>
-              <span className="report-time">{relativeTime(report.created_at)}</span>
-              <strong>{report.summary?.symptom || report.trigger?.alert_name || report.report_id}</strong>
-              <span>{report.cluster_id} / {report.node_name || "cluster"}</span>
-            </button>
-          )) : <EmptyState message={t("No reports loaded.")} />}
+          <ReportListPanel reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} t={t} />
         </aside>
         <section className="report-detail-panel">
           {detail?.report ? (
