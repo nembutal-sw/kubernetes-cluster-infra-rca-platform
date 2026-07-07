@@ -131,6 +131,7 @@ SPRING_AI_OPENAI_SDK_API_KEY=...
 Provider별 secret/env:
 
 - OpenAI/OpenAI-compatible: `SPRING_AI_OPENAI_SDK_API_KEY`
+- OpenAI-compatible/self-hosted base URL: `SPRING_AI_OPENAI_SDK_BASE_URL`
 - Anthropic Claude: `SPRING_AI_ANTHROPIC_API_KEY`
 - Google Gemini: `SPRING_AI_GOOGLE_GENAI_API_KEY`
 - Ollama/local model: `SPRING_AI_OLLAMA_BASE_URL`

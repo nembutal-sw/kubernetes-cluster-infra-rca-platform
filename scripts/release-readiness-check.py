@@ -103,6 +103,53 @@ def main() -> int:
             "LLM staging smoke validates provider configuration, report output, and automation guardrails.",
         ),
         check(
+            "llm-helm-contract",
+            contains(
+                "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
+                "RCA_LLM_ENABLED",
+                "RCA_LLM_PROVIDER",
+                "RCA_SPRING_AI_CHAT_MODEL",
+                "RCA_LLM_TIMEOUT_SECONDS",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
+                "SPRING_AI_OPENAI_SDK_API_KEY",
+                "SPRING_AI_OPENAI_SDK_BASE_URL",
+                "SPRING_AI_ANTHROPIC_API_KEY",
+                "SPRING_AI_GOOGLE_GENAI_API_KEY",
+                "SPRING_AI_OLLAMA_BASE_URL",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/values.yaml",
+                "llmEnabled",
+                "llmProvider",
+                "openaiBaseUrl",
+                "ollamaBaseUrl",
+            ),
+            "Platform Helm chart exposes LLM configuration and provider secret wiring.",
+        ),
+        check(
+            "llm-compose-contract",
+            contains(
+                "docker-compose.yml",
+                "RCA_LLM_ENABLED",
+                "SPRING_AI_OPENAI_SDK_API_KEY",
+                "SPRING_AI_OPENAI_SDK_BASE_URL",
+                "SPRING_AI_ANTHROPIC_API_KEY",
+                "SPRING_AI_GOOGLE_GENAI_API_KEY",
+                "SPRING_AI_OLLAMA_BASE_URL",
+            )
+            and contains(
+                ".env.example",
+                "OPENAI_API_KEY",
+                "OPENAI_BASE_URL",
+                "ANTHROPIC_API_KEY",
+                "GEMINI_API_KEY",
+                "OLLAMA_BASE_URL",
+            ),
+            "Docker Compose and .env.example expose LLM provider environment wiring.",
+        ),
+        check(
             "operational-smoke-llm-workflow",
             contains(
                 ".github/workflows/operational-smoke.yml",

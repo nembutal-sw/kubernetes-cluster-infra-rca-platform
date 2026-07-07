@@ -170,7 +170,7 @@ LLM 호출 실패, timeout, schema validation 실패는 RCA pipeline 실패가 �
 
 Completed response에는 `prompt_version = "llm-rca-analyzer/v1"`이 포함됩니다.
 
-## Staging Smoke
+## LLM Staging Smoke
 
 실제 provider API 검증은 staging 환경에서만 수행합니다. API key는 script 인자로 넘기지 말고 Platform 실행 환경 또는 Kubernetes Secret으로 주입합니다.
 

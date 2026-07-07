@@ -50,6 +50,21 @@ Platform chart는 다음 운영 옵션을 제공합니다.
 
 RCA 분석은 DB queue에서 비동기로 처리됩니다. 운영 중에는 Pipeline 화면에서 `retry_wait`와 `dead_letter` 작업을 확인하고, LLM 최대 처리 시간보다 task lease를 길게 설정합니다. 자세한 설정은 [durable-analysis-pipeline.md](durable-analysis-pipeline.md)를 참고합니다.
 
+## LLM Provider Wiring
+
+Docker Compose에서는 provider credential 값을 `.env`에 넣고 Platform 컨테이너로 전달합니다.
+
+```bash
+RCA_LLM_ENABLED=true
+RCA_LLM_PROVIDER=openai_compatible
+RCA_LLM_MODEL=provider-model-name
+RCA_SPRING_AI_CHAT_MODEL=openai-sdk
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=https://llm-gateway.example.com/v1
+```
+
+Kubernetes에서는 `platform.config.*`에는 provider/model 같은 비밀이 아닌 설정을 넣고, `platform.secret.*` 또는 External Secrets Operator에는 credential/base URL을 넣습니다. Settings 화면의 LLM diagnostics에서 설정 여부를 확인할 수 있지만, API key 값은 표시하지 않습니다.
+
 ## Notification Delivery
 
 Incident notification은 선택 기능입니다.

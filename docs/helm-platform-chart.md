@@ -71,6 +71,10 @@ platform:
     realtimeEventRetentionDays: 14
     reportRetentionDays: 365
     exportSignatureKeyId: default
+    llmEnabled: false
+    llmProvider: none
+    llmModel: ""
+    springAiChatModel: none
   secret:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
@@ -79,6 +83,11 @@ platform:
     encryptionSecret: ""
     exportSignatureSecret: ""
     slackWebhookUrl: ""
+    openaiApiKey: ""
+    openaiBaseUrl: ""
+    anthropicApiKey: ""
+    geminiApiKey: ""
+    ollamaBaseUrl: ""
 ```
 
 ## Production Notes
@@ -95,6 +104,45 @@ For production-like deployments:
 - validate rendered manifests before applying
 
 The application performs production fail-fast validation. Unsafe production settings should stop startup instead of creating a weak deployment.
+
+## LLM Configuration
+
+LLM is disabled by default. Enable it only after provider credentials or endpoint settings are present in a Kubernetes Secret or external secret manager.
+
+OpenAI-compatible gateway:
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set platform.config.llmEnabled=true \
+  --set platform.config.llmProvider=openai_compatible \
+  --set platform.config.springAiChatModel=openai-sdk \
+  --set-string platform.config.llmModel=provider-model-name \
+  --set-string platform.secret.openaiApiKey='<secret>' \
+  --set-string platform.secret.openaiBaseUrl='https://llm-gateway.example.com/v1'
+```
+
+Self-hosted OpenAI-compatible endpoint without a platform-managed API key:
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --set platform.config.llmEnabled=true \
+  --set platform.config.llmProvider=self_hosted \
+  --set platform.config.springAiChatModel=openai-sdk \
+  --set-string platform.config.llmModel=local-rca-model \
+  --set-string platform.secret.openaiBaseUrl='http://llm-gateway.rca-system.svc:8000/v1'
+```
+
+External Secrets Operator 사용 시 `platform.externalSecret.data`가 아래 target key를 생성해야 합니다.
+
+```text
+SPRING_AI_OPENAI_SDK_API_KEY
+SPRING_AI_OPENAI_SDK_BASE_URL
+SPRING_AI_ANTHROPIC_API_KEY
+SPRING_AI_GOOGLE_GENAI_API_KEY
+SPRING_AI_OLLAMA_BASE_URL
+```
+
+Settings 화면의 LLM diagnostics는 이 Secret이 Pod 환경 변수로 들어왔는지 확인합니다. API key 값은 표시하지 않습니다.
 
 ## ServiceMonitor
 

@@ -11,6 +11,7 @@
 - platform chart `helm template`
 - agent chart `helm template`
 - agent manifest에 `Namespace`, `ServiceAccount`, `ClusterRole`, `ClusterRoleBinding`, `ConfigMap`, `Secret`, `DaemonSet` 포함
+- LLM enabled chart variant에서 `RCA_LLM_*`, `SPRING_AI_OPENAI_SDK_API_KEY`, `SPRING_AI_OPENAI_SDK_BASE_URL` 렌더링 확인
 
 실패 시 중단 기준:
 
@@ -27,6 +28,7 @@
 - agent image build
 - platform build 과정에서 Maven `verify`
 - frontend `npm ci`, TypeScript check, Vite production build
+- Docker Compose LLM env wiring 확인: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`
 
 통과 기준:
 

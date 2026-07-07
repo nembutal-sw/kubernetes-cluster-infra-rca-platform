@@ -78,6 +78,7 @@ jobs:
             --set secret.agentToken=agent-token
       - name: Render platform chart variants
         run: |
+          set -euo pipefail
           helm template rca charts/cluster-infra-rca-platform > /dev/null
           helm template rca charts/cluster-infra-rca-platform \
             --set database.type=mariadb > /dev/null
@@ -94,6 +95,24 @@ jobs:
             --set-string platform.secret.webhookToken=non-default-webhook-token \
             --set-string platform.secret.encryptionSecret=non-default-encryption-secret \
             --set-string database.auth.password=non-default-database-password > /dev/null
+          llm_openai="$(helm template rca charts/cluster-infra-rca-platform \
+            --set platform.config.llmEnabled=true \
+            --set platform.config.llmProvider=openai_compatible \
+            --set platform.config.springAiChatModel=openai-sdk \
+            --set-string platform.config.llmModel=provider-model-name \
+            --set-string platform.secret.openaiApiKey=not-a-real-key \
+            --set-string platform.secret.openaiBaseUrl=https://llm-gateway.example.com/v1)"
+          grep -q 'RCA_LLM_PROVIDER' <<< "$llm_openai"
+          grep -q 'SPRING_AI_OPENAI_SDK_API_KEY' <<< "$llm_openai"
+          grep -q 'SPRING_AI_OPENAI_SDK_BASE_URL' <<< "$llm_openai"
+          llm_self_hosted="$(helm template rca charts/cluster-infra-rca-platform \
+            --set platform.config.llmEnabled=true \
+            --set platform.config.llmProvider=self_hosted \
+            --set platform.config.springAiChatModel=openai-sdk \
+            --set-string platform.config.llmModel=local-rca-model \
+            --set-string platform.secret.openaiBaseUrl=http://llm-gateway.rca-system.svc:8000/v1)"
+          grep -q 'RCA_LLM_PROVIDER' <<< "$llm_self_hosted"
+          grep -q 'SPRING_AI_OPENAI_SDK_BASE_URL' <<< "$llm_self_hosted"
       - name: Render Agent chart variants
         run: |
           helm template rca-agent charts/cluster-infra-rca-agent \
