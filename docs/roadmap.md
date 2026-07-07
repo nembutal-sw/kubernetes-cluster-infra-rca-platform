@@ -67,22 +67,17 @@
 - Platform Info와 Cluster Detail UI에 threshold 정보 노출
 - PostgreSQL/MariaDB 호환 테스트와 HTTP E2E 반영
 
-## Active Backlog
-
 ### Supply Chain Security
 
-목표:
+- repository filesystem Trivy scan 결과를 SARIF와 artifact로 보존
+- Syft repository SBOM을 workflow artifact로 보존
+- Grype SBOM vulnerability scan 결과를 SARIF와 artifact로 보존
+- platform/agent image build 후 image SBOM 생성
+- platform/agent image Trivy scan 추가
+- release image SBOM과 image scan report를 GitHub Release asset으로 업로드
+- release readiness static gate에 supply-chain workflow 검증 추가
 
-- CI에서 Gitleaks, Syft, Grype 또는 Trivy를 release gate로 실행
-- build artifact와 container image에 대한 SBOM 첨부
-- high/critical 취약점 예외 처리 기준 문서화
-
-완료 기준:
-
-- Gitleaks secret scan workflow
-- Syft SBOM artifact 생성
-- Grype/Trivy vulnerability scan 결과 보존
-- release readiness check와 연결
+## Active Backlog
 
 ### Catalog Management UI Or DB Model
 
@@ -128,11 +123,11 @@
 
 ## Next Priority
 
-1. supply-chain scan workflow와 SBOM artifact 추가
-2. catalog override 운영 UI 또는 DB 관리 모델 검토
-3. agent/webhook 인증 regression test 강화
-4. 실제 Kubernetes canary 검증 반복
-5. 플랫폼별 collector compatibility matrix 보강
+1. catalog override 운영 UI 또는 DB 관리 모델 검토
+2. agent/webhook 인증 regression test 강화
+3. 실제 Kubernetes canary 검증 반복
+4. 플랫폼별 collector compatibility matrix 보강
+5. 운영 배포 runbook과 rollback 문서 정리
 
 ## Positioning
 

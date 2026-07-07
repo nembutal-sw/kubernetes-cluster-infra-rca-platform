@@ -10,6 +10,9 @@ permissions:
   packages: write
   id-token: write
 
+env:
+  SECURITY_SEVERITIES: CRITICAL,HIGH
+
 jobs:
   image:
     strategy:
@@ -61,8 +64,27 @@ jobs:
           image: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: ${{ matrix.component }}-sbom.spdx.json
-          upload-artifact: true
-          artifact-name: ${{ matrix.component }}-sbom
+          upload-artifact: false
+      - name: Scan released image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: ${{ matrix.component }}-image-trivy.sarif
+          severity: ${{ env.SECURITY_SEVERITIES }}
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Upload release security artifacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ${{ matrix.component }}-release-security
+          path: |
+            ${{ matrix.component }}-sbom.spdx.json
+            ${{ matrix.component }}-image-trivy.sarif
+          if-no-files-found: ignore
+          retention-days: 90
 
   release:
     needs: image
@@ -71,7 +93,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
-          pattern: "*-sbom"
+          pattern: "*-release-security"
           merge-multiple: true
           path: dist
       - name: Publish release assets
