@@ -1,18 +1,60 @@
-// @ts-nocheck
+import { Icon, MetricTile, Surface } from "../components/common";
+import {
+  ClusterTopologyPreview,
+  FailureSurface,
+  OperationsReadinessPanel,
+  RecentReport,
+  SignalStream,
+} from "../features/overview/OverviewPanels";
+import { buildSignalDigest, summarizeAgentFleet } from "../lib/consoleUtils";
+import type {
+  ActionRequestView,
+  AgentHealthView,
+  AnalysisTaskView,
+  ClusterView,
+  IncidentView,
+  RcaReport,
+  TFunction,
+} from "../types";
 
-import { SIGNAL_STAGES } from "../constants";
+type MaybePromise<T = void> = T | Promise<T>;
 
-import { EmptyState, Icon, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+interface OverviewViewProps {
+  clusters: ClusterView[];
+  reports: RcaReport[];
+  incidents: IncidentView[];
+  analysisTasks: AnalysisTaskView[];
+  actionRequests: ActionRequestView[];
+  agentHealth: AgentHealthView[];
+  onNavigate: (view: string) => void;
+  onOpenReport: (reportId: string) => void;
+  onOpenCluster: (cluster: ClusterView) => MaybePromise;
+  webhookEndpoint: string;
+  t: TFunction;
+}
 
-import { arrayResult, sortByTime, copyText, buildAuditQuery, auditStats, buildSignalDigest, scoreStage, occurrences, escapeRegExp, inferSignalFamily, evidenceSummary, derivedSignals, reportEvidenceQuality, reportQualityGate, qualityTone, qualityGateTone, formatFreshness, formatPercentValue, fallbackTimeline, shortValue, platformInfoRows, formatBytes, shortHash, formatDate, runConsoleLayoutAudit, layoutElementLabel, layoutElementText, relativeTime, statusTone, policyTone, confidenceTone, severityTone, requestTone, taskTone, summarizeAgentFleet, normalizedAgentStatus, agentReason, summarizePipeline, withinHours, auditTone, agentHealthTone, signalIcon, auditClientIp, auditSummary } from "../lib/consoleUtils";
-
-export function OverviewView({ clusters, reports, incidents, analysisTasks, actionRequests, agentHealth, onNavigate, onOpenReport, onOpenCluster, webhookEndpoint, t }) {
+export function OverviewView({
+  clusters,
+  reports,
+  incidents,
+  analysisTasks,
+  actionRequests,
+  agentHealth,
+  onNavigate,
+  onOpenReport,
+  onOpenCluster,
+  webhookEndpoint,
+  t,
+}: OverviewViewProps) {
   const openIncidents = incidents.filter((item) => item.status === "open");
   const fleet = summarizeAgentFleet(agentHealth, clusters);
   const agents = fleet.total || clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0);
-  const blockedActions = reports.flatMap((report) => report.recommended_actions || []).filter((action) => action.automation_allowed !== true).length;
+  const blockedActions = reports
+    .flatMap((report) => report.recommended_actions || [])
+    .filter((action) => action.automation_allowed !== true).length;
   const signalDigest = buildSignalDigest(reports, incidents);
   const latestReport = reports[0];
+
   return (
     <div className="page-stack">
       <section className="apm-hero">
@@ -54,7 +96,11 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
       />
 
       <div className="dashboard-grid">
-        <Surface title={t("Failure propagation")} subtitle={t("Evidence sequence by system layer")} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}>
+        <Surface
+          title={t("Failure propagation")}
+          subtitle={t("Evidence sequence by system layer")}
+          action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("RCA Reports")}</button>}
+        >
           <FailureSurface reports={reports} incidents={incidents} t={t} />
         </Surface>
         <Surface title={t("Signal stream")} subtitle={t("Prioritized recent infrastructure signals")}>
@@ -63,7 +109,11 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
         <Surface title={t("Cluster topology")} subtitle={t("Registration and agent posture")}>
           <ClusterTopologyPreview clusters={clusters} onOpenCluster={onOpenCluster} t={t} />
         </Surface>
-        <Surface title={t("Recent RCA")} subtitle={latestReport ? latestReport.report_id : t("No report selected")} action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("Open")}</button>}>
+        <Surface
+          title={t("Recent RCA")}
+          subtitle={latestReport ? latestReport.report_id : t("No report selected")}
+          action={<button className="btn btn-sm btn-outline-secondary" onClick={() => onNavigate("reports")}>{t("Open")}</button>}
+        >
           <RecentReport report={latestReport} onOpenReport={onOpenReport} t={t} />
         </Surface>
       </div>
@@ -75,7 +125,7 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
         </div>
         <div>
           <span>{t("Pipeline backlog")}</span>
-          <strong>{analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status)).length}</strong>
+          <strong>{analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status || "")).length}</strong>
         </div>
         <div>
           <span>{t("Action requests")}</span>
@@ -87,127 +137,5 @@ export function OverviewView({ clusters, reports, incidents, analysisTasks, acti
         </div>
       </section>
     </div>
-  );
-}
-
-export function OperationsReadinessPanel({ clusters, reports, incidents, analysisTasks, actionRequests, agentHealth, blockedActions, t }) {
-  const fleet = summarizeAgentFleet(agentHealth, clusters);
-  const pipeline = summarizePipeline(analysisTasks);
-  const approvals = actionRequests.filter((item) => item.status === "pending_approval").length;
-  const manual = actionRequests.filter((item) => ["accepted", "approved_manual"].includes(item.status)).length;
-  const openIncidents = incidents.filter((item) => item.status === "open").length;
-  const recentReports = reports.filter((report) => withinHours(report.created_at, 24)).length;
-  const healthPercent = fleet.total ? Math.round((fleet.healthy / fleet.total) * 100) : 0;
-  return (
-    <section className="ops-readiness-grid" aria-label={t("Operations readiness")}>
-      <article className={`ops-readiness-card ${fleet.unhealthy ? "warn" : "ok"}`}>
-        <div className="ops-readiness-head">
-          <span>{t("Agent fleet")}</span>
-          <Icon name={fleet.unhealthy ? "exclamation-triangle" : "check2-circle"} />
-        </div>
-        <strong>{fleet.total ? `${healthPercent}% ${t("healthy")}` : t("No agents")}</strong>
-        <div className="readiness-meter"><span style={{ width: `${healthPercent}%` }} /></div>
-        <div className="mini-stat-row">
-          <span>{t("Healthy agents")} <b>{fleet.healthy}</b></span>
-          <span>{t("Stale")} <b>{fleet.stale}</b></span>
-          <span>{t("Degraded")} <b>{fleet.degraded}</b></span>
-          <span>{t("Offline")} <b>{fleet.offline}</b></span>
-        </div>
-      </article>
-      <article className={`ops-readiness-card ${pipeline.deadLetter || pipeline.failed ? "danger" : pipeline.backlog ? "warn" : "ok"}`}>
-        <div className="ops-readiness-head">
-          <span>{t("Analysis pipeline")}</span>
-          <Icon name="diagram-3" />
-        </div>
-        <strong>{pipeline.backlog} {t("active tasks")}</strong>
-        <div className="mini-stat-row">
-          <span>{t("Queued")} <b>{pipeline.queued}</b></span>
-          <span>{t("Processing")} <b>{pipeline.processing}</b></span>
-          <span>{t("Retry")} <b>{pipeline.retry}</b></span>
-          <span>{t("Dead letter")} <b>{pipeline.deadLetter}</b></span>
-        </div>
-      </article>
-      <article className={`ops-readiness-card ${approvals || blockedActions ? "warn" : "ok"}`}>
-        <div className="ops-readiness-head">
-          <span>{t("Policy queue")}</span>
-          <Icon name="shield-lock" />
-        </div>
-        <strong>{approvals} {t("approvals pending")}</strong>
-        <div className="mini-stat-row">
-          <span>{t("Policy blocked")} <b>{blockedActions}</b></span>
-          <span>{t("Manual")} <b>{manual}</b></span>
-          <span>{t("Open incidents")} <b>{openIncidents}</b></span>
-          <span>{t("Reports 24h")} <b>{recentReports}</b></span>
-        </div>
-      </article>
-    </section>
-  );
-}
-
-export function FailureSurface({ reports, incidents, t }) {
-  const counts = SIGNAL_STAGES.map((stage) => ({
-    ...stage,
-    count: scoreStage(stage.key, reports, incidents),
-  }));
-  const max = Math.max(1, ...counts.map((item) => item.count));
-  return (
-    <div className="failure-surface">
-      {counts.map((stage, index) => (
-        <div key={stage.key} className={`surface-stage ${stage.count ? "hot" : ""}`}>
-          <div className="stage-icon"><Icon name={stage.icon} /></div>
-          <strong>{t(stage.label)}</strong>
-          <div className="stage-bar"><span style={{ width: `${Math.max(8, (stage.count / max) * 100)}%` }} /></div>
-          <small>{stage.count} {t("signals")}</small>
-          {index < counts.length - 1 && <div className="stage-link" />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function SignalStream({ items, t }) {
-  if (!items.length) return <EmptyState message={t("New node or control-plane evidence will appear here.")} />;
-  return (
-    <div className="signal-list">
-      {items.slice(0, 8).map((item) => (
-        <article key={item.id} className="signal-row">
-          <Icon name={signalIcon(item.family)} />
-          <div>
-            <strong>{item.title}</strong>
-            <span>{item.detail}</span>
-          </div>
-          <StatusBadge value={item.severity || "info"} tone={severityTone(item.severity)} t={t} />
-        </article>
-      ))}
-    </div>
-  );
-}
-
-export function ClusterTopologyPreview({ clusters, onOpenCluster, t }) {
-  if (!clusters.length) return <EmptyState message={t("No clusters registered.")} />;
-  return (
-    <div className="mini-topology">
-      {clusters.slice(0, 10).map((cluster) => (
-        <button key={cluster.cluster_id} onClick={() => onOpenCluster(cluster)}>
-          <Icon name="hdd-network" />
-          <strong>{cluster.name}</strong>
-          <StatusBadge value={cluster.status} tone={cluster.status === "active" ? "green" : "amber"} t={t} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function RecentReport({ report, onOpenReport, t }) {
-  if (!report) return <EmptyState message={t("No reports loaded.")} />;
-  return (
-    <article className="recent-report">
-      <div className="report-cause">
-        <span>{report.summary?.confidence || "unknown"}</span>
-        <strong>{report.summary?.most_likely_cause || report.summary?.symptom}</strong>
-      </div>
-      <p>{(report.root_cause_candidates || [])[0]?.supporting_evidence?.[0] || t("No evidence summary available.")}</p>
-      <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(report.report_id)}>{t("Report detail")}</button>
-    </article>
   );
 }

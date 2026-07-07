@@ -45,6 +45,15 @@ export interface LoginIdChangeForm {
   new_username: string;
 }
 
+export interface AuditSearchFilters {
+  q?: string;
+  client_ip?: string;
+  event_type?: string;
+  outcome?: string;
+  limit?: number;
+  [key: string]: string | number | undefined;
+}
+
 export interface UserAccount {
   user_id: string;
   email?: string;
@@ -201,10 +210,13 @@ export interface IncidentView {
   incident_id: string;
   latest_report_id?: string;
   cluster_id?: string;
+  node_name?: string;
+  node_names?: string[];
   alert_name?: string;
   root_cause?: string;
   status?: string;
   severity?: string;
+  occurrence_count?: number;
   last_seen_at?: string;
   [key: string]: unknown;
 }

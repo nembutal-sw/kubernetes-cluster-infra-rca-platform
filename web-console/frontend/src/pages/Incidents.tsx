@@ -1,10 +1,17 @@
-// @ts-nocheck
+import { EmptyState, PageHeader, StatusBadge, Surface } from "../components/common";
+import type { IncidentView, TFunction, UserAccount } from "../types";
 
-import { EmptyState, Icon, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+type MaybePromise<T = void> = T | Promise<T>;
 
-import { arrayResult, sortByTime, copyText, buildAuditQuery, auditStats, buildSignalDigest, scoreStage, occurrences, escapeRegExp, inferSignalFamily, evidenceSummary, derivedSignals, reportEvidenceQuality, reportQualityGate, qualityTone, qualityGateTone, formatFreshness, formatPercentValue, fallbackTimeline, shortValue, platformInfoRows, formatBytes, shortHash, formatDate, runConsoleLayoutAudit, layoutElementLabel, layoutElementText, relativeTime, statusTone, policyTone, confidenceTone, severityTone, requestTone, taskTone, summarizeAgentFleet, normalizedAgentStatus, agentReason, summarizePipeline, withinHours, auditTone, agentHealthTone, signalIcon, auditClientIp, auditSummary } from "../lib/consoleUtils";
+interface IncidentsViewProps {
+  incidents: IncidentView[];
+  onOpenReport: (reportId: string) => void;
+  onChangeStatus: (incident: IncidentView, nextStatus: "resolve" | "reopen") => MaybePromise;
+  currentUser: UserAccount;
+  t: TFunction;
+}
 
-export function IncidentsView({ incidents, onOpenReport, onChangeStatus, currentUser, t }) {
+export function IncidentsView({ incidents, onOpenReport, onChangeStatus, currentUser, t }: IncidentsViewProps) {
   const canOperate = ["admin", "operator"].includes(currentUser.role);
   return (
     <div className="page-stack">
@@ -20,13 +27,21 @@ export function IncidentsView({ incidents, onOpenReport, onChangeStatus, current
                 <div className="meta-row">
                   <span>{incident.cluster_id}</span>
                   <span>{(incident.node_names || [incident.node_name]).filter(Boolean).join(", ")}</span>
-                  <span>{incident.occurrence_count}x</span>
+                  <span>{incident.occurrence_count || 0}x</span>
                 </div>
               </div>
               <div className="incident-actions">
-                {incident.latest_report_id && <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(incident.latest_report_id)}>{t("RCA Reports")}</button>}
-                {canOperate && incident.status === "open" && <button className="btn btn-sm btn-success" onClick={() => onChangeStatus(incident, "resolve")}>{t("Resolve")}</button>}
-                {canOperate && incident.status === "resolved" && <button className="btn btn-sm btn-outline-secondary" onClick={() => onChangeStatus(incident, "reopen")}>{t("Reopen")}</button>}
+                {incident.latest_report_id && (
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(incident.latest_report_id || "")}>
+                    {t("RCA Reports")}
+                  </button>
+                )}
+                {canOperate && incident.status === "open" && (
+                  <button className="btn btn-sm btn-success" onClick={() => onChangeStatus(incident, "resolve")}>{t("Resolve")}</button>
+                )}
+                {canOperate && incident.status === "resolved" && (
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => onChangeStatus(incident, "reopen")}>{t("Reopen")}</button>
+                )}
               </div>
             </article>
           )) : <EmptyState message={t("No incidents loaded.")} />}

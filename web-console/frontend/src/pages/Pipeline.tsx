@@ -1,16 +1,53 @@
-// @ts-nocheck
-
 import { useEffect, useState } from "react";
 
-import { EmptyState, Icon, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+import { EmptyState, MetricTile, PageHeader, StatusBadge, Surface } from "../components/common";
+import { requestTone, summarizeAgentFleet, summarizePipeline, taskTone } from "../lib/consoleUtils";
+import type {
+  ActionRequestView,
+  AgentHealthView,
+  AnalysisTaskView,
+  ClusterView,
+  DemoScenarioView,
+  TFunction,
+} from "../types";
 
-import { arrayResult, sortByTime, copyText, buildAuditQuery, auditStats, buildSignalDigest, scoreStage, occurrences, escapeRegExp, inferSignalFamily, evidenceSummary, derivedSignals, reportEvidenceQuality, reportQualityGate, qualityTone, qualityGateTone, formatFreshness, formatPercentValue, fallbackTimeline, shortValue, platformInfoRows, formatBytes, shortHash, formatDate, runConsoleLayoutAudit, layoutElementLabel, layoutElementText, relativeTime, statusTone, policyTone, confidenceTone, severityTone, requestTone, taskTone, summarizeAgentFleet, normalizedAgentStatus, agentReason, summarizePipeline, withinHours, auditTone, agentHealthTone, signalIcon, auditClientIp, auditSummary } from "../lib/consoleUtils";
+type MaybePromise<T = void> = T | Promise<T>;
 
-export function PipelineView({ tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }) {
+interface PipelineViewProps {
+  tasks: AnalysisTaskView[];
+  actionRequests: ActionRequestView[];
+  demoScenarios: DemoScenarioView[];
+  clusters: ClusterView[];
+  agentHealth: AgentHealthView[];
+  onRetry: (task: AnalysisTaskView) => MaybePromise;
+  onRunDemo: (scenario: DemoScenarioView, clusterId: string, nodeName: string) => MaybePromise;
+  t: TFunction;
+}
+
+interface TaskListProps {
+  tasks: AnalysisTaskView[];
+  onRetry: (task: AnalysisTaskView) => MaybePromise;
+  t: TFunction;
+}
+
+interface RequestQueueProps {
+  items: ActionRequestView[];
+  t: TFunction;
+}
+
+interface DemoScenariosProps {
+  scenarios: DemoScenarioView[];
+  clusters: ClusterView[];
+  onRunDemo: (scenario: DemoScenarioView, clusterId: string, nodeName: string) => MaybePromise;
+  t: TFunction;
+}
+
+export function PipelineView({ tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }: PipelineViewProps) {
   const pipeline = summarizePipeline(tasks);
   const fleet = summarizeAgentFleet(agentHealth, clusters);
   const pendingApprovals = actionRequests.filter((item) => item.status === "pending_approval").length;
-  const blockedRequests = actionRequests.filter((item) => ["blocked", "rejected"].includes(item.status)).length;
+  const blockedRequests = actionRequests.filter((item) => ["blocked", "rejected"].includes(item.status || "")).length;
+
   return (
     <div className="page-stack">
       <PageHeader title={t("Pipeline")} subtitle={t("Analysis worker, approval queue, and built-in RCA scenario generator.")} />
@@ -36,7 +73,7 @@ export function PipelineView({ tasks, actionRequests, demoScenarios, clusters, a
   );
 }
 
-export function TaskList({ tasks, onRetry, t }) {
+export function TaskList({ tasks, onRetry, t }: TaskListProps) {
   if (!tasks.length) return <EmptyState message={t("No analysis tasks.")} />;
   return (
     <div className="task-list">
@@ -47,14 +84,16 @@ export function TaskList({ tasks, onRetry, t }) {
             <span>{task.cluster_id} / {task.node_name || "cluster"}</span>
           </div>
           <StatusBadge value={task.status} tone={taskTone(task.status)} t={t} />
-          {["failed", "dead_letter"].includes(task.status) && <button className="btn btn-sm btn-outline-secondary" onClick={() => onRetry(task)}>{t("Retry")}</button>}
+          {["failed", "dead_letter"].includes(task.status || "") && (
+            <button className="btn btn-sm btn-outline-secondary" onClick={() => onRetry(task)}>{t("Retry")}</button>
+          )}
         </article>
       ))}
     </div>
   );
 }
 
-export function RequestQueue({ items, t }) {
+export function RequestQueue({ items, t }: RequestQueueProps) {
   if (!items.length) return <EmptyState message={t("No action requests.")} />;
   return (
     <div className="task-list">
@@ -71,12 +110,14 @@ export function RequestQueue({ items, t }) {
   );
 }
 
-export function DemoScenarios({ scenarios, clusters, onRunDemo, t }) {
+export function DemoScenarios({ scenarios, clusters, onRunDemo, t }: DemoScenariosProps) {
   const [clusterId, setClusterId] = useState(clusters[0]?.cluster_id || "");
   const [nodeName, setNodeName] = useState("demo-worker-01");
+
   useEffect(() => {
     if (!clusterId && clusters[0]?.cluster_id) setClusterId(clusters[0].cluster_id);
   }, [clusterId, clusters]);
+
   if (!scenarios.length) return <EmptyState message={t("No demo scenarios.")} />;
   return (
     <div className="scenario-grid">

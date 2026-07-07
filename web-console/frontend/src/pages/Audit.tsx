@@ -1,13 +1,34 @@
-// @ts-nocheck
-
+import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
-import { EmptyState, Icon, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+import { EmptyState, MetricTile, PageHeader, ResponsiveTable, StatusBadge, Surface } from "../components/common";
+import { auditClientIp, auditStats, auditSummary, auditTone, formatDate } from "../lib/consoleUtils";
+import type { AuditEventView, AuditSearchFilters, JsonObject, TFunction } from "../types";
 
-import { arrayResult, sortByTime, copyText, buildAuditQuery, auditStats, buildSignalDigest, scoreStage, occurrences, escapeRegExp, inferSignalFamily, evidenceSummary, derivedSignals, reportEvidenceQuality, reportQualityGate, qualityTone, qualityGateTone, formatFreshness, formatPercentValue, fallbackTimeline, shortValue, platformInfoRows, formatBytes, shortHash, formatDate, runConsoleLayoutAudit, layoutElementLabel, layoutElementText, relativeTime, statusTone, policyTone, confidenceTone, severityTone, requestTone, taskTone, summarizeAgentFleet, normalizedAgentStatus, agentReason, summarizePipeline, withinHours, auditTone, agentHealthTone, signalIcon, auditClientIp, auditSummary } from "../lib/consoleUtils";
+type MaybePromise<T = void> = T | Promise<T>;
 
-export function AuditView({ events, onSearch, onExport, t }) {
-  const [filters, setFilters] = useState({ q: "", client_ip: "", event_type: "", outcome: "", limit: 200 });
+interface AuditViewProps {
+  events: AuditEventView[];
+  onSearch: (filters: AuditSearchFilters) => MaybePromise;
+  onExport: (format: "json" | "csv", filters: AuditSearchFilters) => MaybePromise;
+  t: TFunction;
+}
+
+interface AuditEventDetailProps {
+  event: AuditEventView | null;
+  t: TFunction;
+}
+
+const DEFAULT_FILTERS: AuditSearchFilters = {
+  q: "",
+  client_ip: "",
+  event_type: "",
+  outcome: "",
+  limit: 200,
+};
+
+export function AuditView({ events, onSearch, onExport, t }: AuditViewProps) {
+  const [filters, setFilters] = useState<AuditSearchFilters>(DEFAULT_FILTERS);
   const [selectedEventId, setSelectedEventId] = useState("");
   const selectedEvent = events.find((event) => event.audit_event_id === selectedEventId) || events[0] || null;
   const stats = auditStats(events);
@@ -18,12 +39,12 @@ export function AuditView({ events, onSearch, onExport, t }) {
     }
   }, [events, selectedEventId]);
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await onSearch(filters);
   }
 
-  async function quickFilter(nextFilters) {
+  async function quickFilter(nextFilters: AuditSearchFilters) {
     const merged = { ...filters, ...nextFilters };
     setFilters(merged);
     await onSearch(merged);
@@ -40,10 +61,10 @@ export function AuditView({ events, onSearch, onExport, t }) {
           <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => quickFilter({ q: "approval", event_type: "", outcome: "" })}>{t("Approvals")}</button>
         </div>
         <form className="audit-form" onSubmit={submit}>
-          <input className="form-control" placeholder="q" value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} />
-          <input className="form-control" placeholder={t("Client IP")} value={filters.client_ip} onChange={(event) => setFilters({ ...filters, client_ip: event.target.value })} />
-          <input className="form-control" placeholder={t("Event")} value={filters.event_type} onChange={(event) => setFilters({ ...filters, event_type: event.target.value })} />
-          <input className="form-control" placeholder={t("Outcome")} value={filters.outcome} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })} />
+          <input className="form-control" placeholder="q" value={filters.q || ""} onChange={(event) => setFilters({ ...filters, q: event.target.value })} />
+          <input className="form-control" placeholder={t("Client IP")} value={filters.client_ip || ""} onChange={(event) => setFilters({ ...filters, client_ip: event.target.value })} />
+          <input className="form-control" placeholder={t("Event")} value={filters.event_type || ""} onChange={(event) => setFilters({ ...filters, event_type: event.target.value })} />
+          <input className="form-control" placeholder={t("Outcome")} value={filters.outcome || ""} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })} />
           <button className="btn btn-primary">{t("Search")}</button>
           <button type="button" className="btn btn-outline-secondary" onClick={() => onExport("json", filters)}>JSON</button>
           <button type="button" className="btn btn-outline-secondary" onClick={() => onExport("csv", filters)}>CSV</button>
@@ -80,7 +101,7 @@ export function AuditView({ events, onSearch, onExport, t }) {
   );
 }
 
-export function AuditEventDetail({ event, t }) {
+export function AuditEventDetail({ event, t }: AuditEventDetailProps) {
   if (!event) return <EmptyState message={t("No audit event selected.")} />;
   const details = event.details || {};
   const requestKeys = ["client_ip", "client_ip_source", "remote_addr", "method", "path", "user_agent", "origin", "referer_path", "request_id"];
@@ -97,7 +118,7 @@ export function AuditEventDetail({ event, t }) {
       <div className="audit-context">
         <strong>{t("Request context")}</strong>
         <div className="audit-context-grid">
-          {requestKeys.filter((key) => details[key]).map((key) => (
+          {requestKeys.filter((key) => hasDetail(details, key)).map((key) => (
             <div key={key}><span>{key}</span><code>{String(details[key])}</code></div>
           ))}
         </div>
@@ -105,4 +126,9 @@ export function AuditEventDetail({ event, t }) {
       <pre className="audit-json">{JSON.stringify(details, null, 2)}</pre>
     </div>
   );
+}
+
+function hasDetail(details: JsonObject, key: string): boolean {
+  const value = details[key];
+  return value !== null && value !== undefined && String(value) !== "";
 }
