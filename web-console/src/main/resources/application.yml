@@ -143,6 +143,8 @@ rca:
   notification:
     enabled: ${RCA_NOTIFICATION_ENABLED:false}
     slack-webhook-url: ${RCA_SLACK_WEBHOOK_URL:}
+    webhook-url: ${RCA_NOTIFICATION_WEBHOOK_URL:}
+    webhook-token: ${RCA_NOTIFICATION_WEBHOOK_TOKEN:}
     minimum-severity: ${RCA_NOTIFICATION_MINIMUM_SEVERITY:critical}
     max-attempts: ${RCA_NOTIFICATION_MAX_ATTEMPTS:2}
     timeout-seconds: ${RCA_NOTIFICATION_TIMEOUT_SECONDS:5}

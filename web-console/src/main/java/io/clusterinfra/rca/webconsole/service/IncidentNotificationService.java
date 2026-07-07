@@ -9,7 +9,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,17 +41,31 @@ public class IncidentNotificationService {
 
     public void notifyIncident(RcaReport report, EvidenceBundle evidence) {
         RcaConsoleProperties.Notification config = properties.getNotification();
-        String webhookUrl = config.getSlackWebhookUrl();
         String severity = severity(report);
-        if (!config.isEnabled() || webhookUrl.isBlank() || !meetsThreshold(severity, config.getMinimumSeverity())) {
+        if (!config.isEnabled() || !meetsThreshold(severity, config.getMinimumSeverity())) {
+            return;
+        }
+        List<NotificationTarget> targets = targets(config, report, evidence, severity);
+        if (targets.isEmpty()) {
             return;
         }
 
+        for (NotificationTarget target : targets) {
+            deliver(report, config, severity, target);
+        }
+    }
+
+    private void deliver(
+        RcaReport report,
+        RcaConsoleProperties.Notification config,
+        String severity,
+        NotificationTarget target
+    ) {
         int attempts = Math.max(1, Math.min(5, config.getMaxAttempts()));
         Exception lastError = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                int status = send(webhookUrl, payload(report, evidence, severity), config.getTimeoutSeconds());
+                int status = send(target.url(), target.token(), target.payload(), config.getTimeoutSeconds());
                 if (status >= 200 && status < 300) {
                     metrics.notification("sent", severity);
                     audit.system(
@@ -56,11 +74,11 @@ public class IncidentNotificationService {
                         "incident",
                         report.incidentId(),
                         "success",
-                        Map.of("channel", "slack", "severity", severity, "attempt", attempt)
+                        Map.of("channel", target.channel(), "severity", severity, "attempt", attempt)
                     );
                     return;
                 }
-                lastError = new IllegalStateException("Slack webhook returned HTTP " + status);
+                lastError = new IllegalStateException(target.channel() + " webhook returned HTTP " + status);
             } catch (Exception exception) {
                 lastError = exception;
             }
@@ -73,7 +91,7 @@ public class IncidentNotificationService {
             report.incidentId(),
             "failed",
             Map.of(
-                "channel", "slack",
+                "channel", target.channel(),
                 "severity", severity,
                 "attempts", attempts,
                 "error", safeError(lastError)
@@ -81,32 +99,61 @@ public class IncidentNotificationService {
         );
     }
 
-    private int send(String webhookUrl, Map<String, Object> payload, int timeoutSeconds) throws Exception {
+    private int send(
+        String webhookUrl,
+        String token,
+        Map<String, Object> payload,
+        int timeoutSeconds
+    ) throws Exception {
         Duration timeout = Duration.ofSeconds(Math.max(1, Math.min(30, timeoutSeconds)));
         HttpClient client = HttpClient.newBuilder().connectTimeout(timeout).build();
-        HttpRequest request = HttpRequest.newBuilder(URI.create(webhookUrl))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(webhookUrl))
             .timeout(timeout)
             .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofByteArray(objectMapper.writeValueAsBytes(payload)))
-            .build();
-        return client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+            .POST(HttpRequest.BodyPublishers.ofByteArray(objectMapper.writeValueAsBytes(payload)));
+        if (token != null && !token.isBlank()) {
+            builder.header("Authorization", "Bearer " + token.trim());
+        }
+        return client.send(builder.build(), HttpResponse.BodyHandlers.discarding()).statusCode();
     }
 
-    private Map<String, Object> payload(RcaReport report, EvidenceBundle evidence, String severity) {
-        String reportUrl = properties.getPublicApiBaseUrl().isBlank()
-            ? ""
-            : properties.getPublicApiBaseUrl().replaceAll("/+$", "")
-                + "/?report=" + report.reportId();
-        String confidence = report.rootCauseCandidates() == null || report.rootCauseCandidates().isEmpty()
-            ? "unavailable"
-            : report.rootCauseCandidates().getFirst().confidenceScore() + "%";
+    private List<NotificationTarget> targets(
+        RcaConsoleProperties.Notification config,
+        RcaReport report,
+        EvidenceBundle evidence,
+        String severity
+    ) {
+        ArrayList<NotificationTarget> result = new ArrayList<>();
+        if (!config.getSlackWebhookUrl().isBlank()) {
+            result.add(new NotificationTarget(
+                "slack",
+                config.getSlackWebhookUrl(),
+                "",
+                slackPayload(report, evidence, severity)
+            ));
+        }
+        if (!config.getWebhookUrl().isBlank()) {
+            result.add(new NotificationTarget(
+                "webhook",
+                config.getWebhookUrl(),
+                config.getWebhookToken(),
+                webhookPayload(report, evidence, severity)
+            ));
+        }
+        return List.copyOf(result);
+    }
+
+    private Map<String, Object> slackPayload(RcaReport report, EvidenceBundle evidence, String severity) {
+        String reportUrl = properties.getPublicApiBaseUrl().isBlank() ? "" : reportUrl(report);
+        Integer confidenceScore = confidenceScore(report);
+        String confidence = confidenceScore == null ? "unavailable" : confidenceScore + "%";
         String text = String.join(
             "\n",
             "[Cluster RCA Alert]",
             "Cluster: " + report.clusterId(),
-            "Node: " + evidence.nodeName(),
+            "Node: " + evidenceNodeName(evidence),
             "Severity: " + severity,
-            "Likely Cause: " + report.summary().mostLikelyCause(),
+            "Likely Cause: " + mostLikelyCause(report),
             "Confidence: " + confidence,
             reportUrl.isBlank() ? "Report: " + report.reportId() : "Report: " + reportUrl
         );
@@ -115,8 +162,57 @@ public class IncidentNotificationService {
         return Map.copyOf(payload);
     }
 
+    private Map<String, Object> webhookPayload(RcaReport report, EvidenceBundle evidence, String severity) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("schema_version", "rca-notification/v1");
+        payload.put("event_type", "rca.incident");
+        payload.put("severity", severity);
+        payload.put("cluster_id", safe(report.clusterId()));
+        payload.put("incident_id", safe(report.incidentId()));
+        payload.put("report_id", safe(report.reportId()));
+        payload.put("node_name", safe(evidenceNodeName(evidence)));
+        payload.put("alert_name", safe(evidenceAlertName(evidence)));
+        payload.put("most_likely_cause", safe(mostLikelyCause(report)));
+        payload.put("confidence_score", confidenceScore(report));
+        payload.put("report_url", properties.getPublicApiBaseUrl().isBlank() ? "" : reportUrl(report));
+        payload.put("created_at", report.createdAt() == null ? "" : report.createdAt().toString());
+        return Collections.unmodifiableMap(payload);
+    }
+
+    private String reportUrl(RcaReport report) {
+        String encodedReportId = URLEncoder.encode(report.reportId(), StandardCharsets.UTF_8);
+        return properties.getPublicApiBaseUrl().replaceAll("/+$", "") + "/?report=" + encodedReportId;
+    }
+
+    private String mostLikelyCause(RcaReport report) {
+        if (report.summary() == null || report.summary().mostLikelyCause() == null) {
+            return "";
+        }
+        return report.summary().mostLikelyCause();
+    }
+
+    private String evidenceNodeName(EvidenceBundle evidence) {
+        return evidence == null || evidence.nodeName() == null ? "" : evidence.nodeName();
+    }
+
+    private String evidenceAlertName(EvidenceBundle evidence) {
+        return evidence == null || evidence.alertName() == null ? "" : evidence.alertName();
+    }
+
+    private Integer confidenceScore(RcaReport report) {
+        if (report.rootCauseCandidates() == null || report.rootCauseCandidates().isEmpty()) {
+            return null;
+        }
+        return report.rootCauseCandidates().getFirst().confidenceScore();
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : SensitiveDataRedactor.redactText(value);
+    }
+
     private String severity(RcaReport report) {
-        for (Map<String, Object> section : report.evidence()) {
+        List<Map<String, Object>> sections = report.evidence() == null ? List.of() : report.evidence();
+        for (Map<String, Object> section : sections) {
             if (!"derived_signals".equals(section.get("type"))) {
                 continue;
             }
@@ -158,6 +254,15 @@ public class IncidentNotificationService {
         if (error == null || error.getMessage() == null || error.getMessage().isBlank()) {
             return "unknown notification failure";
         }
-        return SensitiveDataRedactor.redactText(error.getMessage());
+        String redacted = SensitiveDataRedactor.redactText(error.getMessage());
+        return redacted.length() > 300 ? redacted.substring(0, 300) : redacted;
+    }
+
+    private record NotificationTarget(
+        String channel,
+        String url,
+        String token,
+        Map<String, Object> payload
+    ) {
     }
 }

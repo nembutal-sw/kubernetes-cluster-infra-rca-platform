@@ -169,14 +169,31 @@ public class ProductionSecurityValidator implements InitializingBean {
         if (!properties.getNotification().isEnabled()) {
             return;
         }
-        String webhookUrl = properties.getNotification().getSlackWebhookUrl();
+        String slackWebhookUrl = properties.getNotification().getSlackWebhookUrl();
+        String webhookUrl = properties.getNotification().getWebhookUrl();
+        if (slackWebhookUrl.isBlank() && webhookUrl.isBlank()) {
+            violations.add(
+                "RCA_SLACK_WEBHOOK_URL or RCA_NOTIFICATION_WEBHOOK_URL is required when RCA_NOTIFICATION_ENABLED=true"
+            );
+        }
+        validateHttpsUrl(slackWebhookUrl, "RCA_SLACK_WEBHOOK_URL", violations);
+        validateHttpsUrl(webhookUrl, "RCA_NOTIFICATION_WEBHOOK_URL", violations);
+        if (webhookUrl.isBlank() && !properties.getNotification().getWebhookToken().isBlank()) {
+            violations.add("RCA_NOTIFICATION_WEBHOOK_TOKEN requires RCA_NOTIFICATION_WEBHOOK_URL");
+        }
+    }
+
+    private void validateHttpsUrl(String value, String label, List<String> violations) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
         try {
-            URI uri = URI.create(webhookUrl);
+            URI uri = URI.create(value);
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-                violations.add("RCA_SLACK_WEBHOOK_URL must be an absolute HTTPS URL");
+                violations.add(label + " must be an absolute HTTPS URL");
             }
         } catch (IllegalArgumentException exception) {
-            violations.add("RCA_SLACK_WEBHOOK_URL must be an absolute HTTPS URL");
+            violations.add(label + " must be an absolute HTTPS URL");
         }
     }
 

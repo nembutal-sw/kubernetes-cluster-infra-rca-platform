@@ -651,6 +651,8 @@ public class RcaConsoleProperties {
     public static class Notification {
         private boolean enabled;
         private String slackWebhookUrl = "";
+        private String webhookUrl = "";
+        private String webhookToken = "";
         private String minimumSeverity = "critical";
         private int maxAttempts = 2;
         private int timeoutSeconds = 5;
@@ -669,6 +671,22 @@ public class RcaConsoleProperties {
 
         public void setSlackWebhookUrl(String slackWebhookUrl) {
             this.slackWebhookUrl = slackWebhookUrl;
+        }
+
+        public String getWebhookUrl() {
+            return webhookUrl == null ? "" : webhookUrl.trim();
+        }
+
+        public void setWebhookUrl(String webhookUrl) {
+            this.webhookUrl = webhookUrl;
+        }
+
+        public String getWebhookToken() {
+            return webhookToken == null ? "" : webhookToken.trim();
+        }
+
+        public void setWebhookToken(String webhookToken) {
+            this.webhookToken = webhookToken;
         }
 
         public String getMinimumSeverity() {

@@ -150,6 +150,8 @@ platform:
     encryptionSecret: ""
     exportSignatureSecret: ""
     slackWebhookUrl: ""
+    notificationWebhookUrl: ""
+    notificationWebhookToken: ""
     openaiApiKey: ""
     openaiBaseUrl: ""
     anthropicApiKey: ""

@@ -112,5 +112,6 @@ The ServiceMonitor scrapes:
 - Metrics must not contain raw evidence or sensitive values.
 - Use low-cardinality tags only.
 - Notification failures should be observable but should not fail RCA report generation.
+- Slack and generic webhook delivery share the same notification outcome metric.
 - Gauge refresh is intentionally separated from incident processing.
 - Retention metrics use bounded data-type tags and never include cluster, node, or resource IDs.

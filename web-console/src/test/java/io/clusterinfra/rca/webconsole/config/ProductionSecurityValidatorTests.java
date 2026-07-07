@@ -121,6 +121,46 @@ class ProductionSecurityValidatorTests {
             });
     }
 
+    @Test
+    void enabledNotificationRequiresDeliveryTarget() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false",
+                "rca.notification.enabled=true"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_SLACK_WEBHOOK_URL or RCA_NOTIFICATION_WEBHOOK_URL");
+            });
+    }
+
+    @Test
+    void genericNotificationWebhookCanSatisfyProductionDeliveryTarget() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false",
+                "rca.notification.enabled=true",
+                "rca.notification.webhook-url=https://siem.example.com/rca",
+                "rca.notification.webhook-token=a-strong-notification-token"
+            )
+            .run(context -> assertThat(context).hasNotFailed());
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(RcaConsoleProperties.class)
     static class ValidatorConfiguration {
