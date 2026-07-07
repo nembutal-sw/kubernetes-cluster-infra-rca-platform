@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.controller;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmDiagnosticResponse;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmSetupGuideResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmTestRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmTestResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
@@ -45,6 +46,12 @@ public class LlmController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER','AUDITOR')")
     public LlmDiagnosticResponse diagnostics() {
         return configuration.diagnostics();
+    }
+
+    @GetMapping("/api/llm/setup")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER','AUDITOR')")
+    public LlmSetupGuideResponse setupGuide() {
+        return configuration.setupGuide();
     }
 
     @PostMapping("/api/llm/test")

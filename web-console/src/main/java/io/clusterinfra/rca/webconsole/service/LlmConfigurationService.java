@@ -4,6 +4,8 @@ import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmConfigurationInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmDiagnosticCheck;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmDiagnosticResponse;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmProviderSetupOption;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmSetupGuideResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -84,6 +86,82 @@ public class LlmConfigurationService {
         boolean warned = checks.stream().anyMatch(check -> "warn".equals(check.status()));
         String outcome = failed ? "action_required" : warned ? "warning" : "ready";
         return new LlmDiagnosticResponse(outcome, info, List.copyOf(checks));
+    }
+
+    public LlmSetupGuideResponse setupGuide() {
+        return new LlmSetupGuideResponse(
+            "docs/llm-analyzer.md",
+            true,
+            "Use environment variables, Docker/Compose env files, Kubernetes Secret, or an external secret manager. The Web Console never stores or renders API key values.",
+            List.of(
+                providerOption(
+                    "openai",
+                    "OpenAI",
+                    "openai-sdk",
+                    "SPRING_AI_OPENAI_SDK_API_KEY",
+                    "",
+                    true,
+                    false,
+                    List.of("gpt-model-name"),
+                    "Use for OpenAI-hosted models through Spring AI OpenAI SDK."
+                ),
+                providerOption(
+                    "anthropic",
+                    "Anthropic Claude",
+                    "anthropic",
+                    "SPRING_AI_ANTHROPIC_API_KEY",
+                    "",
+                    true,
+                    false,
+                    List.of("claude-model-name"),
+                    "Provider aliases: anthropic, claude."
+                ),
+                providerOption(
+                    "gemini",
+                    "Google Gemini",
+                    "google-genai",
+                    "SPRING_AI_GOOGLE_GENAI_API_KEY",
+                    "",
+                    true,
+                    false,
+                    List.of("gemini-model-name"),
+                    "Provider aliases: gemini, google, google-genai."
+                ),
+                providerOption(
+                    "ollama",
+                    "Ollama / local model",
+                    "ollama",
+                    "",
+                    "SPRING_AI_OLLAMA_BASE_URL",
+                    false,
+                    false,
+                    List.of("llama3.1", "qwen2.5"),
+                    "Use a network-reachable Ollama endpoint. Base URL defaults depend on the runtime environment."
+                ),
+                providerOption(
+                    "openai_compatible",
+                    "OpenAI-compatible endpoint",
+                    "openai-sdk",
+                    "SPRING_AI_OPENAI_SDK_API_KEY",
+                    "SPRING_AI_OPENAI_SDK_BASE_URL",
+                    true,
+                    true,
+                    List.of("provider-model-name"),
+                    "Use for hosted gateways that implement the OpenAI-compatible API."
+                ),
+                providerOption(
+                    "self_hosted",
+                    "Self-hosted OpenAI-compatible model",
+                    "openai-sdk",
+                    "",
+                    "SPRING_AI_OPENAI_SDK_BASE_URL",
+                    false,
+                    true,
+                    List.of("local-rca-model"),
+                    "Use only after the model endpoint is reachable from the Platform pod or process."
+                )
+            )
+        );
     }
 
     private void addProviderCheck(LlmConfigurationInfo info, List<LlmDiagnosticCheck> checks) {
@@ -222,6 +300,30 @@ public class LlmConfigurationService {
         String remediation
     ) {
         return new LlmDiagnosticCheck(key, status, message, remediation);
+    }
+
+    private static LlmProviderSetupOption providerOption(
+        String provider,
+        String displayName,
+        String springAiChatModel,
+        String credentialEnv,
+        String baseUrlEnv,
+        boolean credentialRequired,
+        boolean baseUrlRequired,
+        List<String> modelExamples,
+        String note
+    ) {
+        return new LlmProviderSetupOption(
+            provider,
+            displayName,
+            springAiChatModel,
+            credentialEnv,
+            baseUrlEnv,
+            credentialRequired,
+            baseUrlRequired,
+            List.copyOf(modelExamples),
+            note
+        );
     }
 
     private static String normalize(String value) {

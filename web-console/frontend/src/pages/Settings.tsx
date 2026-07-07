@@ -16,6 +16,8 @@ import type {
   LlmConfigurationInfo,
   LlmDiagnosticCheck,
   LlmDiagnosticResponse,
+  LlmProviderSetupOption,
+  LlmSetupGuideResponse,
   LlmTestResponse,
   NotificationConfigurationInfo,
   NotificationTestResponse,
@@ -55,6 +57,7 @@ interface SettingsViewProps {
   setLocale: (locale: Locale) => void;
   platformInfo: PlatformInfo | null;
   llmDiagnostics: LlmDiagnosticResponse | null;
+  llmSetupGuide: LlmSetupGuideResponse | null;
   notificationHistory: AuditEventView[];
   currentUser: UserAccount | null;
   onChangeLoginId: (form: LoginIdForm) => void | Promise<void>;
@@ -93,6 +96,7 @@ export function SettingsView({
   setLocale,
   platformInfo,
   llmDiagnostics,
+  llmSetupGuide,
   notificationHistory,
   currentUser,
   onChangeLoginId,
@@ -219,6 +223,7 @@ export function SettingsView({
           ))}
         </div>
         <LlmDiagnosticsPanel diagnostics={llmDiagnostics} t={t} />
+        <LlmSetupGuidePanel guide={llmSetupGuide} t={t} />
       </Surface>
       <Surface
         title={t("Notification delivery")}
@@ -365,6 +370,104 @@ function LlmDiagnosticItem({ check, t }: { check: LlmDiagnosticCheck; t: TFuncti
       <div className="llm-diagnostic-meta">
         <StatusBadge value={check.status || "unknown"} tone={diagnosticTone(check.status)} t={t} />
       </div>
+    </article>
+  );
+}
+
+function LlmSetupGuidePanel({
+  guide,
+  t,
+}: {
+  guide: LlmSetupGuideResponse | null;
+  t: TFunction;
+}) {
+  if (!guide) {
+    return (
+      <div className="llm-setup-guide">
+        <div className="empty-state compact">{t("No LLM setup guide loaded.")}</div>
+      </div>
+    );
+  }
+  const providers = Array.isArray(guide.providers) ? guide.providers : [];
+  const docsPath = stringValue(guide.docs_path ?? guide.docsPath);
+  const restartRequired = Boolean(guide.restart_required ?? guide.restartRequired);
+  const secretStorage = stringValue(guide.secret_storage ?? guide.secretStorage);
+  return (
+    <div className="llm-setup-guide">
+      <div className="llm-setup-head">
+        <div>
+          <h3>{t("Provider setup guide")}</h3>
+          <span>{docsPath || t("LLM setup guide")}</span>
+        </div>
+        <StatusBadge value={restartRequired ? "restart_required" : "runtime_reload"} tone={restartRequired ? "amber" : "green"} t={t} />
+      </div>
+      {secretStorage && (
+        <div className="settings-note compact">
+          <Icon name="key" />
+          <span>{t(secretStorage)}</span>
+        </div>
+      )}
+      {!providers.length ? (
+        <div className="empty-state compact">{t("No LLM setup guide loaded.")}</div>
+      ) : (
+        <div className="llm-provider-grid">
+          {providers.map((provider) => (
+            <LlmProviderSetupCard
+              key={provider.provider || provider.display_name || provider.displayName}
+              provider={provider}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmProviderSetupCard({
+  provider,
+  t,
+}: {
+  provider: LlmProviderSetupOption;
+  t: TFunction;
+}) {
+  const displayName = stringValue(provider.display_name ?? provider.displayName) || stringValue(provider.provider) || "-";
+  const springAiChatModel = stringValue(provider.spring_ai_chat_model ?? provider.springAiChatModel) || "-";
+  const credentialEnv = stringValue(provider.credential_env ?? provider.credentialEnv);
+  const baseUrlEnv = stringValue(provider.base_url_env ?? provider.baseUrlEnv);
+  const credentialRequired = Boolean(provider.credential_required ?? provider.credentialRequired);
+  const baseUrlRequired = Boolean(provider.base_url_required ?? provider.baseUrlRequired);
+  const examples = Array.isArray(provider.model_examples)
+    ? provider.model_examples
+    : Array.isArray(provider.modelExamples)
+      ? provider.modelExamples
+      : [];
+  return (
+    <article className="llm-provider-card">
+      <header>
+        <div>
+          <strong>{displayName}</strong>
+          <span>{provider.provider}</span>
+        </div>
+        <StatusBadge value={credentialRequired ? "credential_required" : "no_api_key_required"} tone={credentialRequired ? "amber" : "green"} t={t} />
+      </header>
+      <div className="llm-provider-kv">
+        <span>{t("Spring AI chat model")}</span>
+        <code>{springAiChatModel}</code>
+        <span>{t("Credential env")}</span>
+        <code>{credentialEnv || t("Not required")}</code>
+        <span>{t("Base URL env")}</span>
+        <code>{baseUrlEnv || t("Provider default")}</code>
+        <span>{t("Base URL")}</span>
+        <strong>{baseUrlRequired ? t("Required") : t("Optional")}</strong>
+      </div>
+      {!!examples.length && (
+        <div className="llm-model-examples">
+          <span>{t("Model examples")}</span>
+          <div>{examples.map((example) => <code key={example}>{example}</code>)}</div>
+        </div>
+      )}
+      {provider.note && <p>{t(provider.note)}</p>}
     </article>
   );
 }

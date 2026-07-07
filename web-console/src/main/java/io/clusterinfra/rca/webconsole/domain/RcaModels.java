@@ -371,6 +371,27 @@ public final class RcaModels {
     ) {
     }
 
+    public record LlmProviderSetupOption(
+        String provider,
+        String displayName,
+        String springAiChatModel,
+        String credentialEnv,
+        String baseUrlEnv,
+        boolean credentialRequired,
+        boolean baseUrlRequired,
+        List<String> modelExamples,
+        String note
+    ) {
+    }
+
+    public record LlmSetupGuideResponse(
+        String docsPath,
+        boolean restartRequired,
+        String secretStorage,
+        List<LlmProviderSetupOption> providers
+    ) {
+    }
+
     public record LlmTestRequest(
         boolean confirmed
     ) {

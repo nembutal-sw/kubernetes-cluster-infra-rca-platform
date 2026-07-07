@@ -366,6 +366,24 @@ export const KO: Record<string, string> = {
   "Configuration checks": "설정 점검",
   "No LLM diagnostics loaded.": "LLM 진단 정보를 불러오지 않았습니다.",
   Remediation: "조치 안내",
+  "Provider setup guide": "Provider 설정 가이드",
+  "LLM setup guide": "LLM 설정 가이드",
+  "No LLM setup guide loaded.": "LLM 설정 가이드를 불러오지 않았습니다.",
+  "Use environment variables, Docker/Compose env files, Kubernetes Secret, or an external secret manager. The Web Console never stores or renders API key values.":
+    "환경 변수, Docker/Compose env 파일, Kubernetes Secret 또는 외부 Secret Manager를 사용하세요. Web Console은 API key 값을 저장하거나 표시하지 않습니다.",
+  "Use for OpenAI-hosted models through Spring AI OpenAI SDK.": "Spring AI OpenAI SDK를 통해 OpenAI 호스팅 모델을 사용할 때 선택합니다.",
+  "Provider aliases: anthropic, claude.": "Provider alias: anthropic, claude.",
+  "Provider aliases: gemini, google, google-genai.": "Provider alias: gemini, google, google-genai.",
+  "Use a network-reachable Ollama endpoint. Base URL defaults depend on the runtime environment.":
+    "Platform에서 접근 가능한 Ollama endpoint를 사용합니다. Base URL 기본값은 실행 환경에 따라 달라질 수 있습니다.",
+  "Use for hosted gateways that implement the OpenAI-compatible API.":
+    "OpenAI-compatible API를 구현한 외부 gateway를 사용할 때 선택합니다.",
+  "Use only after the model endpoint is reachable from the Platform pod or process.":
+    "Platform pod 또는 process에서 model endpoint에 접근 가능한 상태에서만 사용하세요.",
+  "Base URL": "Base URL",
+  Required: "필수",
+  Optional: "선택",
+  "Model examples": "Model 예시",
   "Notification delivery": "알림 전송",
   "Slack/SIEM delivery status and test controls": "Slack/SIEM 전송 상태와 테스트 제어",
   "Notification secrets are read from environment variables or Kubernetes Secret. Target URLs and tokens are never rendered in the browser.":
@@ -392,6 +410,10 @@ export const KO: Record<string, string> = {
   warn: "주의",
   ready: "준비됨",
   action_required: "조치 필요",
+  restart_required: "재시작 필요",
+  runtime_reload: "런타임 갱신",
+  credential_required: "Credential 필요",
+  no_api_key_required: "API key 불필요",
   open: "진행 중",
   resolved: "해결됨",
   high: "높음",

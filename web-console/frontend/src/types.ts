@@ -241,6 +241,37 @@ export interface LlmDiagnosticResponse {
   [key: string]: unknown;
 }
 
+export interface LlmProviderSetupOption {
+  provider?: string;
+  display_name?: string;
+  displayName?: string;
+  spring_ai_chat_model?: string;
+  springAiChatModel?: string;
+  credential_env?: string;
+  credentialEnv?: string;
+  base_url_env?: string;
+  baseUrlEnv?: string;
+  credential_required?: boolean;
+  credentialRequired?: boolean;
+  base_url_required?: boolean;
+  baseUrlRequired?: boolean;
+  model_examples?: string[];
+  modelExamples?: string[];
+  note?: string;
+  [key: string]: unknown;
+}
+
+export interface LlmSetupGuideResponse {
+  docs_path?: string;
+  docsPath?: string;
+  restart_required?: boolean;
+  restartRequired?: boolean;
+  secret_storage?: string;
+  secretStorage?: string;
+  providers?: LlmProviderSetupOption[];
+  [key: string]: unknown;
+}
+
 export interface LlmTestResponse {
   outcome?: string;
   message?: string;

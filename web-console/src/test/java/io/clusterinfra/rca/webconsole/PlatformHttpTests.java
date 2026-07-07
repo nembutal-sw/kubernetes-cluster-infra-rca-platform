@@ -877,6 +877,19 @@ class PlatformHttpTests {
             .doesNotContain("platform-info-signing-secret")
             .doesNotContain("api-key");
 
+        ResponseEntity<String> setup = exchange("/api/llm/setup", HttpMethod.GET, null);
+        assertThat(setup.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode setupBody = objectMapper.readTree(setup.getBody());
+        assertThat(setupBody.path("docs_path").asText()).isEqualTo("docs/llm-analyzer.md");
+        assertThat(setupBody.path("restart_required").asBoolean()).isTrue();
+        assertThat(setupBody.path("providers")).isNotEmpty();
+        assertThat(setup.getBody())
+            .contains("SPRING_AI_OPENAI_SDK_API_KEY")
+            .contains("SPRING_AI_OLLAMA_BASE_URL")
+            .contains("self_hosted")
+            .doesNotContain("sk-")
+            .doesNotContain("platform-info-signing-secret");
+
         ResponseEntity<String> missingConfirmation = exchange(
             "/api/llm/test",
             HttpMethod.POST,

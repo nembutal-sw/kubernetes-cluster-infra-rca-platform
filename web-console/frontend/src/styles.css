@@ -2414,6 +2414,138 @@ code {
   justify-content: flex-end;
 }
 
+.llm-setup-guide {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  min-width: 0;
+}
+
+.llm-setup-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-end;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.llm-setup-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.llm-setup-head span,
+.llm-provider-card header span,
+.llm-provider-card p,
+.llm-model-examples > span {
+  color: var(--muted);
+}
+
+.llm-setup-head span {
+  font-size: 0.78rem;
+}
+
+.settings-note.compact {
+  margin-bottom: 0;
+}
+
+.llm-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.llm-provider-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 12px;
+  min-width: 0;
+}
+
+.llm-provider-card header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.llm-provider-card header div {
+  min-width: 0;
+}
+
+.llm-provider-card header strong,
+.llm-provider-card header span,
+.llm-provider-card p {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.llm-provider-card header strong {
+  font-size: 0.92rem;
+}
+
+.llm-provider-card header span,
+.llm-provider-card p {
+  font-size: 0.78rem;
+}
+
+.llm-provider-card p {
+  margin: 0;
+}
+
+.llm-provider-kv {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.45fr) minmax(0, 1fr);
+  gap: 7px 10px;
+  align-items: center;
+}
+
+.llm-provider-kv span,
+.llm-provider-kv code,
+.llm-provider-kv strong {
+  overflow-wrap: anywhere;
+}
+
+.llm-provider-kv span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.llm-provider-kv code,
+.llm-model-examples code {
+  border: 1px solid rgba(44, 123, 229, 0.16);
+  border-radius: 6px;
+  background: rgba(44, 123, 229, 0.06);
+  color: var(--primary-strong);
+  padding: 2px 6px;
+  white-space: normal;
+}
+
+.llm-provider-kv strong {
+  font-size: 0.82rem;
+}
+
+.llm-model-examples {
+  display: grid;
+  gap: 6px;
+}
+
+.llm-model-examples > span {
+  font-size: 0.75rem;
+}
+
+.llm-model-examples div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .empty-state.compact {
   min-height: 0;
   padding: 12px;
@@ -2858,12 +2990,14 @@ code {
   .manifest-entry-head,
   .manifest-entry,
   .notification-history-item,
-  .llm-diagnostic-item {
+  .llm-diagnostic-item,
+  .llm-provider-kv {
     grid-template-columns: 1fr;
   }
 
   .notification-history-head,
-  .llm-diagnostics-head {
+  .llm-diagnostics-head,
+  .llm-setup-head {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -2871,6 +3005,10 @@ code {
   .notification-history-meta,
   .llm-diagnostic-meta {
     justify-content: flex-start;
+  }
+
+  .llm-provider-card header {
+    flex-direction: column;
   }
 
   .failure-surface {

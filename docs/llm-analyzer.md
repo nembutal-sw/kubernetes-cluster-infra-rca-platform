@@ -149,6 +149,16 @@ Provider 응답은 신뢰하지 않는 입력으로 취급합니다. Backend는 
 
 LLM-origin action은 항상 `source = "llm"`입니다. Policy Engine은 LLM 제안을 자동 실행 후보로 만들지 않으며, `automation_allowed=false`와 non-executable action plan을 유지합니다.
 
+## Web Console Diagnostics
+
+Settings 화면에서 LLM 상태와 설정 가이드를 확인할 수 있습니다.
+
+- `/api/llm/diagnostics`: 현재 provider, model, Spring AI chat model, credential/base URL 설정 상태
+- `/api/llm/setup`: provider별 필요한 env 이름, Spring AI chat model, model 예시
+- `/api/llm/test`: admin/operator가 확인 후 실행하는 실제 provider 연결 테스트
+
+Web Console은 API key 값을 입력받거나 저장하지 않습니다. 운영에서는 env 파일, Docker/Compose 환경 변수, Kubernetes Secret 또는 외부 Secret Manager를 사용합니다. 설정 변경 후에는 Platform process 또는 Pod 재시작이 필요합니다.
+
 ## Failure Behavior
 
 LLM 호출 실패, timeout, schema validation 실패는 RCA pipeline 실패가 아닙니다.

@@ -36,6 +36,7 @@ function ConsoleApp() {
   const [demoScenarios, setDemoScenarios] = useState([]);
   const [platformInfo, setPlatformInfo] = useState(null);
   const [llmDiagnostics, setLlmDiagnostics] = useState(null);
+  const [llmSetupGuide, setLlmSetupGuide] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
   const [clusterDetail, setClusterDetail] = useState(null);
   const [selectedReportId, setSelectedReportId] = useState(null);
@@ -70,6 +71,7 @@ function ConsoleApp() {
         callApi("/api/demo/scenarios"),
         callApi("/api/v1/platform/info"),
         callApi("/api/llm/diagnostics"),
+        callApi("/api/llm/setup"),
       ];
       if (["admin", "auditor"].includes(currentUser?.role)) {
         requests.push(callApi("/api/audit/events?limit=200"));
@@ -85,9 +87,10 @@ function ConsoleApp() {
       setDemoScenarios(arrayResult(results[5]));
       setPlatformInfo(results[6].status === "fulfilled" ? results[6].value : null);
       setLlmDiagnostics(results[7].status === "fulfilled" ? results[7].value : null);
+      setLlmSetupGuide(results[8].status === "fulfilled" ? results[8].value : null);
       if (["admin", "auditor"].includes(currentUser?.role)) {
-        setAuditEvents(sortByTime(arrayResult(results[8]), "created_at"));
-        setNotificationHistory(sortByTime(arrayResult(results[9]), "created_at"));
+        setAuditEvents(sortByTime(arrayResult(results[9]), "created_at"));
+        setNotificationHistory(sortByTime(arrayResult(results[10]), "created_at"));
       } else {
         setAuditEvents([]);
         setNotificationHistory([]);
@@ -157,6 +160,7 @@ function ConsoleApp() {
       setSelectedCluster(null);
       setReportDetail(null);
       setLlmDiagnostics(null);
+      setLlmSetupGuide(null);
     }
   }
 
@@ -526,6 +530,7 @@ function ConsoleApp() {
               setLocale={setLocale}
               platformInfo={platformInfo}
               llmDiagnostics={llmDiagnostics}
+              llmSetupGuide={llmSetupGuide}
               notificationHistory={notificationHistory}
               currentUser={currentUser}
               onChangeLoginId={changeLoginId}

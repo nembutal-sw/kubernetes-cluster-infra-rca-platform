@@ -104,6 +104,18 @@ Requires an authenticated platform user.
 
 `export_security` reports export integrity settings only. It never returns signing secrets.
 
+## LLM APIs
+
+```text
+GET  /api/llm/diagnostics
+GET  /api/llm/setup
+POST /api/llm/test
+```
+
+`diagnostics` and `setup` are read-only and available to authenticated console roles. They expose provider/model readiness and required env names only. API key values are never returned.
+
+`test` requires `ADMIN` or `OPERATOR` and `{"confirmed": true}`. It performs a short provider connectivity check, records an audit event, and returns status/latency metadata without returning provider response content.
+
 ## Cluster APIs
 
 ```text
