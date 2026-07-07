@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmTestResponse;
 import io.clusterinfra.rca.webconsole.service.LlmAnalysisService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -171,6 +172,37 @@ class LlmAnalysisServiceTests {
 
         assertThat(result.get("status")).isEqualTo("completed");
         assertThat(result.get("provider")).isEqualTo(providerName);
+    }
+
+    @Test
+    void testConnectionUsesChatModelWithoutReturningProviderContent() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(response("ok"));
+        service = service(model, properties());
+
+        LlmTestResponse response = service.testConnection();
+
+        assertThat(response.outcome()).isEqualTo("completed");
+        assertThat(response.promptVersion()).isEqualTo("llm-connectivity-test/v1");
+        assertThat(response.provider()).isEqualTo("openai");
+        assertThat(response.model()).isEqualTo("contract-test");
+        assertThat(response.responseChars()).isEqualTo(2);
+        assertThat(response.error()).isBlank();
+        verify(model).call(any(Prompt.class));
+    }
+
+    @Test
+    void testConnectionSkipsWhenAnalyzerIsDisabled() {
+        ChatModel model = mock(ChatModel.class);
+        RcaConsoleProperties properties = properties();
+        properties.getLlm().setEnabled(false);
+        service = service(model, properties);
+
+        LlmTestResponse response = service.testConnection();
+
+        assertThat(response.outcome()).isEqualTo("skipped");
+        assertThat(response.message()).contains("disabled");
+        verify(model, times(0)).call(any(Prompt.class));
     }
 
     private LlmAnalysisService service(ChatModel model, RcaConsoleProperties properties) {

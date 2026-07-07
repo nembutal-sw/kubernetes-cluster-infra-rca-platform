@@ -35,6 +35,7 @@ function ConsoleApp() {
   const [notificationHistory, setNotificationHistory] = useState([]);
   const [demoScenarios, setDemoScenarios] = useState([]);
   const [platformInfo, setPlatformInfo] = useState(null);
+  const [llmDiagnostics, setLlmDiagnostics] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
   const [clusterDetail, setClusterDetail] = useState(null);
   const [selectedReportId, setSelectedReportId] = useState(null);
@@ -68,6 +69,7 @@ function ConsoleApp() {
         callApi("/api/rca/action-requests"),
         callApi("/api/demo/scenarios"),
         callApi("/api/v1/platform/info"),
+        callApi("/api/llm/diagnostics"),
       ];
       if (["admin", "auditor"].includes(currentUser?.role)) {
         requests.push(callApi("/api/audit/events?limit=200"));
@@ -82,9 +84,10 @@ function ConsoleApp() {
       setActionRequests(sortByTime(arrayResult(results[4]), "created_at"));
       setDemoScenarios(arrayResult(results[5]));
       setPlatformInfo(results[6].status === "fulfilled" ? results[6].value : null);
+      setLlmDiagnostics(results[7].status === "fulfilled" ? results[7].value : null);
       if (["admin", "auditor"].includes(currentUser?.role)) {
-        setAuditEvents(sortByTime(arrayResult(results[7]), "created_at"));
-        setNotificationHistory(sortByTime(arrayResult(results[8]), "created_at"));
+        setAuditEvents(sortByTime(arrayResult(results[8]), "created_at"));
+        setNotificationHistory(sortByTime(arrayResult(results[9]), "created_at"));
       } else {
         setAuditEvents([]);
         setNotificationHistory([]);
@@ -153,6 +156,7 @@ function ConsoleApp() {
       setActiveView("overview");
       setSelectedCluster(null);
       setReportDetail(null);
+      setLlmDiagnostics(null);
     }
   }
 
@@ -375,7 +379,28 @@ function ConsoleApp() {
     }
     if (["admin", "auditor"].includes(currentUser?.role)) {
       const history = await callApi("/api/notifications/history?limit=50");
-      setNotificationHistory(sortByTime(arrayResult(history), "created_at"));
+      setNotificationHistory(sortByTime(Array.isArray(history) ? history : [], "created_at"));
+    }
+    return response;
+  }
+
+  async function testLlmConnection() {
+    const response = await callApi("/api/llm/test", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (response.outcome === "completed") {
+      notify(t("LLM test completed."));
+    } else if (response.outcome === "skipped") {
+      notify(t(String(response.message || "LLM test skipped.")), "warning");
+    } else {
+      notify(t(String(response.message || "LLM test failed.")), "danger");
+    }
+    const diagnostics = await callApi("/api/llm/diagnostics");
+    setLlmDiagnostics(diagnostics);
+    if (["admin", "auditor"].includes(currentUser?.role)) {
+      const audit = await callApi("/api/audit/events?limit=200");
+      setAuditEvents(sortByTime(Array.isArray(audit) ? audit : [], "created_at"));
     }
     return response;
   }
@@ -500,11 +525,13 @@ function ConsoleApp() {
               locale={locale}
               setLocale={setLocale}
               platformInfo={platformInfo}
+              llmDiagnostics={llmDiagnostics}
               notificationHistory={notificationHistory}
               currentUser={currentUser}
               onChangeLoginId={changeLoginId}
               onChangePassword={changePassword}
               onTestNotification={testNotificationDelivery}
+              onTestLlm={testLlmConnection}
               t={t}
             />
           )}

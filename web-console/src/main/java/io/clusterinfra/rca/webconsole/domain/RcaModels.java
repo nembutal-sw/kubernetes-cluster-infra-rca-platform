@@ -356,6 +356,38 @@ public final class RcaModels {
     ) {
     }
 
+    public record LlmDiagnosticCheck(
+        String key,
+        String status,
+        String message,
+        String remediation
+    ) {
+    }
+
+    public record LlmDiagnosticResponse(
+        String outcome,
+        LlmConfigurationInfo configuration,
+        List<LlmDiagnosticCheck> checks
+    ) {
+    }
+
+    public record LlmTestRequest(
+        boolean confirmed
+    ) {
+    }
+
+    public record LlmTestResponse(
+        String outcome,
+        String message,
+        String provider,
+        String model,
+        String promptVersion,
+        Long latencyMs,
+        Integer responseChars,
+        String error
+    ) {
+    }
+
     public record EvidenceBundleManifestSummary(
         String schemaVersion,
         String generatedAt,

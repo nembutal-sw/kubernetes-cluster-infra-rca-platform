@@ -864,6 +864,46 @@ class PlatformHttpTests {
         assertThat(history.get(0).path("details").path("client_ip").asText()).isNotBlank();
     }
 
+    @Test
+    @Order(18)
+    void adminCanInspectAndTestLlmDiagnosticsContract() throws Exception {
+        ResponseEntity<String> diagnostics = exchange("/api/llm/diagnostics", HttpMethod.GET, null);
+        assertThat(diagnostics.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode diagnosticsBody = objectMapper.readTree(diagnostics.getBody());
+        assertThat(diagnosticsBody.path("outcome").asText()).isEqualTo("disabled");
+        assertThat(diagnosticsBody.path("configuration").path("enabled").asBoolean()).isFalse();
+        assertThat(diagnosticsBody.path("checks")).isNotEmpty();
+        assertThat(diagnostics.getBody())
+            .doesNotContain("platform-info-signing-secret")
+            .doesNotContain("api-key");
+
+        ResponseEntity<String> missingConfirmation = exchange(
+            "/api/llm/test",
+            HttpMethod.POST,
+            Map.of("confirmed", false)
+        );
+        assertThat(missingConfirmation.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<String> test = exchange(
+            "/api/llm/test",
+            HttpMethod.POST,
+            Map.of("confirmed", true)
+        );
+        assertThat(test.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode testBody = objectMapper.readTree(test.getBody());
+        assertThat(testBody.path("outcome").asText()).isEqualTo("skipped");
+        assertThat(testBody.path("prompt_version").asText()).isEqualTo("llm-connectivity-test/v1");
+        assertThat(testBody.path("error").asText()).isBlank();
+
+        JsonNode events = objectMapper.readTree(
+            exchange("/api/audit/events?event_type=llm.test&limit=5", HttpMethod.GET, null).getBody()
+        );
+        assertThat(events).isNotEmpty();
+        assertThat(events.get(0).path("event_type").asText()).isEqualTo("llm.test");
+        assertThat(events.get(0).path("outcome").asText()).isEqualTo("skipped");
+        assertThat(events.get(0).path("details").path("client_ip").asText()).isNotBlank();
+    }
+
     private int actionIndex(JsonNode actions, String policy) {
         for (int index = 0; index < actions.size(); index++) {
             if (policy.equals(actions.get(index).path("policy").asText())) {

@@ -14,6 +14,9 @@ import { formatDate, platformInfoRows, runConsoleLayoutAudit } from "../lib/cons
 import type {
   AuditEventView,
   LlmConfigurationInfo,
+  LlmDiagnosticCheck,
+  LlmDiagnosticResponse,
+  LlmTestResponse,
   NotificationConfigurationInfo,
   NotificationTestResponse,
   PlatformInfo,
@@ -51,11 +54,13 @@ interface SettingsViewProps {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   platformInfo: PlatformInfo | null;
+  llmDiagnostics: LlmDiagnosticResponse | null;
   notificationHistory: AuditEventView[];
   currentUser: UserAccount | null;
   onChangeLoginId: (form: LoginIdForm) => void | Promise<void>;
   onChangePassword: (form: PasswordForm) => void | Promise<void>;
   onTestNotification: () => NotificationTestResponse | Promise<NotificationTestResponse>;
+  onTestLlm: () => LlmTestResponse | Promise<LlmTestResponse>;
   t: TFunction;
 }
 
@@ -87,11 +92,13 @@ export function SettingsView({
   locale,
   setLocale,
   platformInfo,
+  llmDiagnostics,
   notificationHistory,
   currentUser,
   onChangeLoginId,
   onChangePassword,
   onTestNotification,
+  onTestLlm,
   t,
 }: SettingsViewProps) {
   const [loginId, setLoginId] = useState({
@@ -101,11 +108,13 @@ export function SettingsView({
   const [password, setPassword] = useState({ current_password: "", new_password: "" });
   const [layoutAudit, setLayoutAudit] = useState<LayoutAudit | null>(null);
   const [testingNotification, setTestingNotification] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
   const defaultCredentialVisible = currentUser?.email === "admin";
   const infoRows = platformInfoRows(platformInfo, t) as PlatformInfoRow[];
   const llmRows = buildLlmRows(platformInfo?.llm, t);
   const notificationRows = buildNotificationRows(platformInfo?.notification, t);
   const canTestNotification = ["admin", "operator"].includes(String(currentUser?.role || ""));
+  const canTestLlm = ["admin", "operator"].includes(String(currentUser?.role || ""));
   const canViewNotificationHistory = ["admin", "auditor"].includes(String(currentUser?.role || ""));
 
   useEffect(() => {
@@ -133,6 +142,18 @@ export function SettingsView({
       await onTestNotification();
     } finally {
       setTestingNotification(false);
+    }
+  }
+
+  async function submitLlmTest() {
+    if (!window.confirm(t("Run a live LLM connectivity test?"))) {
+      return;
+    }
+    setTestingLlm(true);
+    try {
+      await onTestLlm();
+    } finally {
+      setTestingLlm(false);
     }
   }
 
@@ -175,7 +196,16 @@ export function SettingsView({
       >
         <LayoutAuditPanel audit={layoutAudit} t={t} />
       </Surface>
-      <Surface title={t("LLM configuration")} subtitle={t("Provider, model, and Secret wiring status")}>
+      <Surface
+        title={t("LLM configuration")}
+        subtitle={t("Provider, model, and Secret wiring status")}
+        action={canTestLlm && (
+          <button className="btn btn-sm btn-outline-secondary icon-button" onClick={submitLlmTest} disabled={testingLlm}>
+            <Icon name={testingLlm ? "arrow-repeat" : "stars"} />
+            <span>{testingLlm ? "..." : t("Test LLM")}</span>
+          </button>
+        )}
+      >
         <div className="settings-note">
           <Icon name="shield-lock" />
           <span>{t("LLM secrets are read from environment variables or Kubernetes Secret. API keys are never rendered in the browser.")}</span>
@@ -188,6 +218,7 @@ export function SettingsView({
             </div>
           ))}
         </div>
+        <LlmDiagnosticsPanel diagnostics={llmDiagnostics} t={t} />
       </Surface>
       <Surface
         title={t("Notification delivery")}
@@ -282,6 +313,68 @@ function buildLlmRows(llm: LlmConfigurationInfo | undefined, t: TFunction): LlmI
     { key: "llm.max_output_tokens", label: t("Max output tokens"), value: numberValue(llm?.max_output_tokens ?? llm?.maxOutputTokens, 1800) },
     { key: "llm.circuit_breaker", label: t("Circuit breaker"), value: `${numberValue(llm?.failure_threshold ?? llm?.failureThreshold, 3)} / ${numberValue(llm?.cooldown_seconds ?? llm?.cooldownSeconds, 60)}s` },
   ];
+}
+
+function LlmDiagnosticsPanel({
+  diagnostics,
+  t,
+}: {
+  diagnostics: LlmDiagnosticResponse | null;
+  t: TFunction;
+}) {
+  if (!diagnostics) {
+    return (
+      <div className="llm-diagnostics">
+        <div className="empty-state compact">{t("No LLM diagnostics loaded.")}</div>
+      </div>
+    );
+  }
+  const checks = Array.isArray(diagnostics.checks) ? diagnostics.checks : [];
+  return (
+    <div className="llm-diagnostics">
+      <div className="llm-diagnostics-head">
+        <div>
+          <h3>{t("LLM diagnostics")}</h3>
+          <span>{t("Configuration checks")}</span>
+        </div>
+        <StatusBadge value={diagnostics.outcome || "unknown"} tone={diagnosticTone(diagnostics.outcome)} t={t} />
+      </div>
+      {!checks.length ? (
+        <div className="empty-state compact">{t("No LLM diagnostics loaded.")}</div>
+      ) : (
+        <div className="llm-diagnostic-list">
+          {checks.map((check, index) => (
+            <LlmDiagnosticItem key={`${check.key || "check"}-${index}`} check={check} t={t} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmDiagnosticItem({ check, t }: { check: LlmDiagnosticCheck; t: TFunction }) {
+  return (
+    <article className="llm-diagnostic-item">
+      <div className="llm-diagnostic-main">
+        <strong>{check.key || "-"}</strong>
+        <span>{check.message || "-"}</span>
+        {check.remediation && (
+          <small><b>{t("Remediation")}:</b> {check.remediation}</small>
+        )}
+      </div>
+      <div className="llm-diagnostic-meta">
+        <StatusBadge value={check.status || "unknown"} tone={diagnosticTone(check.status)} t={t} />
+      </div>
+    </article>
+  );
+}
+
+function diagnosticTone(status: unknown): string {
+  const value = String(status || "").toLowerCase();
+  if (value === "pass" || value === "ready") return "green";
+  if (value === "fail" || value === "action_required" || value === "failed") return "red";
+  if (value === "warn" || value === "warning") return "amber";
+  return "muted";
 }
 
 function stringValue(value: unknown): string {

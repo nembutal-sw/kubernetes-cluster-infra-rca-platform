@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmTestResponse;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class LlmAnalysisService {
     private static final String PROMPT_VERSION = "llm-rca-analyzer/v1";
+    private static final String TEST_PROMPT_VERSION = "llm-connectivity-test/v1";
     private static final int MAX_INPUT_CHARS = 250_000;
     private static final Set<String> REQUIRED_RESULT_KEYS = Set.of(
         "summary",
@@ -47,6 +49,10 @@ public class LlmAnalysisService {
         summary, root_cause_candidates, action_suggestions, additional_checks.
         Each action_suggestion must contain action_key, action, and reason.
         Prefer read-only verification. Treat destructive or mutating operations as human-reviewed suggestions.
+        """;
+    private static final String TEST_SYSTEM_PROMPT = """
+        You are validating connectivity for Cluster RCA Console.
+        Return a short plain text response. Do not include secrets, commands, or remediation steps.
         """;
 
     private final ObjectProvider<ChatModel> chatModels;
@@ -67,6 +73,82 @@ public class LlmAnalysisService {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.metrics = metrics;
+    }
+
+    public LlmTestResponse testConnection() {
+        Instant startedAt = Instant.now();
+        String providerName = properties.getLlm().getProvider();
+        if (!properties.getLlm().isEnabled()) {
+            return new LlmTestResponse(
+                "skipped",
+                "LLM analyzer is disabled.",
+                providerName,
+                properties.getLlm().getModel(),
+                TEST_PROMPT_VERSION,
+                null,
+                null,
+                ""
+            );
+        }
+        ChatModel chatModel = chatModels.orderedStream().findFirst().orElse(null);
+        if (chatModel == null) {
+            return new LlmTestResponse(
+                "skipped",
+                "Spring AI chat model is not configured.",
+                providerName,
+                properties.getLlm().getModel(),
+                TEST_PROMPT_VERSION,
+                null,
+                null,
+                ""
+            );
+        }
+        Instant blockedUntil = circuitOpenUntil.get();
+        if (blockedUntil != null && blockedUntil.isAfter(Instant.now())) {
+            return new LlmTestResponse(
+                "skipped",
+                "LLM circuit breaker is open until " + blockedUntil + ".",
+                providerName,
+                properties.getLlm().getModel(),
+                TEST_PROMPT_VERSION,
+                null,
+                null,
+                ""
+            );
+        }
+        long startedNanos = System.nanoTime();
+        try {
+            String content = callWithTimeout(
+                chatModel,
+                TEST_SYSTEM_PROMPT,
+                "Connectivity check for Cluster RCA Console. Reply with: ok"
+            );
+            Duration duration = Duration.between(startedAt, Instant.now());
+            metrics.llmAnalysis("test_completed", providerName, duration);
+            return new LlmTestResponse(
+                "completed",
+                "LLM provider returned a response.",
+                providerName,
+                properties.getLlm().getModel(),
+                TEST_PROMPT_VERSION,
+                Duration.ofNanos(System.nanoTime() - startedNanos).toMillis(),
+                content == null ? 0 : content.length(),
+                ""
+            );
+        } catch (Exception exception) {
+            Duration duration = Duration.between(startedAt, Instant.now());
+            metrics.llmAnalysis("test_failed", providerName, duration);
+            return new LlmTestResponse(
+                "failed",
+                "LLM provider test failed.",
+                providerName,
+                properties.getLlm().getModel(),
+                TEST_PROMPT_VERSION,
+                Duration.ofNanos(System.nanoTime() - startedNanos).toMillis(),
+                null,
+                exception.getClass().getSimpleName() + ": " + safeMessage(exception)
+            );
+        }
     }
 
     public Map<String, Object> analyze(Map<String, Object> payload) {
@@ -101,7 +183,7 @@ public class LlmAnalysisService {
             }
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    String content = callWithTimeout(chatModel, input);
+                    String content = callWithTimeout(chatModel, SYSTEM_PROMPT, input);
                     Map<String, Object> result = parseValidatedResult(content);
                     consecutiveFailures.set(0);
                     circuitOpenUntil.set(null);
@@ -138,12 +220,12 @@ public class LlmAnalysisService {
         );
     }
 
-    private String callWithTimeout(ChatModel chatModel, String input) throws Exception {
+    private String callWithTimeout(ChatModel chatModel, String systemPrompt, String input) throws Exception {
         Future<String> future = executor.submit(() -> {
             ChatClient.ChatClientRequestSpec request = ChatClient.builder(chatModel)
                 .build()
                 .prompt()
-                .system(SYSTEM_PROMPT)
+                .system(systemPrompt)
                 .user(input);
             ChatOptions options = chatOptions();
             if (options != null) {

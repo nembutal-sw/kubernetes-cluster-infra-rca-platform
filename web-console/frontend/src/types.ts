@@ -226,6 +226,36 @@ export interface NotificationTestResponse {
   [key: string]: unknown;
 }
 
+export interface LlmDiagnosticCheck {
+  key?: string;
+  status?: string;
+  message?: string;
+  remediation?: string;
+  [key: string]: unknown;
+}
+
+export interface LlmDiagnosticResponse {
+  outcome?: string;
+  configuration?: LlmConfigurationInfo;
+  checks?: LlmDiagnosticCheck[];
+  [key: string]: unknown;
+}
+
+export interface LlmTestResponse {
+  outcome?: string;
+  message?: string;
+  provider?: string;
+  model?: string;
+  prompt_version?: string;
+  promptVersion?: string;
+  latency_ms?: number;
+  latencyMs?: number;
+  response_chars?: number;
+  responseChars?: number;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface LlmConfigurationInfo {
   enabled?: boolean;
   provider?: string;
