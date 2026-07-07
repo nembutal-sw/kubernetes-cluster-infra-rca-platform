@@ -39,6 +39,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set platform.image.repository=rca-platform \
   --set platform.image.tag=smoke \
   --set platform.image.pullPolicy=Never \
+  --set-string platform.secret.defaultAdminUsername=admin \
   --set-string platform.secret.defaultAdminPassword="${admin_password}" \
   --set database.persistence.enabled=false
 kubectl rollout status statefulset/rca-db --timeout=240s
