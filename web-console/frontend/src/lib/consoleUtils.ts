@@ -270,6 +270,7 @@ export function shortValue(value: unknown): string {
 
 export function platformInfoRows(platformInfo: PlatformInfo | null | undefined, t: TFunction): SummaryRow[] {
   const exportSecurity = recordValue(platformInfo?.export_security || platformInfo?.exportSecurity);
+  const catalog = recordValue(platformInfo?.catalog);
   const rows: SummaryRow[] = [
     { key: "platform_version", label: t("Platform version"), value: String(platformInfo?.platform_version || "n/a") },
     { key: "api_version", label: t("API version"), value: String(platformInfo?.api_version || "n/a") },
@@ -318,6 +319,16 @@ export function platformInfoRows(platformInfo: PlatformInfo | null | undefined, 
         label: `${t("Export security")} · ${t("Offline verifier")}`,
         value: String(exportSecurity.offline_verifier || "n/a"),
       },
+    );
+  }
+  if (platformInfo?.catalog) {
+    rows.push(
+      { key: "catalog.version", label: `${t("Catalog")} / ${t("Version")}`, value: String(catalog.version || "n/a") },
+      { key: "catalog.source", label: `${t("Catalog")} / ${t("Source")}`, value: String(catalog.source || "n/a") },
+      { key: "catalog.checksum", label: `${t("Catalog")} / ${t("Checksum")}`, value: String(catalog.checksum || "n/a") },
+      { key: "catalog.collectors", label: `${t("Catalog")} / ${t("Collectors")}`, value: String(catalog.collector_count || "0") },
+      { key: "catalog.actions", label: `${t("Catalog")} / ${t("Actions")}`, value: String(catalog.action_count || "0") },
+      { key: "catalog.rules", label: `${t("Catalog")} / ${t("Rules")}`, value: String(catalog.rule_count || "0") },
     );
   }
   return rows;

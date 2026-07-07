@@ -1,10 +1,12 @@
 package io.clusterinfra.rca.webconsole.analysis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -12,21 +14,34 @@ public class SignalDetectionEngine {
     private final List<SignalDetector> detectors;
     private final RcaConsoleProperties properties;
     private final ObjectMapper objectMapper;
+    private final OperationalCatalogService catalogService;
+
+    @Autowired
+    public SignalDetectionEngine(
+        List<SignalDetector> detectors,
+        RcaConsoleProperties properties,
+        ObjectMapper objectMapper,
+        OperationalCatalogService catalogService
+    ) {
+        this.detectors = detectors.stream().sorted(Comparator.comparing(SignalDetector::id)).toList();
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.catalogService = catalogService;
+    }
 
     public SignalDetectionEngine(
         List<SignalDetector> detectors,
         RcaConsoleProperties properties,
         ObjectMapper objectMapper
     ) {
-        this.detectors = detectors.stream().sorted(Comparator.comparing(SignalDetector::id)).toList();
-        this.properties = properties;
-        this.objectMapper = objectMapper;
+        this(detectors, properties, objectMapper, OperationalCatalogService.defaultService());
     }
 
     public List<Signal> detect(java.util.Map<String, Object> collectors) {
         AnalysisContext context = AnalysisContext.create(collectors, properties.getThresholds(), objectMapper);
         LinkedHashMap<String, Signal> unique = new LinkedHashMap<>();
         detectors.stream()
+            .filter(detector -> catalogService.detectorEnabled(detector.id()))
             .filter(detector -> detector.enabled(context))
             .flatMap(detector -> detector.detect(context).stream())
             .forEach(signal -> unique.putIfAbsent(signal.name(), signal));

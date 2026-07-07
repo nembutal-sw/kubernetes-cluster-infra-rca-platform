@@ -1,0 +1,271 @@
+{
+  "schema_version": "rca-catalog/v1",
+  "version": "2026.07.08",
+  "collectors": {
+    "node": {"description": "Node identity, uptime, load, and Kubernetes node condition summary.", "enabled": true, "permission_modes": ["safe", "node-diagnostics"]},
+    "kubernetes": {"description": "Kubernetes node, pod, service, EndpointSlice, API server, CoreDNS, and CNI inventory.", "enabled": true, "permission_modes": ["safe", "node-diagnostics"]},
+    "systemd": {"description": "Failed units, restart state, and service status from host files or read-only system commands.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "runtime": {"description": "Generic CRI runtime socket and health evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "kubelet": {"description": "Kubelet unit, socket, and health evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "kernel": {"description": "Kernel log excerpts and kernel-level error markers.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "network": {"description": "NIC, route, interface counter, socket, and link state evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "conntrack": {"description": "Conntrack count, limit, failure, and drop counters.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "disk": {"description": "Filesystem usage, mount, and block I/O latency evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "inode": {"description": "Filesystem inode usage evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "memory": {"description": "Memory pressure, reclaim, and OOM evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "process": {"description": "PID/thread usage, process fan-out, and zombie process evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "cni": {"description": "CNI config, MTU, plugin, and DaemonSet evidence.", "enabled": true, "permission_modes": ["node-diagnostics"]},
+    "dns": {"description": "Resolver configuration and DNS latency evidence.", "enabled": true, "permission_modes": ["safe", "node-diagnostics"]},
+    "ebpf": {"description": "Optional eBPF realtime events such as OOM kill, TCP retransmit, and DNS timeout.", "enabled": true, "permission_modes": ["ebpf"]}
+  },
+  "collector_selection": {
+    "default_collectors": ["node", "systemd", "runtime", "disk", "inode", "memory", "process", "network", "kernel"],
+    "alerts": {
+      "NodeNotReady": ["node", "kubernetes", "systemd", "runtime", "kubelet", "kernel", "network", "conntrack"],
+      "KubeletDown": ["node", "kubernetes", "systemd", "runtime", "kubelet", "kernel", "network", "conntrack"],
+      "KubeletUnhealthy": ["node", "kubernetes", "systemd", "runtime", "kubelet", "kernel", "network", "conntrack"],
+      "DiskPressure": ["node", "disk", "inode", "kernel", "systemd"],
+      "MemoryPressure": ["node", "memory", "kernel", "systemd", "process"],
+      "PIDPressure": ["node", "process", "systemd", "kernel"],
+      "NetworkUnavailable": ["node", "kubernetes", "network", "cni", "dns", "conntrack", "kernel"],
+      "ContainerdDown": ["runtime", "systemd", "kernel", "disk"],
+      "ContainerRuntimeUnhealthy": ["runtime", "systemd", "kernel", "disk"],
+      "CoreDNSUnhealthy": ["dns", "network", "cni", "conntrack", "kubernetes"],
+      "CoreDNSLatencyHigh": ["dns", "network", "cni", "conntrack", "kubernetes"],
+      "EtcdLatencyHigh": ["node", "kubernetes", "network", "dns", "systemd", "kernel", "disk"],
+      "APIServerLatencyHigh": ["node", "kubernetes", "network", "dns", "systemd", "kernel", "disk"]
+    }
+  },
+  "actions": {
+    "collect_more_evidence": {
+      "action": "Collect additional read-only node evidence for the incident window.",
+      "reason": "Read-only verification does not change node or workload state.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"always": true}
+    },
+    "collect_linux_low_level_evidence": {
+      "action": "Collect Linux kernel, systemd, process, storage, and network diagnostics.",
+      "reason": "Low-level Linux inspection is read-only and should precede any remediation.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"requires_signals": true}
+    },
+    "inspect_kernel_state": {
+      "action": "Inspect kernel logs, blocked tasks, filesystem state, and device driver errors.",
+      "reason": "Kernel inspection is read-only.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["kernel"], "signal_names_any": ["kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["dmesg -T | tail -n 300"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_systemd_state": {
+      "action": "Inspect failed systemd units, restart counters, dependencies, and recent journal entries.",
+      "reason": "Systemd inspection is read-only.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["systemd"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["systemctl --failed --no-pager", "journalctl -p warning..alert --since '-30 min'"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_memory_state": {
+      "action": "Inspect memory pressure, reclaim activity, OOM events, and top memory consumers.",
+      "reason": "Memory inspection is read-only.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["memory"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["free -m", "vmstat 1 5", "dmesg -T | grep -i -E 'oom|out of memory'"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_process_state": {
+      "action": "Inspect PID usage, thread fan-out, zombie processes, and runtime shim counts.",
+      "reason": "Process inspection is read-only.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["process"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["ps -eLf | wc -l", "ps -eo stat,ppid,pid,cmd | grep '^Z'"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_storage_state": {
+      "action": "Inspect filesystem, inode, mount, block device, and kernel I/O state.",
+      "reason": "Storage inspection is read-only.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["disk", "inode"], "alert_names_any": ["DiskPressure"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["df -hT", "df -i", "iostat -xz 1 5"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_network_state": {
+      "action": "Inspect NIC, route, socket, conntrack, resolver, and CNI state.",
+      "reason": "Network inspection is read-only and should precede configuration changes.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"components_any": ["network", "conntrack", "dns", "cni"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["ip -s link", "ip route", "ss -s", "conntrack -S"], "executable": false, "timeout_seconds": 30}
+    },
+    "restart_containerd": {
+      "action": "Consider an operator-approved containerd restart after confirming the runtime remains unhealthy.",
+      "reason": "Runtime restart can disrupt workloads and requires approval.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["container_runtime_disruption", "workload_impact"],
+      "triggers": {"signal_names_any": ["containerd_unit_unhealthy"]},
+      "plan": {"command_key": "restart_systemd_unit", "parameters": {"unit": "containerd"}, "command_preview": ["systemctl restart containerd", "systemctl is-active containerd"], "executable": false, "timeout_seconds": 90}
+    },
+    "restart_container_runtime": {
+      "action": "Consider an operator-approved runtime restart after confirming the detected CRI remains unhealthy.",
+      "reason": "Runtime restart can disrupt workloads and requires approval.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["container_runtime_disruption", "workload_impact"],
+      "triggers": {"signal_names_any": ["container_runtime_unit_unhealthy"]},
+      "plan": {"command_key": "restart_detected_runtime", "command_preview": ["systemctl restart <detected-runtime>", "systemctl is-active <detected-runtime>"], "executable": false, "timeout_seconds": 90}
+    },
+    "restart_kubelet": {
+      "action": "Consider an operator-approved kubelet restart after reviewing the failure evidence.",
+      "reason": "Kubelet restart can affect workload lifecycle handling and requires approval.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["node_agent_disruption", "workload_status_change"],
+      "triggers": {"signal_names_any": ["kubelet_unit_unhealthy"]},
+      "plan": {"command_key": "restart_systemd_unit", "parameters": {"unit": "kubelet"}, "command_preview": ["systemctl restart kubelet", "systemctl is-active kubelet"], "executable": false, "timeout_seconds": 60}
+    },
+    "cleanup_disk": {
+      "action": "After path review and approval, clean confirmed-unused files or expand capacity.",
+      "reason": "Disk cleanup can cause data loss if the target path is incorrect.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["data_loss", "runtime_cache_mutation"],
+      "triggers": {"signal_names_any": ["disk_usage_critical", "inode_usage_critical"]}
+    },
+    "cordon_node": {
+      "action": "If memory pressure continues, consider operator-approved node cordon or drain.",
+      "reason": "This changes scheduling and requires approval.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["workload_rescheduling", "capacity_reduction"],
+      "triggers": {"signal_names_any": ["memory_pressure_critical", "kernel_oom_detected", "ebpf_oom_kill"]},
+      "plan": {"command_key": "kubectl_cordon", "parameters": {"node": "<incident-node>"}, "command_preview": ["kubectl cordon <incident-node>"], "executable": false, "timeout_seconds": 60}
+    },
+    "drain_node": {
+      "action": "Drain the node only after a separate human maintenance decision.",
+      "reason": "Draining evicts pods and must not be launched directly by RCA.",
+      "policy": "APPROVAL_REQUIRED",
+      "automation_mode": "operator_approval",
+      "risks": ["workload_rescheduling", "pod_eviction"],
+      "plan": {"command_key": "kubectl_drain", "parameters": {"node": "<incident-node>"}, "command_preview": ["kubectl drain <incident-node> --ignore-daemonsets --delete-emptydir-data"], "executable": false, "timeout_seconds": 900}
+    },
+    "increase_conntrack_limit": {
+      "action": "Propose reviewed conntrack sizing or timeout changes after confirming connection churn and drops.",
+      "reason": "Kernel network parameters can disrupt traffic and must be reviewed through GitOps.",
+      "policy": "GITOPS_PR_ONLY",
+      "automation_mode": "gitops_pr",
+      "risks": ["kernel_parameter_change", "configuration_change"],
+      "triggers": {"signal_names_any": ["conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops"]},
+      "plan": {"command_key": "gitops_patch", "command_preview": ["sysctl net.netfilter.nf_conntrack_max"], "yaml_patch": "net.netfilter.nf_conntrack_max: <review-required>", "executable": false, "timeout_seconds": 0}
+    },
+    "inspect_api_server_health": {
+      "action": "Inspect API server readiness, liveness, request latency, and failing dependency checks.",
+      "reason": "API server remediation must be based on read-only dependency evidence before any change.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"signal_names_any": ["api_server_latency_high", "api_server_readyz_failed", "api_server_livez_failed", "api_server_request_errors"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["kubectl get --raw='/readyz?verbose'", "kubectl get --raw='/livez?verbose'", "kubectl -n kube-system get pods -l component=kube-apiserver -o wide"], "executable": false, "timeout_seconds": 30}
+    },
+    "inspect_etcd_health": {
+      "action": "Inspect etcd endpoint health, quorum, fsync latency, pod restarts, and leader state.",
+      "reason": "Etcd changes can affect quorum and must remain manual or reviewed.",
+      "policy": "AUTO_SAFE",
+      "automation_mode": "read_only",
+      "risks": [],
+      "triggers": {"signal_names_any": ["etcd_latency_high", "etcd_readyz_failed", "etcd_pod_unhealthy"]},
+      "plan": {"command_key": "read_only_preview", "command_preview": ["kubectl get --raw='/readyz?verbose'", "kubectl -n kube-system get pods -l component=etcd -o wide", "etcdctl endpoint health --cluster"], "executable": false, "timeout_seconds": 30}
+    },
+    "open_gitops_pr": {
+      "action": "Propose CNI, DNS, MTU, conntrack, or sysctl changes through a reviewed GitOps PR.",
+      "reason": "Cluster configuration must not be changed directly by RCA.",
+      "policy": "GITOPS_PR_ONLY",
+      "automation_mode": "gitops_pr",
+      "risks": ["configuration_change", "review_required"],
+      "triggers": {"signal_names_any": ["conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops", "cni_config_invalid", "dns_unconfigured", "dns_latency_high", "coredns_no_ready_endpoints", "coredns_pod_not_running", "cni_mtu_values_inconsistent", "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running", "ebpf_tcp_retransmit", "ebpf_dns_timeout"]}
+    },
+    "update_cni_mtu": {
+      "action": "Prepare a reviewed CNI MTU patch through GitOps.",
+      "reason": "MTU changes can partition pod networking and require review.",
+      "policy": "GITOPS_PR_ONLY",
+      "automation_mode": "gitops_pr",
+      "risks": ["network_partition", "configuration_change"],
+      "plan": {"command_key": "gitops_patch", "yaml_patch": "spec:\n  template:\n    spec:\n      containers:\n        - name: cni\n          env:\n            - name: MTU\n              value: \"<review-required>\"", "executable": false, "timeout_seconds": 0}
+    },
+    "update_dns_config": {
+      "action": "Prepare a reviewed DNS configuration patch through GitOps.",
+      "reason": "DNS configuration changes can disrupt service discovery.",
+      "policy": "GITOPS_PR_ONLY",
+      "automation_mode": "gitops_pr",
+      "risks": ["cluster_dns_disruption", "configuration_change"]
+    },
+    "manual_hardware_check": {
+      "action": "Investigate storage, filesystem, NIC, driver, and physical path health.",
+      "reason": "Hardware and kernel path validation requires human investigation.",
+      "policy": "MANUAL_INVESTIGATION",
+      "automation_mode": "manual",
+      "risks": ["external_dependency", "human_judgment_required"],
+      "triggers": {"signal_names_any": ["kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"]}
+    },
+    "reboot_node": {
+      "action": "A node reboot may be considered only as a last-resort operator decision.",
+      "reason": "Node reboot has broad impact and must never be automated.",
+      "policy": "NEVER_AUTO_EXECUTE",
+      "automation_mode": "prohibited",
+      "risks": ["node_reboot", "workload_outage"],
+      "triggers": {"signal_names_any": ["blocked_task_detected", "root_filesystem_read_only"]}
+    },
+    "etcd_member_remove": {
+      "action": "Do not remove etcd members from the RCA workflow.",
+      "reason": "Etcd membership changes can break quorum and require an explicit runbook.",
+      "policy": "NEVER_AUTO_EXECUTE",
+      "automation_mode": "prohibited",
+      "risks": ["quorum_loss", "data_loss"]
+    },
+    "delete_workload": {
+      "action": "Do not delete workloads from the RCA workflow.",
+      "reason": "Workload deletion is outside infrastructure RCA automation.",
+      "policy": "NEVER_AUTO_EXECUTE",
+      "automation_mode": "prohibited",
+      "risks": ["service_outage", "data_loss"]
+    },
+    "manual_investigation": {
+      "action": "Continue manual investigation using the attached RCA evidence.",
+      "reason": "No registered safe action matches the current evidence.",
+      "policy": "MANUAL_INVESTIGATION",
+      "automation_mode": "manual",
+      "risks": ["human_judgment_required"]
+    }
+  },
+  "rules": {
+    "api-server-latency": {"detector": "api-server-latency", "enabled": true, "component": "api-server", "signals": ["api_server_latency_high", "api_server_readyz_failed", "api_server_livez_failed", "api_server_request_errors"]},
+    "cni-failure": {"detector": "cni-failure", "enabled": true, "component": "cni", "signals": ["cni_config_invalid", "cni_mtu_values_inconsistent", "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running"]},
+    "conntrack-pressure": {"detector": "conntrack-pressure", "enabled": true, "component": "conntrack", "signals": ["conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops"]},
+    "coredns-health": {"detector": "coredns-health", "enabled": true, "component": "dns", "signals": ["coredns_no_ready_endpoints", "coredns_pod_not_running"]},
+    "disk-pressure": {"detector": "disk-pressure", "enabled": true, "component": "disk", "signals": ["disk_usage_high", "disk_usage_critical", "disk_io_latency_high"]},
+    "dns-configuration": {"detector": "dns-configuration", "enabled": true, "component": "dns", "signals": ["dns_unconfigured"]},
+    "dns-latency": {"detector": "dns-latency", "enabled": true, "component": "dns", "signals": ["dns_latency_high"]},
+    "ebpf-event": {"detector": "ebpf-event", "enabled": true, "component": "kernel", "signals": ["ebpf_oom_kill", "ebpf_tcp_retransmit", "ebpf_dns_timeout"]},
+    "etcd-latency": {"detector": "etcd-latency", "enabled": true, "component": "etcd", "signals": ["etcd_latency_high", "etcd_readyz_failed", "etcd_pod_unhealthy"]},
+    "inode-pressure": {"detector": "inode-pressure", "enabled": true, "component": "inode", "signals": ["inode_usage_high", "inode_usage_critical"]},
+    "kernel-log": {"detector": "kernel-log", "enabled": true, "component": "kernel", "signals": ["kernel_io_error", "kernel_oom_detected", "blocked_task_detected", "root_filesystem_read_only"]},
+    "kubelet-failure": {"detector": "kubelet-failure", "enabled": true, "component": "kubelet", "signals": ["kubelet_unit_unhealthy"]},
+    "memory-pressure": {"detector": "memory-pressure", "enabled": true, "component": "memory", "signals": ["memory_pressure_critical"]},
+    "network-link-flap": {"detector": "network-link-flap", "enabled": true, "component": "network", "signals": ["nic_link_flap"]},
+    "node-pressure-conditions": {"detector": "node-pressure-conditions", "enabled": true, "component": "node", "signals": ["node_disk_pressure", "node_memory_pressure", "node_pid_pressure", "node_network_unavailable"]},
+    "node-readiness": {"detector": "node-readiness", "enabled": true, "component": "node", "signals": ["node_not_ready"]},
+    "pid-pressure": {"detector": "pid-pressure", "enabled": true, "component": "process", "signals": ["pid_usage_high"]},
+    "runtime-failure": {"detector": "runtime-failure", "enabled": true, "component": "runtime", "signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy"]},
+    "systemd-failure": {"detector": "systemd-failure", "enabled": true, "component": "systemd", "signals": ["systemd_unit_failed"]}
+  }
+}

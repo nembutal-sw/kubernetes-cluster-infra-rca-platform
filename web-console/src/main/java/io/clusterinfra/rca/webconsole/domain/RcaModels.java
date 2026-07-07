@@ -288,7 +288,8 @@ public final class RcaModels {
         String minimumSupportedAgentVersion,
         ExportSecurityInfo exportSecurity,
         LlmConfigurationInfo llm,
-        NotificationConfigurationInfo notification
+        NotificationConfigurationInfo notification,
+        Map<String, Object> catalog
     ) {
     }
 

@@ -281,6 +281,7 @@ export interface PlatformInfo {
   exportSecurity?: JsonObject;
   llm?: LlmConfigurationInfo;
   notification?: NotificationConfigurationInfo;
+  catalog?: JsonObject;
   [key: string]: unknown;
 }
 

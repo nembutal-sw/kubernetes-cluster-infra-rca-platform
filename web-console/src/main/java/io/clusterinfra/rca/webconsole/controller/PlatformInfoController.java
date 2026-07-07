@@ -4,6 +4,7 @@ import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ExportSecurityInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationConfigurationInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PlatformInfo;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.service.LlmConfigurationService;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,10 +16,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class PlatformInfoController {
     private final RcaConsoleProperties properties;
     private final LlmConfigurationService llmConfiguration;
+    private final OperationalCatalogService catalogService;
 
-    public PlatformInfoController(RcaConsoleProperties properties, LlmConfigurationService llmConfiguration) {
+    public PlatformInfoController(
+        RcaConsoleProperties properties,
+        LlmConfigurationService llmConfiguration,
+        OperationalCatalogService catalogService
+    ) {
         this.properties = properties;
         this.llmConfiguration = llmConfiguration;
+        this.catalogService = catalogService;
     }
 
     @GetMapping({"/api/platform/info", "/api/v1/platform/info"})
@@ -42,7 +49,8 @@ public class PlatformInfoController {
                 "scripts/verify_evidence_bundle.py"
             ),
             llmConfiguration.info(),
-            notificationInfo()
+            notificationInfo(),
+            catalogService.info()
         );
     }
 

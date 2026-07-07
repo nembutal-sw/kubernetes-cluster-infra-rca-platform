@@ -190,3 +190,6 @@ rca:
     metrics-token: ${RCA_METRICS_TOKEN:}
     refresh-interval-ms: ${RCA_OBSERVABILITY_REFRESH_INTERVAL_MS:15000}
     initial-delay-ms: ${RCA_OBSERVABILITY_INITIAL_DELAY_MS:5000}
+  catalog:
+    classpath-location: ${RCA_CATALOG_CLASSPATH_LOCATION:classpath:catalog/operational-catalog.json}
+    external-path: ${RCA_CATALOG_EXTERNAL_PATH:}

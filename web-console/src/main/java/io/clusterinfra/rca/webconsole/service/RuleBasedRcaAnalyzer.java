@@ -1,6 +1,8 @@
 package io.clusterinfra.rca.webconsole.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalog.ActionDefinition;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
 import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
@@ -18,15 +20,13 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.OptionalDouble;
 import java.util.Set;
-import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -41,6 +41,34 @@ public class RuleBasedRcaAnalyzer {
     private final ImpactScopeAnalyzer impactScopeAnalyzer;
     private final TopologyService topology;
     private final EvidenceQualityAnalyzer evidenceQualityAnalyzer;
+    private final OperationalCatalogService catalogService;
+
+    @Autowired
+    public RuleBasedRcaAnalyzer(
+        PolicyEngine policyEngine,
+        LlmAnalysisService llm,
+        RcaConsoleProperties properties,
+        ObjectMapper objectMapper,
+        SignalDetectionEngine detectionEngine,
+        ConfidenceScorer confidenceScorer,
+        RootCauseCandidateBuilder candidateBuilder,
+        ImpactScopeAnalyzer impactScopeAnalyzer,
+        TopologyService topology,
+        EvidenceQualityAnalyzer evidenceQualityAnalyzer,
+        OperationalCatalogService catalogService
+    ) {
+        this.policyEngine = policyEngine;
+        this.llm = llm;
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.detectionEngine = detectionEngine;
+        this.confidenceScorer = confidenceScorer;
+        this.candidateBuilder = candidateBuilder;
+        this.impactScopeAnalyzer = impactScopeAnalyzer;
+        this.topology = topology;
+        this.evidenceQualityAnalyzer = evidenceQualityAnalyzer;
+        this.catalogService = catalogService;
+    }
 
     public RuleBasedRcaAnalyzer(
         PolicyEngine policyEngine,
@@ -54,16 +82,19 @@ public class RuleBasedRcaAnalyzer {
         TopologyService topology,
         EvidenceQualityAnalyzer evidenceQualityAnalyzer
     ) {
-        this.policyEngine = policyEngine;
-        this.llm = llm;
-        this.properties = properties;
-        this.objectMapper = objectMapper;
-        this.detectionEngine = detectionEngine;
-        this.confidenceScorer = confidenceScorer;
-        this.candidateBuilder = candidateBuilder;
-        this.impactScopeAnalyzer = impactScopeAnalyzer;
-        this.topology = topology;
-        this.evidenceQualityAnalyzer = evidenceQualityAnalyzer;
+        this(
+            policyEngine,
+            llm,
+            properties,
+            objectMapper,
+            detectionEngine,
+            confidenceScorer,
+            candidateBuilder,
+            impactScopeAnalyzer,
+            topology,
+            evidenceQualityAnalyzer,
+            OperationalCatalogService.defaultService()
+        );
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
@@ -183,157 +214,14 @@ public class RuleBasedRcaAnalyzer {
         Set<String> names = signals.stream().map(Signal::name).collect(java.util.stream.Collectors.toSet());
         Set<String> components = signals.stream().map(Signal::component).collect(java.util.stream.Collectors.toSet());
         List<RecommendedAction> actions = new ArrayList<>();
-        actions.add(policyEngine.classify(
-            "collect_more_evidence",
-            "Collect additional read-only node evidence for the incident window.",
-            "Read-only verification does not change node or workload state."
-        ));
-        if (!signals.isEmpty()) {
+        catalogService.recommendedActions(alertName, names, components).forEach(entry -> {
+            ActionDefinition action = entry.getValue();
             actions.add(policyEngine.classify(
-                "collect_linux_low_level_evidence",
-                "Collect Linux kernel, systemd, process, storage, and network diagnostics.",
-                "Low-level Linux inspection is read-only and should precede any remediation."
+                entry.getKey(),
+                stringOrDefault(action.action(), "Continue manual investigation using the attached RCA evidence."),
+                stringOrDefault(action.reason(), "No registered safe action matches the current evidence.")
             ));
-        }
-        if (components.contains("kernel") || names.stream().anyMatch(Set.of(
-            "kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "inspect_kernel_state",
-                "Inspect kernel logs, blocked tasks, filesystem state, and device driver errors.",
-                "Kernel inspection is read-only."
-            ));
-        }
-        if (components.contains("systemd")) {
-            actions.add(policyEngine.classify(
-                "inspect_systemd_state",
-                "Inspect failed systemd units, restart counters, dependencies, and recent journal entries.",
-                "Systemd inspection is read-only."
-            ));
-        }
-        if (components.contains("memory")) {
-            actions.add(policyEngine.classify(
-                "inspect_memory_state",
-                "Inspect memory pressure, reclaim activity, OOM events, and top memory consumers.",
-                "Memory inspection is read-only."
-            ));
-        }
-        if (components.contains("process")) {
-            actions.add(policyEngine.classify(
-                "inspect_process_state",
-                "Inspect PID usage, thread fan-out, zombie processes, and runtime shim counts.",
-                "Process inspection is read-only."
-            ));
-        }
-        if (components.contains("disk") || components.contains("inode") || "DiskPressure".equals(alertName)) {
-            actions.add(policyEngine.classify(
-                "inspect_storage_state",
-                "Inspect filesystem, inode, mount, block device, and kernel I/O state.",
-                "Storage inspection is read-only."
-            ));
-        }
-        if (components.stream().anyMatch(Set.of("network", "conntrack", "dns", "cni")::contains)) {
-            actions.add(policyEngine.classify(
-                "inspect_network_state",
-                "Inspect NIC, route, socket, conntrack, resolver, and CNI state.",
-                "Network inspection is read-only and should precede configuration changes."
-            ));
-        }
-        if (names.contains("containerd_unit_unhealthy")) {
-            actions.add(policyEngine.classify(
-                "restart_containerd",
-                "Consider an operator-approved containerd restart after confirming the runtime remains unhealthy.",
-                "Runtime restart can disrupt workloads and requires approval."
-            ));
-        }
-        if (names.contains("container_runtime_unit_unhealthy")) {
-            actions.add(policyEngine.classify(
-                "restart_container_runtime",
-                "Consider an operator-approved runtime restart after confirming the detected CRI remains unhealthy.",
-                "Runtime restart can disrupt workloads and requires approval."
-            ));
-        }
-        if (names.contains("kubelet_unit_unhealthy")) {
-            actions.add(policyEngine.classify(
-                "restart_kubelet",
-                "Consider an operator-approved kubelet restart after reviewing the failure evidence.",
-                "Kubelet restart can affect workload lifecycle handling and requires approval."
-            ));
-        }
-        if (names.contains("disk_usage_critical") || names.contains("inode_usage_critical")) {
-            actions.add(policyEngine.classify(
-                "cleanup_disk",
-                "After path review and approval, clean confirmed-unused files or expand capacity.",
-                "Disk cleanup can cause data loss if the target path is incorrect."
-            ));
-        }
-        if (names.contains("memory_pressure_critical")
-            || names.contains("kernel_oom_detected")
-            || names.contains("ebpf_oom_kill")) {
-            actions.add(policyEngine.classify(
-                "cordon_node",
-                "If memory pressure continues, consider operator-approved node cordon or drain.",
-                "This changes scheduling and requires approval."
-            ));
-        }
-        if (names.stream().anyMatch(Set.of(
-            "conntrack_near_limit", "conntrack_table_full",
-            "conntrack_insert_failures", "conntrack_packet_drops"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "increase_conntrack_limit",
-                "Propose reviewed conntrack sizing or timeout changes after confirming connection churn and drops.",
-                "Kernel network parameters can disrupt traffic and must be reviewed through GitOps."
-            ));
-        }
-        if (names.stream().anyMatch(Set.of(
-            "api_server_latency_high", "api_server_readyz_failed",
-            "api_server_livez_failed", "api_server_request_errors"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "inspect_api_server_health",
-                "Inspect API server readiness, liveness, request latency, and failing dependency checks.",
-                "API server remediation must be based on read-only dependency evidence before any change."
-            ));
-        }
-        if (names.stream().anyMatch(Set.of(
-            "etcd_latency_high", "etcd_readyz_failed", "etcd_pod_unhealthy"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "inspect_etcd_health",
-                "Inspect etcd endpoint health, quorum, fsync latency, pod restarts, and leader state.",
-                "Etcd changes can affect quorum and must remain manual or reviewed."
-            ));
-        }
-        if (names.stream().anyMatch(Set.of(
-            "conntrack_near_limit", "conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops",
-            "cni_config_invalid", "dns_unconfigured", "dns_latency_high",
-            "coredns_no_ready_endpoints", "coredns_pod_not_running", "cni_mtu_values_inconsistent",
-            "cni_daemonset_not_scheduled", "cni_daemonset_unavailable", "cni_pod_not_running",
-            "ebpf_tcp_retransmit", "ebpf_dns_timeout"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "open_gitops_pr",
-                "Propose CNI, DNS, MTU, conntrack, or sysctl changes through a reviewed GitOps PR.",
-                "Cluster configuration must not be changed directly by RCA."
-            ));
-        }
-        if (names.stream().anyMatch(Set.of(
-            "kernel_io_error", "root_filesystem_read_only", "nic_link_flap", "blocked_task_detected"
-        )::contains)) {
-            actions.add(policyEngine.classify(
-                "manual_hardware_check",
-                "Investigate storage, filesystem, NIC, driver, and physical path health.",
-                "Hardware and kernel path validation requires human investigation."
-            ));
-        }
-        if (names.contains("blocked_task_detected") || names.contains("root_filesystem_read_only")) {
-            actions.add(policyEngine.classify(
-                "reboot_node",
-                "A node reboot may be considered only as a last-resort operator decision.",
-                "Node reboot has broad impact and must never be automated."
-            ));
-        }
+        });
         return actions.stream().collect(java.util.stream.Collectors.toMap(
             action -> action.actionKey() + ":" + action.source(),
             action -> action,
@@ -687,5 +575,9 @@ public class RuleBasedRcaAnalyzer {
 
     private String string(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String stringOrDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

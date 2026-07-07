@@ -1,19 +1,20 @@
 package io.clusterinfra.rca.webconsole.service;
 
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalog.ActionDefinition;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionPlan;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PolicyLevel;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
-import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionPlan;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class PolicyEngine {
-    private static final Map<String, Rule> RULES = rules();
     private static final List<RiskPattern> NEVER = List.of(
         risk("\\b(reboot|shutdown|poweroff|halt)\\b", "node_power_action"),
         risk("\\brm\\s+-[^\\n]*[rf]", "recursive_delete"),
@@ -43,6 +44,16 @@ public class PolicyEngine {
         "\\b(collect|check|inspect|list|get|read|status|describe|logs?|journalctl|dmesg|cat|df|du|findmnt|lsblk|free|vmstat|iostat|ss|netstat|nstat)\\b",
         Pattern.CASE_INSENSITIVE
     );
+    private final OperationalCatalogService catalogService;
+
+    public PolicyEngine() {
+        this(OperationalCatalogService.defaultService());
+    }
+
+    @Autowired
+    public PolicyEngine(OperationalCatalogService catalogService) {
+        this.catalogService = catalogService;
+    }
 
     public RecommendedAction classify(String actionKey, String action, String reason) {
         return classify(actionKey, action, reason, "rule_based", Map.of());
@@ -59,16 +70,17 @@ public class PolicyEngine {
         String normalizedSource = normalize(source);
         List<String> guardrails = new ArrayList<>();
         List<String> risks = new ArrayList<>();
-        Rule rule = RULES.get(key);
+        ActionDefinition rule = catalogService.action(key).orElse(null);
         if (rule == null) {
             key = "manual_investigation";
-            rule = RULES.get(key);
+            rule = catalogService.action(key)
+                .orElseThrow(() -> new IllegalStateException("manual_investigation action is missing from catalog"));
             guardrails.add("unknown_action_key");
         }
 
         PolicyLevel policy = rule.policy();
-        String automationMode = rule.automationMode();
-        risks.addAll(rule.risks());
+        String automationMode = rule.automationModeOrDefault();
+        risks.addAll(rule.risksOrEmpty());
         String policyText = action + "\n" + reason + "\n" + context;
 
         List<String> neverRisks = matched(policyText, NEVER);
@@ -107,7 +119,7 @@ public class PolicyEngine {
         boolean automationAllowed = policy == PolicyLevel.AUTO_SAFE
             && !"llm".equals(normalizedSource)
             && guardrails.isEmpty();
-        ActionPlan executionPlan = actionPlan(key);
+        ActionPlan executionPlan = catalogService.actionPlan(key);
         return new RecommendedAction(
             action,
             policy,
@@ -122,188 +134,6 @@ public class PolicyEngine {
             dedupe(risks),
             executionPlan
         );
-    }
-
-    private ActionPlan actionPlan(String key) {
-        return switch (key) {
-            case "restart_kubelet" -> plan(
-                "restart_systemd_unit",
-                Map.of("unit", "kubelet"),
-                List.of("systemctl restart kubelet", "systemctl is-active kubelet"),
-                false,
-                60
-            );
-            case "restart_containerd" -> plan(
-                "restart_systemd_unit",
-                Map.of("unit", "containerd"),
-                List.of("systemctl restart containerd", "systemctl is-active containerd"),
-                false,
-                90
-            );
-            case "restart_container_runtime" -> plan(
-                "restart_detected_runtime",
-                Map.of(),
-                List.of("systemctl restart <detected-runtime>", "systemctl is-active <detected-runtime>"),
-                false,
-                90
-            );
-            case "cordon_node" -> new ActionPlan(
-                "kubectl_cordon",
-                Map.of("node", "<incident-node>"),
-                List.of("kubectl cordon <incident-node>"),
-                null,
-                false,
-                60
-            );
-            case "drain_node" -> new ActionPlan(
-                "kubectl_drain",
-                Map.of("node", "<incident-node>"),
-                List.of("kubectl drain <incident-node> --ignore-daemonsets --delete-emptydir-data"),
-                null,
-                false,
-                900
-            );
-            case "update_cni_mtu" -> new ActionPlan(
-                "gitops_patch",
-                Map.of(),
-                List.of(),
-                "spec:\n  template:\n    spec:\n      containers:\n        - name: cni\n          env:\n            - name: MTU\n              value: \"<review-required>\"",
-                false,
-                0
-            );
-            case "increase_conntrack_limit" -> new ActionPlan(
-                "gitops_patch",
-                Map.of(),
-                List.of("sysctl net.netfilter.nf_conntrack_max"),
-                "net.netfilter.nf_conntrack_max: <review-required>",
-                false,
-                0
-            );
-            case "inspect_storage_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("df -hT", "df -i", "iostat -xz 1 5"),
-                false,
-                30
-            );
-            case "inspect_network_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("ip -s link", "ip route", "ss -s", "conntrack -S"),
-                false,
-                30
-            );
-            case "inspect_kernel_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("dmesg -T | tail -n 300"),
-                false,
-                30
-            );
-            case "inspect_memory_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("free -m", "vmstat 1 5", "dmesg -T | grep -i -E 'oom|out of memory'"),
-                false,
-                30
-            );
-            case "inspect_process_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("ps -eLf | wc -l", "ps -eo stat,ppid,pid,cmd | grep '^Z'"),
-                false,
-                30
-            );
-            case "inspect_systemd_state" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of("systemctl --failed --no-pager", "journalctl -p warning..alert --since '-30 min'"),
-                false,
-                30
-            );
-            case "inspect_api_server_health" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of(
-                    "kubectl get --raw='/readyz?verbose'",
-                    "kubectl get --raw='/livez?verbose'",
-                    "kubectl -n kube-system get pods -l component=kube-apiserver -o wide"
-                ),
-                false,
-                30
-            );
-            case "inspect_etcd_health" -> plan(
-                "read_only_preview",
-                Map.of(),
-                List.of(
-                    "kubectl get --raw='/readyz?verbose'",
-                    "kubectl -n kube-system get pods -l component=etcd -o wide",
-                    "etcdctl endpoint health --cluster"
-                ),
-                false,
-                30
-            );
-            default -> null;
-        };
-    }
-
-    private ActionPlan plan(
-        String commandKey,
-        Map<String, String> parameters,
-        List<String> preview,
-        boolean executable,
-        int timeoutSeconds
-    ) {
-        return new ActionPlan(commandKey, parameters, preview, null, executable, timeoutSeconds);
-    }
-
-    private static Map<String, Rule> rules() {
-        Map<String, Rule> rules = new LinkedHashMap<>();
-        rules.put("collect_more_evidence", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("collect_linux_low_level_evidence", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_kernel_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_memory_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_process_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_systemd_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_network_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_storage_state", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_api_server_health", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("inspect_etcd_health", rule(PolicyLevel.AUTO_SAFE, "read_only"));
-        rules.put("restart_kubelet", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "node_agent_disruption", "workload_status_change"));
-        rules.put("restart_containerd", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "container_runtime_disruption", "workload_impact"));
-        rules.put("restart_container_runtime", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "container_runtime_disruption", "workload_impact"));
-        rules.put("cordon_node", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "workload_rescheduling", "capacity_reduction"));
-        rules.put("drain_node", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "workload_rescheduling", "pod_eviction"));
-        rules.put("cleanup_disk", rule(PolicyLevel.APPROVAL_REQUIRED, "operator_approval",
-            "data_loss", "runtime_cache_mutation"));
-        rules.put("open_gitops_pr", rule(PolicyLevel.GITOPS_PR_ONLY, "gitops_pr",
-            "configuration_change", "review_required"));
-        rules.put("update_cni_mtu", rule(PolicyLevel.GITOPS_PR_ONLY, "gitops_pr",
-            "network_partition", "configuration_change"));
-        rules.put("update_dns_config", rule(PolicyLevel.GITOPS_PR_ONLY, "gitops_pr",
-            "cluster_dns_disruption", "configuration_change"));
-        rules.put("increase_conntrack_limit", rule(PolicyLevel.GITOPS_PR_ONLY, "gitops_pr",
-            "kernel_parameter_change", "configuration_change"));
-        rules.put("reboot_node", rule(PolicyLevel.NEVER_AUTO_EXECUTE, "prohibited",
-            "node_reboot", "workload_outage"));
-        rules.put("etcd_member_remove", rule(PolicyLevel.NEVER_AUTO_EXECUTE, "prohibited",
-            "quorum_loss", "data_loss"));
-        rules.put("delete_workload", rule(PolicyLevel.NEVER_AUTO_EXECUTE, "prohibited",
-            "service_outage", "data_loss"));
-        rules.put("manual_hardware_check", rule(PolicyLevel.MANUAL_INVESTIGATION, "manual",
-            "external_dependency", "human_judgment_required"));
-        rules.put("manual_investigation", rule(PolicyLevel.MANUAL_INVESTIGATION, "manual",
-            "human_judgment_required"));
-        return Map.copyOf(rules);
-    }
-
-    private static Rule rule(PolicyLevel policy, String mode, String... risks) {
-        return new Rule(policy, mode, List.of(risks));
     }
 
     private static RiskPattern risk(String pattern, String risk) {
@@ -340,9 +170,6 @@ public class PolicyEngine {
 
     private static List<String> dedupe(List<String> values) {
         return values.stream().distinct().toList();
-    }
-
-    private record Rule(PolicyLevel policy, String automationMode, List<String> risks) {
     }
 
     private record RiskPattern(Pattern pattern, String risk) {

@@ -78,6 +78,14 @@
 - action catalog
 - rule catalog
 
+현재 진행:
+
+- classpath 기본 catalog와 외부 JSON override path 추가
+- collector selection을 catalog 기반으로 전환
+- action policy, action plan, recommendation trigger를 catalog 기반으로 전환
+- detector enablement를 rule catalog 기반으로 전환
+- catalog schema validation과 unsafe executable plan 차단 테스트 추가
+
 목표:
 
 - 코드에 고정된 collector/action/rule 정의를 YAML 또는 JSON catalog로 분리
@@ -89,6 +97,7 @@
 - catalog schema validation 실패 시 boot 단계에서 명확히 실패
 - rule/action key 변경이 report, policy, audit과 호환되는지 regression test 추가
 - 잘못된 action catalog가 자동 실행 경로를 만들지 않도록 정책 검증 추가
+- 다음 단계: UI 또는 DB 기반 cluster별 catalog/threshold override 관리
 
 ### Cluster Threshold Override Persistence
 
@@ -151,11 +160,11 @@
 
 ## Next Priority
 
-1. Agent/Webhook/Manifest 인증 회귀 테스트 강화
-2. collector/action/rule catalog 외부화 설계와 schema 추가
-3. cluster별 threshold override 저장 모델 구현
-4. supply-chain scan workflow와 SBOM artifact 추가
-5. 실제 Kubernetes canary 검증 반복
+1. cluster별 threshold override 저장 모델 구현
+2. supply-chain scan workflow와 SBOM artifact 추가
+3. catalog override 운영 UI 또는 DB 관리 모델 검토
+4. 실제 Kubernetes canary 검증 반복
+5. 플랫폼별 collector compatibility matrix 보강
 
 ## Positioning
 

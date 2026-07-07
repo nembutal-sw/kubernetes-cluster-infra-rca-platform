@@ -27,6 +27,7 @@ public class RcaConsoleProperties {
     private final Thresholds thresholds = new Thresholds();
     private final Monitoring monitoring = new Monitoring();
     private final Observability observability = new Observability();
+    private final Catalog catalog = new Catalog();
 
     public String getPublicApiBaseUrl() {
         return publicApiBaseUrl == null ? "" : publicApiBaseUrl.trim();
@@ -130,6 +131,10 @@ public class RcaConsoleProperties {
 
     public Observability getObservability() {
         return observability;
+    }
+
+    public Catalog getCatalog() {
+        return catalog;
     }
 
     public static class Agent {
@@ -263,6 +268,29 @@ public class RcaConsoleProperties {
 
         public void setInitialDelayMs(int initialDelayMs) {
             this.initialDelayMs = initialDelayMs;
+        }
+    }
+
+    public static class Catalog {
+        private String classpathLocation = "classpath:catalog/operational-catalog.json";
+        private String externalPath = "";
+
+        public String getClasspathLocation() {
+            return classpathLocation == null || classpathLocation.isBlank()
+                ? "classpath:catalog/operational-catalog.json"
+                : classpathLocation.trim();
+        }
+
+        public void setClasspathLocation(String classpathLocation) {
+            this.classpathLocation = classpathLocation;
+        }
+
+        public String getExternalPath() {
+            return externalPath == null ? "" : externalPath.trim();
+        }
+
+        public void setExternalPath(String externalPath) {
+            this.externalPath = externalPath;
         }
     }
 
