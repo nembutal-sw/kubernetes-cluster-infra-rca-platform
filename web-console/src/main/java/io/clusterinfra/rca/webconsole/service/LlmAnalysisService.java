@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -31,6 +32,14 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class LlmAnalysisService {
+    private static final String PROMPT_VERSION = "llm-rca-analyzer/v1";
+    private static final int MAX_INPUT_CHARS = 250_000;
+    private static final Set<String> REQUIRED_RESULT_KEYS = Set.of(
+        "summary",
+        "root_cause_candidates",
+        "action_suggestions",
+        "additional_checks"
+    );
     private static final String SYSTEM_PROMPT = """
         You are a Kubernetes node and Linux infrastructure RCA assistant.
         Use only the supplied preprocessed evidence. Never claim that a remediation was executed.
@@ -86,22 +95,21 @@ public class LlmAnalysisService {
         Exception lastFailure = null;
         try {
             String input = objectMapper.writeValueAsString(payload);
-            if (input.length() > 250_000) {
+            if (input.length() > MAX_INPUT_CHARS) {
                 metrics.llmAnalysis("skipped", providerName, Duration.between(startedAt, Instant.now()));
                 return Map.of("status", "skipped", "reason", "preprocessed evidence exceeds llm input limit");
             }
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
                     String content = callWithTimeout(chatModel, input);
-                    Map<String, Object> raw = objectMapper.readValue(stripFence(content), new TypeReference<>() {
-                    });
-                    Map<String, Object> result = normalizeResult(raw);
+                    Map<String, Object> result = parseValidatedResult(content);
                     consecutiveFailures.set(0);
                     circuitOpenUntil.set(null);
                     Map<String, Object> response = new LinkedHashMap<>();
                     response.put("status", "completed");
                     response.put("provider", properties.getLlm().getProvider());
                     response.put("model", properties.getLlm().getModel());
+                    response.put("prompt_version", PROMPT_VERSION);
                     response.put("attempts", attempt);
                     response.put("latency_ms", Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
                     response.put("result", result);
@@ -124,6 +132,7 @@ public class LlmAnalysisService {
         return Map.of(
             "status", "failed",
             "provider", properties.getLlm().getProvider(),
+            "prompt_version", PROMPT_VERSION,
             "attempts", maxAttempts,
             "error", failure.getClass().getSimpleName() + ": " + safeMessage(failure)
         );
@@ -150,9 +159,83 @@ public class LlmAnalysisService {
         }
     }
 
+    private Map<String, Object> parseValidatedResult(String content) throws Exception {
+        Map<String, Object> raw = objectMapper.readValue(extractJsonObject(content), new TypeReference<>() {
+        });
+        validateRawResult(raw);
+        Map<String, Object> normalized = normalizeResult(raw);
+        validateNormalizedResult(normalized);
+        return normalized;
+    }
+
+    private void validateRawResult(Map<String, Object> raw) {
+        List<String> violations = new ArrayList<>();
+        for (String key : REQUIRED_RESULT_KEYS) {
+            if (!raw.containsKey(key)) {
+                violations.add("missing required key: " + key);
+            }
+        }
+        Object summary = raw.get("summary");
+        if (summary != null && !(summary instanceof String) && !(summary instanceof Map<?, ?>)) {
+            violations.add("summary must be a string or object");
+        }
+        requireList(raw, "root_cause_candidates", violations);
+        requireList(raw, "action_suggestions", violations);
+        requireList(raw, "additional_checks", violations);
+        validateMapList(raw.get("root_cause_candidates"), "root_cause_candidates", violations);
+        validateMapList(raw.get("action_suggestions"), "action_suggestions", violations);
+        validateStringList(raw.get("additional_checks"), "additional_checks", violations);
+        if (!violations.isEmpty()) {
+            throw new LlmResponseValidationException(String.join("; ", violations));
+        }
+    }
+
+    private void validateNormalizedResult(Map<String, Object> normalized) {
+        String summary = String.valueOf(normalized.getOrDefault("summary", "")).trim();
+        if (!summary.isBlank()) {
+            return;
+        }
+        if (!mapList(normalized.get("root_cause_candidates"), 1).isEmpty()
+            || !mapList(normalized.get("action_suggestions"), 1).isEmpty()
+            || !stringList(normalized.get("additional_checks"), 1, 100).isEmpty()) {
+            return;
+        }
+        throw new LlmResponseValidationException("response does not contain usable RCA content");
+    }
+
+    private void requireList(Map<String, Object> raw, String key, List<String> violations) {
+        Object value = raw.get(key);
+        if (value != null && !(value instanceof List<?>)) {
+            violations.add(key + " must be a list");
+        }
+    }
+
+    private void validateMapList(Object value, String key, List<String> violations) {
+        if (!(value instanceof List<?> list)) {
+            return;
+        }
+        for (int index = 0; index < Math.min(list.size(), 5); index++) {
+            if (!(list.get(index) instanceof Map<?, ?>)) {
+                violations.add(key + "[" + index + "] must be an object");
+            }
+        }
+    }
+
+    private void validateStringList(Object value, String key, List<String> violations) {
+        if (!(value instanceof List<?> list)) {
+            return;
+        }
+        for (int index = 0; index < Math.min(list.size(), 10); index++) {
+            Object item = list.get(index);
+            if (item instanceof Map<?, ?> || item instanceof List<?>) {
+                violations.add(key + "[" + index + "] must be a string");
+            }
+        }
+    }
+
     private Map<String, Object> normalizeResult(Map<String, Object> raw) {
         Map<String, Object> normalized = new LinkedHashMap<>();
-        normalized.put("summary", limitedString(raw.get("summary"), 2000));
+        normalized.put("summary", summary(raw.get("summary")));
         normalized.put(
             "root_cause_candidates",
             mapList(raw.get("root_cause_candidates"), 5).stream().map(item -> Map.of(
@@ -172,6 +255,25 @@ public class LlmAnalysisService {
         );
         normalized.put("additional_checks", stringList(raw.get("additional_checks"), 10, 1000));
         return normalized;
+    }
+
+    private String summary(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            List<String> parts = new ArrayList<>();
+            appendSummaryPart(parts, "Cause", map.get("most_likely_cause"), 700);
+            appendSummaryPart(parts, "Confidence", map.get("confidence"), 80);
+            appendSummaryPart(parts, "Reasoning", map.get("reasoning"), 1000);
+            String joined = String.join(" | ", parts);
+            return joined.isBlank() ? limitedString(value, 2000) : joined;
+        }
+        return limitedString(value, 2000);
+    }
+
+    private void appendSummaryPart(List<String> parts, String label, Object value, int maxLength) {
+        String text = limitedString(value, maxLength);
+        if (!text.isBlank()) {
+            parts.add(label + ": " + text);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -210,6 +312,41 @@ public class LlmAnalysisService {
     private String limitedString(Object value, int maxLength) {
         String text = value == null ? "" : String.valueOf(value).trim();
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    private String extractJsonObject(String value) {
+        String content = stripFence(value);
+        int start = content.indexOf('{');
+        if (start < 0) {
+            return content;
+        }
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int index = start; index < content.length(); index++) {
+            char current = content.charAt(index);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (current == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (current == '"') {
+                inString = true;
+            } else if (current == '{') {
+                depth++;
+            } else if (current == '}') {
+                depth--;
+                if (depth == 0) {
+                    return content.substring(start, index + 1);
+                }
+            }
+        }
+        return content;
     }
 
     private String stripFence(String value) {
@@ -281,5 +418,11 @@ public class LlmAnalysisService {
     @PreDestroy
     public void shutdown() {
         executor.close();
+    }
+
+    static class LlmResponseValidationException extends RuntimeException {
+        LlmResponseValidationException(String message) {
+            super(message);
+        }
     }
 }

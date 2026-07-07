@@ -57,6 +57,7 @@ class LlmAnalysisServiceTests {
         Map<String, Object> result = service.analyze(Map.of("schema_version", "1.0"));
 
         assertThat(result.get("status")).isEqualTo("completed");
+        assertThat(result.get("prompt_version")).isEqualTo("llm-rca-analyzer/v1");
         @SuppressWarnings("unchecked")
         Map<String, Object> normalized = (Map<String, Object>) result.get("result");
         assertThat(normalized).containsOnlyKeys(
@@ -69,6 +70,61 @@ class LlmAnalysisServiceTests {
             .contains("inode exhaustion")
             .contains("manual_investigation")
             .doesNotContain("untrusted_extra");
+    }
+
+    @Test
+    void extractsJsonObjectFromExplanatoryProviderText() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(response("""
+            The result is below.
+
+            ```json
+            {
+              "summary": {
+                "most_likely_cause": "kubelet could not report healthy status",
+                "confidence": "medium",
+                "reasoning": "node condition and kubelet status match"
+              },
+              "root_cause_candidates": [],
+              "action_suggestions": [],
+              "additional_checks": ["kubectl describe node <node>"]
+            }
+            ```
+            """));
+        service = service(model, properties());
+
+        Map<String, Object> result = service.analyze(Map.of("schema_version", "1.0"));
+
+        assertThat(result.get("status")).isEqualTo("completed");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> normalized = (Map<String, Object>) result.get("result");
+        assertThat(normalized.get("summary").toString())
+            .contains("Cause: kubelet could not report healthy status")
+            .contains("Confidence: medium")
+            .contains("Reasoning: node condition and kubelet status match");
+    }
+
+    @Test
+    void rejectsSchemaInvalidProviderResponse() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(response("""
+            {
+              "summary": ["not", "a", "summary"],
+              "root_cause_candidates": "not-a-list",
+              "action_suggestions": [],
+              "additional_checks": [{"command": "kubectl get nodes"}]
+            }
+            """));
+        service = service(model, properties());
+
+        Map<String, Object> result = service.analyze(Map.of("schema_version", "1.0"));
+
+        assertThat(result.get("status")).isEqualTo("failed");
+        assertThat(String.valueOf(result.get("error")))
+            .contains("LlmResponseValidationException")
+            .contains("summary must be a string or object")
+            .contains("root_cause_candidates must be a list")
+            .contains("additional_checks[0] must be a string");
     }
 
     @Test
