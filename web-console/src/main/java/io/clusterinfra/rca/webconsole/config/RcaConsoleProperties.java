@@ -1,5 +1,8 @@
 package io.clusterinfra.rca.webconsole.config;
 
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "rca")
@@ -796,15 +799,17 @@ public class RcaConsoleProperties {
         private double inodeCriticalPercent = 90;
         private double memoryCriticalPercent = 90;
         private double pidWarningPercent = 85;
+        private double pidCriticalPercent = 95;
         private double conntrackWarningPercent = 80;
         private double conntrackCriticalPercent = 95;
         private double diskAwaitWarningMs = 20;
         private double dnsLatencyWarningMs = 500;
         private double apiServerLatencyWarningMs = 1000;
         private double etcdLatencyWarningMs = 500;
+        private final Map<String, Double> overrides = new LinkedHashMap<>();
 
         public double getDiskWarningPercent() {
-            return diskWarningPercent;
+            return percent("disk.warning.percent", diskWarningPercent, 85);
         }
 
         public void setDiskWarningPercent(double value) {
@@ -812,7 +817,7 @@ public class RcaConsoleProperties {
         }
 
         public double getDiskCriticalPercent() {
-            return diskCriticalPercent;
+            return orderedPercent("disk.critical.percent", diskCriticalPercent, getDiskWarningPercent(), 90);
         }
 
         public void setDiskCriticalPercent(double value) {
@@ -820,7 +825,7 @@ public class RcaConsoleProperties {
         }
 
         public double getInodeWarningPercent() {
-            return inodeWarningPercent;
+            return percent("inode.warning.percent", inodeWarningPercent, 85);
         }
 
         public void setInodeWarningPercent(double value) {
@@ -828,7 +833,7 @@ public class RcaConsoleProperties {
         }
 
         public double getInodeCriticalPercent() {
-            return inodeCriticalPercent;
+            return orderedPercent("inode.critical.percent", inodeCriticalPercent, getInodeWarningPercent(), 90);
         }
 
         public void setInodeCriticalPercent(double value) {
@@ -836,7 +841,7 @@ public class RcaConsoleProperties {
         }
 
         public double getMemoryCriticalPercent() {
-            return memoryCriticalPercent;
+            return percent("memory.critical.percent", memoryCriticalPercent, 90);
         }
 
         public void setMemoryCriticalPercent(double value) {
@@ -844,15 +849,23 @@ public class RcaConsoleProperties {
         }
 
         public double getPidWarningPercent() {
-            return pidWarningPercent;
+            return percent("pid.warning.percent", pidWarningPercent, 85);
         }
 
         public void setPidWarningPercent(double value) {
             pidWarningPercent = value;
         }
 
+        public double getPidCriticalPercent() {
+            return orderedPercent("pid.critical.percent", pidCriticalPercent, getPidWarningPercent(), 95);
+        }
+
+        public void setPidCriticalPercent(double value) {
+            pidCriticalPercent = value;
+        }
+
         public double getConntrackWarningPercent() {
-            return conntrackWarningPercent;
+            return percent("conntrack.warning.percent", conntrackWarningPercent, 80);
         }
 
         public void setConntrackWarningPercent(double value) {
@@ -860,7 +873,7 @@ public class RcaConsoleProperties {
         }
 
         public double getConntrackCriticalPercent() {
-            return conntrackCriticalPercent;
+            return orderedPercent("conntrack.critical.percent", conntrackCriticalPercent, getConntrackWarningPercent(), 95);
         }
 
         public void setConntrackCriticalPercent(double value) {
@@ -868,7 +881,7 @@ public class RcaConsoleProperties {
         }
 
         public double getDiskAwaitWarningMs() {
-            return diskAwaitWarningMs;
+            return positive("disk.await.warning.ms", diskAwaitWarningMs, 20);
         }
 
         public void setDiskAwaitWarningMs(double value) {
@@ -876,7 +889,7 @@ public class RcaConsoleProperties {
         }
 
         public double getDnsLatencyWarningMs() {
-            return dnsLatencyWarningMs;
+            return positive("dns.latency.warning.ms", dnsLatencyWarningMs, 500);
         }
 
         public void setDnsLatencyWarningMs(double value) {
@@ -884,7 +897,7 @@ public class RcaConsoleProperties {
         }
 
         public double getApiServerLatencyWarningMs() {
-            return apiServerLatencyWarningMs;
+            return positive("api-server.latency.warning.ms", apiServerLatencyWarningMs, 1000);
         }
 
         public void setApiServerLatencyWarningMs(double value) {
@@ -892,11 +905,80 @@ public class RcaConsoleProperties {
         }
 
         public double getEtcdLatencyWarningMs() {
-            return etcdLatencyWarningMs;
+            return positive("etcd.latency.warning.ms", etcdLatencyWarningMs, 500);
         }
 
         public void setEtcdLatencyWarningMs(double value) {
             etcdLatencyWarningMs = value;
+        }
+
+        public Map<String, Double> getOverrides() {
+            return overrides;
+        }
+
+        public void setOverrides(Map<String, Double> values) {
+            overrides.clear();
+            if (values == null) {
+                return;
+            }
+            values.forEach((key, value) -> {
+                if (key != null && value != null) {
+                    overrides.put(normalizeKey(key), value);
+                }
+            });
+        }
+
+        public Map<String, Double> activeValues() {
+            Map<String, Double> values = new LinkedHashMap<>();
+            values.put("disk.warning.percent", getDiskWarningPercent());
+            values.put("disk.critical.percent", getDiskCriticalPercent());
+            values.put("inode.warning.percent", getInodeWarningPercent());
+            values.put("inode.critical.percent", getInodeCriticalPercent());
+            values.put("memory.critical.percent", getMemoryCriticalPercent());
+            values.put("pid.warning.percent", getPidWarningPercent());
+            values.put("pid.critical.percent", getPidCriticalPercent());
+            values.put("conntrack.warning.percent", getConntrackWarningPercent());
+            values.put("conntrack.critical.percent", getConntrackCriticalPercent());
+            values.put("disk.await.warning.ms", getDiskAwaitWarningMs());
+            values.put("dns.latency.warning.ms", getDnsLatencyWarningMs());
+            values.put("api-server.latency.warning.ms", getApiServerLatencyWarningMs());
+            values.put("etcd.latency.warning.ms", getEtcdLatencyWarningMs());
+            return values;
+        }
+
+        private double percent(String key, double configured, double fallback) {
+            double value = raw(key, configured);
+            if (!Double.isFinite(value) || value <= 0 || value > 100) {
+                return fallback;
+            }
+            return value;
+        }
+
+        private double orderedPercent(String key, double configured, double minimum, double fallback) {
+            double value = percent(key, configured, fallback);
+            if (value < minimum) {
+                return Math.max(minimum, fallback);
+            }
+            return value;
+        }
+
+        private double positive(String key, double configured, double fallback) {
+            double value = raw(key, configured);
+            if (!Double.isFinite(value) || value <= 0) {
+                return fallback;
+            }
+            return value;
+        }
+
+        private double raw(String key, double configured) {
+            return overrides.getOrDefault(normalizeKey(key), configured);
+        }
+
+        private String normalizeKey(String key) {
+            return key.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('_', '.')
+                .replace('-', '.');
         }
     }
 

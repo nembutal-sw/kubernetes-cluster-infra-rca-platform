@@ -46,6 +46,16 @@ spring:
       embedding: ${RCA_SPRING_AI_EMBEDDING_MODEL:none}
       image: ${RCA_SPRING_AI_IMAGE_MODEL:none}
       moderation: ${RCA_SPRING_AI_MODERATION_MODEL:none}
+    openai-sdk:
+      api-key: ${SPRING_AI_OPENAI_SDK_API_KEY:${RCA_LLM_API_KEY:}}
+      base-url: ${SPRING_AI_OPENAI_SDK_BASE_URL:${RCA_LLM_BASE_URL:}}
+    anthropic:
+      api-key: ${SPRING_AI_ANTHROPIC_API_KEY:${RCA_LLM_API_KEY:}}
+    google:
+      genai:
+        api-key: ${SPRING_AI_GOOGLE_GENAI_API_KEY:${RCA_LLM_API_KEY:}}
+    ollama:
+      base-url: ${SPRING_AI_OLLAMA_BASE_URL:${RCA_LLM_BASE_URL:http://localhost:11434}}
 
 management:
   endpoints:
@@ -164,6 +174,7 @@ rca:
     inode-critical-percent: ${RCA_THRESHOLD_INODE_CRITICAL_PERCENT:90}
     memory-critical-percent: ${RCA_THRESHOLD_MEMORY_CRITICAL_PERCENT:90}
     pid-warning-percent: ${RCA_THRESHOLD_PID_WARNING_PERCENT:85}
+    pid-critical-percent: ${RCA_THRESHOLD_PID_CRITICAL_PERCENT:95}
     conntrack-warning-percent: ${RCA_THRESHOLD_CONNTRACK_WARNING_PERCENT:80}
     conntrack-critical-percent: ${RCA_THRESHOLD_CONNTRACK_CRITICAL_PERCENT:95}
     disk-await-warning-ms: ${RCA_THRESHOLD_DISK_AWAIT_WARNING_MS:20}

@@ -42,3 +42,31 @@ threshold detector는 어떤 field가 어떤 기준을 넘었는지 저장합니
 
 Detector enable/disable 및 cluster별 threshold override는 이후 설정 계층에서
 `SignalDetector.enabled()`와 `AnalysisContext`에 연결할 수 있습니다.
+
+## Threshold Overrides
+
+Detector 기준값은 기본적으로 `rca.thresholds.*` 설정에서 읽습니다. 운영 환경별로 디스크, inode, PID, conntrack, DNS, API Server, etcd 기준이 다를 수 있으므로 환경변수 또는 Helm values로 조정합니다.
+
+대표 환경변수:
+
+- `RCA_THRESHOLD_DISK_WARNING_PERCENT`
+- `RCA_THRESHOLD_DISK_CRITICAL_PERCENT`
+- `RCA_THRESHOLD_PID_WARNING_PERCENT`
+- `RCA_THRESHOLD_PID_CRITICAL_PERCENT`
+- `RCA_THRESHOLD_CONNTRACK_WARNING_PERCENT`
+- `RCA_THRESHOLD_CONNTRACK_CRITICAL_PERCENT`
+- `RCA_THRESHOLD_DNS_LATENCY_WARNING_MS`
+- `RCA_THRESHOLD_API_SERVER_LATENCY_WARNING_MS`
+- `RCA_THRESHOLD_ETCD_LATENCY_WARNING_MS`
+
+`rca.thresholds.overrides` map도 사용할 수 있습니다. 예:
+
+```yaml
+rca:
+  thresholds:
+    overrides:
+      disk.warning.percent: 82
+      pid.critical.percent: 92
+```
+
+percent 값이 0 이하이거나 100을 초과하면 기본값을 사용합니다. critical percent는 warning percent보다 낮아지지 않습니다.

@@ -156,13 +156,24 @@ public class ProductionSecurityValidator implements InitializingBean {
         if ("".equals(credentialProperty)) {
             violations.add("RCA_LLM_PROVIDER is not supported: " + provider);
         } else if (credentialProperty != null
-            && normalized(environment.getProperty(credentialProperty, "")).isEmpty()) {
-            violations.add(credentialProperty + " is required for the configured LLM provider");
+            && !hasAnyConfiguredValue(credentialProperty, "RCA_LLM_API_KEY")) {
+            violations.add(credentialProperty + " or RCA_LLM_API_KEY is required for the configured LLM provider");
         }
         if (("openai_compatible".equals(provider) || "self_hosted".equals(provider))
-            && normalized(environment.getProperty("spring.ai.openai-sdk.base-url", "")).isEmpty()) {
-            violations.add("spring.ai.openai-sdk.base-url is required for RCA_LLM_PROVIDER=" + provider);
+            && !hasAnyConfiguredValue("spring.ai.openai-sdk.base-url", "RCA_LLM_BASE_URL")) {
+            violations.add(
+                "spring.ai.openai-sdk.base-url or RCA_LLM_BASE_URL is required for RCA_LLM_PROVIDER=" + provider
+            );
         }
+    }
+
+    private boolean hasAnyConfiguredValue(String... propertyNames) {
+        for (String propertyName : propertyNames) {
+            if (!normalized(environment.getProperty(propertyName, "")).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void validateNotification(List<String> violations) {

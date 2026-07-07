@@ -94,6 +94,8 @@ spec:
               value: {{ .Values.platform.config.llmModel | quote }}
             - name: RCA_SPRING_AI_CHAT_MODEL
               value: {{ .Values.platform.config.springAiChatModel | quote }}
+            - name: RCA_LLM_MAX_OUTPUT_TOKENS
+              value: {{ .Values.platform.config.llmMaxOutputTokens | quote }}
             - name: RCA_LLM_TIMEOUT_SECONDS
               value: {{ .Values.platform.config.llmTimeoutSeconds | quote }}
             - name: RCA_LLM_MAX_OUTPUT_TOKENS
@@ -180,6 +182,32 @@ spec:
               value: {{ .Values.platform.config.pipelineRetryBaseSeconds | quote }}
             - name: RCA_PIPELINE_RETRY_MAX_SECONDS
               value: {{ .Values.platform.config.pipelineRetryMaxSeconds | quote }}
+            - name: RCA_THRESHOLD_DISK_WARNING_PERCENT
+              value: {{ .Values.platform.config.thresholdDiskWarningPercent | quote }}
+            - name: RCA_THRESHOLD_DISK_CRITICAL_PERCENT
+              value: {{ .Values.platform.config.thresholdDiskCriticalPercent | quote }}
+            - name: RCA_THRESHOLD_INODE_WARNING_PERCENT
+              value: {{ .Values.platform.config.thresholdInodeWarningPercent | quote }}
+            - name: RCA_THRESHOLD_INODE_CRITICAL_PERCENT
+              value: {{ .Values.platform.config.thresholdInodeCriticalPercent | quote }}
+            - name: RCA_THRESHOLD_MEMORY_CRITICAL_PERCENT
+              value: {{ .Values.platform.config.thresholdMemoryCriticalPercent | quote }}
+            - name: RCA_THRESHOLD_PID_WARNING_PERCENT
+              value: {{ .Values.platform.config.thresholdPidWarningPercent | quote }}
+            - name: RCA_THRESHOLD_PID_CRITICAL_PERCENT
+              value: {{ .Values.platform.config.thresholdPidCriticalPercent | quote }}
+            - name: RCA_THRESHOLD_CONNTRACK_WARNING_PERCENT
+              value: {{ .Values.platform.config.thresholdConntrackWarningPercent | quote }}
+            - name: RCA_THRESHOLD_CONNTRACK_CRITICAL_PERCENT
+              value: {{ .Values.platform.config.thresholdConntrackCriticalPercent | quote }}
+            - name: RCA_THRESHOLD_DISK_AWAIT_WARNING_MS
+              value: {{ .Values.platform.config.thresholdDiskAwaitWarningMs | quote }}
+            - name: RCA_THRESHOLD_DNS_LATENCY_WARNING_MS
+              value: {{ .Values.platform.config.thresholdDnsLatencyWarningMs | quote }}
+            - name: RCA_THRESHOLD_API_SERVER_LATENCY_WARNING_MS
+              value: {{ .Values.platform.config.thresholdApiServerLatencyWarningMs | quote }}
+            - name: RCA_THRESHOLD_ETCD_LATENCY_WARNING_MS
+              value: {{ .Values.platform.config.thresholdEtcdLatencyWarningMs | quote }}
             - name: SERVER_SHUTDOWN
               value: graceful
             {{- range $key, $value := .Values.platform.env }}

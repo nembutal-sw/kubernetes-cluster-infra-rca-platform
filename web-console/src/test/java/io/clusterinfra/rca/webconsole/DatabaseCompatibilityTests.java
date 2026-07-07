@@ -7,10 +7,12 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
@@ -24,15 +26,33 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
-import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore;
+import io.clusterinfra.rca.webconsole.persistence.ActionRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
+import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
+import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
+import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
+import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.persistence.RetentionRepository;
 import io.clusterinfra.rca.webconsole.persistence.RetentionRepository.RetentionCutoffs;
+import io.clusterinfra.rca.webconsole.persistence.UserRepository;
+import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.IntStream;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
@@ -118,26 +138,45 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(13);
+        assertThat(migration.migrationsExecuted).isEqualTo(15);
 
-        JdbcRcaStore repository = repository(dataSource);
-        var admin = repository.ensureDefaultAdmin("admin", "admin");
-        assertThat(repository.authenticateUser("admin", "admin")).contains(admin);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        UserRepository users = userRepository(dataSource);
+        UserSessionRepository sessions = userSessionRepository(dataSource);
+        ActionRepository actions = actionRepository(dataSource);
+        AuditRepository audits = auditRepository(dataSource);
+        ClusterRepository clusters = clusterRepository(dataSource);
+        AgentRepository agents = agentRepository(dataSource);
+        AnalysisTaskRepository tasks = analysisTaskRepository(dataSource);
+        EvidenceRepository evidence = evidenceRepository(dataSource);
+        IncidentRepository incidents = incidentRepository(dataSource);
+        ReportRepository reports = reportRepository(dataSource);
+        var admin = users.ensureDefaultAdmin("admin", "admin");
+        assertThat(users.authenticate("admin", "admin")).contains(admin);
 
-        String sessionToken = repository.createUserSession(
+        String sessionToken = sessions.create(
             admin.userId(),
             Instant.now().plus(1, ChronoUnit.HOURS)
         );
-        assertThat(repository.getUserBySessionToken(sessionToken)).contains(admin);
-        assertThat(repository.revokeUserSession(sessionToken)).isTrue();
-        assertThat(repository.getUserBySessionToken(sessionToken)).isEmpty();
+        assertThat(sessions.findUserByToken(sessionToken)).contains(admin);
+        assertThat(sessions.revoke(sessionToken)).isTrue();
+        assertThat(sessions.findUserByToken(sessionToken)).isEmpty();
 
-        Cluster cluster = repository.createCluster(new ClusterCreateRequest(
+        Cluster cluster = clusters.create(new ClusterCreateRequest(
             "database-compatibility",
             "test",
             "Cross-database integration test"
         ));
-        NodeAgentRegistrationResponse registration = repository.registerAgent(new NodeAgentRegisterRequest(
+        assertThat(storedBootstrapToken(jdbc, cluster.clusterId())).isBlank();
+        assertThat(storedBootstrapTokenHash(jdbc, cluster.clusterId())).isNotBlank();
+        assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), cluster.bootstrapToken())).isTrue();
+        assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), "wrong-token")).isFalse();
+        assertThat(jdbc.queryForObject(
+            "SELECT bootstrap_token_last_used_at FROM clusters WHERE cluster_id = ?",
+            Timestamp.class,
+            cluster.clusterId()
+        )).isNotNull();
+        NodeAgentRegistrationResponse registration = agents.register(new NodeAgentRegisterRequest(
             cluster.clusterId(),
             "worker-a",
             cluster.bootstrapToken(),
@@ -145,14 +184,14 @@ class DatabaseCompatibilityTests {
             List.of("disk", "inode", "kernel"),
             Map.of("platform", "testcontainers")
         ));
-        assertThat(repository.verifyAgentNodeToken(
+        assertThat(agents.verifyNodeToken(
             cluster.clusterId(),
             "worker-a",
             registration.nodeToken()
         )).isTrue();
         assertThat(registration.agentProtocolVersion()).isEqualTo("1");
 
-        assertThat(repository.recordAgentHeartbeat(new NodeAgentHeartbeatRequest(
+        assertThat(agents.heartbeat(new NodeAgentHeartbeatRequest(
             cluster.clusterId(),
             "worker-a",
             cluster.bootstrapToken(),
@@ -162,10 +201,10 @@ class DatabaseCompatibilityTests {
             List.of("disk", "inode", "kernel"),
             Map.of("ready", true)
         ))).isPresent();
-        assertThat(repository.getAgent(cluster.clusterId(), "worker-a").orElseThrow().agentProtocolVersion())
+        assertThat(agents.find(cluster.clusterId(), "worker-a").orElseThrow().agentProtocolVersion())
             .isEqualTo("1");
 
-        EvidenceRequest evidenceRequest = repository.createEvidenceRequest(new EvidenceRequestCreateRequest(
+        EvidenceRequest evidenceRequest = evidence.createRequest(new EvidenceRequestCreateRequest(
             cluster.clusterId(),
             "worker-a",
             "DiskPressure",
@@ -174,7 +213,7 @@ class DatabaseCompatibilityTests {
             "Database compatibility test",
             Map.of("source", "testcontainers")
         ));
-        EvidenceRequest completed = repository.submitEvidenceResponse(
+        EvidenceRequest completed = evidence.submitResponse(
             new AgentEvidenceSubmitRequest(
                 evidenceRequest.requestId(),
                 cluster.clusterId(),
@@ -192,12 +231,12 @@ class DatabaseCompatibilityTests {
         ).orElseThrow();
 
         assertThat(completed.evidenceId()).isNotBlank();
-        assertThat(repository.getEvidence(completed.evidenceId()).orElseThrow().collectors())
+        assertThat(evidence.find(completed.evidenceId()).orElseThrow().collectors())
             .containsKeys("disk", "inode");
-        var queuedTask = repository.getAnalysisTaskByEvidenceId(completed.evidenceId()).orElseThrow();
+        var queuedTask = tasks.findByEvidence(completed.evidenceId()).orElseThrow();
         assertThat(queuedTask.status()).isEqualTo(AnalysisTaskStatus.queued);
         Instant claimAt = Instant.now();
-        var firstClaim = repository.claimAnalysisTasks(
+        var firstClaim = tasks.claim(
             "database-worker",
             1,
             claimAt,
@@ -205,16 +244,16 @@ class DatabaseCompatibilityTests {
         );
         assertThat(firstClaim).hasSize(1);
         assertThat(firstClaim.get(0).attemptCount()).isEqualTo(1);
-        assertThat(repository.failAnalysisTask(
+        assertThat(tasks.fail(
             firstClaim.get(0),
             "database-worker",
             "temporary provider failure",
             claimAt.plusSeconds(1)
         )).isTrue();
-        assertThat(repository.getAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+        assertThat(tasks.find(queuedTask.taskId()).orElseThrow().status())
             .isEqualTo(AnalysisTaskStatus.retry_wait);
 
-        var secondClaim = repository.claimAnalysisTasks(
+        var secondClaim = tasks.claim(
             "database-worker",
             1,
             claimAt.plusSeconds(2),
@@ -222,16 +261,17 @@ class DatabaseCompatibilityTests {
         );
         assertThat(secondClaim).hasSize(1);
         assertThat(secondClaim.get(0).attemptCount()).isEqualTo(2);
-        assertThat(repository.failAnalysisTask(
+        assertThat(tasks.fail(
             secondClaim.get(0),
             "database-worker",
             "provider unavailable",
             claimAt.plusSeconds(3)
         )).isTrue();
-        assertThat(repository.getAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+        assertThat(tasks.find(queuedTask.taskId()).orElseThrow().status())
             .isEqualTo(AnalysisTaskStatus.dead_letter);
-        assertThat(repository.retryAnalysisTask(queuedTask.taskId()).orElseThrow().status())
+        assertThat(tasks.retry(queuedTask.taskId()).orElseThrow().status())
             .isEqualTo(AnalysisTaskStatus.queued);
+        verifyConcurrentClaimContract(evidence, tasks, cluster.clusterId());
 
         Instant retentionCutoff = Instant.now().minus(3650, ChronoUnit.DAYS);
         var retentionResult = new RetentionRepository(new JdbcTemplate(dataSource)).cleanup(
@@ -288,28 +328,30 @@ class DatabaseCompatibilityTests {
             completed.evidenceId(),
             now
         );
-        repository.saveCorrelatedReportAndJob(
+        incidents.saveCorrelated(
             report,
             job,
             "database-compatibility-dedup-key",
             null,
             false,
-            repository.getEvidence(completed.evidenceId()).orElseThrow()
+            null,
+            0,
+            evidence.find(completed.evidenceId()).orElseThrow()
         );
 
-        RcaReport storedReport = repository.getReport(report.reportId()).orElseThrow();
+        RcaReport storedReport = reports.findReport(report.reportId()).orElseThrow();
         assertThat(storedReport.summary().mostLikelyCause()).isEqualTo("Inode exhaustion");
         assertThat(storedReport.incidentId()).startsWith("incident-");
-        var storedIncident = repository.getIncident(storedReport.incidentId()).orElseThrow();
+        var storedIncident = incidents.find(storedReport.incidentId()).orElseThrow();
         assertThat(storedIncident.occurrenceCount()).isEqualTo(1);
-        assertThat(repository.listRecentOpenIncidents(
+        assertThat(incidents.findRecentOpen(
             cluster.clusterId(),
             "worker-a",
             now.minus(1, ChronoUnit.HOURS),
             now.plus(1, ChronoUnit.HOURS),
             10
         )).extracting(incident -> incident.incidentId()).contains(storedIncident.incidentId());
-        assertThat(repository.getJob(job.jobId())).contains(job);
+        assertThat(reports.findJob(job.jobId())).contains(job);
 
         RcaReport promotedReport = new RcaReport(
             "report-db-promoted",
@@ -335,19 +377,21 @@ class DatabaseCompatibilityTests {
             completed.evidenceId(),
             now.plusSeconds(1)
         );
-        repository.saveCorrelatedReportAndJob(
+        incidents.saveCorrelated(
             promotedReport,
             promotedJob,
             "unused-when-matched",
             storedIncident.incidentId(),
             true,
-            repository.getEvidence(completed.evidenceId()).orElseThrow()
+            null,
+            0,
+            evidence.find(completed.evidenceId()).orElseThrow()
         );
-        var promotedIncident = repository.getIncident(storedIncident.incidentId()).orElseThrow();
+        var promotedIncident = incidents.find(storedIncident.incidentId()).orElseThrow();
         assertThat(promotedIncident.latestReportId()).isEqualTo(promotedReport.reportId());
         assertThat(promotedIncident.rootCause()).isEqualTo("Kernel I/O error");
         assertThat(promotedIncident.occurrenceCount()).isEqualTo(2);
-        var resolvedIncident = repository.updateIncidentStatus(
+        var resolvedIncident = incidents.updateStatus(
             storedIncident.incidentId(),
             io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus.resolved,
             "automatic",
@@ -381,7 +425,7 @@ class DatabaseCompatibilityTests {
             completed.evidenceId(),
             now.plusSeconds(3)
         );
-        repository.saveCorrelatedReportAndJob(
+        incidents.saveCorrelated(
             recurrenceReport,
             recurrenceJob,
             "database-compatibility-recurrence-key",
@@ -389,15 +433,15 @@ class DatabaseCompatibilityTests {
             false,
             storedIncident.incidentId(),
             1,
-            repository.getEvidence(completed.evidenceId()).orElseThrow()
+            evidence.find(completed.evidenceId()).orElseThrow()
         );
-        var recurrenceIncident = repository.getIncident(
-            repository.getReport(recurrenceReport.reportId()).orElseThrow().incidentId()
+        var recurrenceIncident = incidents.find(
+            reports.findReport(recurrenceReport.reportId()).orElseThrow().incidentId()
         ).orElseThrow();
         assertThat(recurrenceIncident.recurrenceOfIncidentId()).isEqualTo(storedIncident.incidentId());
         assertThat(recurrenceIncident.recurrenceSequence()).isEqualTo(1);
 
-        var actionRequest = repository.createActionRequest(
+        var actionRequest = actions.createRequest(
             report.reportId(),
             0,
             action.actionKey(),
@@ -408,8 +452,8 @@ class DatabaseCompatibilityTests {
             "database compatibility",
             null
         );
-        assertThat(repository.getActionRequest(actionRequest.actionRequestId())).contains(actionRequest);
-        repository.saveAuditEvent(
+        assertThat(actions.findRequest(actionRequest.actionRequestId())).contains(actionRequest);
+        audits.save(
             "user",
             admin.email(),
             "database.compatibility",
@@ -418,9 +462,9 @@ class DatabaseCompatibilityTests {
             "new_incident_linked_to_resolved_incident",
             Map.of("database", "testcontainers")
         );
-        assertThat(repository.listAuditEvents(10)).hasSize(1);
-        assertThat(repository.deleteCluster(cluster.clusterId())).isTrue();
-        assertThat(repository.getCluster(cluster.clusterId())).isEmpty();
+        assertThat(audits.list(10)).hasSize(1);
+        assertThat(clusters.delete(cluster.clusterId())).isTrue();
+        assertThat(clusters.find(cluster.clusterId())).isEmpty();
     }
 
     private void verifyExistingSchemaBaseline(DataSource dataSource) {
@@ -487,24 +531,88 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(12);
+        assertThat(migration.migrationsExecuted).isEqualTo(14);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class
         )).isEqualTo(1);
 
-        JdbcRcaStore repository = repository(dataSource);
-        assertThat(repository.authenticateUser("admin", "admin")).isPresent();
-        assertThat(repository.getCluster("cluster-legacy").orElseThrow().name()).isEqualTo("legacy-cluster");
-        assertThat(repository.getReport("report-legacy").orElseThrow().summary().mostLikelyCause())
+        UserRepository users = userRepository(dataSource);
+        ClusterRepository clusters = clusterRepository(dataSource);
+        ReportRepository reports = reportRepository(dataSource);
+        assertThat(users.authenticate("admin", "admin")).isPresent();
+        assertThat(clusters.find("cluster-legacy").orElseThrow().name()).isEqualTo("legacy-cluster");
+        assertThat(clusters.verifyBootstrapToken("cluster-legacy", "legacy-bootstrap-token")).isTrue();
+        assertThat(storedBootstrapToken(jdbc, "cluster-legacy")).isBlank();
+        assertThat(storedBootstrapTokenHash(jdbc, "cluster-legacy")).isNotBlank();
+        assertThat(reports.findReport("report-legacy").orElseThrow().summary().mostLikelyCause())
             .isEqualTo("kubelet unavailable");
 
-        Cluster newCluster = repository.createCluster(new ClusterCreateRequest(
+        Cluster newCluster = clusters.create(new ClusterCreateRequest(
             "post-migration-cluster",
             "test",
             null
         ));
-        assertThat(repository.getCluster(newCluster.clusterId())).isPresent();
+        assertThat(clusters.find(newCluster.clusterId())).isPresent();
+    }
+
+    private void verifyConcurrentClaimContract(
+        EvidenceRepository evidence,
+        AnalysisTaskRepository tasks,
+        String clusterId
+    ) {
+        IntStream.range(0, 12).forEach(index -> evidence.saveAndEnqueue(
+            new EvidenceBundle(
+                null,
+                clusterId,
+                "db-worker-" + index,
+                "DiskPressure",
+                Instant.now(),
+                Map.of("disk", Map.of("usage_percent", 90 + index))
+            ),
+            "database_concurrency_test",
+            false,
+            3
+        ));
+        Instant claimAt = Instant.now();
+        Instant leaseUntil = claimAt.plusSeconds(30);
+        CyclicBarrier barrier = new CyclicBarrier(10);
+        List<AnalysisTask> combined = new ArrayList<>();
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(10)) {
+            List<Future<List<AnalysisTask>>> futures = IntStream.range(0, 10)
+                .mapToObj(index -> executor.submit(workerClaim(
+                    tasks,
+                    "db-claim-worker-" + index,
+                    barrier,
+                    claimAt,
+                    leaseUntil
+                )))
+                .toList();
+            for (Future<List<AnalysisTask>> future : futures) {
+                combined.addAll(future.get());
+            }
+        } catch (Exception exception) {
+            throw new AssertionError("database concurrent claim contract failed", exception);
+        }
+
+        assertThat(combined).isNotEmpty();
+        Set<String> uniqueTaskIds = new HashSet<>(combined.stream().map(AnalysisTask::taskId).toList());
+        assertThat(uniqueTaskIds).hasSameSizeAs(combined);
+        combined.forEach(task -> assertThat(task.attemptCount()).isEqualTo(1));
+    }
+
+    private Callable<List<AnalysisTask>> workerClaim(
+        AnalysisTaskRepository tasks,
+        String leaseOwner,
+        CyclicBarrier barrier,
+        Instant claimAt,
+        Instant leaseUntil
+    ) {
+        return () -> {
+            barrier.await();
+            return tasks.claim(leaseOwner, 2, claimAt, leaseUntil);
+        };
     }
 
     private Flyway flyway(DataSource dataSource) {
@@ -516,11 +624,77 @@ class DatabaseCompatibilityTests {
             .load();
     }
 
-    private JdbcRcaStore repository(DataSource dataSource) {
+    private ActionRepository actionRepository(DataSource dataSource) {
+        return new ActionRepository(new JdbcTemplate(dataSource), objectMapper());
+    }
+
+    private AuditRepository auditRepository(DataSource dataSource) {
+        return new AuditRepository(new JdbcTemplate(dataSource), objectMapper());
+    }
+
+    private UserRepository userRepository(DataSource dataSource) {
+        return new UserRepository(new JdbcTemplate(dataSource), new TokenService());
+    }
+
+    private UserSessionRepository userSessionRepository(DataSource dataSource) {
+        return new UserSessionRepository(new JdbcTemplate(dataSource), new TokenService());
+    }
+
+    private AgentRepository agentRepository(DataSource dataSource) {
+        return new AgentRepository(
+            new JdbcTemplate(dataSource),
+            objectMapper(),
+            new TokenService(),
+            clusterRepository(dataSource)
+        );
+    }
+
+    private EvidenceRepository evidenceRepository(DataSource dataSource) {
+        return new EvidenceRepository(
+            new JdbcTemplate(dataSource),
+            objectMapper(),
+            analysisTaskRepository(dataSource),
+            clusterRepository(dataSource)
+        );
+    }
+
+    private AnalysisTaskRepository analysisTaskRepository(DataSource dataSource) {
+        return new AnalysisTaskRepository(new JdbcTemplate(dataSource));
+    }
+
+    private IncidentRepository incidentRepository(DataSource dataSource) {
+        return new IncidentRepository(new JdbcTemplate(dataSource), objectMapper());
+    }
+
+    private ReportRepository reportRepository(DataSource dataSource) {
+        return new ReportRepository(new JdbcTemplate(dataSource), objectMapper());
+    }
+
+    private ClusterRepository clusterRepository(DataSource dataSource) {
+        return new ClusterRepository(new JdbcTemplate(dataSource), new TokenService());
+    }
+
+    private ObjectMapper objectMapper() {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
         objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        return new JdbcRcaStore(new JdbcTemplate(dataSource), objectMapper, new TokenService());
+        return objectMapper;
+    }
+
+    private String storedBootstrapToken(JdbcTemplate jdbc, String clusterId) {
+        return jdbc.queryForObject(
+            "SELECT bootstrap_token FROM clusters WHERE cluster_id = ?",
+            String.class,
+            clusterId
+        );
+    }
+
+    private String storedBootstrapTokenHash(JdbcTemplate jdbc, String clusterId) {
+        return jdbc.queryForObject(
+            "SELECT bootstrap_token_hash FROM clusters WHERE cluster_id = ?",
+            String.class,
+            clusterId
+        );
     }
 
     private DriverManagerDataSource dataSource(String url, String username, String password) {

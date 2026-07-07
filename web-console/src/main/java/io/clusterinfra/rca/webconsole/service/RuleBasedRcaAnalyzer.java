@@ -481,12 +481,19 @@ public class RuleBasedRcaAnalyzer {
             if (cause.isBlank()) {
                 return;
             }
+            List<String> evidencePaths = stringList(item.get("evidence_paths"));
+            List<String> supportingEvidence = new ArrayList<>(stringList(item.get("supporting_evidence")));
+            String scoreReason = string(item.get("score_reason"));
+            if (!scoreReason.isBlank()) {
+                supportingEvidence.add(scoreReason);
+            }
+            supportingEvidence.add("LLM diagnostic-only candidate; rule-based evidence remains the confidence source.");
             merged.add(new RootCauseCandidate(
-                cause,
-                confidence(item.get("confidence")),
-                stringList(item.get("supporting_evidence")),
-                25,
-                List.of()
+                cause.startsWith("LLM diagnostic: ") ? cause : "LLM diagnostic: " + cause,
+                Confidence.low,
+                supportingEvidence,
+                evidencePaths.isEmpty() ? 15 : 25,
+                evidencePaths
             ));
         });
         return merged;

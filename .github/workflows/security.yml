@@ -47,6 +47,29 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+  sbom-and-grype:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create Syft SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: cluster-infra-rca-platform-sbom.spdx.json
+      - name: Scan SBOM with Grype
+        id: grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: cluster-infra-rca-platform-sbom.spdx.json
+          fail-build: true
+          severity-cutoff: critical
+          only-fixed: true
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.grype.outputs.sarif != ''
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+
   codeql:
     strategy:
       fail-fast: false

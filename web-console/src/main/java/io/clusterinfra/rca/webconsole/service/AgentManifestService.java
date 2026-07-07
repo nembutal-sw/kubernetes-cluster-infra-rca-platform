@@ -22,6 +22,7 @@ public class AgentManifestService {
     private static final Pattern KUBERNETES_NAME =
         Pattern.compile("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$");
     private static final String APP_NAME = "cluster-infra-rca-agent";
+    private static final String AGENT_TOKEN_PLACEHOLDER = "ROTATE_AGENT_TOKEN_AND_REPLACE_ME";
 
     private final RcaConsoleProperties properties;
     private final ManifestTokenService manifestTokens;
@@ -81,11 +82,11 @@ public class AgentManifestService {
                 "kubectl create namespace " + validatedNamespace + " --dry-run=client -o yaml | kubectl apply -f -",
                 "kubectl -n " + validatedNamespace + " create secret generic " + APP_NAME
                     + " --from-literal=cluster-id=" + cluster.clusterId()
-                    + " --from-literal=agent-token=" + cluster.bootstrapToken()
+                    + " --from-literal=agent-token=" + agentTokenForManifest(cluster)
                     + " --dry-run=client -o yaml | kubectl apply -f -",
                 manifestCommand
             ),
-            notes
+            notesWithTokenGuidance(notes, cluster)
         );
     }
 
@@ -160,9 +161,25 @@ public class AgentManifestService {
             "type", "Opaque",
             "stringData", map(
                 "cluster-id", cluster.clusterId(),
-                "agent-token", cluster.bootstrapToken()
+                "agent-token", agentTokenForManifest(cluster)
             )
         );
+    }
+
+    private String agentTokenForManifest(Cluster cluster) {
+        return cluster.bootstrapToken() == null || cluster.bootstrapToken().isBlank()
+            ? AGENT_TOKEN_PLACEHOLDER
+            : cluster.bootstrapToken();
+    }
+
+    private List<String> notesWithTokenGuidance(List<String> notes, Cluster cluster) {
+        if (cluster.bootstrapToken() != null && !cluster.bootstrapToken().isBlank()) {
+            return notes;
+        }
+        List<String> updated = new ArrayList<>(notes);
+        updated.add("Agent tokens are shown only when a cluster is created or rotated.");
+        updated.add("Rotate the agent token and replace " + AGENT_TOKEN_PLACEHOLDER + " before applying the Secret.");
+        return List.copyOf(updated);
     }
 
     private Map<String, Object> clusterRole() {

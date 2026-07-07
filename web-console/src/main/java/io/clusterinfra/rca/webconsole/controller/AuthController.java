@@ -7,7 +7,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserLoginIdChangeRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserLoginRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserPasswordChangeRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
-import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore.DuplicateLoginIdException;
+import io.clusterinfra.rca.webconsole.persistence.DuplicateLoginIdException;
 import io.clusterinfra.rca.webconsole.persistence.UserRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;

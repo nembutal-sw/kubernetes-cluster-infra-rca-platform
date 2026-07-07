@@ -19,14 +19,16 @@ public class PidPressureDetector implements SignalDetector {
     public List<Signal> detect(AnalysisContext context) {
         List<Signal> signals = new ArrayList<>();
         context.percentage("pid", "usage", "percent").ifPresent(match -> {
-            double threshold = context.thresholds().getPidWarningPercent();
-            if (match.value() >= threshold) {
+            double warning = context.thresholds().getPidWarningPercent();
+            double critical = context.thresholds().getPidCriticalPercent();
+            if (match.value() >= warning) {
+                boolean severe = match.value() >= critical;
                 signals.add(DetectorSupport.thresholdSignal(
                     "pid_usage_high",
                     "process",
-                    match.value() >= 95 ? "critical" : "warning",
+                    severe ? "critical" : "warning",
                     match,
-                    match.value() >= 95 ? 95 : threshold,
+                    severe ? critical : warning,
                     "PID capacity is close to exhaustion.",
                     "Inspect process fan-out, zombie processes, and container runtime shims.",
                     "process"

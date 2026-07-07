@@ -17,6 +17,7 @@ import io.clusterinfra.rca.webconsole.analysis.detector.KernelLogDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KubeletFailureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodePressureConditionDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodeReadinessDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.PidPressureDetector;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +91,35 @@ class SignalDetectorTests {
         ));
 
         assertThat(new ConntrackPressureDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void pidCriticalThresholdCanBeOverridden() {
+        properties.getThresholds().setPidWarningPercent(80);
+        properties.getThresholds().setPidCriticalPercent(90);
+        AnalysisContext context = context(Map.of(
+            "pid", Map.of("usage_percent", 91)
+        ));
+
+        Signal signal = new PidPressureDetector().detect(context).getFirst();
+
+        assertThat(signal.name()).isEqualTo("pid_usage_high");
+        assertThat(signal.severity()).isEqualTo("critical");
+        assertThat(signal.threshold()).isEqualTo(90.0);
+    }
+
+    @Test
+    void invalidThresholdValuesFallBackToSafeDefaults() {
+        properties.getThresholds().setDiskWarningPercent(150);
+        properties.getThresholds().setDiskCriticalPercent(10);
+        AnalysisContext context = context(Map.of(
+            "disk", Map.of("usage_percent", 91)
+        ));
+
+        Signal signal = new DiskPressureDetector().detect(context).getFirst();
+
+        assertThat(signal.name()).isEqualTo("disk_usage_critical");
+        assertThat(signal.threshold()).isEqualTo(90.0);
     }
 
     @Test

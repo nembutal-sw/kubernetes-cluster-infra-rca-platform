@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -25,6 +26,10 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         this.access = access;
         this.audit = audit;
         this.objectMapper = objectMapper;
+    }
+
+    public static Set<String> protectedPaths() {
+        return Set.of(ALERTMANAGER_PATH);
     }
 
     @Override

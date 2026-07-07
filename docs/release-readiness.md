@@ -26,6 +26,7 @@
 
 - platform image build
 - agent image build
+- Dockerfile base image digest pinning
 - platform build 과정에서 Maven `verify`
 - frontend `npm ci`, TypeScript check, Vite production build
 - Docker Compose LLM env wiring 확인: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`
@@ -36,8 +37,24 @@
 - DB migration 검증 성공
 - image healthcheck 명령 존재
 - production security validator test 성공
+- `scripts/verify-container-pinning.py` 성공
 
-## 3. Smoke Deploy
+## 3. API Security Contract
+
+확인 항목:
+
+- `/api/**` endpoint 인증 누락 여부
+- Agent/Webhook/Manifest 전용 인증 필터 coverage
+- export, evidence bundle, token rotation, cluster delete 역할 범위
+- `/api/v1/platform/info` versioned API 유지
+
+통과 기준:
+
+- `scripts/verify-api-contract.py` 성공
+- 신규 controller 추가 시 인증 누락이 CI에서 실패
+- 민감 export endpoint에 `VIEWER`, `APPROVER` 권한이 들어가지 않음
+
+## 4. Smoke Deploy
 
 기존 운영 컨테이너와 네트워크를 건드리지 않도록 고유한 이름의 DB, platform 컨테이너, Docker network를 사용합니다.
 
@@ -60,7 +77,7 @@
 - 검증용 credential은 서버 내부 파일에만 저장하고 `chmod 600`을 적용합니다.
 - 검증이 끝난 컨테이너를 남겨둘 경우 포트와 credential 위치를 운영자에게 별도로 공유합니다.
 
-## 4. Agent Local Collect
+## 5. Agent Local Collect
 
 서버에서 직접 Node Agent를 실행해 collector 계약을 확인합니다.
 
@@ -93,7 +110,7 @@ Node diagnostics mode:
 - evidence JSON이 UTF-8로 저장됨
 - 민감정보 redaction 적용
 
-## 5. Kubernetes Canary
+## 6. Kubernetes Canary
 
 실제 Kubernetes 또는 kind 같은 검증 클러스터에서 DaemonSet canary를 먼저 확인합니다.
 
@@ -123,12 +140,16 @@ Node diagnostics mode:
 
 - Helm lint/template 통과
 - `scripts/release-readiness-check.py` 통과
+- `scripts/verify-api-contract.py` 통과
+- `scripts/verify-container-pinning.py` 통과
 - platform/agent image build 성공
 - Maven test 성공
+- Node Agent pytest 성공
 - smoke deploy에서 ready/login/cluster create 성공
 - node diagnostics local collect 성공
 - Kubernetes canary DaemonSet rollout 성공
 - canary evidence collection 완료
+- Gitleaks, Trivy, Syft SBOM, Grype scan 통과
 - 검증 중 발견한 회귀는 테스트로 고정
 
 CI에서 확인하는 운영 계약:
@@ -139,3 +160,6 @@ CI에서 확인하는 운영 계약:
 - backend scheduled monitoring evidence context 포함
 - kind smoke에서 agent 등록, evidence 완료, report 생성 확인
 - DaemonSet hostPath/read-only posture 검사 스크립트 유지
+- API route authorization, custom filter coverage, sensitive export role 검사
+- Docker base image digest pinning 검사
+- supply-chain security scan workflow 유지

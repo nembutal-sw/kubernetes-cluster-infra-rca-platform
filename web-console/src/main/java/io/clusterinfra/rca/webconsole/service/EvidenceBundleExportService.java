@@ -9,10 +9,12 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundleManifestSum
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentTimeline;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +44,7 @@ public class EvidenceBundleExportService {
     private final IncidentTimelineService timelines;
     private final RcaConsoleProperties properties;
     private final ObjectMapper objectMapper;
+    private final AuditService audit;
 
     public EvidenceBundleExportService(
         ReportRepository reports,
@@ -49,7 +52,8 @@ public class EvidenceBundleExportService {
         EvidenceRepository evidence,
         IncidentTimelineService timelines,
         RcaConsoleProperties properties,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        AuditService audit
     ) {
         this.reports = reports;
         this.incidents = incidents;
@@ -57,6 +61,7 @@ public class EvidenceBundleExportService {
         this.timelines = timelines;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.audit = audit;
     }
 
     public ExportedBundle exportReport(String reportId) {
@@ -80,6 +85,52 @@ public class EvidenceBundleExportService {
 
     public EvidenceBundleManifestSummary incidentManifest(String incidentId) {
         return manifestSummary(exportIncident(incidentId));
+    }
+
+    public DownloadableBundle downloadReport(
+        String reportId,
+        UserAccount user,
+        HttpServletRequest servletRequest
+    ) {
+        return downloadable(exportReport(reportId), "report", reportId, user, servletRequest);
+    }
+
+    public DownloadableBundle downloadIncident(
+        String incidentId,
+        UserAccount user,
+        HttpServletRequest servletRequest
+    ) {
+        return downloadable(exportIncident(incidentId), "incident", incidentId, user, servletRequest);
+    }
+
+    private DownloadableBundle downloadable(
+        ExportedBundle bundle,
+        String resourceType,
+        String resourceId,
+        UserAccount user,
+        HttpServletRequest servletRequest
+    ) {
+        audit.user(
+            user,
+            "evidence.bundle_exported",
+            resourceType,
+            resourceId,
+            "success",
+            Map.of("evidence_count", bundle.evidenceCount(), "raw_bytes", bundle.rawBytes()),
+            servletRequest
+        );
+        Map<String, Object> signature = asMap(bundle.manifest().get("signature"));
+        return new DownloadableBundle(
+            bundle.filename(),
+            bundle.content(),
+            bundle.evidenceCount(),
+            bundle.rawBytes(),
+            bundle.zipBytes(),
+            text(bundle.manifest().get("hash_algorithm")),
+            entries(bundle.manifest().get("entries")).size(),
+            Boolean.TRUE.equals(signature.get("enabled")),
+            text(signature.get("key_id"))
+        );
     }
 
     private Incident incidentFor(RcaReport report) {
@@ -463,6 +514,19 @@ public class EvidenceBundleExportService {
         long rawBytes,
         long zipBytes,
         Map<String, Object> manifest
+    ) {
+    }
+
+    public record DownloadableBundle(
+        String filename,
+        byte[] content,
+        int evidenceCount,
+        long rawBytes,
+        long zipBytes,
+        String hashAlgorithm,
+        int entryCount,
+        boolean signatureEnabled,
+        String signatureKeyId
     ) {
     }
 }

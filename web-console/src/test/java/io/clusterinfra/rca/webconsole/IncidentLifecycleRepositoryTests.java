@@ -4,8 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
-import io.clusterinfra.rca.webconsole.persistence.JdbcRcaStore;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -18,7 +17,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 class IncidentLifecycleRepositoryTests {
     private JdbcTemplate jdbc;
-    private JdbcRcaStore store;
+    private IncidentRepository incidents;
     private Instant now;
 
     @BeforeEach
@@ -31,7 +30,7 @@ class IncidentLifecycleRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        store = new JdbcRcaStore(jdbc, new ObjectMapper(), new TokenService());
+        incidents = new IncidentRepository(jdbc, new ObjectMapper());
         now = Instant.parse("2026-06-21T04:00:00Z");
         jdbc.update(
             """
@@ -57,7 +56,7 @@ class IncidentLifecycleRepositoryTests {
         seedAction("incident-blocked", "approved_manual");
         seedAction("incident-read-only", "accepted");
 
-        var resolved = store.resolveInactiveIncidents(
+        var resolved = incidents.resolveInactive(
             now.minus(60, ChronoUnit.MINUTES),
             now,
             100
@@ -65,11 +64,11 @@ class IncidentLifecycleRepositoryTests {
 
         assertThat(resolved).extracting(incident -> incident.incidentId())
             .containsExactlyInAnyOrder("incident-idle", "incident-read-only");
-        var idle = store.getIncident("incident-idle").orElseThrow();
+        var idle = incidents.find("incident-idle").orElseThrow();
         assertThat(idle.status()).isEqualTo(IncidentStatus.resolved);
         assertThat(idle.resolvedAt()).isEqualTo(now);
         assertThat(idle.resolutionSource()).isEqualTo("automatic");
-        assertThat(store.getIncident("incident-blocked").orElseThrow().status())
+        assertThat(incidents.find("incident-blocked").orElseThrow().status())
             .isEqualTo(IncidentStatus.open);
     }
 
@@ -77,7 +76,7 @@ class IncidentLifecycleRepositoryTests {
     void recordsSignalResolutionAndRecurrenceMetadata() {
         seedIncident("incident-parent", "dedup-parent", "DiskPressure");
 
-        var resolved = store.resolveOpenIncidentsBySignal(
+        var resolved = incidents.resolveBySignal(
             "cluster-1",
             "worker-a",
             "DiskPressure",
@@ -108,10 +107,10 @@ class IncidentLifecycleRepositoryTests {
             1
         );
 
-        var recurrence = store.getIncident("incident-recurrence").orElseThrow();
+        var recurrence = incidents.find("incident-recurrence").orElseThrow();
         assertThat(recurrence.recurrenceOfIncidentId()).isEqualTo("incident-parent");
         assertThat(recurrence.recurrenceSequence()).isEqualTo(1);
-        assertThat(store.listRecentResolvedIncidents(
+        assertThat(incidents.findRecentResolved(
             "cluster-1",
             "worker-a",
             now.minus(1, ChronoUnit.HOURS),

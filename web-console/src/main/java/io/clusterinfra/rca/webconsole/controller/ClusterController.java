@@ -21,7 +21,7 @@ import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptions;
-import io.clusterinfra.rca.webconsole.service.RcaService;
+import io.clusterinfra.rca.webconsole.service.CollectorSelectionService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.TopologyService;
@@ -59,7 +59,7 @@ public class ClusterController {
     private final EvidenceRepository evidence;
     private final AccessService access;
     private final AgentManifestService manifests;
-    private final RcaService rcaService;
+    private final CollectorSelectionService collectorSelection;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
     private final RcaMetrics metrics;
@@ -71,7 +71,7 @@ public class ClusterController {
         EvidenceRepository evidence,
         AccessService access,
         AgentManifestService manifests,
-        RcaService rcaService,
+        CollectorSelectionService collectorSelection,
         RcaConsoleProperties properties,
         AuditService audit,
         RcaMetrics metrics,
@@ -82,7 +82,7 @@ public class ClusterController {
         this.evidence = evidence;
         this.access = access;
         this.manifests = manifests;
-        this.rcaService = rcaService;
+        this.collectorSelection = collectorSelection;
         this.properties = properties;
         this.audit = audit;
         this.metrics = metrics;
@@ -322,7 +322,7 @@ public class ClusterController {
         List<EvidenceRequest> created = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> collectors = request.collectorsOrEmpty().isEmpty()
-            ? rcaService.collectorsFor(request.alertNameOrDefault())
+            ? collectorSelection.collectorsFor(request.alertNameOrDefault())
             : request.collectorsOrEmpty();
         String requestedAt = Instant.now().toString();
         for (String nodeName : targets) {

@@ -163,14 +163,68 @@ def main() -> int:
             "container-build-inputs",
             exists("Dockerfile.web-console")
             and exists("Dockerfile.agent")
-            and exists("docker-compose.yml"),
-            "Platform and agent container build inputs exist.",
+            and exists("docker-compose.yml")
+            and contains("Dockerfile.web-console", "@sha256:")
+            and contains("Dockerfile.agent", "@sha256:")
+            and exists("scripts/verify-container-pinning.py"),
+            "Platform and agent container build inputs exist and base images are digest pinned.",
+        ),
+        check(
+            "api-security-contract",
+            exists("scripts/verify-api-contract.py")
+            and contains(
+                "scripts/verify-api-contract.py",
+                "api_endpoint_missing_pre_authorize",
+                "agent_endpoint_not_covered_by_agent_filter",
+                "required_versioned_api_missing",
+            ),
+            "Static API contract guard validates route authorization and custom filter coverage.",
+        ),
+        check(
+            "supply-chain-ci",
+            contains(
+                ".github/workflows/security.yml",
+                "gitleaks/gitleaks-action",
+                "aquasecurity/trivy-action",
+                "anchore/sbom-action",
+                "anchore/scan-action",
+            ),
+            "CI includes Gitleaks, Trivy, Syft SBOM, and Grype vulnerability scanning.",
         ),
         check(
             "release-readiness-doc",
             exists("docs/release-readiness.md")
             and contains("docs/release-readiness.md", "Release Readiness", "Kubernetes"),
             "Release readiness documentation is present.",
+        ),
+        check(
+            "api-security-contract-doc",
+            exists("docs/api-security-contract.md")
+            and contains(
+                "docs/api-security-contract.md",
+                "API Security Contract",
+                "Custom Guarded Endpoints",
+                "Sensitive Role Rules",
+            ),
+            "API security contract documentation is present.",
+        ),
+        check(
+            "rbac-matrix",
+            exists("docs/rbac-matrix.md")
+            and contains(
+                "docs/rbac-matrix.md",
+                "RBAC Matrix",
+                "Sensitive Operations",
+                "APPROVER",
+                "AUDITOR",
+            )
+            and contains(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/RbacHttpAuthorizationTests.java",
+                "roleMatrixProtectsSensitiveOperationalApis",
+                "/api/rca/reports/export",
+                "/api/audit/events/export",
+            ),
+            "RBAC matrix is documented and covered by HTTP authorization tests.",
         ),
     ]
 

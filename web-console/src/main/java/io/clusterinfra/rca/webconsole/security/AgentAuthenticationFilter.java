@@ -39,6 +39,10 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         this.objectMapper = objectMapper;
     }
 
+    public static Set<String> protectedPaths() {
+        return AGENT_PATHS;
+    }
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return !AGENT_PATHS.contains(SecurityFilterSupport.path(request));

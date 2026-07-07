@@ -1,7 +1,6 @@
 package io.clusterinfra.rca.webconsole.security;
 
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
-import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
@@ -9,11 +8,9 @@ import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.service.ManifestTokenService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
@@ -54,9 +51,8 @@ public class AccessService {
     }
 
     public void verifyBootstrapToken(String clusterId, String agentToken) {
-        Cluster cluster = clusters.find(clusterId)
-            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "cluster not found"));
-        if (!constantTimeEquals(cluster.bootstrapToken(), agentToken)) {
+        clusters.find(clusterId).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "cluster not found"));
+        if (!clusters.verifyBootstrapToken(clusterId, agentToken)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid agent token");
         }
     }

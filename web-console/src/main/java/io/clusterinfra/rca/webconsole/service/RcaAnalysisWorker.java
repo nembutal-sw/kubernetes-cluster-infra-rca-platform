@@ -26,7 +26,7 @@ public class RcaAnalysisWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(RcaAnalysisWorker.class);
 
     private final AnalysisTaskRepository tasks;
-    private final RcaService rcaService;
+    private final AnalysisPipelineService pipeline;
     private final RcaConsoleProperties properties;
     private final AuditService audit;
     private final RcaMetrics metrics;
@@ -35,13 +35,13 @@ public class RcaAnalysisWorker {
 
     public RcaAnalysisWorker(
         AnalysisTaskRepository tasks,
-        RcaService rcaService,
+        AnalysisPipelineService pipeline,
         RcaConsoleProperties properties,
         AuditService audit,
         RcaMetrics metrics
     ) {
         this.tasks = tasks;
-        this.rcaService = rcaService;
+        this.pipeline = pipeline;
         this.properties = properties;
         this.audit = audit;
         this.metrics = metrics;
@@ -79,7 +79,7 @@ public class RcaAnalysisWorker {
 
     private void process(AnalysisTask task) {
         try {
-            RcaJob job = rcaService.processAnalysisTask(task);
+            RcaJob job = pipeline.processAnalysisTask(task);
             Instant completedAt = Instant.now();
             AnalysisTaskStatus status = job == null
                 ? AnalysisTaskStatus.skipped
