@@ -1,12 +1,18 @@
-// @ts-nocheck
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./styles.css";
+
 import { requestCurrentUser } from "./api/client";
-import { NAV_ITEMS, KO, STORAGE_KEYS } from "./constants";
 import { ActionDialog, BootScreen, DeleteClusterDialog, LoginPage, Sidebar, Toast, Topbar } from "./components/common";
+import { NAV_ITEMS } from "./constants";
+import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
+import { useClusterDetail } from "./hooks/useClusterDetail";
+import { useConsoleData } from "./hooks/useConsoleData";
+import { useConsoleLocale } from "./hooks/useConsoleLocale";
+import { useReportDetail } from "./hooks/useReportDetail";
+import { useToast } from "./hooks/useToast";
 import { AuditView } from "./pages/Audit";
 import { ClustersView } from "./pages/Clusters";
 import { IncidentsView } from "./pages/Incidents";
@@ -15,137 +21,124 @@ import { PipelineView } from "./pages/Pipeline";
 import { ReportsView } from "./pages/Reports";
 import { SettingsView } from "./pages/Settings";
 import { WebhooksView } from "./pages/Webhooks";
-import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
-import { arrayResult, buildAuditQuery, copyText, runConsoleLayoutAudit, sortByTime } from "./lib/consoleUtils";
+import { buildAuditQuery, copyText, sortByTime } from "./lib/consoleUtils";
+import type {
+  ActionDialogState,
+  ActionRequestView,
+  AgentTokenRotateResponse,
+  AnalysisTaskView,
+  AuditEventView,
+  AuthSession,
+  ClusterCreateForm,
+  ClusterView,
+  DeleteClusterDialogState,
+  DemoScenarioView,
+  IncidentView,
+  LoginForm,
+  LoginIdChangeForm,
+  LlmDiagnosticResponse,
+  LlmTestResponse,
+  NotificationTestResponse,
+  PasswordChangeForm,
+  RcaReport,
+  UserAccount,
+} from "./types";
 
 function ConsoleApp() {
-  const [locale, setLocale] = useState(() => localStorage.getItem(STORAGE_KEYS.locale) || "en");
-  const [session, setSession] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null);
+  const { locale, setLocale, t } = useConsoleLocale();
+  const { toast, notify } = useToast();
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [activeView, setActiveView] = useState("overview");
-  const [loading, setLoading] = useState({ boot: true, data: false });
-  const [toast, setToast] = useState(null);
-  const [clusters, setClusters] = useState([]);
-  const [reports, setReports] = useState([]);
-  const [incidents, setIncidents] = useState([]);
-  const [analysisTasks, setAnalysisTasks] = useState([]);
-  const [actionRequests, setActionRequests] = useState([]);
-  const [agentHealth, setAgentHealth] = useState([]);
-  const [auditEvents, setAuditEvents] = useState([]);
-  const [notificationHistory, setNotificationHistory] = useState([]);
-  const [demoScenarios, setDemoScenarios] = useState([]);
-  const [platformInfo, setPlatformInfo] = useState(null);
-  const [llmDiagnostics, setLlmDiagnostics] = useState(null);
-  const [llmSetupGuide, setLlmSetupGuide] = useState(null);
-  const [selectedCluster, setSelectedCluster] = useState(null);
-  const [clusterDetail, setClusterDetail] = useState(null);
-  const [selectedReportId, setSelectedReportId] = useState(null);
-  const [reportDetail, setReportDetail] = useState(null);
-  const [installCommand, setInstallCommand] = useState(null);
-  const [actionDialog, setActionDialog] = useState(null);
-  const [deleteDialog, setDeleteDialog] = useState(null);
-
-  const t = useCallback((key) => (locale === "ko" ? KO[key] || key : key), [locale]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.locale, locale);
-    document.documentElement.lang = locale === "ko" ? "ko" : "en";
-  }, [locale]);
-
-  const notify = useCallback((message, tone = "success") => {
-    setToast({ message, tone });
-    window.setTimeout(() => setToast(null), 3200);
-  }, []);
+  const [bootLoading, setBootLoading] = useState(true);
+  const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteClusterDialogState | null>(null);
 
   const { callApi, downloadApi } = useAuthenticatedApi(session);
-
-  const loadConsoleData = useCallback(async (silent = false) => {
-    if (!silent) setLoading((value) => ({ ...value, data: true }));
-    try {
-      const requests = [
-        callApi("/api/clusters"),
-        callApi("/api/rca/reports"),
-        callApi("/api/rca/incidents"),
-        callApi("/api/rca/analysis-tasks?limit=300"),
-        callApi("/api/rca/action-requests"),
-        callApi("/api/demo/scenarios"),
-        callApi("/api/v1/platform/info"),
-        callApi("/api/llm/diagnostics"),
-        callApi("/api/llm/setup"),
-      ];
-      if (["admin", "auditor"].includes(currentUser?.role)) {
-        requests.push(callApi("/api/audit/events?limit=200"));
-        requests.push(callApi("/api/notifications/history?limit=50"));
-      }
-      const results = await Promise.allSettled(requests);
-      const clusterItems = arrayResult(results[0]);
-      setClusters(clusterItems);
-      setReports(sortByTime(arrayResult(results[1]), "created_at"));
-      setIncidents(sortByTime(arrayResult(results[2]), "last_seen_at"));
-      setAnalysisTasks(sortByTime(arrayResult(results[3]), "created_at"));
-      setActionRequests(sortByTime(arrayResult(results[4]), "created_at"));
-      setDemoScenarios(arrayResult(results[5]));
-      setPlatformInfo(results[6].status === "fulfilled" ? results[6].value : null);
-      setLlmDiagnostics(results[7].status === "fulfilled" ? results[7].value : null);
-      setLlmSetupGuide(results[8].status === "fulfilled" ? results[8].value : null);
-      if (["admin", "auditor"].includes(currentUser?.role)) {
-        setAuditEvents(sortByTime(arrayResult(results[9]), "created_at"));
-        setNotificationHistory(sortByTime(arrayResult(results[10]), "created_at"));
-      } else {
-        setAuditEvents([]);
-        setNotificationHistory([]);
-      }
-      if (clusterItems.length) {
-        const healthResults = await Promise.allSettled(
-          clusterItems.map((cluster) => callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-health`)),
-        );
-        setAgentHealth(healthResults.flatMap((result) => arrayResult(result)));
-      } else {
-        setAgentHealth([]);
-      }
-    } catch (error) {
-      notify(error.message || t("Failed to load console data."), "danger");
-    } finally {
-      setLoading((value) => ({ ...value, data: false }));
-    }
-  }, [callApi, currentUser?.role, notify]);
+  const {
+    loadingData,
+    clusters,
+    reports,
+    incidents,
+    analysisTasks,
+    actionRequests,
+    agentHealth,
+    auditEvents,
+    notificationHistory,
+    demoScenarios,
+    platformInfo,
+    llmDiagnostics,
+    llmSetupGuide,
+    setAuditEvents,
+    setNotificationHistory,
+    setLlmDiagnostics,
+    setLlmSetupGuide,
+    loadConsoleData,
+  } = useConsoleData(callApi, currentUser, notify, t);
+  const {
+    selectedCluster,
+    setSelectedCluster,
+    clusterDetail,
+    setClusterDetail,
+    installCommand,
+    setInstallCommand,
+    generateInstallCommand,
+    loadClusterDetail,
+    clearClusterDetail,
+  } = useClusterDetail(callApi);
+  const {
+    selectedReportId,
+    setSelectedReportId,
+    reportDetail,
+    setReportDetail,
+    loadReportDetail,
+  } = useReportDetail(callApi, currentUser, notify, t);
 
   useEffect(() => {
+    let mounted = true;
     async function boot() {
       try {
         const user = await requestCurrentUser();
+        if (!mounted) return;
         setCurrentUser(user);
         setSession({ user });
       } catch {
-        setCurrentUser(null);
+        if (mounted) setCurrentUser(null);
       } finally {
-        setLoading((value) => ({ ...value, boot: false }));
+        if (mounted) setBootLoading(false);
       }
     }
-    boot();
+    void boot();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (currentUser) loadConsoleData(true);
+    if (currentUser) {
+      void loadConsoleData(true);
+    }
   }, [currentUser, loadConsoleData]);
 
   useEffect(() => {
     if (!selectedReportId && reports.length) {
       setSelectedReportId(reports[0].report_id);
     }
-  }, [reports, selectedReportId]);
+  }, [reports, selectedReportId, setSelectedReportId]);
 
-  useEffect(() => {
-    if (selectedReportId) loadReportDetail(selectedReportId);
-  }, [selectedReportId]);
+  const openClusterDetail = useCallback(async (cluster: ClusterView | null) => {
+    if (!cluster) return;
+    setActiveView("clusters");
+    await loadClusterDetail(cluster);
+  }, [loadClusterDetail]);
 
-  async function login(form) {
+  async function login(form: LoginForm) {
     try {
-      const nextSession = await callApi("/api/auth/login", { method: "POST", body: form });
+      const nextSession = await callApi<AuthSession>("/api/auth/login", { method: "POST", body: form });
       setSession(nextSession);
-      setCurrentUser(nextSession.user);
+      setCurrentUser(nextSession.user || null);
       notify(t("Signed in."));
-    } catch (error) {
+    } catch {
       notify(t("Invalid username or password"), "danger");
     }
   }
@@ -157,15 +150,16 @@ function ConsoleApp() {
       setSession(null);
       setCurrentUser(null);
       setActiveView("overview");
-      setSelectedCluster(null);
+      setSelectedReportId(null);
       setReportDetail(null);
       setLlmDiagnostics(null);
       setLlmSetupGuide(null);
+      clearClusterDetail();
     }
   }
 
-  async function createCluster(form) {
-    const cluster = await callApi("/api/clusters", {
+  async function createCluster(form: ClusterCreateForm) {
+    const cluster = await callApi<ClusterView>("/api/clusters", {
       method: "POST",
       body: {
         name: form.name,
@@ -180,56 +174,32 @@ function ConsoleApp() {
     setActiveView("clusters");
   }
 
-  async function generateInstallCommand(clusterId, backendUrl) {
-    const params = new URLSearchParams();
-    if (backendUrl) params.set("backend_url", backendUrl);
-    const suffix = params.toString() ? `?${params}` : "";
-    const command = await callApi(`/api/clusters/${encodeURIComponent(clusterId)}/install-command${suffix}`);
-    setInstallCommand(command);
-    return command;
-  }
-
-  async function loadClusterDetail(cluster) {
-    if (!cluster) return;
-    setSelectedCluster(cluster);
-    setActiveView("clusters");
-    const clusterId = cluster.cluster_id;
-    const [agents, evidence, topology] = await Promise.allSettled([
-      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/agent-health`),
-      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/evidence-requests?limit=100`),
-      callApi(`/api/clusters/${encodeURIComponent(clusterId)}/topology`),
-    ]);
-    setClusterDetail({
-      agents: arrayResult(agents),
-      evidence: arrayResult(evidence),
-      topology: topology.status === "fulfilled" ? topology.value : null,
-    });
-  }
-
-  async function deleteCluster(cluster, confirmName) {
+  async function deleteCluster(cluster: ClusterView, confirmName: string) {
     const query = new URLSearchParams({ confirm_name: confirmName });
     await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}?${query}`, { method: "DELETE" });
     setDeleteDialog(null);
     setSelectedCluster(null);
     setClusterDetail(null);
+    setInstallCommand(null);
     notify(t("Cluster deleted."));
     await loadConsoleData(true);
   }
 
-  async function rotateAgentToken(cluster) {
-    const result = await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`, {
-      method: "POST",
-    });
+  async function rotateAgentToken(cluster: ClusterView) {
+    const result = await callApi<AgentTokenRotateResponse>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-token/rotate`,
+      { method: "POST" },
+    );
     notify(t("Agent token rotated."));
     setInstallCommand({
       cluster_id: cluster.cluster_id,
       namespace: "cluster-infra-rca",
-      commands: [`New agent token: ${result.agent_token}`],
-      notes: [result.note],
+      commands: [`New agent token: ${result.agent_token || ""}`],
+      notes: result.note ? [result.note] : [],
     });
   }
 
-  async function startCollection(cluster, nodeName = "") {
+  async function startCollection(cluster: ClusterView, nodeName = "") {
     await callApi(`/api/clusters/${encodeURIComponent(cluster.cluster_id)}/collection-runs`, {
       method: "POST",
       body: {
@@ -245,35 +215,8 @@ function ConsoleApp() {
     await loadClusterDetail(cluster);
   }
 
-  async function loadReportDetail(reportId) {
-    try {
-      const report = await callApi(`/api/rca/reports/${encodeURIComponent(reportId)}`);
-      const incidentId = report.incident_id;
-      const requests = [
-        callApi(`/api/rca/action-requests?report_id=${encodeURIComponent(reportId)}`),
-        ["admin", "operator", "auditor"].includes(currentUser?.role)
-          ? callApi(`/api/rca/action-executions?report_id=${encodeURIComponent(reportId)}`)
-          : Promise.resolve([]),
-        incidentId ? callApi(`/api/rca/incidents/${encodeURIComponent(incidentId)}/timeline`) : Promise.resolve(null),
-        ["admin", "operator"].includes(currentUser?.role)
-          ? callApi(`/api/rca/reports/${encodeURIComponent(reportId)}/bundle/manifest`)
-          : Promise.resolve(null),
-      ];
-      const [actionReq, executions, timeline, bundleManifest] = await Promise.allSettled(requests);
-      setReportDetail({
-        report,
-        actionRequests: arrayResult(actionReq),
-        actionExecutions: arrayResult(executions),
-        timeline: timeline.status === "fulfilled" ? timeline.value : null,
-        bundleManifest: bundleManifest.status === "fulfilled" ? bundleManifest.value : null,
-      });
-    } catch (error) {
-      notify(error.message || t("Failed to load report."), "danger");
-    }
-  }
-
-  async function executeRecommendedAction(report, actionIndex, note) {
-    const response = await callApi(
+  async function executeRecommendedAction(report: RcaReport, actionIndex: number, note: string) {
+    const response = await callApi<{ message?: string }>(
       `/api/rca/reports/${encodeURIComponent(report.report_id)}/actions/${actionIndex}/execute`,
       { method: "POST", body: { confirmed: true, note } },
     );
@@ -283,27 +226,31 @@ function ConsoleApp() {
     await loadConsoleData(true);
   }
 
-  async function decideActionRequest(actionRequest, decision, note = "") {
+  async function decideActionRequest(actionRequest: ActionRequestView, decision: "approve" | "reject", note = "") {
     await callApi(`/api/rca/action-requests/${encodeURIComponent(actionRequest.action_request_id)}/${decision}`, {
       method: "POST",
       body: { confirmed: true, note },
     });
     notify(t(decision === "approve" ? "Action request approved." : "Action request rejected."));
-    await loadReportDetail(actionRequest.report_id);
+    if (actionRequest.report_id) {
+      await loadReportDetail(actionRequest.report_id);
+    }
     await loadConsoleData(true);
   }
 
-  async function completeManualAction(actionRequest, note) {
+  async function completeManualAction(actionRequest: ActionRequestView, note: string) {
     await callApi(`/api/rca/action-requests/${encodeURIComponent(actionRequest.action_request_id)}/complete-manual`, {
       method: "POST",
       body: { confirmed: true, note },
     });
     notify(t("Manual handling completed."));
-    await loadReportDetail(actionRequest.report_id);
+    if (actionRequest.report_id) {
+      await loadReportDetail(actionRequest.report_id);
+    }
     await loadConsoleData(true);
   }
 
-  async function changeIncidentStatus(incident, nextStatus) {
+  async function changeIncidentStatus(incident: IncidentView, nextStatus: "resolve" | "reopen") {
     await callApi(`/api/rca/incidents/${encodeURIComponent(incident.incident_id)}/${nextStatus}`, {
       method: "POST",
       body: { confirmed: true, note: "Updated from Web Console." },
@@ -312,7 +259,7 @@ function ConsoleApp() {
     await loadConsoleData(true);
   }
 
-  async function retryAnalysisTask(task) {
+  async function retryAnalysisTask(task: AnalysisTaskView) {
     await callApi(`/api/rca/analysis-tasks/${encodeURIComponent(task.task_id)}/retry`, {
       method: "POST",
       body: { confirmed: true, note: "Retry requested from Web Console." },
@@ -321,7 +268,7 @@ function ConsoleApp() {
     await loadConsoleData(true);
   }
 
-  async function runDemoScenario(scenario, clusterId, nodeName) {
+  async function runDemoScenario(scenario: DemoScenarioView, clusterId: string, nodeName: string) {
     await callApi(`/api/demo/scenarios/${encodeURIComponent(scenario.key)}/run`, {
       method: "POST",
       body: { confirmed: true, cluster_id: clusterId || null, node_name: nodeName || null },
@@ -330,7 +277,7 @@ function ConsoleApp() {
     await loadConsoleData(true);
   }
 
-  async function changePassword(form) {
+  async function changePassword(form: PasswordChangeForm) {
     await callApi("/api/auth/change-password", {
       method: "POST",
       body: { current_password: form.current_password, new_password: form.new_password },
@@ -338,12 +285,13 @@ function ConsoleApp() {
     notify(t("Password changed."));
   }
 
-  async function changeLoginId(form) {
-    const updatedUser = await callApi("/api/auth/change-login-id", {
+  async function changeLoginId(form: LoginIdChangeForm) {
+    const updatedUser = await callApi<UserAccount>("/api/auth/change-login-id", {
       method: "POST",
       body: { current_password: form.current_password, new_username: form.new_username },
     });
     setCurrentUser(updatedUser);
+    setSession((value) => value ? { ...value, user: updatedUser } : { user: updatedUser });
     notify(t("Login ID changed."));
   }
 
@@ -353,24 +301,24 @@ function ConsoleApp() {
     notify(t("Export downloaded."));
   }
 
-  async function exportReport(reportId) {
+  async function exportReport(reportId: string) {
     await downloadApi(`/api/rca/reports/${encodeURIComponent(reportId)}/export`, `rca-report-${reportId}.json`);
     notify(t("Report exported."));
   }
 
-  async function exportEvidenceBundle(reportId) {
+  async function exportEvidenceBundle(reportId: string) {
     await downloadApi(`/api/rca/reports/${encodeURIComponent(reportId)}/bundle`, `rca-evidence-bundle-${reportId}.zip`);
     notify(t("Evidence bundle downloaded."));
   }
 
-  async function exportAudit(format = "json", filters = {}) {
+  async function exportAudit(format = "json", filters: Record<string, unknown> = {}) {
     const query = buildAuditQuery({ ...filters, format, limit: 5000 });
     await downloadApi(`/api/audit/events/export?${query}`, `audit-events.${format}`);
     notify(t("Audit export downloaded."));
   }
 
-  async function testNotificationDelivery() {
-    const response = await callApi("/api/notifications/test", {
+  async function testNotificationDelivery(): Promise<NotificationTestResponse> {
+    const response = await callApi<NotificationTestResponse>("/api/notifications/test", {
       method: "POST",
       body: { confirmed: true },
     });
@@ -381,15 +329,15 @@ function ConsoleApp() {
     } else {
       notify(response.message || t("Notification test failed."), response.outcome === "partial" ? "warning" : "danger");
     }
-    if (["admin", "auditor"].includes(currentUser?.role)) {
-      const history = await callApi("/api/notifications/history?limit=50");
+    if (["admin", "auditor"].includes(currentUser?.role || "")) {
+      const history = await callApi<AuditEventView[]>("/api/notifications/history?limit=50");
       setNotificationHistory(sortByTime(Array.isArray(history) ? history : [], "created_at"));
     }
     return response;
   }
 
-  async function testLlmConnection() {
-    const response = await callApi("/api/llm/test", {
+  async function testLlmConnection(): Promise<LlmTestResponse> {
+    const response = await callApi<LlmTestResponse>("/api/llm/test", {
       method: "POST",
       body: { confirmed: true },
     });
@@ -400,16 +348,16 @@ function ConsoleApp() {
     } else {
       notify(t(String(response.message || "LLM test failed.")), "danger");
     }
-    const diagnostics = await callApi("/api/llm/diagnostics");
+    const diagnostics = await callApi<LlmDiagnosticResponse>("/api/llm/diagnostics");
     setLlmDiagnostics(diagnostics);
-    if (["admin", "auditor"].includes(currentUser?.role)) {
-      const audit = await callApi("/api/audit/events?limit=200");
+    if (["admin", "auditor"].includes(currentUser?.role || "")) {
+      const audit = await callApi<AuditEventView[]>("/api/audit/events?limit=200");
       setAuditEvents(sortByTime(Array.isArray(audit) ? audit : [], "created_at"));
     }
     return response;
   }
 
-  if (loading.boot) {
+  if (bootLoading) {
     return <BootScreen t={t} />;
   }
 
@@ -430,7 +378,7 @@ function ConsoleApp() {
           setLocale={setLocale}
           onRefresh={() => loadConsoleData(false)}
           onLogout={logout}
-          loading={loading.data}
+          loading={loadingData}
           t={t}
         />
         <main className="console-content" data-testid={`view-${activeView}`}>
@@ -444,7 +392,7 @@ function ConsoleApp() {
               agentHealth={agentHealth}
               onNavigate={setActiveView}
               onOpenReport={setSelectedReportId}
-              onOpenCluster={loadClusterDetail}
+              onOpenCluster={openClusterDetail}
               webhookEndpoint={webhookEndpoint}
               t={t}
             />
@@ -458,12 +406,12 @@ function ConsoleApp() {
               installCommand={installCommand}
               currentUser={currentUser}
               onCreate={createCluster}
-              onSelect={loadClusterDetail}
+              onSelect={openClusterDetail}
               onGenerateInstall={generateInstallCommand}
               onStartCollection={startCollection}
-              onDelete={(cluster) => setDeleteDialog({ cluster })}
+              onDelete={(cluster: ClusterView) => setDeleteDialog({ cluster })}
               onRotateToken={rotateAgentToken}
-              onCopy={(text) => copyText(text, notify)}
+              onCopy={(text: string) => copyText(text, notify)}
               t={t}
             />
           )}
@@ -481,14 +429,14 @@ function ConsoleApp() {
               onExportBundle={exportEvidenceBundle}
               onExportAll={() => exportReports()}
               platformInfo={platformInfo}
-              onCopy={(text) => copyText(text, notify)}
+              onCopy={(text: string) => copyText(text, notify)}
               t={t}
             />
           )}
           {activeView === "incidents" && (
             <IncidentsView
               incidents={incidents}
-              onOpenReport={(id) => {
+              onOpenReport={(id: string) => {
                 setSelectedReportId(id);
                 setActiveView("reports");
               }}
@@ -512,17 +460,17 @@ function ConsoleApp() {
           {activeView === "audit" && (
             <AuditView
               events={auditEvents}
-              onSearch={async (filters) => {
+              onSearch={async (filters: Record<string, unknown>) => {
                 const query = buildAuditQuery(filters);
-                const next = await callApi(`/api/audit/events?${query}`);
-                setAuditEvents(sortByTime(next, "created_at"));
+                const next = await callApi<AuditEventView[]>(`/api/audit/events?${query}`);
+                setAuditEvents(sortByTime(Array.isArray(next) ? next : [], "created_at"));
               }}
               onExport={exportAudit}
               t={t}
             />
           )}
           {activeView === "webhooks" && (
-            <WebhooksView endpoint={webhookEndpoint} onCopy={(text) => copyText(text, notify)} t={t} />
+            <WebhooksView endpoint={webhookEndpoint} onCopy={(text: string) => copyText(text, notify)} t={t} />
           )}
           {activeView === "settings" && (
             <SettingsView
@@ -563,5 +511,9 @@ function ConsoleApp() {
   );
 }
 
-const root = createRoot(document.getElementById("rca-console-root"));
-root.render(<ConsoleApp />);
+const rootElement = document.getElementById("rca-console-root");
+if (!rootElement) {
+  throw new Error("Missing #rca-console-root element.");
+}
+
+createRoot(rootElement).render(<ConsoleApp />);

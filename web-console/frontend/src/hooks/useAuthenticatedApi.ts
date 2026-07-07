@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { downloadFromApi, requestApi } from "../api/client";
-import type { ApiRequestOptions, AuthHeaders, AuthSession } from "../types";
+import type { ApiCall, AuthHeaders, AuthSession, DownloadApi } from "../types";
 
 export function useAuthenticatedApi(session: AuthSession | null) {
   const authHeaders = useCallback((): AuthHeaders => {
@@ -8,12 +8,12 @@ export function useAuthenticatedApi(session: AuthSession | null) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, [session]);
 
-  const callApi = useCallback(
-    <T = unknown>(path: string, options: ApiRequestOptions = {}) => requestApi<T>(path, options, authHeaders()),
+  const callApi = useCallback<ApiCall>(
+    (path, options = {}) => requestApi(path, options, authHeaders()),
     [authHeaders],
   );
 
-  const downloadApi = useCallback(
+  const downloadApi = useCallback<DownloadApi>(
     (path: string, filename: string) => downloadFromApi(path, filename, authHeaders()),
     [authHeaders],
   );

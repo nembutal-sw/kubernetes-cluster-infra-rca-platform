@@ -11,8 +11,39 @@ export interface ApiRequestOptions {
   headers?: Record<string, string>;
 }
 
+export type ApiCall = <T = unknown>(path: string, options?: ApiRequestOptions) => Promise<T>;
+export type DownloadApi = (path: string, filename: string) => Promise<void>;
+export type MaybePromise<T = void> = T | Promise<T>;
+
 export type UserRole = "admin" | "operator" | "viewer" | "auditor" | "approver" | string;
 export type TFunction = (key: string) => string;
+
+export interface ToastState {
+  tone?: string;
+  message: string;
+}
+
+export interface LoginForm {
+  username: string;
+  password: string;
+}
+
+export interface ClusterCreateForm {
+  name: string;
+  environment: string;
+  description?: string;
+  backend_url?: string;
+}
+
+export interface PasswordChangeForm {
+  current_password: string;
+  new_password: string;
+}
+
+export interface LoginIdChangeForm {
+  current_password: string;
+  new_username: string;
+}
 
 export interface UserAccount {
   user_id: string;
@@ -87,6 +118,26 @@ export interface RootCauseCandidate {
   [key: string]: unknown;
 }
 
+export interface InstallCommandView {
+  cluster_id?: string;
+  namespace?: string;
+  commands?: string[];
+  notes?: string[];
+  [key: string]: unknown;
+}
+
+export interface ClusterDetailState {
+  agents: AgentHealthView[];
+  evidence: EvidenceRequestView[];
+  topology: JsonObject | null;
+}
+
+export interface AgentTokenRotateResponse {
+  agent_token?: string;
+  note?: string;
+  [key: string]: unknown;
+}
+
 export interface RecommendedAction {
   action_key?: string;
   action?: string;
@@ -136,6 +187,16 @@ export interface ActionExecutionView {
   [key: string]: unknown;
 }
 
+export interface ActionDialogState {
+  report: RcaReport;
+  action: RecommendedAction;
+  index: number;
+}
+
+export interface DeleteClusterDialogState {
+  cluster: ClusterView;
+}
+
 export interface IncidentView {
   incident_id: string;
   latest_report_id?: string;
@@ -155,6 +216,15 @@ export interface AnalysisTaskView {
   cluster_id?: string;
   node_name?: string;
   created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DemoScenarioView {
+  key: string;
+  name?: string;
+  alert_name?: string;
+  alertName?: string;
+  description?: string;
   [key: string]: unknown;
 }
 
