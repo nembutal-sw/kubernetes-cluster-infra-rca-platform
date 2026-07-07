@@ -3,7 +3,10 @@ package io.clusterinfra.rca.webconsole.controller;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ExportSecurityInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmConfigurationInfo;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationConfigurationInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PlatformInfo;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import org.springframework.core.env.Environment;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -40,7 +43,29 @@ public class PlatformInfoController {
                 bundleSignatureEnabled ? export.getSignatureKeyId() : "",
                 "scripts/verify_evidence_bundle.py"
             ),
-            llmInfo()
+            llmInfo(),
+            notificationInfo()
+        );
+    }
+
+    private NotificationConfigurationInfo notificationInfo() {
+        RcaConsoleProperties.Notification notification = properties.getNotification();
+        List<String> channels = new ArrayList<>();
+        if (!notification.getSlackWebhookUrl().isBlank()) {
+            channels.add("slack");
+        }
+        if (!notification.getWebhookUrl().isBlank()) {
+            channels.add("webhook");
+        }
+        return new NotificationConfigurationInfo(
+            notification.isEnabled(),
+            !notification.getSlackWebhookUrl().isBlank(),
+            !notification.getWebhookUrl().isBlank(),
+            !notification.getWebhookToken().isBlank(),
+            notification.getMinimumSeverity(),
+            notification.getMaxAttempts(),
+            notification.getTimeoutSeconds(),
+            List.copyOf(channels)
         );
     }
 

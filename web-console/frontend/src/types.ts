@@ -187,6 +187,42 @@ export interface PlatformInfo {
   export_security?: JsonObject;
   exportSecurity?: JsonObject;
   llm?: LlmConfigurationInfo;
+  notification?: NotificationConfigurationInfo;
+  [key: string]: unknown;
+}
+
+export interface NotificationConfigurationInfo {
+  enabled?: boolean;
+  slack_configured?: boolean;
+  slackConfigured?: boolean;
+  webhook_configured?: boolean;
+  webhookConfigured?: boolean;
+  webhook_token_configured?: boolean;
+  webhookTokenConfigured?: boolean;
+  minimum_severity?: string;
+  minimumSeverity?: string;
+  max_attempts?: number;
+  maxAttempts?: number;
+  timeout_seconds?: number;
+  timeoutSeconds?: number;
+  channels?: string[];
+  [key: string]: unknown;
+}
+
+export interface NotificationDeliveryResult {
+  channel?: string;
+  outcome?: string;
+  attempts?: number;
+  status_code?: number;
+  statusCode?: number;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface NotificationTestResponse {
+  outcome?: string;
+  message?: string;
+  results?: NotificationDeliveryResult[];
   [key: string]: unknown;
 }
 

@@ -32,6 +32,7 @@ function ConsoleApp() {
   const [actionRequests, setActionRequests] = useState([]);
   const [agentHealth, setAgentHealth] = useState([]);
   const [auditEvents, setAuditEvents] = useState([]);
+  const [notificationHistory, setNotificationHistory] = useState([]);
   const [demoScenarios, setDemoScenarios] = useState([]);
   const [platformInfo, setPlatformInfo] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
@@ -70,6 +71,7 @@ function ConsoleApp() {
       ];
       if (["admin", "auditor"].includes(currentUser?.role)) {
         requests.push(callApi("/api/audit/events?limit=200"));
+        requests.push(callApi("/api/notifications/history?limit=50"));
       }
       const results = await Promise.allSettled(requests);
       const clusterItems = arrayResult(results[0]);
@@ -82,8 +84,10 @@ function ConsoleApp() {
       setPlatformInfo(results[6].status === "fulfilled" ? results[6].value : null);
       if (["admin", "auditor"].includes(currentUser?.role)) {
         setAuditEvents(sortByTime(arrayResult(results[7]), "created_at"));
+        setNotificationHistory(sortByTime(arrayResult(results[8]), "created_at"));
       } else {
         setAuditEvents([]);
+        setNotificationHistory([]);
       }
       if (clusterItems.length) {
         const healthResults = await Promise.allSettled(
@@ -357,6 +361,25 @@ function ConsoleApp() {
     notify(t("Audit export downloaded."));
   }
 
+  async function testNotificationDelivery() {
+    const response = await callApi("/api/notifications/test", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (response.outcome === "success") {
+      notify(t("Notification test delivered."));
+    } else if (response.outcome === "skipped") {
+      notify(response.message || t("Notification test skipped."), "warning");
+    } else {
+      notify(response.message || t("Notification test failed."), response.outcome === "partial" ? "warning" : "danger");
+    }
+    if (["admin", "auditor"].includes(currentUser?.role)) {
+      const history = await callApi("/api/notifications/history?limit=50");
+      setNotificationHistory(sortByTime(arrayResult(history), "created_at"));
+    }
+    return response;
+  }
+
   if (loading.boot) {
     return <BootScreen t={t} />;
   }
@@ -477,9 +500,11 @@ function ConsoleApp() {
               locale={locale}
               setLocale={setLocale}
               platformInfo={platformInfo}
+              notificationHistory={notificationHistory}
               currentUser={currentUser}
               onChangeLoginId={changeLoginId}
               onChangePassword={changePassword}
+              onTestNotification={testNotificationDelivery}
               t={t}
             />
           )}

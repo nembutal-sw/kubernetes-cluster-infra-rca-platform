@@ -12,6 +12,7 @@ import com.sun.net.httpserver.HttpServer;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationTestResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
@@ -177,6 +178,65 @@ class IncidentNotificationServiceTests {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void testDeliveryUsesConfiguredGenericWebhookTarget() throws Exception {
+        AtomicReference<String> received = new AtomicReference<>();
+        AtomicReference<String> authorization = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/webhook", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            received.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            RcaConsoleProperties properties = new RcaConsoleProperties();
+            properties.setPublicApiBaseUrl("https://rca.example.com/");
+            properties.getNotification().setEnabled(true);
+            properties.getNotification().setWebhookUrl(
+                "http://127.0.0.1:" + server.getAddress().getPort() + "/webhook"
+            );
+            properties.getNotification().setWebhookToken("test-delivery-token");
+            IncidentNotificationService service = new IncidentNotificationService(
+                properties,
+                mock(AuditService.class),
+                new ObjectMapper(),
+                new RcaMetrics(new SimpleMeterRegistry())
+            );
+
+            NotificationTestResponse response = service.testDelivery();
+
+            JsonNode payload = new ObjectMapper().readTree(received.get());
+            assertThat(response.outcome()).isEqualTo("success");
+            assertThat(response.results()).hasSize(1);
+            assertThat(response.results().getFirst().channel()).isEqualTo("webhook");
+            assertThat(response.results().getFirst().statusCode()).isEqualTo(204);
+            assertThat(authorization.get()).isEqualTo("Bearer test-delivery-token");
+            assertThat(payload.path("schema_version").asText()).isEqualTo("rca-notification/v1");
+            assertThat(payload.path("event_type").asText()).isEqualTo("rca.notification_test");
+            assertThat(payload.path("test").asBoolean()).isTrue();
+            assertThat(payload.toString()).doesNotContain("test-delivery-token");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void testDeliverySkipsWhenNotificationIsDisabled() {
+        IncidentNotificationService service = new IncidentNotificationService(
+            new RcaConsoleProperties(),
+            mock(AuditService.class),
+            new ObjectMapper(),
+            new RcaMetrics(new SimpleMeterRegistry())
+        );
+
+        NotificationTestResponse response = service.testDelivery();
+
+        assertThat(response.outcome()).isEqualTo("skipped");
+        assertThat(response.results()).isEmpty();
     }
 
     private RcaReport report(String cause) {

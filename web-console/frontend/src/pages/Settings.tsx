@@ -6,11 +6,20 @@ import {
   Icon,
   LanguageSwitch,
   PageHeader,
+  StatusBadge,
   Surface,
 } from "../components/common";
 import type { Locale } from "../constants";
 import { formatDate, platformInfoRows, runConsoleLayoutAudit } from "../lib/consoleUtils";
-import type { LlmConfigurationInfo, PlatformInfo, TFunction, UserAccount } from "../types";
+import type {
+  AuditEventView,
+  LlmConfigurationInfo,
+  NotificationConfigurationInfo,
+  NotificationTestResponse,
+  PlatformInfo,
+  TFunction,
+  UserAccount,
+} from "../types";
 
 interface LoginIdForm {
   current_password: string;
@@ -42,9 +51,11 @@ interface SettingsViewProps {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   platformInfo: PlatformInfo | null;
+  notificationHistory: AuditEventView[];
   currentUser: UserAccount | null;
   onChangeLoginId: (form: LoginIdForm) => void | Promise<void>;
   onChangePassword: (form: PasswordForm) => void | Promise<void>;
+  onTestNotification: () => NotificationTestResponse | Promise<NotificationTestResponse>;
   t: TFunction;
 }
 
@@ -76,9 +87,11 @@ export function SettingsView({
   locale,
   setLocale,
   platformInfo,
+  notificationHistory,
   currentUser,
   onChangeLoginId,
   onChangePassword,
+  onTestNotification,
   t,
 }: SettingsViewProps) {
   const [loginId, setLoginId] = useState({
@@ -87,9 +100,13 @@ export function SettingsView({
   });
   const [password, setPassword] = useState({ current_password: "", new_password: "" });
   const [layoutAudit, setLayoutAudit] = useState<LayoutAudit | null>(null);
+  const [testingNotification, setTestingNotification] = useState(false);
   const defaultCredentialVisible = currentUser?.email === "admin";
   const infoRows = platformInfoRows(platformInfo, t) as PlatformInfoRow[];
   const llmRows = buildLlmRows(platformInfo?.llm, t);
+  const notificationRows = buildNotificationRows(platformInfo?.notification, t);
+  const canTestNotification = ["admin", "operator"].includes(String(currentUser?.role || ""));
+  const canViewNotificationHistory = ["admin", "auditor"].includes(String(currentUser?.role || ""));
 
   useEffect(() => {
     setLoginId((current) => ({ ...current, new_username: currentUser?.email || "" }));
@@ -105,6 +122,18 @@ export function SettingsView({
     event.preventDefault();
     await onChangePassword(password);
     setPassword({ current_password: "", new_password: "" });
+  }
+
+  async function submitNotificationTest() {
+    if (!window.confirm(t("Send a test notification to configured delivery targets?"))) {
+      return;
+    }
+    setTestingNotification(true);
+    try {
+      await onTestNotification();
+    } finally {
+      setTestingNotification(false);
+    }
   }
 
   return (
@@ -160,6 +189,34 @@ export function SettingsView({
           ))}
         </div>
       </Surface>
+      <Surface
+        title={t("Notification delivery")}
+        subtitle={t("Slack/SIEM delivery status and test controls")}
+        action={canTestNotification && (
+          <button className="btn btn-sm btn-outline-secondary icon-button" onClick={submitNotificationTest} disabled={testingNotification}>
+            <Icon name={testingNotification ? "arrow-repeat" : "send-check"} />
+            <span>{testingNotification ? "..." : t("Test notification")}</span>
+          </button>
+        )}
+      >
+        <div className="settings-note">
+          <Icon name="shield-lock" />
+          <span>{t("Notification secrets are read from environment variables or Kubernetes Secret. Target URLs and tokens are never rendered in the browser.")}</span>
+        </div>
+        <div className="info-grid">
+          {notificationRows.map((row) => (
+            <div key={row.key} className={row.tone ? `info-card-${row.tone}` : ""}>
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </div>
+          ))}
+        </div>
+        <NotificationHistory
+          events={notificationHistory}
+          canView={canViewNotificationHistory}
+          t={t}
+        />
+      </Surface>
       <Surface title={t("Platform info")} subtitle={t("Protocol compatibility and export integrity")}>
         <div className="info-grid">
           {infoRows.map((row) => (
@@ -172,6 +229,28 @@ export function SettingsView({
       </Surface>
     </div>
   );
+}
+
+function buildNotificationRows(
+  notification: NotificationConfigurationInfo | undefined,
+  t: TFunction,
+): LlmInfoRow[] {
+  const enabled = Boolean(notification?.enabled);
+  const slackConfigured = Boolean(notification?.slack_configured ?? notification?.slackConfigured);
+  const webhookConfigured = Boolean(notification?.webhook_configured ?? notification?.webhookConfigured);
+  const tokenConfigured = Boolean(notification?.webhook_token_configured ?? notification?.webhookTokenConfigured);
+  const channels = Array.isArray(notification?.channels) ? notification.channels : [];
+  const minimumSeverity = stringValue(notification?.minimum_severity ?? notification?.minimumSeverity) || "critical";
+  return [
+    { key: "notification.enabled", label: t("Enabled"), value: enabled ? t("Enabled") : t("Disabled"), tone: enabled ? "ok" : "muted" },
+    { key: "notification.channels", label: t("Configured targets"), value: channels.length ? channels.join(", ") : t("No"), tone: channels.length ? "ok" : "warn" },
+    { key: "notification.slack", label: t("Slack webhook"), value: slackConfigured ? t("Configured") : t("Missing"), tone: slackConfigured ? "ok" : "muted" },
+    { key: "notification.webhook", label: t("Generic webhook"), value: webhookConfigured ? t("Configured") : t("Missing"), tone: webhookConfigured ? "ok" : "muted" },
+    { key: "notification.token", label: t("Bearer token"), value: tokenConfigured ? t("Configured") : t("Not required"), tone: tokenConfigured ? "ok" : "muted" },
+    { key: "notification.severity", label: t("Minimum severity"), value: t(minimumSeverity), tone: minimumSeverity === "critical" ? "muted" : "warn" },
+    { key: "notification.attempts", label: t("Attempts"), value: numberValue(notification?.max_attempts ?? notification?.maxAttempts, 2) },
+    { key: "notification.timeout", label: t("Timeout"), value: `${numberValue(notification?.timeout_seconds ?? notification?.timeoutSeconds, 5)}s` },
+  ];
 }
 
 function buildLlmRows(llm: LlmConfigurationInfo | undefined, t: TFunction): LlmInfoRow[] {
@@ -212,6 +291,109 @@ function stringValue(value: unknown): string {
 function numberValue(value: unknown, fallback: number): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function NotificationHistory({ events, canView, t }: { events: AuditEventView[]; canView: boolean; t: TFunction }) {
+  if (!canView) {
+    return (
+      <div className="notification-history">
+        <h3>{t("Delivery history")}</h3>
+        <div className="empty-state compact">{t("Notification delivery history is visible to admin/auditor users.")}</div>
+      </div>
+    );
+  }
+  const visibleEvents = events.slice(0, 8);
+  return (
+    <div className="notification-history">
+      <div className="notification-history-head">
+        <h3>{t("Delivery history")}</h3>
+        <span>{t("Recent notification delivery audit records")}</span>
+      </div>
+      {!visibleEvents.length ? (
+        <div className="empty-state compact">{t("No notification delivery history.")}</div>
+      ) : (
+        <div className="notification-history-list">
+          {visibleEvents.map((event) => (
+            <article key={event.audit_event_id} className="notification-history-item">
+              <div className="notification-history-main">
+                <strong>{event.event_type}</strong>
+                <span>{notificationSummary(event)}</span>
+              </div>
+              <div className="notification-history-meta">
+                <StatusBadge value={event.outcome} t={t} />
+                <span>{t("Channel")}: {notificationChannels(event)}</span>
+                <span>{t("Attempts")}: {notificationAttempts(event)}</span>
+                <span>{t("Status code")}: {notificationStatusCode(event)}</span>
+                <span>{formatDate(event.created_at)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function notificationDetails(event: AuditEventView): Record<string, unknown> {
+  return event.details && typeof event.details === "object" && !Array.isArray(event.details)
+    ? event.details as Record<string, unknown>
+    : {};
+}
+
+function notificationChannels(event: AuditEventView): string {
+  const details = notificationDetails(event);
+  if (typeof details.channel === "string" && details.channel.trim()) {
+    return details.channel;
+  }
+  if (Array.isArray(details.results)) {
+    const channels = details.results
+      .map((item) => item && typeof item === "object" && "channel" in item ? String(item.channel) : "")
+      .filter(Boolean);
+    return channels.length ? channels.join(", ") : "-";
+  }
+  return "-";
+}
+
+function notificationAttempts(event: AuditEventView): string {
+  const details = notificationDetails(event);
+  if (details.attempts !== undefined) {
+    return String(details.attempts);
+  }
+  if (details.attempt !== undefined) {
+    return String(details.attempt);
+  }
+  if (Array.isArray(details.results)) {
+    const attempts = details.results
+      .map((item) => item && typeof item === "object" && "attempts" in item ? String(item.attempts) : "")
+      .filter(Boolean);
+    return attempts.length ? attempts.join(", ") : "-";
+  }
+  return "-";
+}
+
+function notificationStatusCode(event: AuditEventView): string {
+  const details = notificationDetails(event);
+  if (details.status_code !== undefined && details.status_code !== "") {
+    return String(details.status_code);
+  }
+  if (Array.isArray(details.results)) {
+    const statusCodes = details.results
+      .map((item) => item && typeof item === "object" && "status_code" in item ? String(item.status_code || "") : "")
+      .filter(Boolean);
+    return statusCodes.length ? statusCodes.join(", ") : "-";
+  }
+  return "-";
+}
+
+function notificationSummary(event: AuditEventView): string {
+  const details = notificationDetails(event);
+  if (typeof details.message === "string" && details.message.trim()) {
+    return details.message;
+  }
+  if (typeof details.error === "string" && details.error.trim()) {
+    return details.error;
+  }
+  return event.resource_id || "-";
 }
 
 export function LayoutAuditPanel({ audit, t }: LayoutAuditPanelProps) {

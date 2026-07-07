@@ -3,6 +3,8 @@ package io.clusterinfra.rca.webconsole.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationDeliveryResult;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationTestResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.net.URI;
@@ -12,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -55,33 +58,60 @@ public class IncidentNotificationService {
         }
     }
 
+    public NotificationTestResponse testDelivery() {
+        RcaConsoleProperties.Notification config = properties.getNotification();
+        if (!config.isEnabled()) {
+            return new NotificationTestResponse(
+                "skipped",
+                "Notification delivery is disabled.",
+                List.of()
+            );
+        }
+        List<NotificationTarget> targets = testTargets(config);
+        if (targets.isEmpty()) {
+            return new NotificationTestResponse(
+                "skipped",
+                "No notification delivery target is configured.",
+                List.of()
+            );
+        }
+        List<NotificationDeliveryResult> results = targets.stream()
+            .map(target -> attemptDelivery(target, config))
+            .toList();
+        boolean allSucceeded = results.stream().allMatch(result -> "success".equals(result.outcome()));
+        boolean anySucceeded = results.stream().anyMatch(result -> "success".equals(result.outcome()));
+        String outcome = allSucceeded ? "success" : anySucceeded ? "partial" : "failed";
+        String message = allSucceeded
+            ? "Notification test delivered to all configured targets."
+            : anySucceeded
+                ? "Notification test delivered to some configured targets."
+                : "Notification test failed for all configured targets.";
+        return new NotificationTestResponse(outcome, message, results);
+    }
+
     private void deliver(
         RcaReport report,
         RcaConsoleProperties.Notification config,
         String severity,
         NotificationTarget target
     ) {
-        int attempts = Math.max(1, Math.min(5, config.getMaxAttempts()));
-        Exception lastError = null;
-        for (int attempt = 1; attempt <= attempts; attempt++) {
-            try {
-                int status = send(target.url(), target.token(), target.payload(), config.getTimeoutSeconds());
-                if (status >= 200 && status < 300) {
-                    metrics.notification("sent", severity);
-                    audit.system(
-                        "notification",
-                        "notification.sent",
-                        "incident",
-                        report.incidentId(),
-                        "success",
-                        Map.of("channel", target.channel(), "severity", severity, "attempt", attempt)
-                    );
-                    return;
-                }
-                lastError = new IllegalStateException(target.channel() + " webhook returned HTTP " + status);
-            } catch (Exception exception) {
-                lastError = exception;
-            }
+        NotificationDeliveryResult result = attemptDelivery(target, config);
+        if ("success".equals(result.outcome())) {
+            metrics.notification("sent", severity);
+            audit.system(
+                "notification",
+                "notification.sent",
+                "incident",
+                report.incidentId(),
+                "success",
+                Map.of(
+                    "channel", target.channel(),
+                    "severity", severity,
+                    "attempt", result.attempts(),
+                    "status_code", result.statusCode() == null ? "" : result.statusCode()
+                )
+            );
+            return;
         }
         metrics.notification("failed", severity);
         audit.system(
@@ -93,9 +123,38 @@ public class IncidentNotificationService {
             Map.of(
                 "channel", target.channel(),
                 "severity", severity,
-                "attempts", attempts,
-                "error", safeError(lastError)
+                "attempts", result.attempts(),
+                "status_code", result.statusCode() == null ? "" : result.statusCode(),
+                "error", result.error()
             )
+        );
+    }
+
+    private NotificationDeliveryResult attemptDelivery(
+        NotificationTarget target,
+        RcaConsoleProperties.Notification config
+    ) {
+        int attempts = Math.max(1, Math.min(5, config.getMaxAttempts()));
+        Exception lastError = null;
+        Integer lastStatusCode = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                int status = send(target.url(), target.token(), target.payload(), config.getTimeoutSeconds());
+                lastStatusCode = status;
+                if (status >= 200 && status < 300) {
+                    return new NotificationDeliveryResult(target.channel(), "success", attempt, status, "");
+                }
+                lastError = new IllegalStateException(target.channel() + " webhook returned HTTP " + status);
+            } catch (Exception exception) {
+                lastError = exception;
+            }
+        }
+        return new NotificationDeliveryResult(
+            target.channel(),
+            "failed",
+            attempts,
+            lastStatusCode,
+            safeError(lastError)
         );
     }
 
@@ -143,6 +202,27 @@ public class IncidentNotificationService {
         return List.copyOf(result);
     }
 
+    private List<NotificationTarget> testTargets(RcaConsoleProperties.Notification config) {
+        ArrayList<NotificationTarget> result = new ArrayList<>();
+        if (!config.getSlackWebhookUrl().isBlank()) {
+            result.add(new NotificationTarget(
+                "slack",
+                config.getSlackWebhookUrl(),
+                "",
+                testSlackPayload()
+            ));
+        }
+        if (!config.getWebhookUrl().isBlank()) {
+            result.add(new NotificationTarget(
+                "webhook",
+                config.getWebhookUrl(),
+                config.getWebhookToken(),
+                testWebhookPayload()
+            ));
+        }
+        return List.copyOf(result);
+    }
+
     private Map<String, Object> slackPayload(RcaReport report, EvidenceBundle evidence, String severity) {
         String reportUrl = properties.getPublicApiBaseUrl().isBlank() ? "" : reportUrl(report);
         Integer confidenceScore = confidenceScore(report);
@@ -162,6 +242,16 @@ public class IncidentNotificationService {
         return Map.copyOf(payload);
     }
 
+    private Map<String, Object> testSlackPayload() {
+        String text = String.join(
+            "\n",
+            "[Cluster RCA Console Test]",
+            "Event: notification.test",
+            "Generated: " + Instant.now()
+        );
+        return Map.of("text", text);
+    }
+
     private Map<String, Object> webhookPayload(RcaReport report, EvidenceBundle evidence, String severity) {
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
         payload.put("schema_version", "rca-notification/v1");
@@ -176,6 +266,20 @@ public class IncidentNotificationService {
         payload.put("confidence_score", confidenceScore(report));
         payload.put("report_url", properties.getPublicApiBaseUrl().isBlank() ? "" : reportUrl(report));
         payload.put("created_at", report.createdAt() == null ? "" : report.createdAt().toString());
+        return Collections.unmodifiableMap(payload);
+    }
+
+    private Map<String, Object> testWebhookPayload() {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("schema_version", "rca-notification/v1");
+        payload.put("event_type", "rca.notification_test");
+        payload.put("severity", "info");
+        payload.put("source", "cluster-rca-console");
+        payload.put("test", true);
+        payload.put("report_url", properties.getPublicApiBaseUrl().isBlank()
+            ? ""
+            : properties.getPublicApiBaseUrl().replaceAll("/+$", ""));
+        payload.put("created_at", Instant.now().toString());
         return Collections.unmodifiableMap(payload);
     }
 

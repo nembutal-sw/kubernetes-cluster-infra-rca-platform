@@ -287,7 +287,41 @@ public final class RcaModels {
         String minimumSupportedAgentProtocolVersion,
         String minimumSupportedAgentVersion,
         ExportSecurityInfo exportSecurity,
-        LlmConfigurationInfo llm
+        LlmConfigurationInfo llm,
+        NotificationConfigurationInfo notification
+    ) {
+    }
+
+    public record NotificationConfigurationInfo(
+        boolean enabled,
+        boolean slackConfigured,
+        boolean webhookConfigured,
+        boolean webhookTokenConfigured,
+        String minimumSeverity,
+        int maxAttempts,
+        int timeoutSeconds,
+        List<String> channels
+    ) {
+    }
+
+    public record NotificationTestRequest(
+        boolean confirmed
+    ) {
+    }
+
+    public record NotificationDeliveryResult(
+        String channel,
+        String outcome,
+        int attempts,
+        Integer statusCode,
+        String error
+    ) {
+    }
+
+    public record NotificationTestResponse(
+        String outcome,
+        String message,
+        List<NotificationDeliveryResult> results
     ) {
     }
 

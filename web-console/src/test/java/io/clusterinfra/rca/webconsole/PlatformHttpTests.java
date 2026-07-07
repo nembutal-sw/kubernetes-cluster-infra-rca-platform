@@ -605,6 +605,12 @@ class PlatformHttpTests {
         assertThat(llm.path("provider").asText()).isEqualTo("none");
         assertThat(llm.path("spring_ai_chat_model").asText()).isEqualTo("none");
         assertThat(llm.path("credential_configured").asBoolean()).isFalse();
+        JsonNode notification = info.path("notification");
+        assertThat(notification.path("enabled").asBoolean()).isFalse();
+        assertThat(notification.path("slack_configured").asBoolean()).isFalse();
+        assertThat(notification.path("webhook_configured").asBoolean()).isFalse();
+        assertThat(notification.path("webhook_token_configured").asBoolean()).isFalse();
+        assertThat(notification.path("channels")).isEmpty();
         assertThat(info.toString()).doesNotContain("platform-info-signing-secret");
         assertThat(info.toString()).doesNotContain("api-key");
     }
@@ -821,6 +827,41 @@ class PlatformHttpTests {
         );
         assertThat(newToken.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         bootstrapToken = rotatedToken;
+    }
+
+    @Test
+    @Order(17)
+    void adminCanInspectAndTestNotificationDeliveryContract() throws Exception {
+        ResponseEntity<String> status = exchange("/api/notifications/status", HttpMethod.GET, null);
+        assertThat(status.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode statusBody = objectMapper.readTree(status.getBody());
+        assertThat(statusBody.path("enabled").asBoolean()).isFalse();
+        assertThat(statusBody.path("channels")).isEmpty();
+
+        ResponseEntity<String> missingConfirmation = exchange(
+            "/api/notifications/test",
+            HttpMethod.POST,
+            Map.of("confirmed", false)
+        );
+        assertThat(missingConfirmation.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<String> test = exchange(
+            "/api/notifications/test",
+            HttpMethod.POST,
+            Map.of("confirmed", true)
+        );
+        assertThat(test.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode testBody = objectMapper.readTree(test.getBody());
+        assertThat(testBody.path("outcome").asText()).isEqualTo("skipped");
+        assertThat(testBody.path("results")).isEmpty();
+
+        JsonNode history = objectMapper.readTree(
+            exchange("/api/notifications/history?limit=10", HttpMethod.GET, null).getBody()
+        );
+        assertThat(history).isNotEmpty();
+        assertThat(history.get(0).path("event_type").asText()).isEqualTo("notification.test");
+        assertThat(history.get(0).path("outcome").asText()).isEqualTo("skipped");
+        assertThat(history.get(0).path("details").path("client_ip").asText()).isNotBlank();
     }
 
     private int actionIndex(JsonNode actions, String policy) {
