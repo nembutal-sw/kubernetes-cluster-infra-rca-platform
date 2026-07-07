@@ -51,6 +51,28 @@
     }
   },
   {
+    "key": "node-condition-disk-pressure-only",
+    "alert_name": "DiskPressure",
+    "description": "Kubernetes reports DiskPressure even when detailed disk collector output is missing.",
+    "collectors": {
+      "kubernetes": {
+        "node_conditions": {
+          "DiskPressure": { "status": "True" },
+          "Ready": { "status": "True" }
+        }
+      }
+    },
+    "expected": {
+      "signals": ["node_disk_pressure"],
+      "components": ["disk"],
+      "actions": ["collect_more_evidence", "collect_linux_low_level_evidence", "inspect_storage_state"],
+      "manual_only_actions": [],
+      "checklists": ["Node conditions", "Storage capacity and latency"],
+      "min_top_candidate_score": 60,
+      "summary_confidence": "high"
+    }
+  },
+  {
     "key": "inode-exhaustion",
     "alert_name": "DiskPressure",
     "description": "Filesystem byte usage is acceptable but inode usage is exhausted.",

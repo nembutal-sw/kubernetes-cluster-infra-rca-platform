@@ -2,9 +2,10 @@ package io.clusterinfra.rca.webconsole.analysis;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -27,15 +28,39 @@ public class RootCauseCandidateBuilder {
         }
         Map<String, Long> componentCounts = signals.stream()
             .collect(Collectors.groupingBy(Signal::component, Collectors.counting()));
-        return signals.stream().limit(5).map(signal -> new RootCauseCandidate(
-            signal.interpretation(),
-            signal.confidence(),
-            signal.supportingEvidence(),
-            confidenceScorer.candidateScore(
+        return signals.stream()
+            .sorted(candidateComparator(componentCounts))
+            .limit(5)
+            .map(signal -> new RootCauseCandidate(
+                signal.interpretation(),
+                signal.confidence(),
+                signal.supportingEvidence(),
+                confidenceScorer.candidateScore(
+                    signal,
+                    componentCounts.getOrDefault(signal.component(), 0L).intValue()
+                ),
+                signal.matchedFields()
+            )).toList();
+    }
+
+    private Comparator<Signal> candidateComparator(Map<String, Long> componentCounts) {
+        return Comparator
+            .comparingInt((Signal signal) -> confidenceScorer.candidateScore(
                 signal,
                 componentCounts.getOrDefault(signal.component(), 0L).intValue()
-            ),
-            signal.matchedFields()
-        )).toList();
+            ))
+            .reversed()
+            .thenComparingInt(confidenceScorer::rootCausePriority)
+            .thenComparing((Signal signal) -> signal.threshold() == null)
+            .thenComparingInt(RootCauseCandidateBuilder::severityRank)
+            .thenComparing(Signal::name);
+    }
+
+    private static int severityRank(Signal signal) {
+        return switch (signal.severity() == null ? "" : signal.severity()) {
+            case "critical" -> 0;
+            case "warning" -> 1;
+            default -> 2;
+        };
     }
 }

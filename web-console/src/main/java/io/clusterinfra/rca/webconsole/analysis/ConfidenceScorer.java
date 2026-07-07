@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.analysis;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Confidence;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -45,7 +46,27 @@ public class ConfidenceScorer {
         if (!signal.supportingEvidence().isEmpty()) {
             score += 10;
         }
+        if (isDownstreamSymptom(signal)) {
+            score -= 20;
+        }
         return Math.max(0, Math.min(100, score));
+    }
+
+    public int rootCausePriority(Signal signal) {
+        String component = signal.component() == null ? "" : signal.component().toLowerCase(Locale.ROOT);
+        if (List.of("disk", "inode", "memory", "process", "conntrack", "kernel").contains(component)) {
+            return 0;
+        }
+        if (List.of("runtime", "containerd", "systemd", "network").contains(component)) {
+            return 1;
+        }
+        if (List.of("kubelet", "cni", "dns", "api-server", "api_server", "etcd").contains(component)) {
+            return 2;
+        }
+        if (List.of("node", "kubernetes").contains(component)) {
+            return 3;
+        }
+        return 4;
     }
 
     private static boolean isExplicitFailureState(Signal signal) {
@@ -62,6 +83,12 @@ public class ConfidenceScorer {
             || name.equals("container_runtime_unit_unhealthy");
     }
 
+    private static boolean isDownstreamSymptom(Signal signal) {
+        String name = signal.name();
+        String component = signal.component() == null ? "" : signal.component().toLowerCase();
+        return name.equals("node_not_ready") || component.equals("node") || component.equals("kubernetes");
+    }
+
     private static boolean isExplicitConfigurationOrEvent(Signal signal) {
         String name = signal.name();
         return name.equals("cni_config_invalid")
@@ -71,6 +98,8 @@ public class ConfidenceScorer {
             || name.equals("kernel_io_error")
             || name.equals("root_filesystem_read_only")
             || name.equals("nic_link_flap")
+            || name.endsWith("_pressure")
+            || name.equals("node_network_unavailable")
             || name.startsWith("ebpf_");
     }
 

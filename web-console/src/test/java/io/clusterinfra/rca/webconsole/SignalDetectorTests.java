@@ -15,6 +15,7 @@ import io.clusterinfra.rca.webconsole.analysis.detector.DnsLatencyDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.EtcdLatencyDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KernelLogDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.KubeletFailureDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.NodePressureConditionDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodeReadinessDetector;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import java.util.List;
@@ -198,6 +199,51 @@ class SignalDetectorTests {
         assertThat(new NodeReadinessDetector().detect(context))
             .extracting(Signal::name)
             .containsExactly("node_not_ready");
+    }
+
+    @Test
+    void nodePressureConditionDetectorMapsKubernetesPressureConditionsToSubsystems() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "node_conditions", Map.of(
+                    "DiskPressure", Map.of("status", "True"),
+                    "MemoryPressure", Map.of("status", true),
+                    "PIDPressure", Map.of("status", "true"),
+                    "NetworkUnavailable", Map.of("status", "TRUE"),
+                    "Ready", Map.of("status", "False")
+                )
+            )
+        ));
+
+        List<Signal> signals = new NodePressureConditionDetector().detect(context);
+
+        assertThat(signals)
+            .extracting(Signal::name)
+            .containsExactlyInAnyOrder(
+                "node_disk_pressure",
+                "node_memory_pressure",
+                "node_pid_pressure",
+                "node_network_unavailable"
+            );
+        assertThat(signals)
+            .extracting(Signal::component)
+            .contains("disk", "memory", "process", "network");
+    }
+
+    @Test
+    void nodePressureConditionDetectorIgnoresFalseHealthyConditions() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "node_conditions", Map.of(
+                    "DiskPressure", Map.of("status", "False"),
+                    "MemoryPressure", Map.of("status", false),
+                    "PIDPressure", Map.of("status", "Unknown"),
+                    "NetworkUnavailable", Map.of("status", "False")
+                )
+            )
+        ));
+
+        assertThat(new NodePressureConditionDetector().detect(context)).isEmpty();
     }
 
     @Test
