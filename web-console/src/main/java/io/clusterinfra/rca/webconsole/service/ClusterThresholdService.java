@@ -3,8 +3,10 @@ package io.clusterinfra.rca.webconsole.service;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterThresholdSettings;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterThresholdUpdateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ThresholdDefinition;
 import io.clusterinfra.rca.webconsole.persistence.ClusterThresholdRepository;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -14,6 +16,22 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ClusterThresholdService {
+    private static final List<ThresholdDefinition> DEFINITIONS = List.of(
+        percent("disk.warning.percent", "Disk usage warning", "warning", "disk.critical.percent"),
+        percent("disk.critical.percent", "Disk usage critical", "critical", "disk.warning.percent"),
+        percent("inode.warning.percent", "Inode usage warning", "warning", "inode.critical.percent"),
+        percent("inode.critical.percent", "Inode usage critical", "critical", "inode.warning.percent"),
+        percent("memory.critical.percent", "Memory pressure critical", "critical", null),
+        percent("pid.warning.percent", "PID usage warning", "warning", "pid.critical.percent"),
+        percent("pid.critical.percent", "PID usage critical", "critical", "pid.warning.percent"),
+        percent("conntrack.warning.percent", "Conntrack usage warning", "warning", "conntrack.critical.percent"),
+        percent("conntrack.critical.percent", "Conntrack usage critical", "critical", "conntrack.warning.percent"),
+        positive("disk.await.warning.ms", "Disk await latency warning", "ms", "warning"),
+        positive("dns.latency.warning.ms", "DNS latency warning", "ms", "warning"),
+        positive("api-server.latency.warning.ms", "API server latency warning", "ms", "warning"),
+        positive("etcd.latency.warning.ms", "Etcd latency warning", "ms", "warning")
+    );
+
     private final ClusterThresholdRepository repository;
     private final RcaConsoleProperties properties;
 
@@ -45,6 +63,7 @@ public class ClusterThresholdService {
             Map.copyOf(overrides),
             Map.copyOf(safeEffective),
             supportedKeys(),
+            definitions(),
             repository == null ? null : repository.latestUpdatedAt(clusterId)
         );
     }
@@ -86,9 +105,23 @@ public class ClusterThresholdService {
         return List.copyOf(defaults().keySet());
     }
 
+    public List<ThresholdDefinition> definitions() {
+        List<ThresholdDefinition> result = new ArrayList<>();
+        Map<String, ThresholdDefinition> byKey = new LinkedHashMap<>();
+        DEFINITIONS.forEach(definition -> byKey.put(definition.key(), definition));
+        for (String key : supportedKeys()) {
+            result.add(byKey.getOrDefault(
+                key,
+                new ThresholdDefinition(key, key, "value", 0.0, null, "warning", null)
+            ));
+        }
+        return List.copyOf(result);
+    }
+
     public Map<String, Object> info() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("supported_keys", supportedKeys());
+        result.put("definitions", definitions());
         result.put("default_values", defaults());
         result.put("cluster_override_enabled", repository != null);
         return result;
@@ -173,5 +206,13 @@ public class ClusterThresholdService {
             .toLowerCase(Locale.ROOT)
             .replace('_', '.')
             .replace('-', '.');
+    }
+
+    private static ThresholdDefinition percent(String key, String label, String severity, String pairedKey) {
+        return new ThresholdDefinition(key, label, "percent", 0.0, 100.0, severity, pairedKey);
+    }
+
+    private static ThresholdDefinition positive(String key, String label, String unit, String severity) {
+        return new ThresholdDefinition(key, label, unit, 0.0, null, severity, null);
     }
 }

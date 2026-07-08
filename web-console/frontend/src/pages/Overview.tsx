@@ -52,28 +52,44 @@ export function OverviewView({
   const blockedActions = reports
     .flatMap((report) => report.recommended_actions || [])
     .filter((action) => action.automation_allowed !== true).length;
+  const pipelineBacklog = analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status || "")).length;
+  const pendingApprovals = actionRequests.filter((request) => request.status === "pending_approval").length;
   const signalDigest = buildSignalDigest(reports, incidents);
   const latestReport = reports[0];
 
   return (
     <div className="page-stack">
       <section className="apm-hero">
-        <div>
+        <div className="hero-copy">
           <p className="section-kicker">{t("APM-style infrastructure lens")}</p>
-          <h1>{t("APM Failure Surface")}</h1>
+          <h1>{t("Cluster RCA Console")}</h1>
           <p>
             {t("Node pressure, kernel/runtime evidence, control-plane latency, and policy-gated remediation in one operational surface.")}
           </p>
+          <div className="hero-actions">
+            <button className="btn btn-light btn-sm icon-button" onClick={() => onNavigate("reports")}>
+              <Icon name="clipboard2-pulse" />
+              <span>{t("RCA Reports")}</span>
+            </button>
+            <button className="btn btn-outline-light btn-sm icon-button" onClick={() => onNavigate("clusters")}>
+              <Icon name="hdd-network" />
+              <span>{t("Clusters")}</span>
+            </button>
+          </div>
         </div>
-        <div className="hero-actions">
-          <button className="btn btn-light btn-sm icon-button" onClick={() => onNavigate("reports")}>
-            <Icon name="clipboard2-pulse" />
-            <span>{t("RCA Reports")}</span>
-          </button>
-          <button className="btn btn-outline-light btn-sm icon-button" onClick={() => onNavigate("clusters")}>
-            <Icon name="hdd-network" />
-            <span>{t("Clusters")}</span>
-          </button>
+        <div className="hero-ops-board" aria-label={t("Operations readiness")}>
+          <div className={openIncidents.length ? "hero-ops-row danger" : "hero-ops-row ok"}>
+            <span>{t("Open incidents")}</span>
+            <strong>{openIncidents.length}</strong>
+          </div>
+          <div className={pipelineBacklog ? "hero-ops-row warn" : "hero-ops-row ok"}>
+            <span>{t("Analysis pipeline")}</span>
+            <strong>{pipelineBacklog}</strong>
+          </div>
+          <div className={pendingApprovals || blockedActions ? "hero-ops-row warn" : "hero-ops-row ok"}>
+            <span>{t("Policy queue")}</span>
+            <strong>{pendingApprovals}/{blockedActions}</strong>
+          </div>
         </div>
       </section>
 
@@ -125,7 +141,7 @@ export function OverviewView({
         </div>
         <div>
           <span>{t("Pipeline backlog")}</span>
-          <strong>{analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status || "")).length}</strong>
+          <strong>{pipelineBacklog}</strong>
         </div>
         <div>
           <span>{t("Action requests")}</span>

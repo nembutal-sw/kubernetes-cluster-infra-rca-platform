@@ -1,5 +1,5 @@
-import { EmptyState } from "../../components/common";
-import { relativeTime } from "../../lib/consoleUtils";
+import { EmptyState, StatusBadge } from "../../components/common";
+import { confidenceTone, relativeTime } from "../../lib/consoleUtils";
 import type { RcaReport, TFunction } from "../../types";
 
 interface ReportListPanelProps {
@@ -19,9 +19,15 @@ export function ReportListPanel({ reports, selectedReportId, onSelectReport, t }
           className={selectedReportId === report.report_id ? "selected" : ""}
           onClick={() => onSelectReport(report.report_id)}
         >
-          <span className="report-time">{relativeTime(report.created_at)}</span>
+          <div className="report-list-item-head">
+            <span className="report-time">{relativeTime(report.created_at)}</span>
+            <StatusBadge value={report.summary?.confidence || "unknown"} tone={confidenceTone(report.summary?.confidence)} t={t} />
+          </div>
           <strong>{report.summary?.symptom || report.trigger?.alert_name || report.report_id}</strong>
-          <span>{report.cluster_id} / {report.node_name || "cluster"}</span>
+          <div className="report-list-meta">
+            <span>{report.cluster_id}</span>
+            <span>{report.node_name || "cluster"}</span>
+          </div>
         </button>
       ))}
     </>

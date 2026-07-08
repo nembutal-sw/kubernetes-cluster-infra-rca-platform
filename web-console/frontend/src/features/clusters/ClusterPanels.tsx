@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EmptyState, Icon, ResponsiveTable, StatusBadge } from "../../components/common";
 import { agentHealthTone, agentReason, relativeTime, summarizeAgentFleet } from "../../lib/consoleUtils";
@@ -47,6 +47,8 @@ interface ClusterDetailProps {
   cluster: ClusterView;
   detail: ClusterDetailState | null;
   onStartCollection: (cluster: ClusterView) => MaybePromise;
+  onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
+  onClearThresholds: (cluster: ClusterView) => MaybePromise;
   canOperate: boolean;
   t: TFunction;
 }
@@ -206,7 +208,15 @@ export function InstallCommand({ command, onCopy, t }: InstallCommandProps) {
   );
 }
 
-export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, t }: ClusterDetailProps) {
+export function ClusterDetail({
+  cluster,
+  detail,
+  onStartCollection,
+  onUpdateThresholds,
+  onClearThresholds,
+  canOperate,
+  t,
+}: ClusterDetailProps) {
   const [activeTab, setActiveTab] = useState("agents");
   const agents = detail?.agents || [];
   const evidence = detail?.evidence || [];
@@ -250,7 +260,16 @@ export function ClusterDetail({ cluster, detail, onStartCollection, canOperate, 
         {activeTab === "agents" && <AgentTable agents={agents} t={t} />}
         {activeTab === "evidence" && <EvidenceList evidence={evidence} t={t} />}
         {activeTab === "topology" && <TopologyEntities entities={entities} t={t} />}
-        {activeTab === "thresholds" && <ThresholdSettings settings={detail?.thresholds} t={t} />}
+        {activeTab === "thresholds" && (
+          <ThresholdSettings
+            cluster={cluster}
+            settings={detail?.thresholds}
+            canOperate={canOperate}
+            onUpdate={onUpdateThresholds}
+            onClear={onClearThresholds}
+            t={t}
+          />
+        )}
       </div>
     </div>
   );
@@ -305,32 +324,141 @@ function TopologyEntities({ entities, t }: { entities: TopologyEntity[]; t: TFun
   );
 }
 
-function ThresholdSettings({ settings, t }: { settings?: ClusterThresholdSettings | null; t: TFunction }) {
+function ThresholdSettings({
+  cluster,
+  settings,
+  canOperate,
+  onUpdate,
+  onClear,
+  t,
+}: {
+  cluster: ClusterView;
+  settings?: ClusterThresholdSettings | null;
+  canOperate: boolean;
+  onUpdate: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
+  onClear: (cluster: ClusterView) => MaybePromise;
+  t: TFunction;
+}) {
   const effective = settings?.effective || {};
   const defaults = settings?.defaults || {};
   const overrides = settings?.overrides || {};
-  const rows = Object.keys(effective).sort().map((key) => {
+  const supportedKeys = settings?.supported_keys?.length ? settings.supported_keys : Object.keys(effective).sort();
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    Object.entries(overrides).forEach(([key, value]) => {
+      next[key] = formatThreshold(value);
+    });
+    setDraft(next);
+    setReason("");
+    setError("");
+  }, [settings?.updated_at, JSON.stringify(overrides)]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const parsed = parseThresholdDraft(draft, settings, defaults);
+    if (parsed.error) {
+      setError(t(parsed.error));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onUpdate(cluster, parsed.values, reason.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearOverrides() {
+    if (!window.confirm(t("Clear all threshold overrides for this cluster?"))) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onClear(cluster);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows = supportedKeys.map((key) => {
+    const definition = definitionFor(settings, key);
     const overridden = Object.prototype.hasOwnProperty.call(overrides, key);
+    const draftValue = draft[key] ?? "";
     return [
-      <span className="threshold-key">{key}</span>,
+      <div className="threshold-name">
+        <span className="threshold-key">{key}</span>
+        <small>{definition?.label || key}</small>
+      </div>,
       formatThreshold(defaults[key]),
+      <input
+        className="form-control form-control-sm threshold-input"
+        type="number"
+        inputMode="decimal"
+        min={definition?.minimum ?? 0}
+        max={definition?.maximum ?? undefined}
+        step="any"
+        placeholder={formatThreshold(defaults[key])}
+        value={draftValue}
+        disabled={!canOperate || busy}
+        onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+        aria-label={`${key} ${t("Override")}`}
+      />,
       <strong className={overridden ? "threshold-override" : ""}>{formatThreshold(effective[key])}</strong>,
+      <span className="threshold-unit">{definition?.unit || "value"}</span>,
       overridden ? <StatusBadge value={t("Overridden")} tone="amber" t={t} /> : <span className="text-muted">{t("Default")}</span>,
     ];
   });
+
   return (
-    <div className="threshold-settings">
+    <form className="threshold-settings" onSubmit={submit}>
       <div className="threshold-summary">
         <span>{t("Cluster threshold overrides")}</span>
         <strong>{Object.keys(overrides).length}</strong>
         {settings?.updated_at && <em>{t("Updated")} {relativeTime(settings.updated_at)}</em>}
       </div>
+      <div className="threshold-editor-note">
+        <Icon name="sliders" />
+        <span>{t("Leave a value blank to use the platform default. Only filled values are stored as cluster overrides.")}</span>
+      </div>
+      {error && <div className="form-error">{error}</div>}
       <ResponsiveTable
         empty={t("No threshold settings loaded.")}
-        columns={[t("Key"), t("Default"), t("Effective"), t("Source")]}
+        columns={[t("Key"), t("Default"), t("Override"), t("Effective"), t("Unit"), t("Source")]}
         rows={rows}
       />
-    </div>
+      {canOperate && (
+        <div className="threshold-actions">
+          <label>
+            {t("Change reason")}
+            <input
+              className="form-control"
+              value={reason}
+              maxLength={500}
+              disabled={busy}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder={t("Optional operating note")}
+            />
+          </label>
+          <div>
+            <button className="btn btn-primary icon-button" disabled={busy}>
+              <Icon name="save" />
+              <span>{busy ? "..." : t("Save overrides")}</span>
+            </button>
+            <button type="button" className="btn btn-outline-secondary icon-button" disabled={busy || !Object.keys(overrides).length} onClick={clearOverrides}>
+              <Icon name="x-circle" />
+              <span>{t("Clear overrides")}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </form>
   );
 }
 
@@ -376,6 +504,55 @@ function topologyEntity(item: JsonValue, index: number): TopologyEntity | null {
 
 function stringValue(value: JsonValue | undefined): string {
   return value === null || value === undefined ? "" : String(value);
+}
+
+function definitionFor(
+  settings: ClusterThresholdSettings | null | undefined,
+  key: string,
+): NonNullable<ClusterThresholdSettings["definitions"]>[number] | undefined {
+  return settings?.definitions?.find((definition) => definition.key === key);
+}
+
+function parseThresholdDraft(
+  draft: Record<string, string>,
+  settings: ClusterThresholdSettings | null | undefined,
+  defaults: Record<string, number>,
+): { values: Record<string, number>; error?: string } {
+  const values: Record<string, number> = {};
+  const keys = settings?.supported_keys?.length ? settings.supported_keys : Object.keys(defaults);
+  for (const key of keys) {
+    const raw = (draft[key] || "").trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    const definition = definitionFor(settings, key);
+    const minimum = definition?.minimum ?? 0;
+    const maximum = definition?.maximum;
+    if (!Number.isFinite(value)) {
+      return { values, error: `${key} must be a finite number.` };
+    }
+    if (value <= minimum) {
+      return { values, error: `${key} must be greater than ${minimum}.` };
+    }
+    if (typeof maximum === "number" && value > maximum) {
+      return { values, error: `${key} must be less than or equal to ${maximum}.` };
+    }
+    values[key] = value;
+  }
+  const effective = { ...defaults, ...values };
+  const orderedPairs = [
+    ["disk.warning.percent", "disk.critical.percent"],
+    ["inode.warning.percent", "inode.critical.percent"],
+    ["pid.warning.percent", "pid.critical.percent"],
+    ["conntrack.warning.percent", "conntrack.critical.percent"],
+  ];
+  for (const [warningKey, criticalKey] of orderedPairs) {
+    const warning = effective[warningKey];
+    const critical = effective[criticalKey];
+    if (typeof warning === "number" && typeof critical === "number" && critical < warning) {
+      return { values, error: `${criticalKey} must be greater than or equal to ${warningKey}.` };
+    }
+  }
+  return { values };
 }
 
 function formatThreshold(value: number | undefined): string {

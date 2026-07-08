@@ -628,8 +628,133 @@ class PlatformHttpTests {
         assertThat(notification.path("webhook_configured").asBoolean()).isFalse();
         assertThat(notification.path("webhook_token_configured").asBoolean()).isFalse();
         assertThat(notification.path("channels")).isEmpty();
+        JsonNode catalogSummary = info.path("catalog");
+        assertThat(catalogSummary.path("schema_version").asText()).isEqualTo("rca-catalog/v1");
+        assertThat(catalogSummary.path("action_plan_execution_enabled").asBoolean()).isFalse();
+        assertThat(catalogSummary.path("collector_count").asInt()).isGreaterThan(0);
+        JsonNode thresholds = info.path("thresholds");
+        assertThat(thresholds.path("cluster_override_enabled").asBoolean()).isTrue();
+        assertThat(thresholds.path("definitions")).isNotEmpty();
         assertThat(info.toString()).doesNotContain("platform-info-signing-secret");
         assertThat(info.toString()).doesNotContain("api-key");
+
+        JsonNode catalog = objectMapper.readTree(
+            exchange("/api/v1/catalog", HttpMethod.GET, null).getBody()
+        );
+        assertThat(catalog.path("summary").path("schema_version").asText()).isEqualTo("rca-catalog/v1");
+        assertThat(catalog.path("collectors").path("disk").path("enabled").asBoolean()).isTrue();
+        assertThat(catalog.path("actions").path("restart_kubelet").path("plan").path("executable").asBoolean()).isFalse();
+        assertThat(catalog.path("rules").path("disk-pressure").path("enabled").asBoolean()).isTrue();
+
+        JsonNode validPreview = objectMapper.readTree(exchange(
+            "/api/v1/catalog/preview",
+            HttpMethod.POST,
+            Map.of(
+                "override_json",
+                """
+                    {
+                      "schema_version": "rca-catalog/v1",
+                      "version": "platform-preview",
+                      "rules": {
+                        "disk-pressure": {"enabled": false}
+                      }
+                    }
+                    """,
+                "reason", "platform contract test"
+            )
+        ).getBody());
+        assertThat(validPreview.path("valid").asBoolean()).isTrue();
+        assertThat(validPreview.path("summary").path("version").asText()).isEqualTo("platform-preview");
+        assertThat(validPreview.path("diff")).isNotEmpty();
+        assertThat(validPreview.toString()).contains("/rules/disk-pressure/enabled");
+
+        JsonNode unsafePreview = objectMapper.readTree(exchange(
+            "/api/v1/catalog/preview",
+            HttpMethod.POST,
+            Map.of(
+                "override_json",
+                """
+                    {
+                      "schema_version": "rca-catalog/v1",
+                      "actions": {
+                        "restart_kubelet": {
+                          "plan": {"executable": true}
+                        }
+                      }
+                    }
+                    """,
+                "reason", "unsafe preview contract test"
+            )
+        ).getBody());
+        assertThat(unsafePreview.path("valid").asBoolean()).isFalse();
+        assertThat(unsafePreview.path("message").asText()).contains("plan.executable must be false");
+
+        ResponseEntity<String> unsafeDraft = exchange(
+            "/api/v1/catalog/overrides/drafts",
+            HttpMethod.POST,
+            Map.of(
+                "override_json",
+                """
+                    {
+                      "schema_version": "rca-catalog/v1",
+                      "actions": {
+                        "restart_kubelet": {
+                          "plan": {"executable": true}
+                        }
+                      }
+                    }
+                    """,
+                "reason", "unsafe draft contract test"
+            )
+        );
+        assertThat(unsafeDraft.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        JsonNode draft = objectMapper.readTree(exchange(
+            "/api/v1/catalog/overrides/drafts",
+            HttpMethod.POST,
+            Map.of(
+                "override_json",
+                """
+                    {
+                      "schema_version": "rca-catalog/v1",
+                      "version": "platform-draft",
+                      "rules": {
+                        "disk-pressure": {"enabled": false}
+                      }
+                    }
+                    """,
+                "reason", "platform draft contract test"
+            )
+        ).getBody());
+        String draftId = draft.path("draft_id").asText();
+        assertThat(draft.path("status").asText()).isEqualTo("draft");
+        assertThat(draft.path("diff")).isNotEmpty();
+
+        JsonNode approvedDraft = objectMapper.readTree(exchange(
+            "/api/v1/catalog/overrides/drafts/" + draftId + "/approve",
+            HttpMethod.POST,
+            Map.of("confirmed", true, "note", "approved for GitOps handoff")
+        ).getBody());
+        assertThat(approvedDraft.path("status").asText()).isEqualTo("approved");
+
+        JsonNode handoff = objectMapper.readTree(exchange(
+            "/api/v1/catalog/overrides/drafts/" + draftId + "/handoff",
+            HttpMethod.GET,
+            null
+        ).getBody());
+        assertThat(handoff.path("recommendation").asText()).contains("GitOps");
+        assertThat(handoff.path("pull_request_body").asText()).contains("/rules/disk-pressure/enabled");
+        assertThat(handoff.path("files").path("ops/catalog/operational-catalog.override.json").asText())
+            .contains("platform-draft");
+
+        JsonNode catalogAudit = objectMapper.readTree(
+            exchange("/api/audit/events?event_type=catalog.override.preview&limit=10", HttpMethod.GET, null).getBody()
+        );
+        assertThat(catalogAudit.toString()).contains("success").contains("rejected");
+        JsonNode draftAudit = objectMapper.readTree(
+            exchange("/api/audit/events?event_type=catalog.override_draft&limit=10", HttpMethod.GET, null).getBody()
+        );
+        assertThat(draftAudit.toString()).contains("created").contains("approved");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.clusterinfra.rca.webconsole.catalog;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalog.ActionDefinition;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalog.ActionPlanDefinition;
@@ -35,7 +36,10 @@ import org.springframework.stereotype.Service;
 public class OperationalCatalogService {
     private static final String SUPPORTED_SCHEMA = "rca-catalog/v1";
     private static final Pattern KEY_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9_-]*$");
+    private static final int MAX_PREVIEW_DIFFS = 200;
+    private final ObjectMapper objectMapper;
     private final OperationalCatalog catalog;
+    private final boolean externalOverrideActive;
 
     @Autowired
     public OperationalCatalogService(ObjectMapper objectMapper, RcaConsoleProperties properties) {
@@ -47,6 +51,8 @@ public class OperationalCatalogService {
         RcaConsoleProperties properties,
         ResourceLoader resourceLoader
     ) {
+        this.objectMapper = objectMapper;
+        this.externalOverrideActive = !properties.getCatalog().getExternalPath().isBlank();
         this.catalog = load(objectMapper, properties.getCatalog(), resourceLoader);
     }
 
@@ -102,11 +108,52 @@ public class OperationalCatalogService {
         result.put("version", catalog.version());
         result.put("source", catalog.source());
         result.put("checksum", catalog.checksum());
+        result.put("external_override_active", externalOverrideActive);
+        result.put("action_plan_execution_enabled", false);
         result.put("collector_count", catalog.collectors().size());
         result.put("action_count", catalog.actions().size());
         result.put("rule_count", catalog.rules().size());
         result.put("default_collectors", catalog.defaultCollectors());
         return result;
+    }
+
+    public Map<String, Object> detail() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", info());
+        result.put("collectors", catalog.collectors());
+        result.put("collector_selection", catalog.collectorSelection());
+        result.put("actions", catalog.actions());
+        result.put("rules", catalog.rules());
+        return result;
+    }
+
+    public Map<String, Object> previewOverride(String overrideJson) {
+        if (overrideJson == null || overrideJson.isBlank()) {
+            return previewResult(false, "override_json must not be blank", Map.of(), List.of(), false);
+        }
+        try {
+            CatalogDocument override = objectMapper.readValue(overrideJson, CatalogDocument.class);
+            CatalogDocument candidateDocument = merge(document(catalog), override);
+            String checksum = checksum(objectMapper, candidateDocument);
+            OperationalCatalog candidate = toCatalog(candidateDocument, catalog.source() + ",preview", checksum);
+            validate(candidate);
+            List<Map<String, Object>> diff = diff(document(catalog), candidateDocument);
+            return previewResult(
+                true,
+                diff.isEmpty() ? "Override is valid. No catalog changes detected." : "Override is valid.",
+                summary(candidate, externalOverrideActive),
+                diff,
+                diff.size() >= MAX_PREVIEW_DIFFS
+            );
+        } catch (IOException | IllegalArgumentException | IllegalStateException exception) {
+            return previewResult(
+                false,
+                exception.getMessage() == null ? "Invalid catalog override JSON." : exception.getMessage(),
+                Map.of(),
+                List.of(),
+                false
+            );
+        }
     }
 
     private boolean collectorEnabled(String key) {
@@ -283,6 +330,116 @@ public class OperationalCatalogService {
             document.actions(),
             document.rules()
         );
+    }
+
+    private CatalogDocument document(OperationalCatalog catalog) {
+        return new CatalogDocument(
+            catalog.schemaVersion(),
+            catalog.version(),
+            catalog.collectors(),
+            catalog.collectorSelection(),
+            catalog.actions(),
+            catalog.rules()
+        );
+    }
+
+    private Map<String, Object> summary(OperationalCatalog catalog, boolean overrideActive) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("schema_version", catalog.schemaVersion());
+        result.put("version", catalog.version());
+        result.put("source", catalog.source());
+        result.put("checksum", catalog.checksum());
+        result.put("external_override_active", overrideActive);
+        result.put("action_plan_execution_enabled", false);
+        result.put("collector_count", catalog.collectors().size());
+        result.put("action_count", catalog.actions().size());
+        result.put("rule_count", catalog.rules().size());
+        result.put("default_collectors", catalog.defaultCollectors());
+        return result;
+    }
+
+    private Map<String, Object> previewResult(
+        boolean valid,
+        String message,
+        Map<String, Object> summary,
+        List<Map<String, Object>> diff,
+        boolean diffTruncated
+    ) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("valid", valid);
+        result.put("message", message);
+        result.put("summary", summary);
+        result.put("diff", diff);
+        result.put("diff_count", diff.size());
+        result.put("diff_truncated", diffTruncated);
+        return result;
+    }
+
+    private List<Map<String, Object>> diff(CatalogDocument current, CatalogDocument proposed) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        JsonNode currentNode = objectMapper.convertValue(current, JsonNode.class);
+        JsonNode proposedNode = objectMapper.convertValue(proposed, JsonNode.class);
+        appendDiff("", currentNode, proposedNode, result);
+        return result;
+    }
+
+    private void appendDiff(String path, JsonNode current, JsonNode proposed, List<Map<String, Object>> result) {
+        if (result.size() >= MAX_PREVIEW_DIFFS || nodesEqual(current, proposed)) {
+            return;
+        }
+        if (current == null || current.isMissingNode()) {
+            result.add(diffEntry(path, "added", null, proposed));
+            return;
+        }
+        if (proposed == null || proposed.isMissingNode()) {
+            result.add(diffEntry(path, "removed", current, null));
+            return;
+        }
+        if (current.isObject() && proposed.isObject()) {
+            Set<String> fields = new LinkedHashSet<>();
+            current.fieldNames().forEachRemaining(fields::add);
+            proposed.fieldNames().forEachRemaining(fields::add);
+            for (String field : fields) {
+                if (result.size() >= MAX_PREVIEW_DIFFS) {
+                    return;
+                }
+                appendDiff(path(path, field), current.path(field), proposed.path(field), result);
+            }
+            return;
+        }
+        if (current.isArray() || proposed.isArray()) {
+            result.add(diffEntry(path, "changed", current, proposed));
+            return;
+        }
+        result.add(diffEntry(path, "changed", current, proposed));
+    }
+
+    private boolean nodesEqual(JsonNode current, JsonNode proposed) {
+        if (current == null || proposed == null) {
+            return current == proposed;
+        }
+        return current.equals(proposed);
+    }
+
+    private Map<String, Object> diffEntry(String path, String changeType, JsonNode current, JsonNode proposed) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", path == null || path.isBlank() ? "/" : path);
+        result.put("change_type", changeType);
+        result.put("current_value", jsonValue(current));
+        result.put("proposed_value", jsonValue(proposed));
+        return result;
+    }
+
+    private Object jsonValue(JsonNode value) {
+        if (value == null || value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        return objectMapper.convertValue(value, Object.class);
+    }
+
+    private String path(String parent, String field) {
+        String escaped = field.replace("~", "~0").replace("/", "~1");
+        return parent == null || parent.isBlank() ? "/" + escaped : parent + "/" + escaped;
     }
 
     private void validate(OperationalCatalog catalog) {

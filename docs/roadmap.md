@@ -57,6 +57,12 @@
 - action policy, action plan, recommendation trigger를 catalog 기반으로 전환
 - detector enablement를 rule catalog 기반으로 전환
 - catalog schema validation과 unsafe executable plan 차단 테스트 추가
+- `/api/v1/catalog` 상세 조회 API와 Settings read-only catalog 화면 추가
+- `/api/v1/catalog/preview` override validation/diff API 추가
+- Settings 화면에서 override JSON preview와 diff 확인 지원
+- preview 성공/거부 audit event 기록
+- catalog override draft 저장, 승인/거절/폐기 API 추가
+- 승인된 draft의 GitOps PR/runbook handoff 응답 추가
 
 ### Cluster Threshold Override Persistence
 
@@ -64,7 +70,8 @@
 - cluster별 detector threshold override 저장/조회/초기화 API 추가
 - RCA 분석 시 `EvidenceBundle.clusterId` 기준 effective threshold 사용
 - 잘못된 key, percent 범위, warning/critical 역전 validation 추가
-- Platform Info와 Cluster Detail UI에 threshold 정보 노출
+- Platform Info와 Cluster Detail UI에 threshold definition/effective value 노출
+- Cluster Detail UI에서 override 저장/초기화 지원
 - PostgreSQL/MariaDB 호환 테스트와 HTTP E2E 반영
 
 ### Supply Chain Security
@@ -79,19 +86,19 @@
 
 ## Active Backlog
 
-### Catalog Management UI Or DB Model
+### Editable Catalog Override Workflow
 
 목표:
 
-- collector/action/rule catalog override를 운영자가 안전하게 검토
-- catalog version, checksum, source를 UI에서 명확히 확인
-- unsafe action plan은 저장 전 차단
+- 승인된 catalog override draft를 실제 GitOps 시스템과 연결
+- 변경 티켓, PR URL, 배포 결과, 롤백 결과를 draft에 추적
+- 외부 JSON 파일 배포 runbook을 운영 환경별로 구체화
 
 완료 기준:
 
-- catalog override preview와 validation endpoint
-- 변경 전후 diff 표시
-- audit event 기록
+- GitHub/GitLab/Gitea 중 하나 이상 PR 생성 연동
+- PR URL과 deployment outcome 저장
+- rollback handoff와 verification checklist 제공
 
 ### Agent And Webhook Auth Regression
 
@@ -123,7 +130,7 @@
 
 ## Next Priority
 
-1. catalog override 운영 UI 또는 DB 관리 모델 검토
+1. catalog override PR 생성 연동 또는 변경 티켓 추적 모델 검토
 2. agent/webhook 인증 regression test 강화
 3. 실제 Kubernetes canary 검증 반복
 4. 플랫폼별 collector compatibility matrix 보강

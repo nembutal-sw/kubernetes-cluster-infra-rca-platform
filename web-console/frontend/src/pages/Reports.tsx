@@ -39,6 +39,10 @@ export function ReportsView({ reports, selectedReportId, setSelectedReportId, de
       />
       <div className="report-layout">
         <aside className="report-list">
+          <div className="report-list-head">
+            <span>{t("RCA Reports")}</span>
+            <strong>{reports.length}</strong>
+          </div>
           <ReportListPanel reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} t={t} />
         </aside>
         <section className="report-detail-panel">

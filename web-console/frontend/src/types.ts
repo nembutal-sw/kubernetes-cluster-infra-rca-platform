@@ -148,7 +148,115 @@ export interface ClusterThresholdSettings {
   overrides?: Record<string, number>;
   effective?: Record<string, number>;
   supported_keys?: string[];
+  definitions?: ThresholdDefinition[];
   updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ThresholdDefinition {
+  key: string;
+  label?: string;
+  unit?: string;
+  minimum?: number;
+  maximum?: number | null;
+  severity?: string;
+  paired_key?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CatalogCollectorDefinition {
+  description?: string;
+  enabled?: boolean;
+  permission_modes?: string[];
+  [key: string]: unknown;
+}
+
+export interface CatalogActionPlanDefinition {
+  command_key?: string;
+  parameters?: Record<string, string>;
+  command_preview?: string[];
+  yaml_patch?: string;
+  executable?: boolean;
+  timeout_seconds?: number;
+  [key: string]: unknown;
+}
+
+export interface CatalogActionDefinition {
+  action?: string;
+  reason?: string;
+  policy?: string;
+  automation_mode?: string;
+  risks?: string[];
+  triggers?: JsonObject;
+  plan?: CatalogActionPlanDefinition;
+  [key: string]: unknown;
+}
+
+export interface CatalogRuleDefinition {
+  detector?: string;
+  enabled?: boolean;
+  component?: string;
+  signals?: string[];
+  [key: string]: unknown;
+}
+
+export interface OperationalCatalogDetail {
+  summary?: JsonObject;
+  collectors?: Record<string, CatalogCollectorDefinition>;
+  collector_selection?: {
+    default_collectors?: string[];
+    alerts?: Record<string, string[]>;
+    [key: string]: unknown;
+  };
+  actions?: Record<string, CatalogActionDefinition>;
+  rules?: Record<string, CatalogRuleDefinition>;
+  [key: string]: unknown;
+}
+
+export interface CatalogDiffEntry {
+  path?: string;
+  change_type?: string;
+  current_value?: JsonValue;
+  proposed_value?: JsonValue;
+  [key: string]: unknown;
+}
+
+export interface CatalogOverridePreviewResponse {
+  valid?: boolean;
+  message?: string;
+  summary?: JsonObject;
+  diff?: CatalogDiffEntry[];
+  diff_count?: number;
+  diff_truncated?: boolean;
+  [key: string]: unknown;
+}
+
+export interface CatalogOverrideDraft {
+  draft_id: string;
+  status?: string;
+  override_json?: string;
+  preview_summary?: JsonObject;
+  diff?: CatalogDiffEntry[];
+  diff_truncated?: boolean;
+  validation_message?: string;
+  reason?: string;
+  requested_by?: string;
+  reviewed_by?: string;
+  decision_note?: string;
+  created_at?: string;
+  updated_at?: string;
+  reviewed_at?: string;
+  [key: string]: unknown;
+}
+
+export interface CatalogOverrideHandoff {
+  draft_id?: string;
+  status?: string;
+  recommendation?: string;
+  runbook_steps?: string[];
+  files?: Record<string, string>;
+  pull_request_title?: string;
+  pull_request_body?: string;
   [key: string]: unknown;
 }
 

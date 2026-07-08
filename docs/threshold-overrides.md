@@ -34,6 +34,7 @@
 ## Supported Keys
 
 지원 key는 `GET /api/platform/info`의 `thresholds.supported_keys` 또는 cluster thresholds 응답의 `supported_keys`에서 확인한다.
+각 key의 단위와 입력 범위는 `thresholds.definitions` 또는 cluster thresholds 응답의 `definitions`에서 확인한다.
 
 현재 기본 key:
 
@@ -58,3 +59,12 @@ RCA 분석 시 `EvidenceBundle.clusterId` 기준으로 effective threshold를 �
 `effective = application.yml defaults + cluster_threshold_overrides`
 
 저장된 override는 report evidence의 `derived_signals[].threshold`에 반영된다.
+
+## Web Console
+
+Cluster 상세 화면의 `Thresholds` 탭에서 override를 저장하거나 초기화할 수 있다.
+
+- 빈 값은 platform default를 사용한다.
+- 값이 입력된 key만 cluster override로 저장한다.
+- 저장/초기화는 `ADMIN`, `OPERATOR`만 가능하다.
+- 변경 사유는 audit record와 threshold row의 운영 메모로 남긴다.

@@ -22,10 +22,11 @@ function fail(scope, message) {
   failures.push(`[${scope}] ${message}`);
 }
 
-function usefulConsoleMessage(message) {
-  if (message.includes("/api/auth/me") && message.includes("401")) return false;
+function usefulConsoleMessage(message, locationUrl = "") {
+  const combined = `${message} ${locationUrl}`;
+  if (combined.includes("/api/auth/me") && combined.includes("401")) return false;
   if (message.includes("status of 401")) return false;
-  if (message.includes("favicon") && message.includes("404")) return false;
+  if (combined.includes("favicon") && combined.includes("404")) return false;
   return true;
 }
 
@@ -100,7 +101,7 @@ async function runScope(browser, viewport, locale) {
   const consoleErrors = [];
   const pageErrors = [];
   page.on("console", (message) => {
-    if (message.type() === "error" && usefulConsoleMessage(message.text())) {
+    if (message.type() === "error" && usefulConsoleMessage(message.text(), message.location().url || "")) {
       consoleErrors.push(message.text());
     }
   });

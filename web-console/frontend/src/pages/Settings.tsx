@@ -2,6 +2,7 @@ import { PageHeader } from "../components/common";
 import type { Locale } from "../constants";
 import {
   CredentialWarning,
+  CatalogSection,
   LayoutDiagnosticsSection,
   LlmConfigurationSection,
   NotificationDeliverySection,
@@ -10,11 +11,15 @@ import {
 } from "../features/settings/SettingsPanels";
 import type {
   AuditEventView,
+  CatalogOverrideDraft,
+  CatalogOverrideHandoff,
   LlmDiagnosticResponse,
   LlmSetupGuideResponse,
   LlmTestResponse,
   LoginIdChangeForm,
   NotificationTestResponse,
+  OperationalCatalogDetail,
+  CatalogOverridePreviewResponse,
   PasswordChangeForm,
   PlatformInfo,
   TFunction,
@@ -25,6 +30,8 @@ interface SettingsViewProps {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   platformInfo: PlatformInfo | null;
+  catalogDetail: OperationalCatalogDetail | null;
+  catalogOverrideDrafts: CatalogOverrideDraft[];
   llmDiagnostics: LlmDiagnosticResponse | null;
   llmSetupGuide: LlmSetupGuideResponse | null;
   notificationHistory: AuditEventView[];
@@ -33,6 +40,14 @@ interface SettingsViewProps {
   onChangePassword: (form: PasswordChangeForm) => void | Promise<void>;
   onTestNotification: () => NotificationTestResponse | Promise<NotificationTestResponse>;
   onTestLlm: () => LlmTestResponse | Promise<LlmTestResponse>;
+  onPreviewCatalogOverride: (overrideJson: string, reason: string) => Promise<CatalogOverridePreviewResponse>;
+  onCreateCatalogOverrideDraft: (overrideJson: string, reason: string) => Promise<CatalogOverrideDraft>;
+  onDecideCatalogOverrideDraft: (
+    draft: CatalogOverrideDraft,
+    decision: "approve" | "reject" | "discard",
+    note: string,
+  ) => Promise<CatalogOverrideDraft>;
+  onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
   t: TFunction;
 }
 
@@ -40,6 +55,8 @@ export function SettingsView({
   locale,
   setLocale,
   platformInfo,
+  catalogDetail,
+  catalogOverrideDrafts,
   llmDiagnostics,
   llmSetupGuide,
   notificationHistory,
@@ -48,6 +65,10 @@ export function SettingsView({
   onChangePassword,
   onTestNotification,
   onTestLlm,
+  onPreviewCatalogOverride,
+  onCreateCatalogOverrideDraft,
+  onDecideCatalogOverrideDraft,
+  onLoadCatalogOverrideHandoff,
   t,
 }: SettingsViewProps) {
   return (
@@ -76,6 +97,17 @@ export function SettingsView({
         notificationHistory={notificationHistory}
         currentUser={currentUser}
         onTestNotification={onTestNotification}
+        t={t}
+      />
+      <CatalogSection
+        catalogDetail={catalogDetail}
+        platformInfo={platformInfo}
+        catalogOverrideDrafts={catalogOverrideDrafts}
+        currentUser={currentUser}
+        onPreviewCatalogOverride={onPreviewCatalogOverride}
+        onCreateCatalogOverrideDraft={onCreateCatalogOverrideDraft}
+        onDecideCatalogOverrideDraft={onDecideCatalogOverrideDraft}
+        onLoadCatalogOverrideHandoff={onLoadCatalogOverrideHandoff}
         t={t}
       />
       <PlatformInfoSection platformInfo={platformInfo} t={t} />

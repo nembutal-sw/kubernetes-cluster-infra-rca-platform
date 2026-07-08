@@ -6,12 +6,14 @@ import type {
   AgentHealthView,
   AnalysisTaskView,
   ApiCall,
+  CatalogOverrideDraft,
   AuditEventView,
   ClusterView,
   DemoScenarioView,
   IncidentView,
   LlmDiagnosticResponse,
   LlmSetupGuideResponse,
+  OperationalCatalogDetail,
   PlatformInfo,
   RcaReport,
   TFunction,
@@ -22,6 +24,10 @@ type NotifyFunction = (message: string, tone?: string) => void;
 
 function hasAuditAccess(role?: string): boolean {
   return role === "admin" || role === "auditor";
+}
+
+function hasCatalogOverrideDraftAccess(role?: string): boolean {
+  return ["admin", "operator", "approver", "auditor"].includes(String(role || ""));
 }
 
 function settledArray<T>(result: PromiseSettledResult<unknown>): T[] {
@@ -53,6 +59,8 @@ export function useConsoleData(
   const [notificationHistory, setNotificationHistory] = useState<AuditEventView[]>([]);
   const [demoScenarios, setDemoScenarios] = useState<DemoScenarioView[]>([]);
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo | null>(null);
+  const [catalogDetail, setCatalogDetail] = useState<OperationalCatalogDetail | null>(null);
+  const [catalogOverrideDrafts, setCatalogOverrideDrafts] = useState<CatalogOverrideDraft[]>([]);
   const [llmDiagnostics, setLlmDiagnostics] = useState<LlmDiagnosticResponse | null>(null);
   const [llmSetupGuide, setLlmSetupGuide] = useState<LlmSetupGuideResponse | null>(null);
 
@@ -67,6 +75,7 @@ export function useConsoleData(
         actionRequestResult,
         scenarioResult,
         platformResult,
+        catalogResult,
         llmDiagnosticsResult,
         llmSetupResult,
       ] = await Promise.allSettled([
@@ -77,6 +86,7 @@ export function useConsoleData(
         callApi<ActionRequestView[]>("/api/rca/action-requests"),
         callApi<DemoScenarioView[]>("/api/demo/scenarios"),
         callApi<PlatformInfo>("/api/v1/platform/info"),
+        callApi<OperationalCatalogDetail>("/api/v1/catalog"),
         callApi<LlmDiagnosticResponse>("/api/llm/diagnostics"),
         callApi<LlmSetupGuideResponse>("/api/llm/setup"),
       ]);
@@ -89,8 +99,18 @@ export function useConsoleData(
       setActionRequests(sortByTime(settledArray<ActionRequestView>(actionRequestResult), "created_at"));
       setDemoScenarios(settledArray<DemoScenarioView>(scenarioResult));
       setPlatformInfo(settledValue<PlatformInfo>(platformResult));
+      setCatalogDetail(settledValue<OperationalCatalogDetail>(catalogResult));
       setLlmDiagnostics(settledValue<LlmDiagnosticResponse>(llmDiagnosticsResult));
       setLlmSetupGuide(settledValue<LlmSetupGuideResponse>(llmSetupResult));
+
+      if (hasCatalogOverrideDraftAccess(currentUser?.role)) {
+        const draftResult = await Promise.allSettled([
+          callApi<CatalogOverrideDraft[]>("/api/v1/catalog/overrides/drafts?limit=50"),
+        ]);
+        setCatalogOverrideDrafts(sortByTime(settledArray<CatalogOverrideDraft>(draftResult[0]), "created_at"));
+      } else {
+        setCatalogOverrideDrafts([]);
+      }
 
       if (hasAuditAccess(currentUser?.role)) {
         const [auditResult, notificationResult] = await Promise.allSettled([
@@ -133,10 +153,13 @@ export function useConsoleData(
     notificationHistory,
     demoScenarios,
     platformInfo,
+    catalogDetail,
+    catalogOverrideDrafts,
     llmDiagnostics,
     llmSetupGuide,
     setAuditEvents,
     setNotificationHistory,
+    setCatalogOverrideDrafts,
     setLlmDiagnostics,
     setLlmSetupGuide,
     loadConsoleData,

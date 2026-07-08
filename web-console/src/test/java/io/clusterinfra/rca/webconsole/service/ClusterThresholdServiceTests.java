@@ -65,6 +65,8 @@ class ClusterThresholdServiceTests {
         assertThat(settings.effective())
             .containsEntry("disk.warning.percent", 93.0)
             .containsEntry("disk.critical.percent", 95.0);
+        assertThat(settings.definitions().stream().map(definition -> definition.key()).toList())
+            .contains("disk.warning.percent", "disk.critical.percent", "dns.latency.warning.ms");
         assertThat(settings.updatedAt()).isNotNull();
     }
 

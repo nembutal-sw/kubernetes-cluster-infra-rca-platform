@@ -22,6 +22,8 @@ interface ClustersViewProps {
   onSelect: (cluster: ClusterView) => MaybePromise;
   onGenerateInstall: (clusterId: string, backendUrl?: string) => MaybePromise<unknown>;
   onStartCollection: (cluster: ClusterView) => MaybePromise;
+  onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
+  onClearThresholds: (cluster: ClusterView) => MaybePromise;
   onDelete: (cluster: ClusterView) => void;
   onRotateToken: (cluster: ClusterView) => MaybePromise;
   onCopy: (text: string) => MaybePromise;
@@ -38,6 +40,8 @@ export function ClustersView({
   onSelect,
   onGenerateInstall,
   onStartCollection,
+  onUpdateThresholds,
+  onClearThresholds,
   onDelete,
   onRotateToken,
   onCopy,
@@ -72,6 +76,8 @@ export function ClustersView({
             cluster={selectedCluster}
             detail={clusterDetail}
             onStartCollection={onStartCollection}
+            onUpdateThresholds={onUpdateThresholds}
+            onClearThresholds={onClearThresholds}
             canOperate={canOperate}
             t={t}
           />

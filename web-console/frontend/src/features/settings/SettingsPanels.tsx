@@ -12,6 +12,10 @@ import type { Locale } from "../../constants";
 import { formatDate, platformInfoRows, runConsoleLayoutAudit } from "../../lib/consoleUtils";
 import type {
   AuditEventView,
+  CatalogDiffEntry,
+  CatalogOverrideDraft,
+  CatalogOverrideHandoff,
+  CatalogOverridePreviewResponse,
   LlmConfigurationInfo,
   LlmDiagnosticCheck,
   LlmDiagnosticResponse,
@@ -21,6 +25,7 @@ import type {
   LoginIdChangeForm,
   NotificationConfigurationInfo,
   NotificationTestResponse,
+  OperationalCatalogDetail,
   PasswordChangeForm,
   PlatformInfo,
   TFunction,
@@ -64,6 +69,22 @@ interface NotificationDeliverySectionProps {
   t: TFunction;
 }
 
+interface CatalogSectionProps {
+  catalogDetail: OperationalCatalogDetail | null;
+  platformInfo: PlatformInfo | null;
+  catalogOverrideDrafts: CatalogOverrideDraft[];
+  currentUser: UserAccount | null;
+  onPreviewCatalogOverride: (overrideJson: string, reason: string) => Promise<CatalogOverridePreviewResponse>;
+  onCreateCatalogOverrideDraft: (overrideJson: string, reason: string) => Promise<CatalogOverrideDraft>;
+  onDecideCatalogOverrideDraft: (
+    draft: CatalogOverrideDraft,
+    decision: "approve" | "reject" | "discard",
+    note: string,
+  ) => Promise<CatalogOverrideDraft>;
+  onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
+  t: TFunction;
+}
+
 interface PlatformInfoSectionProps {
   platformInfo: PlatformInfo | null;
   t: TFunction;
@@ -101,6 +122,16 @@ interface InfoRow {
   value: ReactNode;
   tone?: string;
 }
+
+const DEFAULT_CATALOG_OVERRIDE_JSON = `{
+  "schema_version": "rca-catalog/v1",
+  "version": "preview-local",
+  "rules": {
+    "disk-pressure": {
+      "enabled": false
+    }
+  }
+}`;
 
 export function CredentialWarning({ currentUser, t }: CredentialWarningProps) {
   if (currentUser?.email !== "admin") return null;
@@ -273,12 +304,440 @@ export function NotificationDeliverySection({
   );
 }
 
+export function CatalogSection({
+  catalogDetail,
+  platformInfo,
+  catalogOverrideDrafts,
+  currentUser,
+  onPreviewCatalogOverride,
+  onCreateCatalogOverrideDraft,
+  onDecideCatalogOverrideDraft,
+  onLoadCatalogOverrideHandoff,
+  t,
+}: CatalogSectionProps) {
+  const [overrideJson, setOverrideJson] = useState(DEFAULT_CATALOG_OVERRIDE_JSON);
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<CatalogOverridePreviewResponse | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftBusyId, setDraftBusyId] = useState("");
+  const [handoffs, setHandoffs] = useState<Record<string, CatalogOverrideHandoff>>({});
+  const summary = catalogDetail?.summary || platformInfo?.catalog || {};
+  const collectors = Object.entries(catalogDetail?.collectors || {});
+  const actions = Object.entries(catalogDetail?.actions || {});
+  const rules = Object.entries(catalogDetail?.rules || {});
+  const defaultCollectors = catalogDetail?.collector_selection?.default_collectors || [];
+  const alertSelections = Object.entries(catalogDetail?.collector_selection?.alerts || {}).slice(0, 8);
+  const canPreview = ["admin", "operator"].includes(String(currentUser?.role || ""));
+  const canViewDrafts = ["admin", "operator", "approver", "auditor"].includes(String(currentUser?.role || ""));
+  async function submitPreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      JSON.parse(overrideJson);
+    } catch (error) {
+      setPreview({
+        valid: false,
+        message: error instanceof Error ? error.message : t("Invalid JSON syntax."),
+        diff: [],
+        diff_count: 0,
+      });
+      return;
+    }
+    setPreviewing(true);
+    try {
+      setPreview(await onPreviewCatalogOverride(overrideJson, reason));
+    } finally {
+      setPreviewing(false);
+    }
+  }
+  async function saveDraft() {
+    if (!preview?.valid) {
+      return;
+    }
+    if (!window.confirm(t("Save this validated override as a review draft?"))) {
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      await onCreateCatalogOverrideDraft(overrideJson, reason);
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+  async function decideDraft(draft: CatalogOverrideDraft, decision: "approve" | "reject" | "discard") {
+    const label = decision === "approve" ? t("Approve") : decision === "reject" ? t("Reject") : t("Discard");
+    if (!window.confirm(`${label} ${draft.draft_id}?`)) {
+      return;
+    }
+    const note = window.prompt(t("Decision note"), "") || "";
+    setDraftBusyId(`${draft.draft_id}:${decision}`);
+    try {
+      await onDecideCatalogOverrideDraft(draft, decision, note);
+    } finally {
+      setDraftBusyId("");
+    }
+  }
+  async function showHandoff(draft: CatalogOverrideDraft) {
+    setDraftBusyId(`${draft.draft_id}:handoff`);
+    try {
+      const handoff = await onLoadCatalogOverrideHandoff(draft);
+      setHandoffs((current) => ({ ...current, [draft.draft_id]: handoff }));
+    } finally {
+      setDraftBusyId("");
+    }
+  }
+  const rows: InfoRow[] = [
+    { key: "catalog.schema", label: t("Schema"), value: stringValue(summary.schema_version) || "n/a" },
+    { key: "catalog.version", label: t("Version"), value: stringValue(summary.version) || "n/a" },
+    { key: "catalog.source", label: t("Source"), value: stringValue(summary.source) || "n/a" },
+    { key: "catalog.checksum", label: t("Checksum"), value: shortChecksum(stringValue(summary.checksum)) },
+    {
+      key: "catalog.external",
+      label: t("External override"),
+      value: summary.external_override_active ? t("Enabled") : t("Disabled"),
+      tone: summary.external_override_active ? "ok" : "muted",
+    },
+    {
+      key: "catalog.execution",
+      label: t("Agent action execution"),
+      value: summary.action_plan_execution_enabled ? t("Enabled") : t("Disabled"),
+      tone: summary.action_plan_execution_enabled ? "warn" : "ok",
+    },
+  ];
+  return (
+    <Surface title={t("Operational catalog")} subtitle={t("Collector selection, action policy, and rule detector catalog")}>
+      <InfoGrid rows={rows} />
+      <div className="catalog-defaults">
+        <strong>{t("Default collectors")}</strong>
+        <div>
+          {defaultCollectors.map((collector) => <code key={collector}>{collector}</code>)}
+          {!defaultCollectors.length && <span className="text-muted">{t("No catalog data loaded.")}</span>}
+        </div>
+      </div>
+      <div className="catalog-grid">
+        <CatalogList
+          title={t("Collectors")}
+          items={collectors.slice(0, 12).map(([key, collector]) => ({
+            key,
+            title: key,
+            description: collector.description || "-",
+            badge: collector.enabled === false ? t("Disabled") : t("Enabled"),
+            badgeTone: collector.enabled === false ? "red" : "green",
+            meta: Array.isArray(collector.permission_modes) ? collector.permission_modes.join(", ") : "",
+          }))}
+          empty={t("No catalog data loaded.")}
+          t={t}
+        />
+        <CatalogList
+          title={t("Actions")}
+          items={actions.slice(0, 12).map(([key, action]) => ({
+            key,
+            title: key,
+            description: action.action || action.reason || "-",
+            badge: action.policy || "unknown",
+            badgeTone: policyTone(action.policy),
+            meta: `${action.automation_mode || "manual"} / executable=${action.plan?.executable === true ? "true" : "false"}`,
+          }))}
+          empty={t("No catalog data loaded.")}
+          t={t}
+        />
+        <CatalogList
+          title={t("Rules")}
+          items={rules.slice(0, 12).map(([key, rule]) => ({
+            key,
+            title: key,
+            description: Array.isArray(rule.signals) ? rule.signals.join(", ") : rule.component || "-",
+            badge: rule.enabled === false ? t("Disabled") : t("Enabled"),
+            badgeTone: rule.enabled === false ? "red" : "green",
+            meta: rule.component || rule.detector || "",
+          }))}
+          empty={t("No catalog data loaded.")}
+          t={t}
+        />
+      </div>
+      <div className="catalog-alerts">
+        <div className="notification-history-head">
+          <h3>{t("Alert collector selection")}</h3>
+          <span>{t("Collectors requested by alert name")}</span>
+        </div>
+        {alertSelections.length ? (
+          <div className="catalog-alert-list">
+            {alertSelections.map(([alertName, selection]) => (
+              <article key={alertName}>
+                <strong>{alertName}</strong>
+                <div>{selection.map((collector) => <code key={`${alertName}-${collector}`}>{collector}</code>)}</div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState message={t("No catalog data loaded.")} />
+        )}
+      </div>
+      {canPreview && (
+        <div className="catalog-preview">
+          <div className="notification-history-head">
+            <h3>{t("Override preview")}</h3>
+            <span>{t("Validate JSON and inspect catalog changes before deployment")}</span>
+          </div>
+          <form className="catalog-preview-form" onSubmit={submitPreview}>
+            <label>
+              {t("Override JSON")}
+              <textarea
+                className="form-control monospace-control"
+                rows={12}
+                spellCheck={false}
+                value={overrideJson}
+                onChange={(event) => setOverrideJson(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              {t("Reason")}
+              <input
+                className="form-control"
+                maxLength={500}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder={t("Change reason for audit")}
+              />
+            </label>
+            <div className="catalog-preview-actions">
+              <button className="btn btn-primary icon-button" disabled={previewing}>
+                <Icon name={previewing ? "arrow-repeat" : "check2-square"} />
+                <span>{previewing ? "..." : t("Preview override")}</span>
+              </button>
+              <button type="button" className="btn btn-outline-secondary" onClick={() => setOverrideJson(DEFAULT_CATALOG_OVERRIDE_JSON)}>
+                {t("Load sample")}
+              </button>
+            </div>
+          </form>
+          <CatalogOverridePreviewResult preview={preview} t={t} />
+          {preview?.valid && (
+            <div className="catalog-preview-save">
+              <button className="btn btn-success icon-button" onClick={saveDraft} disabled={savingDraft}>
+                <Icon name={savingDraft ? "arrow-repeat" : "journal-plus"} />
+                <span>{savingDraft ? "..." : t("Save draft")}</span>
+              </button>
+              <span>{t("Draft approval records review only. The console does not apply catalog changes.")}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {canViewDrafts && (
+        <div className="catalog-drafts">
+          <div className="notification-history-head">
+            <h3>{t("Override drafts")}</h3>
+            <span>{t("Approved drafts are handed off to GitOps or a runbook.")}</span>
+          </div>
+          <CatalogOverrideDraftsPanel
+            drafts={catalogOverrideDrafts}
+            currentUser={currentUser}
+            draftBusyId={draftBusyId}
+            handoffs={handoffs}
+            onDecide={decideDraft}
+            onShowHandoff={showHandoff}
+            t={t}
+          />
+        </div>
+      )}
+    </Surface>
+  );
+}
+
+function CatalogOverridePreviewResult({
+  preview,
+  t,
+}: {
+  preview: CatalogOverridePreviewResponse | null;
+  t: TFunction;
+}) {
+  if (!preview) {
+    return <EmptyState message={t("No override preview has been run yet.")} />;
+  }
+  const diff = Array.isArray(preview.diff) ? preview.diff : [];
+  return (
+    <div className={`catalog-preview-result ${preview.valid ? "valid" : "invalid"}`}>
+      <div className="catalog-preview-status">
+        <StatusBadge value={preview.valid ? t("Valid") : t("Rejected")} tone={preview.valid ? "green" : "red"} t={t} />
+        <span>{preview.message || "-"}</span>
+      </div>
+      {preview.summary && (
+        <InfoGrid rows={[
+          { key: "preview.version", label: t("Proposed version"), value: stringValue(preview.summary.version) || "n/a" },
+          { key: "preview.checksum", label: t("Proposed checksum"), value: shortChecksum(stringValue(preview.summary.checksum)) },
+          { key: "preview.collectors", label: t("Collectors"), value: String(preview.summary.collector_count ?? "0") },
+          { key: "preview.actions", label: t("Actions"), value: String(preview.summary.action_count ?? "0") },
+          { key: "preview.rules", label: t("Rules"), value: String(preview.summary.rule_count ?? "0") },
+        ]} />
+      )}
+      <div className="catalog-diff-head">
+        <strong>{t("Change diff")}</strong>
+        <span>{Number(preview.diff_count ?? diff.length)} {t("changes")}{preview.diff_truncated ? ` / ${t("truncated")}` : ""}</span>
+      </div>
+      {diff.length ? <CatalogDiffList diff={diff} t={t} /> : <EmptyState message={t("No catalog changes detected.")} />}
+    </div>
+  );
+}
+
+function CatalogDiffList({ diff, t }: { diff: CatalogDiffEntry[]; t: TFunction }) {
+  return (
+    <div className="catalog-diff-list">
+      {diff.map((entry, index) => (
+        <article key={`${entry.path}-${index}`} className="catalog-diff-item">
+          <div>
+            <code>{entry.path || "/"}</code>
+            <StatusBadge value={String(entry.change_type || "changed")} tone={diffTone(entry.change_type)} t={t} />
+          </div>
+          <dl>
+            <div>
+              <dt>{t("Current")}</dt>
+              <dd>{formatPreviewValue(entry.current_value)}</dd>
+            </div>
+            <div>
+              <dt>{t("Proposed")}</dt>
+              <dd>{formatPreviewValue(entry.proposed_value)}</dd>
+            </div>
+          </dl>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CatalogOverrideDraftsPanel({
+  drafts,
+  currentUser,
+  draftBusyId,
+  handoffs,
+  onDecide,
+  onShowHandoff,
+  t,
+}: {
+  drafts: CatalogOverrideDraft[];
+  currentUser: UserAccount | null;
+  draftBusyId: string;
+  handoffs: Record<string, CatalogOverrideHandoff>;
+  onDecide: (draft: CatalogOverrideDraft, decision: "approve" | "reject" | "discard") => void | Promise<void>;
+  onShowHandoff: (draft: CatalogOverrideDraft) => void | Promise<void>;
+  t: TFunction;
+}) {
+  if (!drafts.length) {
+    return <EmptyState message={t("No catalog override drafts.")} />;
+  }
+  const role = String(currentUser?.role || "");
+  const canApprove = ["admin", "approver"].includes(role);
+  const canDiscard = ["admin", "operator"].includes(role);
+  const canHandoff = ["admin", "operator", "approver"].includes(role);
+  return (
+    <div className="catalog-draft-list">
+      {drafts.map((draft) => {
+        const handoff = handoffs[draft.draft_id];
+        const diff = Array.isArray(draft.diff) ? draft.diff : [];
+        return (
+          <article className="catalog-draft-item" key={draft.draft_id}>
+            <header>
+              <div>
+                <strong>{draft.draft_id}</strong>
+                <span>{draft.reason || draft.validation_message || "-"}</span>
+              </div>
+              <StatusBadge value={draft.status || "draft"} tone={draftStatusTone(draft.status)} t={t} />
+            </header>
+            <div className="catalog-draft-meta">
+              <span>{t("Requested by")}: {draft.requested_by || "-"}</span>
+              <span>{t("Created")}: {formatDate(draft.created_at)}</span>
+              <span>{t("Reviewed by")}: {draft.reviewed_by || "-"}</span>
+              <span>{t("Reviewed")}: {formatDate(draft.reviewed_at)}</span>
+              <span>{t("Diff")}: {diff.length}{draft.diff_truncated ? ` / ${t("truncated")}` : ""}</span>
+            </div>
+            <div className="catalog-draft-paths">
+              {diff.slice(0, 6).map((entry, index) => <code key={`${draft.draft_id}-${entry.path}-${index}`}>{entry.path || "/"}</code>)}
+              {!diff.length && <span>{t("No catalog changes detected.")}</span>}
+            </div>
+            <div className="catalog-draft-actions">
+              {draft.status === "draft" && canApprove && (
+                <>
+                  <button className="btn btn-sm btn-success" disabled={draftBusyId === `${draft.draft_id}:approve`} onClick={() => onDecide(draft, "approve")}>{t("Approve")}</button>
+                  <button className="btn btn-sm btn-outline-danger" disabled={draftBusyId === `${draft.draft_id}:reject`} onClick={() => onDecide(draft, "reject")}>{t("Reject")}</button>
+                </>
+              )}
+              {draft.status === "draft" && canDiscard && (
+                <button className="btn btn-sm btn-outline-secondary" disabled={draftBusyId === `${draft.draft_id}:discard`} onClick={() => onDecide(draft, "discard")}>{t("Discard")}</button>
+              )}
+              {draft.status === "approved" && canHandoff && (
+                <button className="btn btn-sm btn-primary icon-button" disabled={draftBusyId === `${draft.draft_id}:handoff`} onClick={() => onShowHandoff(draft)}>
+                  <Icon name={draftBusyId === `${draft.draft_id}:handoff` ? "arrow-repeat" : "git"} />
+                  <span>{t("Show handoff")}</span>
+                </button>
+              )}
+            </div>
+            {handoff && <CatalogOverrideHandoffPanel handoff={handoff} t={t} />}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function CatalogOverrideHandoffPanel({ handoff, t }: { handoff: CatalogOverrideHandoff; t: TFunction }) {
+  const files = handoff.files || {};
+  return (
+    <div className="catalog-handoff">
+      <strong>{handoff.recommendation || t("Use GitOps PR or a controlled runbook.")}</strong>
+      <ol>
+        {(handoff.runbook_steps || []).map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
+      </ol>
+      <label>
+        {t("Pull request title")}
+        <input className="form-control" readOnly value={handoff.pull_request_title || ""} />
+      </label>
+      <label>
+        {t("Pull request body")}
+        <textarea className="form-control monospace-control" rows={8} readOnly value={handoff.pull_request_body || ""} />
+      </label>
+      {Object.entries(files).map(([path, content]) => (
+        <label key={path}>
+          {path}
+          <textarea className="form-control monospace-control" rows={8} readOnly value={content} />
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export function PlatformInfoSection({ platformInfo, t }: PlatformInfoSectionProps) {
   const infoRows = platformInfoRows(platformInfo, t) as InfoRow[];
   return (
     <Surface title={t("Platform info")} subtitle={t("Protocol compatibility and export integrity")}>
       <InfoGrid rows={infoRows} />
     </Surface>
+  );
+}
+
+function CatalogList({
+  title,
+  items,
+  empty,
+  t,
+}: {
+  title: string;
+  items: Array<{ key: string; title: string; description: string; badge: string; badgeTone: string; meta: string }>;
+  empty: string;
+  t: TFunction;
+}) {
+  return (
+    <section className="catalog-list">
+      <h3>{title}</h3>
+      {items.length ? items.map((item) => (
+        <article key={item.key} className="catalog-item">
+          <div>
+            <strong>{item.title}</strong>
+            <span>{item.description}</span>
+            {item.meta && <small>{item.meta}</small>}
+          </div>
+          <StatusBadge value={item.badge} tone={item.badgeTone} t={t} />
+        </article>
+      )) : <EmptyState message={empty} />}
+    </section>
   );
 }
 
@@ -582,12 +1041,50 @@ export function DiagnosticGroup({ title, items }: DiagnosticGroupProps) {
   );
 }
 
+function diffTone(changeType: unknown): string {
+  const value = String(changeType || "").toLowerCase();
+  if (value === "added") return "green";
+  if (value === "removed") return "red";
+  return "amber";
+}
+
+function draftStatusTone(status: unknown): string {
+  const value = String(status || "").toLowerCase();
+  if (value === "approved") return "green";
+  if (value === "rejected" || value === "discarded") return "red";
+  if (value === "draft") return "amber";
+  return "muted";
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "null";
+  }
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (!text) {
+    return "";
+  }
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
 function diagnosticTone(status: unknown): string {
   const value = String(status || "").toLowerCase();
   if (value === "pass" || value === "ready") return "green";
   if (value === "fail" || value === "action_required" || value === "failed") return "red";
   if (value === "warn" || value === "warning") return "amber";
   return "muted";
+}
+
+function policyTone(policy: unknown): string {
+  const value = String(policy || "").toUpperCase();
+  if (value === "AUTO_SAFE") return "green";
+  if (value === "APPROVAL_REQUIRED" || value === "GITOPS_PR_ONLY") return "amber";
+  if (value === "NEVER_AUTO_EXECUTE") return "red";
+  return "muted";
+}
+
+function shortChecksum(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 12)}...${value.slice(-6)}` : value || "n/a";
 }
 
 function stringValue(value: unknown): string {

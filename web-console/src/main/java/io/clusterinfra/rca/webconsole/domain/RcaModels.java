@@ -69,6 +69,10 @@ public final class RcaModels {
         admin, operator, viewer, auditor, approver
     }
 
+    public enum CatalogOverrideStatus {
+        draft, approved, rejected, discarded
+    }
+
     public record ClusterCreateRequest(
         @NotBlank @Size(max = 255) String name,
         @Size(max = 64) String environment,
@@ -124,12 +128,24 @@ public final class RcaModels {
     ) {
     }
 
+    public record ThresholdDefinition(
+        String key,
+        String label,
+        String unit,
+        double minimum,
+        Double maximum,
+        String severity,
+        String pairedKey
+    ) {
+    }
+
     public record ClusterThresholdSettings(
         String clusterId,
         Map<String, Double> defaults,
         Map<String, Double> overrides,
         Map<String, Double> effective,
         List<String> supportedKeys,
+        List<ThresholdDefinition> definitions,
         Instant updatedAt
     ) {
     }
@@ -141,6 +157,55 @@ public final class RcaModels {
         public Map<String, Double> thresholdsOrEmpty() {
             return thresholds == null ? Map.of() : thresholds;
         }
+    }
+
+    public record CatalogOverridePreviewRequest(
+        @JsonAlias({"override_json", "overrideJson"})
+        @NotBlank @Size(max = 65536) String overrideJson,
+        @Size(max = 500) String reason
+    ) {
+    }
+
+    public record CatalogOverrideDraftCreateRequest(
+        @JsonAlias({"override_json", "overrideJson"})
+        @NotBlank @Size(max = 65536) String overrideJson,
+        @Size(max = 500) String reason
+    ) {
+    }
+
+    public record CatalogOverrideDraftDecisionRequest(
+        boolean confirmed,
+        @Size(max = 1000) String note
+    ) {
+    }
+
+    public record CatalogOverrideDraft(
+        String draftId,
+        CatalogOverrideStatus status,
+        String overrideJson,
+        Map<String, Object> previewSummary,
+        List<Map<String, Object>> diff,
+        boolean diffTruncated,
+        String validationMessage,
+        String reason,
+        String requestedBy,
+        String reviewedBy,
+        String decisionNote,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant reviewedAt
+    ) {
+    }
+
+    public record CatalogOverrideHandoff(
+        String draftId,
+        CatalogOverrideStatus status,
+        String recommendation,
+        List<String> runbookSteps,
+        Map<String, String> files,
+        String pullRequestTitle,
+        String pullRequestBody
+    ) {
     }
 
     public record InstallCommandResponse(

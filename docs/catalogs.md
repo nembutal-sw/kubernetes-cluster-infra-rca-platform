@@ -75,3 +75,65 @@ Backend는 collector selection, action policy/plan, rule detector enablement를 
 - checksum
 - collector/action/rule count
 - default collectors
+
+상세 조회:
+
+- `GET /api/v1/catalog`
+- `GET /api/catalog`
+
+응답에는 `summary`, `collectors`, `collector_selection`, `actions`, `rules`가 포함된다.
+Web Console의 Settings 화면에서도 같은 정보를 읽기 전용으로 확인할 수 있다.
+
+Override preview:
+
+- `POST /api/v1/catalog/preview`
+- `POST /api/catalog/preview`
+- 권한: `ADMIN`, `OPERATOR`
+
+요청:
+
+```json
+{
+  "override_json": "{\"schema_version\":\"rca-catalog/v1\",\"rules\":{\"disk-pressure\":{\"enabled\":false}}}",
+  "reason": "disable disk detector in a canary validation window"
+}
+```
+
+응답은 `valid`, `message`, `summary`, `diff`, `diff_count`, `diff_truncated`를 포함한다.
+`diff`는 JSON Pointer 경로, 변경 유형, 현재 값, 제안 값을 반환한다.
+preview 결과는 감사로그 `catalog.override.preview`로 남는다.
+
+## Draft Workflow
+
+검증을 통과한 override는 review draft로 저장할 수 있다.
+
+API:
+
+- 목록: `GET /api/v1/catalog/overrides/drafts`
+- 생성: `POST /api/v1/catalog/overrides/drafts`
+- 단건 조회: `GET /api/v1/catalog/overrides/drafts/{draftId}`
+- 승인: `POST /api/v1/catalog/overrides/drafts/{draftId}/approve`
+- 거절: `POST /api/v1/catalog/overrides/drafts/{draftId}/reject`
+- 폐기: `POST /api/v1/catalog/overrides/drafts/{draftId}/discard`
+- handoff: `GET /api/v1/catalog/overrides/drafts/{draftId}/handoff`
+
+권한:
+
+- draft 조회: `ADMIN`, `OPERATOR`, `APPROVER`, `AUDITOR`
+- draft 생성/폐기: `ADMIN`, `OPERATOR`
+- draft 승인/거절: `ADMIN`, `APPROVER`
+- handoff 조회: `ADMIN`, `OPERATOR`, `APPROVER`
+
+상태:
+
+- `draft`: 검증 통과 후 저장됨
+- `approved`: 사람이 검토하고 승인함
+- `rejected`: 승인자가 거절함
+- `discarded`: 운영자가 폐기함
+
+`approved` 상태가 되어도 플랫폼은 catalog를 자동 적용하지 않는다.
+handoff API는 GitOps PR 본문, runbook 단계, override 파일 내용을 반환한다.
+운영자는 이 내용을 이용해 별도 변경관리/PR/배포 절차에서 반영한다.
+
+현재 Web Console은 catalog를 직접 저장하거나 적용하지 않는다.
+운영 변경은 외부 JSON 파일을 배포하고 `RCA_CATALOG_EXTERNAL_PATH` 또는 `rca.catalog.external-path`로 연결한다.

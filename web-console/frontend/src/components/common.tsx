@@ -148,7 +148,7 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
   }
   return (
     <div className="login-screen">
-      <section className="login-panel">
+      <section className="login-panel" aria-label={t("Cluster RCA Console")}>
         <div className="brand-row">
           <div className="brand-icon"><Icon name="activity" /></div>
           <div>
@@ -190,6 +190,33 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
           <LanguageSwitch locale={locale} setLocale={setLocale} />
         </div>
       </section>
+      <aside className="login-intel-panel" aria-label={t("Operations readiness")}>
+        <div className="intel-panel-head">
+          <span>{t("Operations Console")}</span>
+          <strong>{t("Policy gate")}</strong>
+        </div>
+        <div className="intel-map" aria-hidden="true">
+          <span className="intel-node active" />
+          <span className="intel-line" />
+          <span className="intel-node warn" />
+          <span className="intel-line" />
+          <span className="intel-node" />
+        </div>
+        <div className="intel-signal-list">
+          <div>
+            <span>{t("Agent fleet")}</span>
+            <strong>{t("Healthy agents")}</strong>
+          </div>
+          <div>
+            <span>{t("Analysis pipeline")}</span>
+            <strong>{t("active tasks")}</strong>
+          </div>
+          <div>
+            <span>{t("Policy queue")}</span>
+            <strong>{t("approvals pending")}</strong>
+          </div>
+        </div>
+      </aside>
       {toast && <Toast tone={toast.tone} message={toast.message} />}
     </div>
   );

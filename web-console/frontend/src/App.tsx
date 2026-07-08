@@ -29,7 +29,11 @@ import type {
   AnalysisTaskView,
   AuditEventView,
   AuthSession,
+  CatalogOverrideDraft,
+  CatalogOverrideHandoff,
+  CatalogOverridePreviewResponse,
   ClusterCreateForm,
+  ClusterThresholdSettings,
   ClusterView,
   DeleteClusterDialogState,
   DemoScenarioView,
@@ -65,12 +69,15 @@ function ConsoleApp() {
     agentHealth,
     auditEvents,
     notificationHistory,
+    catalogOverrideDrafts,
     demoScenarios,
     platformInfo,
+    catalogDetail,
     llmDiagnostics,
     llmSetupGuide,
     setAuditEvents,
     setNotificationHistory,
+    setCatalogOverrideDrafts,
     setLlmDiagnostics,
     setLlmSetupGuide,
     loadConsoleData,
@@ -215,6 +222,24 @@ function ConsoleApp() {
     await loadClusterDetail(cluster);
   }
 
+  async function updateClusterThresholds(cluster: ClusterView, thresholds: Record<string, number>, reason: string) {
+    const settings = await callApi<ClusterThresholdSettings>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/thresholds`,
+      { method: "PUT", body: { thresholds, reason } },
+    );
+    setClusterDetail((current) => current ? { ...current, thresholds: settings } : current);
+    notify(t("Threshold overrides saved."));
+  }
+
+  async function clearClusterThresholds(cluster: ClusterView) {
+    const settings = await callApi<ClusterThresholdSettings>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/thresholds`,
+      { method: "DELETE" },
+    );
+    setClusterDetail((current) => current ? { ...current, thresholds: settings } : current);
+    notify(t("Threshold overrides cleared."));
+  }
+
   async function executeRecommendedAction(report: RcaReport, actionIndex: number, note: string) {
     const response = await callApi<{ message?: string }>(
       `/api/rca/reports/${encodeURIComponent(report.report_id)}/actions/${actionIndex}/execute`,
@@ -357,6 +382,74 @@ function ConsoleApp() {
     return response;
   }
 
+  async function reloadCatalogOverrideDrafts() {
+    if (!["admin", "operator", "approver", "auditor"].includes(currentUser?.role || "")) {
+      setCatalogOverrideDrafts([]);
+      return;
+    }
+    const drafts = await callApi<CatalogOverrideDraft[]>("/api/v1/catalog/overrides/drafts?limit=50");
+    setCatalogOverrideDrafts(sortByTime(Array.isArray(drafts) ? drafts : [], "created_at"));
+  }
+
+  async function previewCatalogOverride(overrideJson: string, reason: string): Promise<CatalogOverridePreviewResponse> {
+    const response = await callApi<CatalogOverridePreviewResponse>("/api/v1/catalog/preview", {
+      method: "POST",
+      body: { override_json: overrideJson, reason },
+    });
+    notify(
+      response.valid ? t("Catalog override preview completed.") : t("Catalog override preview rejected."),
+      response.valid ? "success" : "warning",
+    );
+    if (["admin", "auditor"].includes(currentUser?.role || "")) {
+      const audit = await callApi<AuditEventView[]>("/api/audit/events?limit=200");
+      setAuditEvents(sortByTime(Array.isArray(audit) ? audit : [], "created_at"));
+    }
+    return response;
+  }
+
+  async function createCatalogOverrideDraft(overrideJson: string, reason: string): Promise<CatalogOverrideDraft> {
+    const draft = await callApi<CatalogOverrideDraft>("/api/v1/catalog/overrides/drafts", {
+      method: "POST",
+      body: { override_json: overrideJson, reason },
+    });
+    notify(t("Catalog override draft saved."));
+    await reloadCatalogOverrideDrafts();
+    if (["admin", "auditor"].includes(currentUser?.role || "")) {
+      const audit = await callApi<AuditEventView[]>("/api/audit/events?limit=200");
+      setAuditEvents(sortByTime(Array.isArray(audit) ? audit : [], "created_at"));
+    }
+    return draft;
+  }
+
+  async function decideCatalogOverrideDraft(
+    draft: CatalogOverrideDraft,
+    decision: "approve" | "reject" | "discard",
+    note: string,
+  ): Promise<CatalogOverrideDraft> {
+    const updated = await callApi<CatalogOverrideDraft>(
+      `/api/v1/catalog/overrides/drafts/${encodeURIComponent(draft.draft_id)}/${decision}`,
+      { method: "POST", body: { confirmed: true, note } },
+    );
+    const decisionMessage = decision === "approve"
+      ? "Catalog override draft approved."
+      : decision === "reject"
+        ? "Catalog override draft rejected."
+        : "Catalog override draft discarded.";
+    notify(t(decisionMessage));
+    await reloadCatalogOverrideDrafts();
+    if (["admin", "auditor"].includes(currentUser?.role || "")) {
+      const audit = await callApi<AuditEventView[]>("/api/audit/events?limit=200");
+      setAuditEvents(sortByTime(Array.isArray(audit) ? audit : [], "created_at"));
+    }
+    return updated;
+  }
+
+  async function loadCatalogOverrideHandoff(draft: CatalogOverrideDraft): Promise<CatalogOverrideHandoff> {
+    return callApi<CatalogOverrideHandoff>(
+      `/api/v1/catalog/overrides/drafts/${encodeURIComponent(draft.draft_id)}/handoff`,
+    );
+  }
+
   if (bootLoading) {
     return <BootScreen t={t} />;
   }
@@ -409,6 +502,8 @@ function ConsoleApp() {
               onSelect={openClusterDetail}
               onGenerateInstall={generateInstallCommand}
               onStartCollection={startCollection}
+              onUpdateThresholds={updateClusterThresholds}
+              onClearThresholds={clearClusterThresholds}
               onDelete={(cluster: ClusterView) => setDeleteDialog({ cluster })}
               onRotateToken={rotateAgentToken}
               onCopy={(text: string) => copyText(text, notify)}
@@ -477,6 +572,8 @@ function ConsoleApp() {
               locale={locale}
               setLocale={setLocale}
               platformInfo={platformInfo}
+              catalogDetail={catalogDetail}
+              catalogOverrideDrafts={catalogOverrideDrafts}
               llmDiagnostics={llmDiagnostics}
               llmSetupGuide={llmSetupGuide}
               notificationHistory={notificationHistory}
@@ -485,6 +582,10 @@ function ConsoleApp() {
               onChangePassword={changePassword}
               onTestNotification={testNotificationDelivery}
               onTestLlm={testLlmConnection}
+              onPreviewCatalogOverride={previewCatalogOverride}
+              onCreateCatalogOverrideDraft={createCatalogOverrideDraft}
+              onDecideCatalogOverrideDraft={decideCatalogOverrideDraft}
+              onLoadCatalogOverrideHandoff={loadCatalogOverrideHandoff}
               t={t}
             />
           )}

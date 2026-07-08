@@ -85,6 +85,35 @@ class RbacHttpAuthorizationTests {
         ), HttpStatus.FORBIDDEN);
 
         assertStatus(viewer, HttpMethod.GET, "/api/platform/info", null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);
+        assertStatus(null, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.UNAUTHORIZED);
+        Map<String, Object> catalogPreview = Map.of(
+            "override_json", "{\"schema_version\":\"rca-catalog/v1\",\"version\":\"rbac-preview\"}",
+            "reason", "rbac test"
+        );
+        assertStatus(admin, HttpMethod.POST, "/api/v1/catalog/preview", catalogPreview, HttpStatus.OK);
+        assertStatus(operator, HttpMethod.POST, "/api/v1/catalog/preview", catalogPreview, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.POST, "/api/v1/catalog/preview", catalogPreview, HttpStatus.FORBIDDEN);
+        assertStatus(auditor, HttpMethod.POST, "/api/v1/catalog/preview", catalogPreview, HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.POST, "/api/v1/catalog/preview", catalogPreview, HttpStatus.FORBIDDEN);
+        ResponseEntity<String> draft = exchange(admin, HttpMethod.POST, "/api/v1/catalog/overrides/drafts", catalogPreview);
+        assertThat(draft.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String draftId = objectMapper.readTree(draft.getBody()).path("draft_id").asText();
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/catalog/overrides/drafts", null, HttpStatus.OK);
+        assertStatus(approver, HttpMethod.GET, "/api/v1/catalog/overrides/drafts/" + draftId, null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog/overrides/drafts", null, HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.POST, "/api/v1/catalog/overrides/drafts", catalogPreview, HttpStatus.FORBIDDEN);
+        assertStatus(operator, HttpMethod.POST, "/api/v1/catalog/overrides/drafts/" + draftId + "/approve", Map.of(
+            "confirmed", true,
+            "note", "operator cannot approve"
+        ), HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.POST, "/api/v1/catalog/overrides/drafts/" + draftId + "/approve", Map.of(
+            "confirmed", true,
+            "note", "approver can approve"
+        ), HttpStatus.OK);
+        assertStatus(operator, HttpMethod.GET, "/api/v1/catalog/overrides/drafts/" + draftId + "/handoff", null, HttpStatus.OK);
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/catalog/overrides/drafts/" + draftId + "/handoff", null, HttpStatus.FORBIDDEN);
         assertStatus(approver, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
 
