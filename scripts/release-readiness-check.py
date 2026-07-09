@@ -183,6 +183,17 @@ def main() -> int:
             "Static API contract guard validates route authorization and custom filter coverage.",
         ),
         check(
+            "ci-direct-static-guards",
+            contains(
+                ".github/workflows/ci.yml",
+                "python scripts/verify-api-contract.py",
+                "python scripts/verify-container-pinning.py",
+                "python scripts/verify-operational-catalog.py",
+                "python scripts/verify-supply-chain-workflows.py",
+            ),
+            "CI runs API, container, catalog, and supply-chain static guards as explicit steps.",
+        ),
+        check(
             "auth-boundary-regression-tests",
             exists("web-console/src/test/java/io/clusterinfra/rca/webconsole/SecurityBoundaryRegressionTests.java")
             and contains(

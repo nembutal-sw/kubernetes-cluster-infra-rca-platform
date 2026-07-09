@@ -143,9 +143,21 @@ jobs:
         run: |
           python -m py_compile \
             scripts/release-readiness-check.py \
+            scripts/verify-api-contract.py \
+            scripts/verify-container-pinning.py \
+            scripts/verify-operational-catalog.py \
+            scripts/verify-supply-chain-workflows.py \
             scripts/daemonset_operational_check.py \
             scripts/operational_scenario_validation.py \
             scripts/llm-staging-smoke.py
+      - name: Validate API security contract
+        run: python scripts/verify-api-contract.py
+      - name: Validate container pinning
+        run: python scripts/verify-container-pinning.py
+      - name: Validate operational catalog
+        run: python scripts/verify-operational-catalog.py
+      - name: Validate supply-chain workflows
+        run: python scripts/verify-supply-chain-workflows.py
       - name: Validate release readiness contracts
         run: python scripts/release-readiness-check.py
 
