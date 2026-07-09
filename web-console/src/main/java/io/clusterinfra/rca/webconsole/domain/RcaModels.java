@@ -385,7 +385,8 @@ public final class RcaModels {
         LlmConfigurationInfo llm,
         NotificationConfigurationInfo notification,
         Map<String, Object> catalog,
-        Map<String, Object> thresholds
+        Map<String, Object> thresholds,
+        Map<String, Object> operations
     ) {
     }
 

@@ -8,7 +8,9 @@ import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.service.ClusterThresholdService;
 import io.clusterinfra.rca.webconsole.service.LlmConfigurationService;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,8 +57,33 @@ public class PlatformInfoController {
             llmConfiguration.info(),
             notificationInfo(),
             catalogService.info(),
-            thresholdService.info()
+            thresholdService.info(),
+            operationsInfo()
         );
+    }
+
+    private Map<String, Object> operationsInfo() {
+        RcaConsoleProperties.Monitoring monitoring = properties.getMonitoring();
+        RcaConsoleProperties.Pipeline pipeline = properties.getPipeline();
+        RcaConsoleProperties.Observability observability = properties.getObservability();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("scheduled_monitoring_enabled", monitoring.isEnabled());
+        result.put("scheduled_monitoring_interval_ms", monitoring.getIntervalMs());
+        result.put("scheduled_monitoring_initial_delay_ms", monitoring.getInitialDelayMs());
+        result.put("collect_healthy_agents", monitoring.isCollectHealthyAgents());
+        result.put("healthy_interval_minutes", monitoring.getHealthyIntervalMinutes());
+        result.put("degraded_interval_minutes", monitoring.getDegradedIntervalMinutes());
+        result.put("stale_interval_minutes", monitoring.getStaleIntervalMinutes());
+        result.put("version_mismatch_interval_minutes", monitoring.getVersionMismatchIntervalMinutes());
+        result.put("unauthorized_interval_minutes", monitoring.getUnauthorizedIntervalMinutes());
+        result.put("analysis_pipeline_enabled", pipeline.isEnabled());
+        result.put("analysis_pipeline_batch_size", pipeline.getBatchSize());
+        result.put("analysis_pipeline_poll_interval_ms", pipeline.getPollIntervalMs());
+        result.put("analysis_pipeline_max_attempts", pipeline.getMaxAttempts());
+        result.put("observability_enabled", observability.isEnabled());
+        result.put("observability_refresh_interval_ms", observability.getRefreshIntervalMs());
+        result.put("metrics_token_configured", !observability.getMetricsToken().isBlank());
+        return result;
     }
 
     private NotificationConfigurationInfo notificationInfo() {

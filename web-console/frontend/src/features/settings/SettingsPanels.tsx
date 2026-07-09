@@ -69,6 +69,11 @@ interface NotificationDeliverySectionProps {
   t: TFunction;
 }
 
+interface OperationsRuntimeSectionProps {
+  platformInfo: PlatformInfo | null;
+  t: TFunction;
+}
+
 interface CatalogSectionProps {
   catalogDetail: OperationalCatalogDetail | null;
   platformInfo: PlatformInfo | null;
@@ -300,6 +305,19 @@ export function NotificationDeliverySection({
       </div>
       <InfoGrid rows={notificationRows} />
       <NotificationHistory events={notificationHistory} canView={canViewNotificationHistory} t={t} />
+    </Surface>
+  );
+}
+
+export function OperationsRuntimeSection({ platformInfo, t }: OperationsRuntimeSectionProps) {
+  const rows = buildOperationsRows(platformInfo?.operations, t);
+  return (
+    <Surface title={t("Operations runtime")} subtitle={t("Scheduled collection, analysis pipeline, and metrics exposure")}>
+      <div className="settings-note">
+        <Icon name="activity" />
+        <span>{t("These values reflect backend runtime configuration. They help operators confirm whether autonomous collection and observability are active.")}</span>
+      </div>
+      <InfoGrid rows={rows} />
     </Surface>
   );
 }
@@ -773,6 +791,64 @@ function buildNotificationRows(
     { key: "notification.severity", label: t("Minimum severity"), value: t(minimumSeverity), tone: minimumSeverity === "critical" ? "muted" : "warn" },
     { key: "notification.attempts", label: t("Attempts"), value: numberValue(notification?.max_attempts ?? notification?.maxAttempts, 2) },
     { key: "notification.timeout", label: t("Timeout"), value: `${numberValue(notification?.timeout_seconds ?? notification?.timeoutSeconds, 5)}s` },
+  ];
+}
+
+function buildOperationsRows(operations: unknown, t: TFunction): InfoRow[] {
+  const value = operations && typeof operations === "object" && !Array.isArray(operations)
+    ? operations as Record<string, unknown>
+    : {};
+  const scheduledMonitoring = Boolean(value.scheduled_monitoring_enabled ?? value.scheduledMonitoringEnabled);
+  const collectHealthyAgents = Boolean(value.collect_healthy_agents ?? value.collectHealthyAgents);
+  const pipelineEnabled = Boolean(value.analysis_pipeline_enabled ?? value.analysisPipelineEnabled);
+  const observabilityEnabled = Boolean(value.observability_enabled ?? value.observabilityEnabled);
+  const metricsTokenConfigured = Boolean(value.metrics_token_configured ?? value.metricsTokenConfigured);
+  return [
+    {
+      key: "operations.scheduled_monitoring_enabled",
+      label: t("Scheduled monitoring"),
+      value: scheduledMonitoring ? t("Enabled") : t("Disabled"),
+      tone: scheduledMonitoring ? "ok" : "muted",
+    },
+    {
+      key: "operations.scheduled_monitoring_interval",
+      label: t("Collection interval"),
+      value: `${numberValue(value.scheduled_monitoring_interval_ms ?? value.scheduledMonitoringIntervalMs, 0)}ms`,
+    },
+    {
+      key: "operations.collect_healthy_agents",
+      label: t("Healthy agent baseline"),
+      value: collectHealthyAgents ? t("Enabled") : t("Disabled"),
+      tone: collectHealthyAgents ? "ok" : "muted",
+    },
+    {
+      key: "operations.health_cadence",
+      label: t("Collection cadence"),
+      value: `${numberValue(value.healthy_interval_minutes ?? value.healthyIntervalMinutes, 0)}m / ${numberValue(value.degraded_interval_minutes ?? value.degradedIntervalMinutes, 0)}m / ${numberValue(value.stale_interval_minutes ?? value.staleIntervalMinutes, 0)}m`,
+    },
+    {
+      key: "operations.analysis_pipeline_enabled",
+      label: t("Analysis pipeline"),
+      value: pipelineEnabled ? t("Enabled") : t("Disabled"),
+      tone: pipelineEnabled ? "ok" : "warn",
+    },
+    {
+      key: "operations.analysis_pipeline_batch",
+      label: t("Pipeline batch"),
+      value: `${numberValue(value.analysis_pipeline_batch_size ?? value.analysisPipelineBatchSize, 0)} / ${numberValue(value.analysis_pipeline_max_attempts ?? value.analysisPipelineMaxAttempts, 0)} attempts`,
+    },
+    {
+      key: "operations.observability_enabled",
+      label: t("Observability"),
+      value: observabilityEnabled ? t("Enabled") : t("Disabled"),
+      tone: observabilityEnabled ? "ok" : "muted",
+    },
+    {
+      key: "operations.metrics_token_configured",
+      label: t("Metrics token"),
+      value: metricsTokenConfigured ? t("Configured") : t("Not configured"),
+      tone: metricsTokenConfigured ? "ok" : "warn",
+    },
   ];
 }
 

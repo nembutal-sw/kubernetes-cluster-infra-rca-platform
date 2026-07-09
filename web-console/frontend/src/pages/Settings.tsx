@@ -6,6 +6,7 @@ import {
   LayoutDiagnosticsSection,
   LlmConfigurationSection,
   NotificationDeliverySection,
+  OperationsRuntimeSection,
   PlatformInfoSection,
   PreferenceAndCredentialPanels,
 } from "../features/settings/SettingsPanels";
@@ -99,6 +100,7 @@ export function SettingsView({
         onTestNotification={onTestNotification}
         t={t}
       />
+      <OperationsRuntimeSection platformInfo={platformInfo} t={t} />
       <CatalogSection
         catalogDetail={catalogDetail}
         platformInfo={platformInfo}

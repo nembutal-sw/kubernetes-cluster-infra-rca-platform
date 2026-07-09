@@ -402,6 +402,7 @@ export interface PlatformInfo {
   notification?: NotificationConfigurationInfo;
   catalog?: JsonObject;
   thresholds?: JsonObject;
+  operations?: JsonObject;
   [key: string]: unknown;
 }
 
