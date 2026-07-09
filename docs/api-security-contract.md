@@ -59,6 +59,17 @@ python3 scripts/verify-api-contract.py
 - controller route inventory 생성
 - `/api/**` route의 `@PreAuthorize` 누락 감지
 - Agent route와 `AgentAuthenticationFilter` coverage 일치 확인
+- Webhook route와 `WebhookAuthenticationFilter` coverage 일치 확인
+- Manifest endpoint와 `ManifestAccessFilter` coverage 확인
 - custom guarded endpoint의 `SecurityConfig` permit entry 확인
 - 민감 export role 범위 감지
 - versioned platform info endpoint 유지 확인
+
+통합 회귀 테스트:
+
+- `SecurityBoundaryRegressionTests`
+- Webhook token header/Bearer 인증과 실패 감사로그
+- Agent bootstrap/node token 검증
+- Agent endpoint 인증 선차단
+- Agent manifest의 사용자 인증/1회성 manifest token 검증
+- manifest token query value redaction 확인

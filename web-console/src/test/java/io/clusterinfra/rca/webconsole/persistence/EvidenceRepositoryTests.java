@@ -11,6 +11,9 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
 import io.clusterinfra.rca.webconsole.security.TokenService;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -161,6 +164,46 @@ class EvidenceRepositoryTests {
             first.evidenceId()
         )).isEqualTo(1);
         assertThat(tasks.count(AnalysisTaskStatus.queued)).isEqualTo(1);
+    }
+
+    @Test
+    void detectsRecentRequestByClusterNodeAndAlertName() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var request = evidence.createRequest(new EvidenceRequestCreateRequest(
+            cluster.clusterId(),
+            "worker-a",
+            "ScheduledNodeHealth",
+            List.of("node", "disk"),
+            Map.of("source", "scheduled_monitoring"),
+            "scheduled health check",
+            Map.of("trigger", "scheduled_monitoring")
+        ));
+
+        assertThat(evidence.hasRecentRequest(
+            cluster.clusterId(),
+            "worker-a",
+            List.of("ScheduledNodeHealth"),
+            Instant.now().minus(Duration.ofMinutes(15))
+        )).isTrue();
+
+        jdbc.update(
+            "UPDATE evidence_requests SET created_at = ? WHERE request_id = ?",
+            Timestamp.from(Instant.now().minus(Duration.ofMinutes(20))),
+            request.requestId()
+        );
+
+        assertThat(evidence.hasRecentRequest(
+            cluster.clusterId(),
+            "worker-a",
+            List.of("ScheduledNodeHealth"),
+            Instant.now().minus(Duration.ofMinutes(15))
+        )).isFalse();
+        assertThat(evidence.hasRecentRequest(
+            cluster.clusterId(),
+            "worker-a",
+            List.of("AgentCollectorDegraded"),
+            Instant.now().minus(Duration.ofHours(1))
+        )).isFalse();
     }
 
     private ObjectMapper objectMapper() {

@@ -176,14 +176,51 @@ def main() -> int:
                 "scripts/verify-api-contract.py",
                 "api_endpoint_missing_pre_authorize",
                 "agent_endpoint_not_covered_by_agent_filter",
+                "webhook_endpoint_not_covered_by_webhook_filter",
+                "manifest_endpoint_not_covered_by_manifest_filter",
                 "required_versioned_api_missing",
             ),
             "Static API contract guard validates route authorization and custom filter coverage.",
         ),
         check(
+            "auth-boundary-regression-tests",
+            exists("web-console/src/test/java/io/clusterinfra/rca/webconsole/SecurityBoundaryRegressionTests.java")
+            and contains(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/SecurityBoundaryRegressionTests.java",
+                "webhookRequiresConfiguredTokenAndRecordsAuthFailuresWithRequestContext",
+                "everyAgentEndpointRequiresAgentCredentialsBeforeControllerLogic",
+                "agentRegisterAndHeartbeatRejectTamperedTokensButAcceptValidIdentity",
+                "manifestAccessRejectsAgentTokenAndAllowsOnlyUserOrOneTimeManifestToken",
+                "query_values_redacted",
+            ),
+            "Agent, webhook, and manifest authentication boundaries are covered by integration regression tests.",
+        ),
+        check(
+            "operational-catalog-static-guard",
+            exists("scripts/verify-operational-catalog.py")
+            and contains(
+                "scripts/verify-operational-catalog.py",
+                "REQUIRED_COLLECTORS",
+                "REQUIRED_ALERT_SELECTIONS",
+                "REQUIRED_ACTIONS",
+                "REQUIRED_RULES",
+                "plan.executable must be false",
+            )
+            and contains(
+                "web-console/src/main/resources/catalog/operational-catalog.json",
+                "\"schema_version\": \"rca-catalog/v1\"",
+                "\"collectors\"",
+                "\"collector_selection\"",
+                "\"actions\"",
+                "\"rules\"",
+            ),
+            "Static operational catalog guard validates collector selection, actions, rules, and non-executable plans.",
+        ),
+        check(
             "supply-chain-ci",
             contains(
                 ".github/workflows/security.yml",
+                "workflow_dispatch:",
                 "gitleaks/gitleaks-action",
                 "aquasecurity/trivy-action",
                 "anchore/sbom-action",
@@ -193,6 +230,21 @@ def main() -> int:
                 "actions/upload-artifact",
             ),
             "CI includes Gitleaks, repository/image Trivy, Syft SBOM, Grype scanning, and retained scan artifacts.",
+        ),
+        check(
+            "supply-chain-static-guard",
+            exists("scripts/verify-supply-chain-workflows.py")
+            and contains(
+                "scripts/verify-supply-chain-workflows.py",
+                "workflow_dispatch:",
+                "dependency-review:",
+                "secret-scan:",
+                "filesystem-scan:",
+                "sbom-and-grype:",
+                "image-sbom-scan:",
+                "codeql:",
+            ),
+            "Static supply-chain guard validates the required security workflow shape.",
         ),
         check(
             "release-supply-chain-assets",

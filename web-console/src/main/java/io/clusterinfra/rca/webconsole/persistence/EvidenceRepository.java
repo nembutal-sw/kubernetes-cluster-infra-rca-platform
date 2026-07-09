@@ -168,6 +168,33 @@ public class EvidenceRepository {
         return count != null && count > 0;
     }
 
+    public boolean hasRecentRequest(
+        String clusterId,
+        String nodeName,
+        List<String> alertNames,
+        Instant since
+    ) {
+        if (alertNames == null || alertNames.isEmpty()) {
+            return false;
+        }
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(clusterId);
+        parameters.add(nodeName);
+        parameters.add(timestamp(since));
+        parameters.addAll(alertNames);
+        String placeholders = String.join(", ", alertNames.stream().map(ignored -> "?").toList());
+        Integer count = jdbc.queryForObject(
+            """
+                SELECT COUNT(*) FROM evidence_requests
+                WHERE cluster_id = ? AND node_name = ? AND created_at >= ?
+                  AND alert_name IN (
+                """ + placeholders + ")",
+            Integer.class,
+            parameters.toArray()
+        );
+        return count != null && count > 0;
+    }
+
     @Transactional
     public Optional<EvidenceRequest> submitResponse(AgentEvidenceSubmitRequest request, int maxAttempts) {
         Optional<EvidenceRequest> existing = findRequestForUpdate(request.requestId());

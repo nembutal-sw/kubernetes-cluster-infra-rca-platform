@@ -214,6 +214,8 @@ def validate_endpoint(endpoint: Endpoint) -> list[dict[str, object]]:
         return findings
     if path in EXPECTED_WEBHOOK_PATHS:
         return findings
+    if path.startswith("/api/webhooks/"):
+        return findings
     if is_manifest_path(path):
         return findings
     if not endpoint.preauthorize:
@@ -242,8 +244,27 @@ def security_filter_findings(endpoints: list[Endpoint]) -> list[dict[str, object
             "paths": missing_agent_filter,
         })
 
+    mapped_webhook_paths = {endpoint.path for endpoint in endpoints if endpoint.path.startswith("/api/webhooks/")}
+    webhook_filter_paths = parse_string_set(SECURITY_DIR / "WebhookAuthenticationFilter.java")
+    missing_webhook_filter = sorted(mapped_webhook_paths - webhook_filter_paths)
+    if missing_webhook_filter:
+        findings.append({
+            "status": "failed",
+            "reason": "webhook_endpoint_not_covered_by_webhook_filter",
+            "paths": missing_webhook_filter,
+        })
+
+    mapped_manifest_paths = {endpoint.path for endpoint in endpoints if is_manifest_path(endpoint.path)}
+    manifest_filter_text = read(SECURITY_DIR / "ManifestAccessFilter.java")
+    if mapped_manifest_paths and "agent-manifest" not in manifest_filter_text:
+        findings.append({
+            "status": "failed",
+            "reason": "manifest_endpoint_not_covered_by_manifest_filter",
+            "paths": sorted(mapped_manifest_paths),
+        })
+
     security_config_text = read(SECURITY_CONFIG)
-    required_public_guards = PUBLIC_API_PATHS | EXPECTED_AGENT_PATHS | EXPECTED_WEBHOOK_PATHS
+    required_public_guards = PUBLIC_API_PATHS | EXPECTED_AGENT_PATHS | EXPECTED_WEBHOOK_PATHS | mapped_webhook_paths
     missing_permit_entries = sorted(path for path in required_public_guards if path not in security_config_text)
     if "/api/clusters/*/agent-manifest" not in security_config_text:
         missing_permit_entries.append("/api/clusters/*/agent-manifest")

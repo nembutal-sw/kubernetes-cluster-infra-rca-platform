@@ -185,6 +185,12 @@ rca:
     enabled: ${RCA_MONITORING_ENABLED:false}
     interval-ms: ${RCA_MONITORING_INTERVAL_MS:60000}
     initial-delay-ms: ${RCA_MONITORING_INITIAL_DELAY_MS:30000}
+    collect-healthy-agents: ${RCA_MONITORING_COLLECT_HEALTHY_AGENTS:true}
+    healthy-interval-minutes: ${RCA_MONITORING_HEALTHY_INTERVAL_MINUTES:15}
+    degraded-interval-minutes: ${RCA_MONITORING_DEGRADED_INTERVAL_MINUTES:5}
+    stale-interval-minutes: ${RCA_MONITORING_STALE_INTERVAL_MINUTES:2}
+    version-mismatch-interval-minutes: ${RCA_MONITORING_VERSION_MISMATCH_INTERVAL_MINUTES:60}
+    unauthorized-interval-minutes: ${RCA_MONITORING_UNAUTHORIZED_INTERVAL_MINUTES:60}
   observability:
     enabled: ${RCA_OBSERVABILITY_ENABLED:true}
     metrics-token: ${RCA_METRICS_TOKEN:}

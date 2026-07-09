@@ -2,6 +2,8 @@ package io.clusterinfra.rca.webconsole;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -51,6 +53,7 @@ class ScheduledCollectionServiceTests {
         EvidenceRequestCreateRequest value = request.getValue();
         assertThat(value.alertName()).isEqualTo("AgentCollectorDegraded");
         assertThat(value.requestedCollectors()).contains("disk", "kubelet", "runtime", "network");
+        assertThat(value.requestedCollectors()).contains("systemd", "kernel", "process");
         assertThat(value.context())
             .containsEntry("trigger", "scheduled_monitoring")
             .containsEntry("health_status", "collector_degraded")
@@ -58,6 +61,30 @@ class ScheduledCollectionServiceTests {
         assertThat(value.context().get("health_reasons").toString())
             .contains("degraded")
             .contains("failed");
+    }
+
+    @Test
+    void healthyAgentUsesLightweightBaselineCollectors() {
+        ClusterRepository clusters = mock(ClusterRepository.class);
+        AgentRepository agents = mock(AgentRepository.class);
+        EvidenceRepository evidence = mock(EvidenceRepository.class);
+        RcaConsoleProperties properties = properties();
+        ScheduledCollectionService service = service(clusters, agents, evidence, properties);
+        Cluster cluster = cluster();
+        NodeAgent agent = agent("worker-1", AgentStatus.healthy, Map.of());
+        when(clusters.list()).thenReturn(List.of(cluster));
+        when(agents.list(cluster.clusterId())).thenReturn(List.of(agent));
+        when(evidence.hasPendingRequest(cluster.clusterId(), agent.nodeName())).thenReturn(false);
+
+        service.requestScheduledEvidence();
+
+        ArgumentCaptor<EvidenceRequestCreateRequest> request = ArgumentCaptor.forClass(EvidenceRequestCreateRequest.class);
+        verify(evidence).createRequest(request.capture());
+        EvidenceRequestCreateRequest value = request.getValue();
+        assertThat(value.alertName()).isEqualTo("ScheduledNodeHealth");
+        assertThat(value.requestedCollectors())
+            .containsExactly("node", "kubernetes", "disk", "inode", "memory", "network", "conntrack", "runtime", "cni", "dns");
+        assertThat(value.requestedCollectors()).doesNotContain("systemd", "kernel", "kubelet", "process");
     }
 
     @Test
@@ -76,6 +103,44 @@ class ScheduledCollectionServiceTests {
         service.requestScheduledEvidence();
 
         verify(evidence, never()).createRequest(any());
+    }
+
+    @Test
+    void skipsScheduledRequestWhenRecentSameStatusRequestExists() {
+        ClusterRepository clusters = mock(ClusterRepository.class);
+        AgentRepository agents = mock(AgentRepository.class);
+        EvidenceRepository evidence = mock(EvidenceRepository.class);
+        RcaConsoleProperties properties = properties();
+        ScheduledCollectionService service = service(clusters, agents, evidence, properties);
+        Cluster cluster = cluster();
+        NodeAgent agent = agent("worker-1", AgentStatus.healthy, Map.of());
+        when(clusters.list()).thenReturn(List.of(cluster));
+        when(agents.list(cluster.clusterId())).thenReturn(List.of(agent));
+        when(evidence.hasPendingRequest(cluster.clusterId(), agent.nodeName())).thenReturn(false);
+        when(evidence.hasRecentRequest(anyString(), anyString(), anyList(), any())).thenReturn(true);
+
+        service.requestScheduledEvidence();
+
+        verify(evidence, never()).createRequest(any());
+    }
+
+    @Test
+    void skipsHealthyAgentsWhenBaselineCollectionIsDisabled() {
+        ClusterRepository clusters = mock(ClusterRepository.class);
+        AgentRepository agents = mock(AgentRepository.class);
+        EvidenceRepository evidence = mock(EvidenceRepository.class);
+        RcaConsoleProperties properties = properties();
+        properties.getMonitoring().setCollectHealthyAgents(false);
+        ScheduledCollectionService service = service(clusters, agents, evidence, properties);
+        Cluster cluster = cluster();
+        NodeAgent agent = agent("worker-1", AgentStatus.healthy, Map.of());
+        when(clusters.list()).thenReturn(List.of(cluster));
+        when(agents.list(cluster.clusterId())).thenReturn(List.of(agent));
+
+        service.requestScheduledEvidence();
+
+        verify(evidence, never()).createRequest(any());
+        verify(evidence, never()).hasPendingRequest(anyString(), anyString());
     }
 
     @Test

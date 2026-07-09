@@ -65,6 +65,14 @@ Backend는 collector selection, action policy/plan, rule detector enablement를 
 
 검증 실패 시 애플리케이션이 시작되지 않는다.
 
+릴리즈 전 정적 검증:
+
+```bash
+python scripts/verify-operational-catalog.py
+```
+
+이 검증은 기본 catalog JSON의 필수 collector, alert selection, action, rule, `plan.executable=false` 계약을 Maven 실행 전에도 빠르게 확인한다.
+
 ## Platform Info
 
 `GET /api/v1/platform/info`는 catalog 정보를 함께 반환한다.

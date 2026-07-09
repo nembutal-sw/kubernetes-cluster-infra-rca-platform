@@ -1014,6 +1014,12 @@ public class RcaConsoleProperties {
         private boolean enabled;
         private long intervalMs = 60_000;
         private long initialDelayMs = 30_000;
+        private boolean collectHealthyAgents = true;
+        private int healthyIntervalMinutes = 15;
+        private int degradedIntervalMinutes = 5;
+        private int staleIntervalMinutes = 2;
+        private int versionMismatchIntervalMinutes = 60;
+        private int unauthorizedIntervalMinutes = 60;
 
         public boolean isEnabled() {
             return enabled;
@@ -1037,6 +1043,54 @@ public class RcaConsoleProperties {
 
         public void setInitialDelayMs(long initialDelayMs) {
             this.initialDelayMs = initialDelayMs;
+        }
+
+        public boolean isCollectHealthyAgents() {
+            return collectHealthyAgents;
+        }
+
+        public void setCollectHealthyAgents(boolean collectHealthyAgents) {
+            this.collectHealthyAgents = collectHealthyAgents;
+        }
+
+        public int getHealthyIntervalMinutes() {
+            return healthyIntervalMinutes;
+        }
+
+        public void setHealthyIntervalMinutes(int healthyIntervalMinutes) {
+            this.healthyIntervalMinutes = healthyIntervalMinutes;
+        }
+
+        public int getDegradedIntervalMinutes() {
+            return degradedIntervalMinutes;
+        }
+
+        public void setDegradedIntervalMinutes(int degradedIntervalMinutes) {
+            this.degradedIntervalMinutes = degradedIntervalMinutes;
+        }
+
+        public int getStaleIntervalMinutes() {
+            return staleIntervalMinutes;
+        }
+
+        public void setStaleIntervalMinutes(int staleIntervalMinutes) {
+            this.staleIntervalMinutes = staleIntervalMinutes;
+        }
+
+        public int getVersionMismatchIntervalMinutes() {
+            return versionMismatchIntervalMinutes;
+        }
+
+        public void setVersionMismatchIntervalMinutes(int versionMismatchIntervalMinutes) {
+            this.versionMismatchIntervalMinutes = versionMismatchIntervalMinutes;
+        }
+
+        public int getUnauthorizedIntervalMinutes() {
+            return unauthorizedIntervalMinutes;
+        }
+
+        public void setUnauthorizedIntervalMinutes(int unauthorizedIntervalMinutes) {
+            this.unauthorizedIntervalMinutes = unauthorizedIntervalMinutes;
         }
     }
 }

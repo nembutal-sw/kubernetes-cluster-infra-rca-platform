@@ -23,10 +23,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class ScheduledCollectionService {
     private static final Logger LOGGER = LoggerFactory.getLogger(ScheduledCollectionService.class);
-    private static final List<String> COLLECTORS = List.of(
+    private static final List<String> BASELINE_COLLECTORS = List.of(
+        "node", "kubernetes", "disk", "inode", "memory", "network", "conntrack", "runtime", "cni", "dns"
+    );
+    private static final List<String> DEEP_COLLECTORS = List.of(
         "node", "kubernetes", "systemd", "runtime", "kubelet", "kernel",
         "disk", "inode", "memory", "process", "network", "conntrack", "cni", "dns"
     );
+    private static final List<String> VERSION_COLLECTORS = List.of("node", "kubernetes", "runtime");
 
     private final ClusterRepository clusters;
     private final AgentRepository agents;
@@ -64,8 +68,21 @@ public class ScheduledCollectionService {
             for (NodeAgent agent : agents.list(cluster.clusterId())) {
                 AgentHealthView health = agentHealth.classify(agent);
                 if (health.healthStatus() == AgentHealthStatus.offline
-                    || isOffline(agent, requestedAt)
-                    || evidence.hasPendingRequest(cluster.clusterId(), agent.nodeName())) {
+                    || isOffline(agent, requestedAt)) {
+                    metrics.evidenceRequest("scheduled", "skipped_offline", 1);
+                    continue;
+                }
+                if (health.healthStatus() == AgentHealthStatus.healthy
+                    && !properties.getMonitoring().isCollectHealthyAgents()) {
+                    metrics.evidenceRequest("scheduled", "skipped_healthy_disabled", 1);
+                    continue;
+                }
+                if (evidence.hasPendingRequest(cluster.clusterId(), agent.nodeName())) {
+                    metrics.evidenceRequest("scheduled", "skipped_pending", 1);
+                    continue;
+                }
+                if (hasRecentScheduledRequest(cluster, agent, health, requestedAt)) {
+                    metrics.evidenceRequest("scheduled", "skipped_recent", 1);
                     continue;
                 }
                 try {
@@ -110,7 +127,7 @@ public class ScheduledCollectionService {
             cluster.clusterId(),
             agent.nodeName(),
             alertName(health.healthStatus()),
-            COLLECTORS,
+            collectors(health.healthStatus()),
             timeRange,
             reason(health.healthStatus(), health.reasons()),
             context
@@ -126,6 +143,38 @@ public class ScheduledCollectionService {
             case healthy -> "ScheduledNodeHealth";
             case offline -> "AgentOffline";
         };
+    }
+
+    private List<String> collectors(AgentHealthStatus status) {
+        return switch (status) {
+            case healthy -> BASELINE_COLLECTORS;
+            case version_mismatch, unauthorized -> VERSION_COLLECTORS;
+            case stale, collector_degraded -> DEEP_COLLECTORS;
+            case offline -> List.of();
+        };
+    }
+
+    private boolean hasRecentScheduledRequest(
+        Cluster cluster,
+        NodeAgent agent,
+        AgentHealthView health,
+        Instant requestedAt
+    ) {
+        int cooldownMinutes = switch (health.healthStatus()) {
+            case healthy -> properties.getMonitoring().getHealthyIntervalMinutes();
+            case collector_degraded -> properties.getMonitoring().getDegradedIntervalMinutes();
+            case stale -> properties.getMonitoring().getStaleIntervalMinutes();
+            case version_mismatch -> properties.getMonitoring().getVersionMismatchIntervalMinutes();
+            case unauthorized -> properties.getMonitoring().getUnauthorizedIntervalMinutes();
+            case offline -> 60;
+        };
+        Instant since = requestedAt.minus(Duration.ofMinutes(Math.max(1, cooldownMinutes)));
+        return evidence.hasRecentRequest(
+            cluster.clusterId(),
+            agent.nodeName(),
+            List.of(alertName(health.healthStatus())),
+            since
+        );
     }
 
     private String reason(AgentHealthStatus status, List<String> reasons) {

@@ -1,6 +1,6 @@
 # Release Readiness
 
-릴리스 전 확인해야 하는 운영 체크리스트다. 서버 주소, token, password 같은 접속 정보는 이 문서나 Git에 남기지 않는다.
+릴리즈 전에 확인해야 하는 운영 체크리스트다. 서버 주소, token, password 같은 접속 정보는 문서나 Git에 남기지 않는다.
 
 ## 1. Helm
 
@@ -16,9 +16,9 @@
 실패 기준:
 
 - 필수 값 누락
-- 잘못된 namespace/image/backend URL
+- 잘못된 namespace, image, backend URL
 - Agent Secret 누락
-- 운영 모드에서 hostPath, hostNetwork, RBAC 의도가 values와 다르게 렌더링됨
+- 운영 모드에서 hostPath, hostNetwork, RBAC 범위가 values와 다르게 렌더링됨
 
 ## 2. Container
 
@@ -51,7 +51,7 @@
 통과 기준:
 
 - `scripts/verify-api-contract.py` 성공
-- 신규 controller 추가 시 인증 누락이 CI에서 실패
+- 신규 controller 추가 시 인증 누락은 CI에서 실패
 - 민감 export endpoint에 `VIEWER`, `APPROVER` 권한이 들어가지 않음
 
 ## 4. Supply Chain
@@ -70,9 +70,26 @@
 
 - high/critical fixed vulnerability가 release gate를 통과하지 않음
 - SBOM과 scan report artifact가 보존됨
-- `scripts/release-readiness-check.py`의 `supply-chain-ci`, `release-supply-chain-assets` 검사 성공
+- `scripts/verify-supply-chain-workflows.py` 성공
+- `scripts/release-readiness-check.py`의 `supply-chain-ci`, `supply-chain-static-guard`, `release-supply-chain-assets` 검사 성공
 
-## 5. Smoke Deploy
+## 5. Operational Catalog
+
+확인 항목:
+
+- 기본 catalog JSON schema version
+- 필수 collector, alert selection, action, rule 존재
+- collector selection이 존재하지 않는 collector를 참조하지 않는지
+- 모든 action plan이 `executable=false`인지
+- catalog override는 preview/draft/handoff만 제공하고 자동 적용하지 않는지
+
+통과 기준:
+
+- `scripts/verify-operational-catalog.py` 성공
+- `scripts/release-readiness-check.py`의 `operational-catalog-static-guard` 검사 성공
+- Web Console Settings 화면에서 catalog summary와 override draft 상태 확인 가능
+
+## 6. Smoke Deploy
 
 기존 운영 컨테이너와 네트워크를 건드리지 않도록 고유한 이름의 DB, platform 컨테이너, Docker network를 사용한다.
 
@@ -80,7 +97,7 @@
 
 - PostgreSQL 또는 MariaDB 연결
 - `/health/ready` 응답
-- readiness 응답에 `database=reachable`, `bootstrap=completed`
+- readiness 응답의 `database=reachable`, `bootstrap=completed`
 - 최초 관리자 로그인
 - cluster 생성 API
 - cluster 목록 조회
@@ -88,18 +105,18 @@
 
 주의:
 
-- 초기 관리자 계정 bootstrap이 끝나기 전에는 ready로 보지 않는다.
+- 초기 관리자 계정 bootstrap이 끝나기 전에는 ready로 보이지 않는다.
 - 검증용 credential은 서버 내부 파일에만 저장하고 `chmod 600`을 적용한다.
 - 검증이 끝난 컨테이너를 남겨야 하는 경우 포트와 credential 위치를 운영자에게 별도로 공유한다.
 
-## 6. Agent Local Collect
+## 7. Agent Local Collect
 
 서버에서 직접 Node Agent를 실행해 collector 계약을 확인한다.
 
 Safe mode:
 
 - `node`, `kubernetes`, `dns` 중심 수집
-- 위험 collector는 `disabled`로 남을 수 있음
+- 위험 collector는 `disabled`로 남길 수 있음
 
 Node diagnostics mode:
 
@@ -120,19 +137,19 @@ Node diagnostics mode:
 
 통과 기준:
 
-- 필수 collector key가 존재
+- 필수 collector key 존재
 - 주요 collector 상태가 `failed`가 아님
 - evidence JSON이 UTF-8로 저장됨
 - 민감정보 redaction 적용
 
-## 7. Kubernetes Canary
+## 8. Kubernetes Canary
 
 실제 Kubernetes 또는 kind 검증 클러스터에서 DaemonSet canary를 먼저 확인한다.
 
 확인 항목:
 
 - agent image를 대상 노드에서 pull 또는 preload
-- backend URL이 Pod 또는 hostNetwork 환경에서 접근 가능
+- backend URL을 Pod 또는 hostNetwork 환경에서 접근 가능
 - `/api/clusters/{cluster_id}/agent-manifest`로 받은 manifest 적용
 - DaemonSet rollout 성공
 - backend에 node agent 2개 이상 또는 목표 canary node 등록
@@ -151,12 +168,14 @@ Node diagnostics mode:
 
 ## Release Gate
 
-릴리스 후보는 아래 조건을 만족해야 한다.
+릴리즈 후보는 아래 조건을 만족해야 한다.
 
 - Helm lint/template 통과
 - `scripts/release-readiness-check.py` 통과
 - `scripts/verify-api-contract.py` 통과
 - `scripts/verify-container-pinning.py` 통과
+- `scripts/verify-operational-catalog.py` 통과
+- `scripts/verify-supply-chain-workflows.py` 통과
 - platform/agent image build 성공
 - Maven test 성공
 - Node Agent pytest 성공
@@ -165,4 +184,4 @@ Node diagnostics mode:
 - Kubernetes canary DaemonSet rollout 성공
 - canary evidence collection 완료
 - Gitleaks, Trivy, Syft SBOM, Grype scan 통과
-- 검증 중 발견한 누락은 테스트로 고정
+- 검증 중 발견된 누락은 테스트로 고정
