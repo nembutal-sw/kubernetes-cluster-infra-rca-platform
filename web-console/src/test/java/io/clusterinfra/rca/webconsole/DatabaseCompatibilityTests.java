@@ -75,6 +75,7 @@ class DatabaseCompatibilityTests {
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
+        "catalog_override_drafts",
         "rca_analysis_tasks",
         "action_executions",
         "action_requests",
@@ -140,7 +141,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(16);
+        assertThat(migration.migrationsExecuted).isEqualTo(17);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         UserRepository users = userRepository(dataSource);
@@ -542,7 +543,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(15);
+        assertThat(migration.migrationsExecuted).isEqualTo(16);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class
