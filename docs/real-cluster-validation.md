@@ -1,35 +1,79 @@
-# Real Cluster Validation Notes
+# Real Cluster Validation
 
-This document records findings from the first read-only check against an actual
-RKE2 cluster and the code changes made from that evidence.
+실제 Kubernetes 클러스터에서 플랫폼과 Node Agent를 검증할 때 사용하는 절차입니다.
+검증은 기본적으로 read-only입니다. 리소스 생성은 Helm/Kubectl server dry-run까지만 수행합니다.
 
-Observed signals:
+## Quick Check
 
-- All nodes were `Ready`, but `core-a` repeatedly failed to connect to
-  `core-b` on `10.0.0.2:9345`.
-- A direct TCP probe from `core-a` to `core-b` failed on both `9345` and
-  `6443`, while `core-a` to `core-c:9345` succeeded.
-- Recent Kubernetes events repeatedly reported RKE2 node certificate expiration
-  warnings.
-- `edbe-b` had a very high Cilium agent restart count. Previous Cilium logs
-  included API watch loss and TLS handshake timeout messages.
-- `kubectl top nodes` returned metrics for some nodes but `<unknown>` for
-  others.
-- `core-a` local disk, inode, memory, conntrack, and API readyz checks looked
-  healthy during the sample window.
+클러스터 접근, 노드 상태, 이벤트, Helm render, Agent manifest server dry-run을 한 번에 확인합니다.
 
-Collector changes derived from those signals:
+```bash
+python3 scripts/real-cluster-readiness-check.py \
+  --agent-namespace default \
+  --backend-url https://rca.example.com \
+  --output validation-results/real-cluster-readiness.json
+```
 
-- Added a `kubernetes` collector that reads the Kubernetes API directly through
-  the in-cluster ServiceAccount token.
-- Added node condition, node pressure, pod restart, CNI restart, metrics API,
-  readyz, node certificate warning, and control-plane peer TCP probe fields.
-- Added RKE2 systemd fields for `rke2-server` and `rke2-agent`.
-- Added read-only RBAC to the generated and static agent manifests.
-- Updated RCA preprocessing and rules so control-plane peer connectivity,
-  CNI restarts, metrics unavailability, API readyz failures, and node
-  certificate warnings can become explicit report signals.
+실제 Linux 노드에서 host collector까지 같이 확인하려면:
 
-The collector intentionally degrades gracefully outside Kubernetes. If the
-ServiceAccount environment or token is missing, it returns a structured
-`api_error` instead of failing the whole agent.
+```bash
+sudo -E python3 scripts/real-cluster-readiness-check.py \
+  --agent-namespace default \
+  --backend-url https://rca.example.com \
+  --agent-local \
+  --output validation-results/real-cluster-readiness.json
+```
+
+`--agent-local`은 다음 collector를 실행합니다.
+
+- `node`, `kubernetes`, `systemd`, `runtime`, `kubelet`
+- `kernel`, `network`, `conntrack`, `disk`, `inode`, `memory`
+- `process`, `cni`, `dns`
+
+`kubernetes` collector는 DaemonSet 환경 밖에서는 in-cluster ServiceAccount가 없어서 `api_error`를 반환할 수 있습니다.
+이 경우에도 전체 agent local collect는 실패가 아니라 제한 신호로 취급합니다.
+
+## Output
+
+스크립트는 JSON 리포트를 생성합니다.
+
+주요 필드:
+
+- `status`: `passed`, `warning`, `failed`
+- `checks`: kubectl 접근, node/pod/event 상태, Helm lint, server dry-run, agent local collect 결과
+- `signals.nodes`: Ready/Pressure 조건, 런타임, 커널, OS 정보
+- `signals.events`: RCA와 관련 있는 최근 warning 이벤트
+- `signals.agent_local_collect`: disk/inode/conntrack/runtime/kernel/systemd 요약
+- `warnings`: 운영자가 판단해야 하는 제한 또는 이상 신호
+- `failures`: 배포 전 반드시 해결해야 하는 실패
+
+## Previous Real-Cluster Findings
+
+초기 RKE2 기반 클러스터에서 확인한 신호:
+
+- 일부 노드에서 control-plane peer 포트 연결 실패
+- RKE2 node certificate expiration warning 이벤트 반복
+- 특정 노드의 Cilium agent restart count 증가
+- Metrics API가 일부 노드에서 `<unknown>` 반환
+- 로컬 disk, inode, memory, conntrack는 샘플 시점에 정상
+
+이 관찰을 바탕으로 다음 collector와 rule이 보강되었습니다.
+
+- Kubernetes API collector
+- node condition, pressure, pod restart, CNI restart, metrics API, readyz
+- node certificate warning, control-plane peer TCP probe
+- RKE2 `rke2-server`, `rke2-agent` systemd 상태
+- control-plane peer connectivity, CNI restart, metrics unavailable, API readyz failure, node certificate warning rule
+
+## Safe Boundary
+
+실클러스터 검증 중 금지 사항:
+
+- 노드 재부팅
+- kubelet/containerd/crio/docker 재시작
+- Docker network 변경
+- 운영 workload 삭제 또는 재배포
+- 자동 조치 실행 활성화
+
+`APPROVED_ACTIONS_ENABLED`는 운영 검증에서도 기본 `false`를 유지합니다.
+조치가 필요하면 runbook 또는 GitOps PR 흐름으로 안내하고, 실행 여부는 사람이 별도로 판단합니다.

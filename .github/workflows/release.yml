@@ -11,7 +11,8 @@ permissions:
   id-token: write
 
 env:
-  SECURITY_SEVERITIES: CRITICAL,HIGH
+  SECURITY_REPORT_SEVERITIES: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+  SECURITY_RELEASE_BLOCKING_SEVERITIES: CRITICAL,HIGH
 
 jobs:
   image:
@@ -65,14 +66,23 @@ jobs:
           format: spdx-json
           output-file: ${{ matrix.component }}-sbom.spdx.json
           upload-artifact: false
-      - name: Scan released image
+      - name: Create released image Trivy SARIF
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: ${{ matrix.component }}-image-trivy.sarif
-          severity: ${{ env.SECURITY_SEVERITIES }}
+          severity: ${{ env.SECURITY_REPORT_SEVERITIES }}
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Gate released image vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: ${{ env.SECURITY_RELEASE_BLOCKING_SEVERITIES }}
           ignore-unfixed: true
           exit-code: "1"
       - name: Upload release security artifacts

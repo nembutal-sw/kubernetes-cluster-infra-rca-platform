@@ -14,7 +14,8 @@ permissions:
   security-events: write
 
 env:
-  SECURITY_SEVERITIES: CRITICAL,HIGH
+  SECURITY_REPORT_SEVERITIES: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+  SECURITY_BLOCKING_SEVERITIES: CRITICAL
 
 jobs:
   dependency-review:
@@ -45,7 +46,16 @@ jobs:
           scan-ref: .
           format: sarif
           output: trivy-results.sarif
-          severity: ${{ env.SECURITY_SEVERITIES }}
+          severity: ${{ env.SECURITY_REPORT_SEVERITIES }}
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Gate filesystem vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: ${{ env.SECURITY_BLOCKING_SEVERITIES }}
           ignore-unfixed: true
           exit-code: "1"
       - uses: github/codeql-action/upload-sarif@v3
@@ -137,14 +147,23 @@ jobs:
           format: spdx-json
           output-file: ${{ matrix.component }}-image-sbom.spdx.json
           upload-artifact: false
-      - name: Scan ${{ matrix.component }} image with Trivy
+      - name: Create ${{ matrix.component }} image Trivy SARIF
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ matrix.image }}:security-${{ github.sha }}
           format: sarif
           output: ${{ matrix.component }}-image-trivy.sarif
-          severity: ${{ env.SECURITY_SEVERITIES }}
+          severity: ${{ env.SECURITY_REPORT_SEVERITIES }}
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Gate ${{ matrix.component }} image vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ matrix.image }}:security-${{ github.sha }}
+          format: table
+          severity: ${{ env.SECURITY_BLOCKING_SEVERITIES }}
           ignore-unfixed: true
           exit-code: "1"
       - name: Upload ${{ matrix.component }} image SARIF

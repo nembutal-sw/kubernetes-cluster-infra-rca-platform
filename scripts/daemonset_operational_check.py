@@ -158,6 +158,16 @@ def can_i(namespace: str, context: str, subject: str, args: list[str]) -> dict[s
     }
 
 
+def raw_access(context: str, subject: str, path: str) -> dict[str, Any]:
+    completed = kubectl([*context_args(context), f"--as={subject}", "get", "--raw", path], check=False)
+    return {
+        "args": ["get", "--raw", path],
+        "allowed": completed.returncode == 0,
+        "stdout": completed.stdout.strip()[:500],
+        "stderr": completed.stderr.strip(),
+    }
+
+
 def collect_logs(namespace: str, context: str, selector: str, tail: int) -> dict[str, Any]:
     completed = kubectl(
         [
@@ -251,11 +261,11 @@ def main() -> int:
         can_i(args.namespace, args.context, subject, ["get", "nodes"]),
         can_i(args.namespace, args.context, subject, ["list", "pods", "--all-namespaces"]),
         can_i(args.namespace, args.context, subject, ["list", "events", "--all-namespaces"]),
-        can_i(args.namespace, args.context, subject, ["get", "--raw", "/readyz"]),
+        raw_access(args.context, subject, "/readyz"),
     ]
     for check in rbac_checks:
         if not check["allowed"]:
-            failures.append("RBAC denied: kubectl auth can-i " + " ".join(check["args"]))
+            failures.append("RBAC/API denied: kubectl " + " ".join(check["args"]))
 
     pod_list = kubectl_json([*context_args(args.context), "-n", args.namespace, "get", "pods", "-l", selector])
     pods = pod_list.get("items", [])

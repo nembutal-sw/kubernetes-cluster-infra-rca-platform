@@ -72,6 +72,16 @@ def main() -> int:
     )
     require("scan-type: fs" in security, "security workflow must include Trivy filesystem scanning", errors)
     require("scan-type: image" in security, "security workflow must include Trivy image scanning", errors)
+    require(
+        "SECURITY_REPORT_SEVERITIES" in security and "SECURITY_BLOCKING_SEVERITIES" in security,
+        "security workflow must separate report severities from blocking severities",
+        errors,
+    )
+    require(
+        "Gate filesystem vulnerabilities" in security and "Gate ${{ matrix.component }} image vulnerabilities" in security,
+        "security workflow must gate vulnerabilities separately from SARIF generation",
+        errors,
+    )
     require("fail-build: true" in security, "Grype SBOM scan must fail the build on blocking findings", errors)
     require("retention-days:" in security, "security artifacts must declare retention", errors)
 
@@ -79,7 +89,8 @@ def main() -> int:
     require("packages: write" in release, "release workflow must be able to push images", errors)
     require("cosign sign" in release, "release workflow must sign pushed images", errors)
     require("anchore/sbom-action" in release, "release workflow must generate image SBOMs", errors)
-    require("Scan released image" in release, "release workflow must scan released images", errors)
+    require("Create released image Trivy SARIF" in release, "release workflow must create released image SARIF", errors)
+    require("Gate released image vulnerabilities" in release, "release workflow must gate released image vulnerabilities", errors)
     require("gh release upload" in release, "release workflow must publish security artifacts", errors)
 
     required_ecosystems = ["maven", "pip", "npm", "docker", "github-actions"]
