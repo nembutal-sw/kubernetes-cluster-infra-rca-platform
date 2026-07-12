@@ -5,7 +5,20 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class ConsolePageController {
-    @GetMapping("/console")
+    @GetMapping({
+        "/console",
+        "/overview",
+        "/clusters",
+        "/clusters/{clusterId}",
+        "/reports",
+        "/reports/{reportId}",
+        "/incidents",
+        "/incidents/{incidentId}",
+        "/pipeline",
+        "/audit",
+        "/webhooks",
+        "/settings"
+    })
     public String console() {
         return "forward:/index.html";
     }

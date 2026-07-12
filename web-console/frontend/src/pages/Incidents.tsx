@@ -5,21 +5,30 @@ type MaybePromise<T = void> = T | Promise<T>;
 
 interface IncidentsViewProps {
   incidents: IncidentView[];
+  selectedIncidentId?: string;
+  onSelectIncident: (incidentId: string) => void;
   onOpenReport: (reportId: string) => void;
   onChangeStatus: (incident: IncidentView, nextStatus: "resolve" | "reopen") => MaybePromise;
   currentUser: UserAccount;
   t: TFunction;
 }
 
-export function IncidentsView({ incidents, onOpenReport, onChangeStatus, currentUser, t }: IncidentsViewProps) {
+export function IncidentsView({ incidents, selectedIncidentId, onSelectIncident, onOpenReport, onChangeStatus, currentUser, t }: IncidentsViewProps) {
   const canOperate = ["admin", "operator"].includes(currentUser.role);
+  const orderedIncidents = selectedIncidentId
+    ? [...incidents].sort((left, right) => Number(right.incident_id === selectedIncidentId) - Number(left.incident_id === selectedIncidentId))
+    : incidents;
   return (
     <div className="page-stack">
       <PageHeader title={t("Incidents")} subtitle={t("Correlated evidence grouped by node, cause, and recurrence.")} />
       <Surface title={t("Incidents")} subtitle={`${incidents.length} ${t("total")}`}>
         <div className="incident-list">
-          {incidents.length ? incidents.map((incident) => (
-            <article key={incident.incident_id} className="incident-item">
+          {orderedIncidents.length ? orderedIncidents.map((incident) => (
+            <article
+              key={incident.incident_id}
+              className={`incident-item ${incident.incident_id === selectedIncidentId ? "selected" : ""}`}
+              data-testid={incident.incident_id === selectedIncidentId ? "selected-incident" : undefined}
+            >
               <div>
                 <StatusBadge value={incident.status} tone={incident.status === "open" ? "red" : "green"} t={t} />
                 <h3>{incident.alert_name}</h3>
@@ -31,6 +40,11 @@ export function IncidentsView({ incidents, onOpenReport, onChangeStatus, current
                 </div>
               </div>
               <div className="incident-actions">
+                {incident.incident_id !== selectedIncidentId && (
+                  <button className="btn btn-sm btn-outline-secondary" onClick={() => onSelectIncident(incident.incident_id)}>
+                    {t("View incident")}
+                  </button>
+                )}
                 {incident.latest_report_id && (
                   <button className="btn btn-sm btn-outline-secondary" onClick={() => onOpenReport(incident.latest_report_id || "")}>
                     {t("RCA Reports")}

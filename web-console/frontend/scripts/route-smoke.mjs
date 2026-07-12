@@ -55,6 +55,10 @@ async function assertRoute(page, route, scope, viewport) {
   }
 
   await nav.click();
+  const pathname = new URL(page.url()).pathname;
+  if (pathname !== `/${route}`) {
+    fail(scope, `route ${route} did not update URL: ${pathname}`);
+  }
   const view = page.getByTestId(`view-${route}`);
   try {
     await view.waitFor({ state: "visible", timeout: 7000 });
@@ -81,6 +85,42 @@ async function assertRoute(page, route, scope, viewport) {
   }
   if (viewport.isMobile && state.documentWidth > state.viewportWidth + 24) {
     fail(scope, `route ${route} has horizontal overflow: ${state.documentWidth}px > ${state.viewportWidth}px`);
+  }
+}
+
+async function assertDirectDetailRoute(page, scope) {
+  const path = "/clusters/cluster-route-smoke-missing";
+  await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
+  try {
+    await page.getByTestId("view-clusters").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByTestId("route-not-found").waitFor({ state: "visible", timeout: 10000 });
+  } catch (error) {
+    fail(scope, `direct cluster detail route did not render: ${error.message}`);
+    return;
+  }
+  if (new URL(page.url()).pathname !== path) {
+    fail(scope, `direct detail route was not preserved: ${page.url()}`);
+  }
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  try {
+    await page.getByTestId("route-not-found").waitFor({ state: "visible", timeout: 10000 });
+  } catch (error) {
+    fail(scope, `direct detail route did not survive reload: ${error.message}`);
+  }
+}
+
+async function assertHistoryNavigation(page, scope) {
+  await page.getByTestId("nav-clusters").click();
+  await page.getByTestId("nav-settings").click();
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  try {
+    await page.getByTestId("view-clusters").waitFor({ state: "visible", timeout: 7000 });
+  } catch (error) {
+    fail(scope, `browser back did not restore clusters view: ${error.message}`);
+  }
+  if (new URL(page.url()).pathname !== "/clusters") {
+    fail(scope, `browser back restored unexpected URL: ${page.url()}`);
   }
 }
 
@@ -124,6 +164,9 @@ async function runScope(browser, viewport, locale) {
     if (!pageText.includes(locale.expected)) {
       fail(scope, `expected locale marker '${locale.expected}' was not visible`);
     }
+
+    await assertHistoryNavigation(page, scope);
+    await assertDirectDetailRoute(page, scope);
   } catch (error) {
     fail(scope, error.stack || error.message);
   } finally {

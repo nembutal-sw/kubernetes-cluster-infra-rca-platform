@@ -91,6 +91,18 @@ class PlatformHttpTests {
             .contains("default-src 'self'")
             .contains("connect-src 'self'")
             .contains("frame-ancestors 'none'");
+
+        for (String path : List.of(
+            "/overview",
+            "/clusters/cluster-direct-route",
+            "/reports/report-direct-route",
+            "/incidents/incident-direct-route",
+            "/settings"
+        )) {
+            ResponseEntity<String> directRoute = restTemplate.getForEntity(path, String.class);
+            assertThat(directRoute.getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
+            assertThat(directRoute.getBody()).as(path).contains("id=\"rca-console-root\"");
+        }
     }
 
     @Test
@@ -98,7 +110,13 @@ class PlatformHttpTests {
     void protectedApiRejectsAnonymousRequests() {
         ResponseEntity<String> response = restTemplate.getForEntity("/api/clusters", String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(response.getBody()).contains("login required");
+        assertThat(response.getBody())
+            .contains("login required")
+            .contains("\"code\":\"authentication_required\"")
+            .contains("\"title\":\"Authentication required\"")
+            .contains("\"suggestion\"")
+            .contains("\"trace_id\"");
+        assertThat(response.getHeaders().getFirst("X-Request-ID")).isNotBlank();
 
         ResponseEntity<String> webhook = restTemplate.postForEntity(
             "/api/webhooks/alertmanager",
@@ -165,6 +183,34 @@ class PlatformHttpTests {
         JsonNode thresholdBody = objectMapper.readTree(thresholds.getBody());
         assertThat(thresholdBody.path("overrides").path("disk.critical.percent").asDouble()).isEqualTo(95.0);
         assertThat(thresholdBody.path("effective").path("disk.warning.percent").asDouble()).isEqualTo(93.0);
+
+        ResponseEntity<String> missing = exchange(
+            "/api/clusters/cluster-does-not-exist",
+            HttpMethod.GET,
+            null
+        );
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missing.getBody())
+            .contains("\"code\":\"resource_not_found\"")
+            .contains("\"trace_id\"");
+
+        HttpHeaders malformedHeaders = new HttpHeaders();
+        malformedHeaders.setBearerAuth(accessToken);
+        malformedHeaders.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> malformed = restTemplate.exchange(
+            "/api/clusters",
+            HttpMethod.POST,
+            new HttpEntity<>("{broken", malformedHeaders),
+            String.class
+        );
+        assertThat(malformed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(malformed.getBody())
+            .contains("\"code\":\"malformed_json\"")
+            .contains("\"trace_id\"");
+
+        ResponseEntity<String> unknownApi = exchange("/api/not-a-real-resource", HttpMethod.GET, null);
+        assertThat(unknownApi.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknownApi.getBody()).contains("\"code\":\"resource_not_found\"");
     }
 
     @Test
@@ -218,6 +264,20 @@ class PlatformHttpTests {
         JsonNode registeredBody = objectMapper.readTree(registered.getBody());
         nodeToken = registeredBody.path("node_token").asText();
         assertThat(registeredBody.path("agent_protocol_version").asText()).isEqualTo("1");
+
+        ResponseEntity<String> aggregateHealth = exchange("/api/v1/agent-health", HttpMethod.GET, null);
+        assertThat(aggregateHealth.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode healthItems = objectMapper.readTree(aggregateHealth.getBody());
+        assertThat(healthItems).hasSize(1);
+        assertThat(healthItems.get(0).path("cluster_id").asText()).isEqualTo(clusterId);
+        assertThat(healthItems.get(0).path("node_name").asText()).isEqualTo("worker-a");
+
+        JsonNode filteredHealth = objectMapper.readTree(exchange(
+            "/api/v1/agent-health?cluster_ids=" + clusterId,
+            HttpMethod.GET,
+            null
+        ).getBody());
+        assertThat(filteredHealth).hasSize(1);
 
         ResponseEntity<String> tamperedIdentity = restTemplate.postForEntity(
             "/api/agents/heartbeat",

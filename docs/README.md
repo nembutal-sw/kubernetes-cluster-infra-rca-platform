@@ -35,6 +35,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문�
 | `testing.md` | 로컬/운영/Helm/DaemonSet 검증 명령 |
 | `operations.md` | 백업, 복구, HA, credential rotation |
 | `roadmap.md` | 완료 단계와 다음 우선순위 |
+| `code-review-action-plan-2026-07-10.md` | 최신 코드 리뷰 기반 P0 실행 계획과 완료 기준 |
 
 ## Architecture Flow
 

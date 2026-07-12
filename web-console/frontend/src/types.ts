@@ -9,11 +9,47 @@ export interface ApiRequestOptions {
   method?: ApiMethod | string;
   body?: unknown;
   headers?: Record<string, string>;
+  handleUnauthorized?: boolean;
 }
 
 export type ApiCall = <T = unknown>(path: string, options?: ApiRequestOptions) => Promise<T>;
 export type DownloadApi = (path: string, filename: string) => Promise<void>;
 export type MaybePromise<T = void> = T | Promise<T>;
+
+export interface ApiErrorDetails {
+  status: number;
+  code: string;
+  title: string;
+  detail: string;
+  suggestion?: string;
+  trace_id?: string;
+}
+
+export interface LoadState<T> {
+  data: T;
+  loading: boolean;
+  error?: ApiErrorDetails;
+  loadedAt?: string;
+  stale: boolean;
+}
+
+export type ConsoleDataSource =
+  | "clusters"
+  | "reports"
+  | "incidents"
+  | "analysisTasks"
+  | "actionRequests"
+  | "agentHealth"
+  | "demoScenarios"
+  | "platformInfo"
+  | "catalogDetail"
+  | "catalogOverrideDrafts"
+  | "auditEvents"
+  | "notificationHistory"
+  | "llmDiagnostics"
+  | "llmSetupGuide";
+
+export type ConsoleLoadStates = Record<ConsoleDataSource, LoadState<unknown>>;
 
 export type UserRole = "admin" | "operator" | "viewer" | "auditor" | "approver" | string;
 export type TFunction = (key: string) => string;

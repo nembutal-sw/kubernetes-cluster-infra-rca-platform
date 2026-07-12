@@ -12,6 +12,7 @@ Platform API는 Spring Boot Web Console과 Node Agent, Alertmanager webhook, RCA
 - 승인 조치 실행은 manual workflow로 제한됩니다.
 - Report/evidence bundle export는 `ADMIN`, `OPERATOR`에게만 허용합니다.
 - `/api/v1/platform/info`로 platform/API/agent protocol 정보를 제공합니다.
+- API 오류는 `code`, `title`, `detail`, `suggestion`, `trace_id` 공통 형식으로 반환합니다.
 
 ---
 
@@ -129,10 +130,14 @@ POST   /api/clusters/{cluster_id}/agent-token/rotate
 GET    /api/clusters/{cluster_id}/topology/history
 GET    /api/clusters/{cluster_id}/topology/compare
 GET    /api/clusters/{cluster_id}/agent-health
+GET    /api/v1/agent-health?cluster_ids=cluster-a,cluster-b
 GET    /api/clusters/{cluster_id}/topology
 ```
 
 `agent-manifest` is guarded by manifest access credentials. Agent health classifies agents as:
+
+`/api/v1/agent-health` returns health for all registered agents in one query. `cluster_ids` is optional,
+comma-separated, and limited to 100 values. The Web Console uses this endpoint to avoid one request per cluster.
 
 The install-command response uses a short-lived, single-use `manifest_token`. The cluster
 bootstrap token is not accepted as a manifest query parameter. Production manifest URLs must use
@@ -283,4 +288,20 @@ Common response codes:
 410 deprecated endpoint disabled
 413 request body or export bundle too large
 422 unsupported format or invalid status
+503 database or platform dependency unavailable
 ```
+
+Error response:
+
+```json
+{
+  "code": "resource_not_found",
+  "title": "Resource not found",
+  "detail": "cluster not found",
+  "suggestion": "Verify the resource identifier and try again.",
+  "trace_id": "req-..."
+}
+```
+
+`trace_id` is also returned in the `X-Request-ID` response header. A valid incoming
+`X-Request-ID` or `X-Correlation-ID` is preserved; otherwise the Platform generates one.

@@ -50,6 +50,25 @@
 
 ## Recently Completed
 
+### Console Data Reliability
+
+- 공통 API 오류 계약과 `X-Request-ID` trace 연결
+- Frontend `ApiError`, API별 `LoadState<T>` 적용
+- 실패 시 마지막 정상 데이터를 유지하고 stale 상태 표시
+- 부분 장애 배너, 마지막 갱신 시각, 수동/30초 자동 갱신
+- 비활성 탭 polling 중단과 세션 만료 공통 처리
+- `/api/v1/agent-health` 집계 API로 Dashboard N+1 제거
+- Vitest/React Testing Library 회귀 테스트와 모바일 route smoke 검증
+
+### URL Routing And Shareable Detail Views
+
+- React Router 기반 화면/선택 상태 URL 동기화
+- Cluster, Report, Incident 상세 URL 직접 진입과 새로 고침 지원
+- Sidebar 이동, 상세 열기, 브라우저 뒤로 가기 동작 통일
+- `/`, `/console`, 알 수 없는 경로의 `/overview` 정규화
+- 권한 없는 경로 redirect와 존재하지 않는 상세 리소스 안내
+- 모바일/데스크톱 및 영문/한글 route smoke 검증
+
 ### Catalog Externalization
 
 - classpath 기본 catalog와 외부 JSON override path 추가
@@ -85,6 +104,9 @@
 - release readiness static gate에 supply-chain workflow 검증 추가
 
 ## Active Backlog
+
+최신 코드 리뷰를 현재 `main`과 대조한 세부 실행 순서와 완료 기준은
+`code-review-action-plan-2026-07-10.md`를 기준으로 한다.
 
 ### Editable Catalog Override Workflow
 
@@ -130,11 +152,11 @@
 
 ## Next Priority
 
-1. catalog override PR 생성 연동 또는 변경 티켓 추적 모델 검토
-2. agent/webhook 인증 regression test 강화
-3. 실제 Kubernetes canary 검증 반복
-4. 플랫폼별 collector compatibility matrix 보강
-5. 운영 배포 runbook과 rollback 문서 정리
+1. 사용자 업무 흐름 중심 Playwright E2E 확장
+2. 실제 Kubernetes Agent lifecycle E2E 실행기
+3. GitHub GitOps PR 생성과 변경 결과 추적
+4. Report/Incident/Task pagination과 검색/필터
+5. Collector별 typed evidence schema와 분석 품질 평가
 
 ## Positioning
 

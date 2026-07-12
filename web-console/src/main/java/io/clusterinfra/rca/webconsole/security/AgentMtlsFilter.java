@@ -40,6 +40,7 @@ public class AgentMtlsFilter extends OncePerRequestFilter {
             || certificates[0] == null) {
             SecurityFilterSupport.writeError(
                 objectMapper,
+                request,
                 response,
                 HttpStatus.UNAUTHORIZED.value(),
                 "agent client certificate is required"

@@ -43,7 +43,7 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         long limit = limitFor(SecurityFilterSupport.path(request));
         if (request.getContentLengthLong() > limit) {
-            writeTooLarge(response, limit);
+            writeTooLarge(request, response, limit);
             return;
         }
         try {
@@ -51,7 +51,7 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
         } catch (PayloadTooLargeException exception) {
             if (!response.isCommitted()) {
                 response.reset();
-                writeTooLarge(response, limit);
+                writeTooLarge(request, response, limit);
             }
         }
     }
@@ -62,9 +62,14 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
             : properties.getSecurity().getStandardRequestMaxBytes();
     }
 
-    private void writeTooLarge(HttpServletResponse response, long limit) throws IOException {
+    private void writeTooLarge(
+        HttpServletRequest request,
+        HttpServletResponse response,
+        long limit
+    ) throws IOException {
         SecurityFilterSupport.writeError(
             objectMapper,
+            request,
             response,
             HttpStatus.PAYLOAD_TOO_LARGE.value(),
             "request body exceeds " + limit + " bytes"

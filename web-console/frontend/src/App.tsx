@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./styles.css";
 
 import { requestCurrentUser } from "./api/client";
 import { ActionDialog, BootScreen, DeleteClusterDialog, LoginPage, Sidebar, Toast, Topbar } from "./components/common";
+import { DataStatusBanner } from "./components/DataStatusBanner";
+import { RouteStatusNotice } from "./components/RouteStatusNotice";
 import { NAV_ITEMS } from "./constants";
 import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
 import { useClusterDetail } from "./hooks/useClusterDetail";
@@ -22,6 +25,7 @@ import { ReportsView } from "./pages/Reports";
 import { SettingsView } from "./pages/Settings";
 import { WebhooksView } from "./pages/Webhooks";
 import { buildAuditQuery, copyText, sortByTime } from "./lib/consoleUtils";
+import { clusterPath, incidentPath, parseConsoleRoute, pathForView, reportPath } from "./routing";
 import type {
   ActionDialogState,
   ActionRequestView,
@@ -53,14 +57,28 @@ function ConsoleApp() {
   const { toast, notify } = useToast();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [activeView, setActiveView] = useState("overview");
   const [bootLoading, setBootLoading] = useState(true);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteClusterDialogState | null>(null);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const route = parseConsoleRoute(location.pathname);
+  const requestedNav = NAV_ITEMS.find((item) => item.id === route.view);
+  const routeAllowed = !currentUser || !requestedNav?.roles || requestedNav.roles.includes(currentUser.role);
+  const activeView = routeAllowed ? route.view : "overview";
 
-  const { callApi, downloadApi } = useAuthenticatedApi(session);
+  const handleUnauthorized = useCallback(() => {
+    setSession(null);
+    setCurrentUser(null);
+    notify(t("Your session expired. Sign in again."), "warning");
+  }, [notify, t]);
+
+  const { callApi, downloadApi } = useAuthenticatedApi(session, handleUnauthorized);
   const {
     loadingData,
+    lastUpdatedAt,
+    lastCompleteRefreshAt,
+    loadStates,
     clusters,
     reports,
     incidents,
@@ -81,7 +99,7 @@ function ConsoleApp() {
     setLlmDiagnostics,
     setLlmSetupGuide,
     loadConsoleData,
-  } = useConsoleData(callApi, currentUser, notify, t);
+  } = useConsoleData(callApi, currentUser);
   const {
     selectedCluster,
     setSelectedCluster,
@@ -122,26 +140,84 @@ function ConsoleApp() {
   }, []);
 
   useEffect(() => {
+    if (!route.valid || location.pathname !== route.canonicalPath) {
+      navigate(route.canonicalPath, { replace: true });
+    }
+  }, [location.pathname, navigate, route.canonicalPath, route.valid]);
+
+  useEffect(() => {
+    if (currentUser && !routeAllowed) {
+      navigate("/overview", { replace: true });
+    }
+  }, [currentUser, navigate, routeAllowed]);
+
+  useEffect(() => {
     if (currentUser) {
       void loadConsoleData(true);
     }
   }, [currentUser, loadConsoleData]);
 
   useEffect(() => {
-    if (!selectedReportId && reports.length) {
-      setSelectedReportId(reports[0].report_id);
+    if (!currentUser) return undefined;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadConsoleData(true);
+      }
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, [currentUser, loadConsoleData]);
+
+  useEffect(() => {
+    if (!currentUser || activeView !== "reports") return;
+    if (route.reportId) {
+      if (selectedReportId !== route.reportId) setSelectedReportId(route.reportId);
+      return;
     }
-  }, [reports, selectedReportId, setSelectedReportId]);
+    if (reports.length) {
+      navigate(reportPath(reports[0].report_id), { replace: true });
+    } else if (loadStates.reports.loadedAt) {
+      setSelectedReportId(null);
+      setReportDetail(null);
+    }
+  }, [activeView, currentUser, loadStates.reports.loadedAt, navigate, reports, route.reportId, selectedReportId, setReportDetail, setSelectedReportId]);
+
+  useEffect(() => {
+    if (!currentUser || activeView !== "clusters") return;
+    if (!route.clusterId) {
+      if (selectedCluster) clearClusterDetail();
+      return;
+    }
+    const cluster = clusters.find((item) => item.cluster_id === route.clusterId);
+    if (cluster && selectedCluster?.cluster_id !== cluster.cluster_id) {
+      void loadClusterDetail(cluster);
+    }
+  }, [activeView, clearClusterDetail, clusters, currentUser, loadClusterDetail, route.clusterId, selectedCluster]);
+
+  const navigateToView = useCallback((view: string) => {
+    navigate(pathForView(view));
+  }, [navigate]);
 
   const openClusterDetail = useCallback(async (cluster: ClusterView | null) => {
     if (!cluster) return;
-    setActiveView("clusters");
+    navigate(clusterPath(cluster.cluster_id));
     await loadClusterDetail(cluster);
-  }, [loadClusterDetail]);
+  }, [loadClusterDetail, navigate]);
+
+  const openReport = useCallback((reportId: string) => {
+    if (reportId) navigate(reportPath(reportId));
+  }, [navigate]);
+
+  const openIncident = useCallback((incidentId: string) => {
+    if (incidentId) navigate(incidentPath(incidentId));
+  }, [navigate]);
 
   async function login(form: LoginForm) {
     try {
-      const nextSession = await callApi<AuthSession>("/api/auth/login", { method: "POST", body: form });
+      const nextSession = await callApi<AuthSession>("/api/auth/login", {
+        method: "POST",
+        body: form,
+        handleUnauthorized: false,
+      });
       setSession(nextSession);
       setCurrentUser(nextSession.user || null);
       notify(t("Signed in."));
@@ -156,7 +232,7 @@ function ConsoleApp() {
     } finally {
       setSession(null);
       setCurrentUser(null);
-      setActiveView("overview");
+      navigate("/overview", { replace: true });
       setSelectedReportId(null);
       setReportDetail(null);
       setLlmDiagnostics(null);
@@ -178,7 +254,7 @@ function ConsoleApp() {
     await loadConsoleData(true);
     await generateInstallCommand(cluster.cluster_id, form.backend_url);
     setSelectedCluster(cluster);
-    setActiveView("clusters");
+    navigate(clusterPath(cluster.cluster_id));
   }
 
   async function deleteCluster(cluster: ClusterView, confirmName: string) {
@@ -188,6 +264,7 @@ function ConsoleApp() {
     setSelectedCluster(null);
     setClusterDetail(null);
     setInstallCommand(null);
+    if (route.clusterId === cluster.cluster_id) navigate("/clusters", { replace: true });
     notify(t("Cluster deleted."));
     await loadConsoleData(true);
   }
@@ -460,10 +537,19 @@ function ConsoleApp() {
 
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(currentUser.role));
   const webhookEndpoint = `${window.location.origin.replace(/\/$/, "")}/api/webhooks/alertmanager`;
+  const routeResourceMissing =
+    activeView === "clusters" && route.clusterId && loadStates.clusters.loadedAt && !loadStates.clusters.error
+      ? !clusters.some((item) => item.cluster_id === route.clusterId)
+      : activeView === "reports" && route.reportId && loadStates.reports.loadedAt && !loadStates.reports.error
+        ? !reports.some((item) => item.report_id === route.reportId)
+        : activeView === "incidents" && route.incidentId && loadStates.incidents.loadedAt && !loadStates.incidents.error
+          ? !incidents.some((item) => item.incident_id === route.incidentId)
+          : false;
+  const routeResourceId = route.clusterId || route.reportId || route.incidentId || "";
 
   return (
     <div className="console-shell">
-      <Sidebar items={visibleNav} activeView={activeView} setActiveView={setActiveView} t={t} />
+      <Sidebar items={visibleNav} activeView={activeView} onNavigate={navigateToView} t={t} />
       <div className="console-main">
         <Topbar
           user={currentUser}
@@ -472,9 +558,24 @@ function ConsoleApp() {
           onRefresh={() => loadConsoleData(false)}
           onLogout={logout}
           loading={loadingData}
+          degraded={Object.values(loadStates).some((state) => Boolean(state.error))}
+          lastUpdatedAt={lastUpdatedAt}
           t={t}
         />
         <main className="console-content" data-testid={`view-${activeView}`}>
+          <DataStatusBanner
+            states={loadStates}
+            lastCompleteRefreshAt={lastCompleteRefreshAt}
+            onRetry={() => loadConsoleData(false)}
+            t={t}
+          />
+          {routeResourceMissing && (
+            <RouteStatusNotice
+              resourceId={routeResourceId}
+              onReturn={() => navigate(pathForView(activeView), { replace: true })}
+              t={t}
+            />
+          )}
           {activeView === "overview" && (
             <OverviewView
               clusters={clusters}
@@ -483,8 +584,8 @@ function ConsoleApp() {
               analysisTasks={analysisTasks}
               actionRequests={actionRequests}
               agentHealth={agentHealth}
-              onNavigate={setActiveView}
-              onOpenReport={setSelectedReportId}
+              onNavigate={navigateToView}
+              onOpenReport={openReport}
               onOpenCluster={openClusterDetail}
               webhookEndpoint={webhookEndpoint}
               t={t}
@@ -514,7 +615,7 @@ function ConsoleApp() {
             <ReportsView
               reports={reports}
               selectedReportId={selectedReportId}
-              setSelectedReportId={setSelectedReportId}
+              setSelectedReportId={openReport}
               detail={reportDetail}
               currentUser={currentUser}
               onPrepareAction={(report, action, index) => setActionDialog({ report, action, index })}
@@ -531,10 +632,9 @@ function ConsoleApp() {
           {activeView === "incidents" && (
             <IncidentsView
               incidents={incidents}
-              onOpenReport={(id: string) => {
-                setSelectedReportId(id);
-                setActiveView("reports");
-              }}
+              selectedIncidentId={route.incidentId}
+              onSelectIncident={openIncident}
+              onOpenReport={openReport}
               onChangeStatus={changeIncidentStatus}
               currentUser={currentUser}
               t={t}
@@ -617,4 +717,8 @@ if (!rootElement) {
   throw new Error("Missing #rca-console-root element.");
 }
 
-createRoot(rootElement).render(<ConsoleApp />);
+createRoot(rootElement).render(
+  <BrowserRouter>
+    <ConsoleApp />
+  </BrowserRouter>,
+);

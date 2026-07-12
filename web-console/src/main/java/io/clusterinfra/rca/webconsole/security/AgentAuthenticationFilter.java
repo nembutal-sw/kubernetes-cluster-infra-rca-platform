@@ -80,6 +80,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
             auditFailure(wrapped, path, clusterId, nodeName, exception.getReason());
             SecurityFilterSupport.writeError(
                 objectMapper,
+                wrapped,
                 response,
                 exception.getStatusCode().value(),
                 exception.getReason() == null ? "agent authentication failed" : exception.getReason()

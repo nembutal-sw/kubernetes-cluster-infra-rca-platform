@@ -17,6 +17,8 @@ Web Console은 RCA Platform을 시각적으로 보여주는 포트폴리오 핵�
 - Action request / manual approval workflow
 - Audit event 조회
 - Observability metrics link
+- API별 loading/error/stale 상태와 마지막 갱신 시각
+- 일부 API 실패 시 마지막 정상 데이터 유지와 재시도 배너
 
 UI 메시지는 “자동 처리”보다 “근거 기반 RCA와 안전한 수동 운영 절차”를 강조해야 합니다.
 
@@ -28,12 +30,46 @@ UI 메시지는 “자동 처리”보다 “근거 기반 RCA와 안전한 수�
 
 The Web Console is bundled inside the Spring Boot platform. It uses:
 
-- JSP shell
-- React UI
+- Spring Boot static asset shell
+- React 19 UI
 - Bootstrap 5 styling
 - same-origin API calls
 
 There is no separate frontend server or API proxy.
+
+## Data Reliability UX
+
+Each console data source keeps independent `loading`, `error`, `loadedAt`, and `stale` state.
+An API failure does not replace the last successful data with an empty array. The console shows
+the failed source, HTTP status, error code, trace ID, last complete refresh time, and a retry action.
+
+The console refreshes every 30 seconds while the browser tab is visible. It pauses background
+polling for hidden tabs. Session expiry is handled centrally and returns the user to the login page.
+
+Dashboard Agent Health uses `GET /api/v1/agent-health` instead of issuing one request per cluster.
+
+## URL Routing
+
+The browser URL is the source of truth for the active view and selected resource. Supported routes are:
+
+```text
+/overview
+/clusters
+/clusters/:clusterId
+/reports
+/reports/:reportId
+/incidents
+/incidents/:incidentId
+/pipeline
+/audit
+/webhooks
+/settings
+```
+
+`/` and `/console` are normalized to `/overview`. Detail URLs support direct entry, refresh,
+bookmarking, and browser history. After authentication, the console resumes the URL the user
+requested. A route outside the user's role is redirected to `/overview`; a missing detail resource
+keeps its URL and shows an explicit not-found notice with a return-to-list action.
 
 ## Main Views
 

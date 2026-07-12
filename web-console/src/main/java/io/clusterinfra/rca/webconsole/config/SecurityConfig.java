@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.controller.ApiErrorResponse;
 import io.clusterinfra.rca.webconsole.security.AgentAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.AgentMtlsFilter;
 import io.clusterinfra.rca.webconsole.security.ManifestAccessFilter;
@@ -9,7 +10,6 @@ import io.clusterinfra.rca.webconsole.security.PlatformAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.security.RequestBodyLimitFilter;
 import io.clusterinfra.rca.webconsole.security.SameOriginMutationFilter;
 import io.clusterinfra.rca.webconsole.security.WebhookAuthenticationFilter;
-import java.util.Map;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -71,16 +71,24 @@ public class SecurityConfig {
             )
             .exceptionHandling(exceptions -> exceptions
                 .authenticationEntryPoint((request, response, exception) -> {
-                    response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    response.setCharacterEncoding("UTF-8");
-                    objectMapper.writeValue(response.getWriter(), Map.of("detail", "login required"));
+                    ApiErrorResponse.write(
+                        objectMapper,
+                        request,
+                        response,
+                        HttpStatus.UNAUTHORIZED.value(),
+                        "authentication_required",
+                        "login required"
+                    );
                 })
                 .accessDeniedHandler((request, response, exception) -> {
-                    response.setStatus(HttpStatus.FORBIDDEN.value());
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    response.setCharacterEncoding("UTF-8");
-                    objectMapper.writeValue(response.getWriter(), Map.of("detail", "insufficient role"));
+                    ApiErrorResponse.write(
+                        objectMapper,
+                        request,
+                        response,
+                        HttpStatus.FORBIDDEN.value(),
+                        "access_denied",
+                        "insufficient role"
+                    );
                 })
             )
             .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class)

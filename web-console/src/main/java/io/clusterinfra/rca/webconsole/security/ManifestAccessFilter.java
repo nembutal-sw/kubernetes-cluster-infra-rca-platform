@@ -60,6 +60,7 @@ public class ManifestAccessFilter extends OncePerRequestFilter {
             auditFailure(request, clusterId, exception.getReason());
             SecurityFilterSupport.writeError(
                 objectMapper,
+                request,
                 response,
                 exception.getStatusCode().value(),
                 exception.getReason() == null ? "manifest access denied" : exception.getReason()

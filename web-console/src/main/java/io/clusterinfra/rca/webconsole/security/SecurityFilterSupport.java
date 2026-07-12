@@ -1,11 +1,10 @@
 package io.clusterinfra.rca.webconsole.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.controller.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
-import org.springframework.http.MediaType;
 
 final class SecurityFilterSupport {
     private SecurityFilterSupport() {
@@ -19,13 +18,18 @@ final class SecurityFilterSupport {
 
     static void writeError(
         ObjectMapper objectMapper,
+        HttpServletRequest request,
         HttpServletResponse response,
         int status,
         String detail
     ) throws IOException {
-        response.setStatus(status);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), Map.of("detail", detail));
+        ApiErrorResponse.write(
+            objectMapper,
+            request,
+            response,
+            status,
+            ApiErrorResponse.codeFor(status),
+            detail
+        );
     }
 }

@@ -53,6 +53,7 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
             auditFailure(request, exception.getReason());
             SecurityFilterSupport.writeError(
                 objectMapper,
+                request,
                 response,
                 exception.getStatusCode().value(),
                 exception.getReason() == null ? "webhook authentication failed" : exception.getReason()

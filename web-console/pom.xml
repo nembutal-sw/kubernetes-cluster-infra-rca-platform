@@ -170,6 +170,12 @@
             <phase>generate-resources</phase>
             <configuration><arguments>run build</arguments></configuration>
           </execution>
+          <execution>
+            <id>frontend-test</id>
+            <goals><goal>npm</goal></goals>
+            <phase>generate-resources</phase>
+            <configuration><arguments>test</arguments></configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>

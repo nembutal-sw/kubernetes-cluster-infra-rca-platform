@@ -35,7 +35,7 @@ interface LoginPageProps {
 interface SidebarProps {
   items: readonly NavItem[];
   activeView: string;
-  setActiveView: (view: string) => void;
+  onNavigate: (view: string) => void;
   t: TFunction;
 }
 
@@ -46,6 +46,8 @@ interface TopbarProps {
   onRefresh: () => MaybePromise;
   onLogout: () => MaybePromise;
   loading?: boolean;
+  degraded?: boolean;
+  lastUpdatedAt?: string;
   t: TFunction;
 }
 
@@ -222,7 +224,7 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
   );
 }
 
-export function Sidebar({ items, activeView, setActiveView, t }: SidebarProps) {
+export function Sidebar({ items, activeView, onNavigate, t }: SidebarProps) {
   return (
     <aside className="console-sidebar">
       <div className="sidebar-brand">
@@ -239,7 +241,7 @@ export function Sidebar({ items, activeView, setActiveView, t }: SidebarProps) {
             type="button"
             data-testid={`nav-${item.id}`}
             className={item.id === activeView ? "active" : ""}
-            onClick={() => setActiveView(item.id)}
+            onClick={() => onNavigate(item.id)}
           >
             <Icon name={item.icon} />
             <span>{t(item.label)}</span>
@@ -250,7 +252,7 @@ export function Sidebar({ items, activeView, setActiveView, t }: SidebarProps) {
   );
 }
 
-export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, t }: TopbarProps) {
+export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, degraded, lastUpdatedAt, t }: TopbarProps) {
   return (
     <header className="console-topbar">
       <div>
@@ -258,10 +260,16 @@ export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, 
         <h2>{t("Linux and Kubernetes infrastructure root cause console")}</h2>
       </div>
       <div className="topbar-actions">
-        <div className="ops-live-pill">
+        <div className={`ops-live-pill ${degraded ? "degraded" : ""}`}>
           <span />
-          <strong>{t("Ops live")}</strong>
+          <strong>{t(degraded ? "Partial data" : "Ops live")}</strong>
         </div>
+        {lastUpdatedAt && (
+          <div className="topbar-refresh-time">
+            <span>{t("Last updated")}</span>
+            <strong>{formatTopbarTime(lastUpdatedAt, locale)}</strong>
+          </div>
+        )}
         <LanguageSwitch locale={locale} setLocale={setLocale} />
         <button className="btn btn-outline-secondary btn-sm icon-button" onClick={onRefresh} disabled={loading}>
           <Icon name={loading ? "arrow-repeat" : "arrow-clockwise"} />
@@ -279,6 +287,13 @@ export function Topbar({ user, locale, setLocale, onRefresh, onLogout, loading, 
       </div>
     </header>
   );
+}
+
+function formatTopbarTime(value: string, locale: Locale): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleTimeString(locale === "ko" ? "ko-KR" : "en-US");
 }
 
 export function ActionDialog({ state, onClose, onConfirm, t }: ActionDialogProps) {

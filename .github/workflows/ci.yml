@@ -42,6 +42,8 @@ jobs:
           cache-dependency-path: web-console/frontend/package-lock.json
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
+      - name: Test console data and authentication states
+        run: npm test
       - name: Type-check and build
         run: npm run build
 
