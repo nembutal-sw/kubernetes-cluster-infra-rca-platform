@@ -76,12 +76,14 @@ management:
         rca.analysis.task.duration: true
         rca.evidence.collection.duration: true
         rca.llm.analysis.duration: true
+        rca.llm.request.duration: true
         rca.maintenance.duration: true
       slo:
         rca.report.generation.duration: 1s,5s,15s,30s
         rca.analysis.task.duration: 5s,15s,30s,60s,300s
         rca.evidence.collection.duration: 10s,30s,60s,180s,300s
         rca.llm.analysis.duration: 1s,5s,15s,30s,60s
+        rca.llm.request.duration: 1s,5s,15s,30s,60s
         rca.maintenance.duration: 1s,5s,15s,30s,60s
 
 rca:
@@ -111,6 +113,8 @@ rca:
     max-attempts: ${RCA_LLM_MAX_ATTEMPTS:2}
     failure-threshold: ${RCA_LLM_FAILURE_THRESHOLD:3}
     cooldown-seconds: ${RCA_LLM_COOLDOWN_SECONDS:60}
+    input-cost-per-million-tokens: ${RCA_LLM_INPUT_COST_PER_MILLION_TOKENS:0}
+    output-cost-per-million-tokens: ${RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS:0}
   incident:
     correlation-window-minutes: ${RCA_INCIDENT_CORRELATION_WINDOW_MINUTES:15}
     minimum-score: ${RCA_INCIDENT_CORRELATION_MINIMUM_SCORE:70}

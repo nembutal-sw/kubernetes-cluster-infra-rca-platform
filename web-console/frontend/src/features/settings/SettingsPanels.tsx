@@ -982,6 +982,9 @@ function buildLlmRows(llm: LlmConfigurationInfo | undefined, t: TFunction): Info
   const credentialEnv = stringValue(llm?.credential_env ?? llm?.credentialEnv);
   const baseUrlEnv = stringValue(llm?.base_url_env ?? llm?.baseUrlEnv);
   const springAiChatModel = stringValue(llm?.spring_ai_chat_model ?? llm?.springAiChatModel) || "none";
+  const inputCost = numberValue(llm?.input_cost_per_million_tokens ?? llm?.inputCostPerMillionTokens, 0);
+  const outputCost = numberValue(llm?.output_cost_per_million_tokens ?? llm?.outputCostPerMillionTokens, 0);
+  const costEstimationEnabled = Boolean(llm?.cost_estimation_enabled ?? llm?.costEstimationEnabled);
   const credentialValue = !enabled
     ? t("Disabled")
     : !credentialRequired
@@ -1001,6 +1004,8 @@ function buildLlmRows(llm: LlmConfigurationInfo | undefined, t: TFunction): Info
     { key: "llm.max_attempts", label: t("Attempts"), value: numberValue(llm?.max_attempts ?? llm?.maxAttempts, 2) },
     { key: "llm.max_output_tokens", label: t("Max output tokens"), value: numberValue(llm?.max_output_tokens ?? llm?.maxOutputTokens, 1800) },
     { key: "llm.circuit_breaker", label: t("Circuit breaker"), value: `${numberValue(llm?.failure_threshold ?? llm?.failureThreshold, 3)} / ${numberValue(llm?.cooldown_seconds ?? llm?.cooldownSeconds, 60)}s` },
+    { key: "llm.input_cost", label: t("Input token price"), value: `$${inputCost.toFixed(4)} / 1M`, tone: costEstimationEnabled && inputCost > 0 ? "ok" : "muted" },
+    { key: "llm.output_cost", label: t("Output token price"), value: `$${outputCost.toFixed(4)} / 1M`, tone: costEstimationEnabled && outputCost > 0 ? "ok" : "muted" },
   ];
 }
 

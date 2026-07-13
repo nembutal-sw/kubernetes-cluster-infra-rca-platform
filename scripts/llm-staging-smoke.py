@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -24,7 +25,10 @@ from typing import Any
 
 SENSITIVE_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
-    re.compile(r"(?i)(api[_-]?key|authorization|bearer|token|password)\s*[:=]\s*[^,\s}]+"),
+    re.compile(
+        r'(?i)["\']?(api[_-]?key|authorization|bearer|token|password)["\']?\s*[:=]\s*["\']?'
+        r'(?!\[redacted\]|<redacted>|redacted(?:["\']|\s|,|}))[^,\s}"\']+'
+    ),
 ]
 
 
@@ -112,6 +116,30 @@ def parse_args() -> argparse.Namespace:
         help="Allow the smoke to pass when LLM is disabled. Useful for baseline environments only.",
     )
     parser.add_argument(
+        "--skip-connectivity-test",
+        action="store_true",
+        default=os.getenv("RCA_LLM_SMOKE_SKIP_CONNECTIVITY_TEST", "").lower() in {"1", "true", "yes"},
+        help="Skip POST /api/llm/test. The default performs a live provider call before RCA validation.",
+    )
+    parser.add_argument(
+        "--require-usage-metadata",
+        action="store_true",
+        default=os.getenv("RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA", "").lower() in {"1", "true", "yes"},
+        help="Fail when the provider does not return token usage metadata.",
+    )
+    parser.add_argument(
+        "--max-llm-latency-ms",
+        type=int,
+        default=int(os.getenv("RCA_LLM_SMOKE_MAX_LATENCY_MS", "60000")),
+        help="Maximum connectivity/report LLM latency in milliseconds. Set 0 to disable.",
+    )
+    parser.add_argument(
+        "--max-estimated-cost-usd",
+        type=float,
+        default=float(os.getenv("RCA_LLM_SMOKE_MAX_ESTIMATED_COST_USD", "0")),
+        help="Maximum estimated cost for the report LLM analysis. Set 0 to disable.",
+    )
+    parser.add_argument(
         "--task-timeout-seconds",
         type=int,
         default=int(os.getenv("RCA_TASK_TIMEOUT_SECONDS", "240")),
@@ -163,6 +191,29 @@ def validate_llm_configuration(platform_info: dict[str, Any], *, allow_disabled:
     return errors
 
 
+def validate_llm_connectivity(
+    response: dict[str, Any],
+    *,
+    allow_disabled: bool,
+    max_latency_ms: int,
+) -> list[str]:
+    errors: list[str] = []
+    outcome = str(response.get("outcome") or "")
+    if outcome != "completed" and not (allow_disabled and outcome == "skipped"):
+        errors.append(f"LLM connectivity test outcome is '{outcome or 'missing'}'")
+    latency = non_negative_number(response.get("latency_ms", response.get("latencyMs")))
+    if outcome == "completed" and latency is None:
+        errors.append("LLM connectivity test has no valid latency_ms")
+    elif latency is not None and max_latency_ms > 0 and latency > max_latency_ms:
+        errors.append(f"LLM connectivity latency {latency:g}ms exceeds {max_latency_ms}ms")
+    response_chars = non_negative_number(response.get("response_chars", response.get("responseChars")))
+    if outcome == "completed" and (response_chars is None or response_chars <= 0):
+        errors.append("LLM connectivity test returned no response content")
+    if contains_sensitive_text(response):
+        errors.append("LLM connectivity response appears to contain an unredacted secret-like value")
+    return errors
+
+
 def create_validation_cluster(client: Client, prefix: str, scenario: str, run_id: str) -> dict[str, Any]:
     safe_scenario = scenario.replace("_", "-")
     return client.request(
@@ -211,11 +262,29 @@ def llm_analysis_section(report: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def llm_evidence_ids(report: dict[str, Any]) -> set[str]:
+    for section in report.get("evidence", []):
+        if not isinstance(section, dict) or section.get("type") != "preprocessed_evidence":
+            continue
+        payload = section.get("payload")
+        if not isinstance(payload, dict):
+            return set()
+        return {
+            str(item.get("evidence_id"))
+            for item in payload.get("evidence_catalog", [])
+            if isinstance(item, dict) and item.get("evidence_id")
+        }
+    return set()
+
+
 def validate_llm_report(
     report: dict[str, Any],
     *,
     expected_statuses: set[str],
     allow_disabled: bool,
+    require_usage_metadata: bool = False,
+    max_latency_ms: int = 0,
+    max_estimated_cost_usd: float = 0,
 ) -> list[str]:
     errors: list[str] = []
     analysis = llm_analysis_section(report)
@@ -229,6 +298,62 @@ def validate_llm_report(
                 f"llm_analysis status '{status}' is not one of {', '.join(sorted(expected_statuses))}"
             )
     if status == "completed":
+        if analysis.get("prompt_version") != "llm-rca-analyzer/v2":
+            errors.append("completed llm_analysis does not use llm-rca-analyzer/v2")
+        latency = non_negative_number(analysis.get("latency_ms", analysis.get("latencyMs")))
+        if latency is None:
+            errors.append("completed llm_analysis has no valid latency_ms")
+        elif max_latency_ms > 0 and latency > max_latency_ms:
+            errors.append(f"llm_analysis latency {latency:g}ms exceeds {max_latency_ms}ms")
+        usage = analysis.get("usage")
+        if not isinstance(usage, dict):
+            errors.append("completed llm_analysis has no usage object")
+        else:
+            for key in (
+                "usage_available",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "cost_estimation_enabled",
+                "estimated_cost_usd",
+            ):
+                if key not in usage:
+                    errors.append(f"llm_analysis usage has no {key}")
+            if not isinstance(usage.get("usage_available"), bool):
+                errors.append("llm_analysis usage_available must be boolean")
+            if not isinstance(usage.get("cost_estimation_enabled"), bool):
+                errors.append("llm_analysis cost_estimation_enabled must be boolean")
+            usage_available = usage.get("usage_available") is True
+            if require_usage_metadata and not usage_available:
+                errors.append("LLM provider did not return required token usage metadata")
+            token_values: dict[str, float] = {}
+            for key in ("input_tokens", "output_tokens", "total_tokens"):
+                value = non_negative_number(usage.get(key))
+                if value is None or not value.is_integer():
+                    errors.append(f"llm_analysis usage {key} must be a non-negative integer")
+                else:
+                    token_values[key] = value
+            if usage_available and token_values.get("total_tokens", 0) <= 0:
+                errors.append("available LLM usage metadata must report total_tokens greater than zero")
+            if not usage_available and any(value > 0 for value in token_values.values()):
+                errors.append("unavailable LLM usage metadata must not report positive token counts")
+            if token_values.get("total_tokens", 0) < max(
+                token_values.get("input_tokens", 0),
+                token_values.get("output_tokens", 0),
+            ):
+                errors.append("llm_analysis total_tokens is smaller than an input or output token count")
+            estimated_cost = non_negative_number(usage.get("estimated_cost_usd"))
+            if estimated_cost is None:
+                errors.append("llm_analysis estimated_cost_usd must be a non-negative number")
+            elif usage.get("cost_estimation_enabled") is False and estimated_cost > 0:
+                errors.append("disabled LLM cost estimation must not report a positive cost")
+            if max_estimated_cost_usd > 0:
+                if usage.get("cost_estimation_enabled") is not True:
+                    errors.append("LLM cost limit requires configured token prices")
+                elif estimated_cost is not None and estimated_cost > max_estimated_cost_usd:
+                    errors.append(
+                        f"llm_analysis estimated cost ${estimated_cost:g} exceeds ${max_estimated_cost_usd:g}"
+                    )
         result = analysis.get("result")
         if not isinstance(result, dict):
             errors.append("completed llm_analysis has no result object")
@@ -238,6 +363,17 @@ def validate_llm_report(
             )
             if not has_content:
                 errors.append("completed llm_analysis result is empty")
+            allowed_ids = llm_evidence_ids(report)
+            for index, candidate in enumerate(result.get("root_cause_candidates") or []):
+                if not isinstance(candidate, dict):
+                    continue
+                references = candidate.get("supporting_evidence_ids")
+                if not isinstance(references, list) or not references:
+                    errors.append(f"LLM candidate {index} has no supporting_evidence_ids")
+                    continue
+                unknown = {str(reference) for reference in references} - allowed_ids
+                if unknown:
+                    errors.append(f"LLM candidate {index} references unknown evidence IDs: {sorted(unknown)}")
     if contains_sensitive_text(analysis):
         errors.append("llm_analysis appears to contain an unredacted secret-like value")
 
@@ -251,6 +387,16 @@ def validate_llm_report(
         if isinstance(execution_plan, dict) and bool(execution_plan.get("executable")):
             errors.append(f"LLM action {action_key} has executable=true")
     return errors
+
+
+def non_negative_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
 
 
 def contains_sensitive_text(value: Any) -> bool:
@@ -268,6 +414,12 @@ def main() -> int:
     if not args.password:
         print("RCA_ADMIN_PASSWORD or RCA_PASSWORD is required", file=sys.stderr)
         return 2
+    if args.max_llm_latency_ms < 0:
+        print("--max-llm-latency-ms must be zero or greater", file=sys.stderr)
+        return 2
+    if not math.isfinite(args.max_estimated_cost_usd) or args.max_estimated_cost_usd < 0:
+        print("--max-estimated-cost-usd must be a finite non-negative number", file=sys.stderr)
+        return 2
 
     run_started = datetime.now(timezone.utc)
     run_id = run_started.strftime("%Y%m%d-%H%M%S")
@@ -281,6 +433,17 @@ def main() -> int:
     client.login(args.username, args.password)
     platform_info = client.request("GET", "/api/v1/platform/info")
     config_errors = validate_llm_configuration(platform_info, allow_disabled=args.allow_disabled)
+    connectivity_test: dict[str, Any] = {"outcome": "skipped", "reason": "disabled by smoke option"}
+    connectivity_errors: list[str] = []
+    if not args.skip_connectivity_test and not config_errors:
+        connectivity_test = client.request("POST", "/api/llm/test", {"confirmed": True})
+        connectivity_errors.extend(
+            validate_llm_connectivity(
+                connectivity_test,
+                allow_disabled=args.allow_disabled,
+                max_latency_ms=args.max_llm_latency_ms,
+            )
+        )
 
     cluster_id = args.cluster_id
     if not cluster_id:
@@ -306,11 +469,14 @@ def main() -> int:
                 report,
                 expected_statuses=expected_statuses,
                 allow_disabled=args.allow_disabled,
+                require_usage_metadata=args.require_usage_metadata,
+                max_latency_ms=args.max_llm_latency_ms,
+                max_estimated_cost_usd=args.max_estimated_cost_usd,
             )
         )
 
     result = {
-        "status": "failed" if config_errors or report_errors else "passed",
+        "status": "failed" if config_errors or connectivity_errors or report_errors else "passed",
         "started_at": run_started.isoformat(),
         "base_url": args.base_url,
         "scenario": args.scenario,
@@ -319,8 +485,14 @@ def main() -> int:
         "task": task,
         "report_id": report_id,
         "llm": platform_info.get("llm", {}),
+        "connectivity_test": connectivity_test,
         "llm_analysis": llm_analysis_section(report or {}),
-        "errors": config_errors + report_errors,
+        "limits": {
+            "require_usage_metadata": args.require_usage_metadata,
+            "max_llm_latency_ms": args.max_llm_latency_ms,
+            "max_estimated_cost_usd": args.max_estimated_cost_usd,
+        },
+        "errors": config_errors + connectivity_errors + report_errors,
     }
     write_json(output_dir / "llm-staging-smoke-result.json", result)
     if report:

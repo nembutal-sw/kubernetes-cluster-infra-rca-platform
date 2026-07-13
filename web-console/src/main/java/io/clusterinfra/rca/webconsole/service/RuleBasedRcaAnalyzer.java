@@ -7,6 +7,7 @@ import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
 import io.clusterinfra.rca.webconsole.analysis.CollectorEvidenceAdapter;
 import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
+import io.clusterinfra.rca.webconsole.analysis.LlmEvidenceCatalog;
 import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
 import io.clusterinfra.rca.webconsole.analysis.Signal;
 import io.clusterinfra.rca.webconsole.analysis.SignalDetectionEngine;
@@ -277,6 +278,13 @@ public class RuleBasedRcaAnalyzer {
         result.put("evidence_contract", evidenceContract);
         result.put("quality_gate", qualityGate);
         result.put("derived_signals", signals.stream().map(Signal::asMap).toList());
+        List<Map<String, Object>> evidenceCatalog = LlmEvidenceCatalog.fromSignals(signals);
+        result.put("evidence_catalog", evidenceCatalog);
+        result.put("llm_evidence_policy", Map.of(
+            "reference_field", "supporting_evidence_ids",
+            "allowed_evidence_ids", evidenceCatalog.stream().map(item -> item.get("evidence_id")).toList(),
+            "free_form_evidence_allowed", false
+        ));
         result.put("rule_candidates", candidates);
         result.put("policy_classified_actions", actions);
         return result;

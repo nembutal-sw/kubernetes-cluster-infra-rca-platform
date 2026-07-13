@@ -71,6 +71,41 @@ platform:
     labels: {}
     metricsTokenSecretName: ""
     metricsTokenSecretKey: RCA_METRICS_TOKEN
+  prometheusRule:
+    enabled: false
+    labels: {}
+    ruleLabels: {}
+    groupInterval: 30s
+    evaluationWindow: 10m
+    runbookUrl: ""
+    latency:
+      enabled: true
+      p95Seconds: 60
+      for: 10m
+      severity: warning
+    errorRate:
+      enabled: true
+      ratio: 0.10
+      minimumRequests: 5
+      for: 10m
+      severity: critical
+    usageMetadata:
+      enabled: true
+      unavailableRatio: 0.10
+      minimumRequests: 5
+      for: 15m
+      severity: warning
+    circuitBreaker:
+      enabled: true
+      lookback: 5m
+      for: 0m
+      severity: critical
+    costBudget:
+      enabled: false
+      lookback: 24h
+      maxUsd: 25
+      for: 15m
+      severity: warning
   config:
     springProfiles: ""
     publicApiBaseUrl: ""
@@ -99,6 +134,8 @@ platform:
     llmMaxAttempts: 2
     llmFailureThreshold: 3
     llmCooldownSeconds: 60
+    llmInputCostPerMillionTokens: 0
+    llmOutputCostPerMillionTokens: 0
     incidentCorrelationWindowMinutes: 15
     incidentCorrelationMinimumScore: 70
     incidentCorrelationCandidateLimit: 20

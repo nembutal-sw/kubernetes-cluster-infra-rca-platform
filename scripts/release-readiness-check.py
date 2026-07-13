@@ -117,11 +117,33 @@ def main() -> int:
             and contains(
                 "scripts/llm-staging-smoke.py",
                 "validate_llm_configuration",
+                "validate_llm_connectivity",
                 "validate_llm_report",
+                "max_llm_latency_ms",
                 "automation_allowed",
             )
             and contains("docs/llm-analyzer.md", "LLM Staging Smoke", "llm-staging-smoke.py"),
             "LLM staging smoke validates provider configuration, report output, and automation guardrails.",
+        ),
+        check(
+            "llm-slo-prometheus-rule",
+            exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml",
+                "kind: PrometheusRule",
+                "ClusterRcaLlmHighLatency",
+                "ClusterRcaLlmHighErrorRate",
+                "ClusterRcaLlmUsageMetadataMissing",
+                "ClusterRcaLlmCircuitBreakerOpen",
+                "ClusterRcaLlmEstimatedCostBudgetExceeded",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/values.yaml",
+                "prometheusRule:",
+                "evaluationWindow:",
+                "costBudget:",
+            ),
+            "Platform chart exposes opt-in LLM SLO recording and alert rules with configurable thresholds.",
         ),
         check(
             "llm-helm-contract",
@@ -131,6 +153,8 @@ def main() -> int:
                 "RCA_LLM_PROVIDER",
                 "RCA_SPRING_AI_CHAT_MODEL",
                 "RCA_LLM_TIMEOUT_SECONDS",
+                "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
+                "RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS",
             )
             and contains(
                 "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
@@ -154,6 +178,7 @@ def main() -> int:
             contains(
                 "docker-compose.yml",
                 "RCA_LLM_ENABLED",
+                "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
                 "SPRING_AI_OPENAI_SDK_API_KEY",
                 "SPRING_AI_OPENAI_SDK_BASE_URL",
                 "SPRING_AI_ANTHROPIC_API_KEY",
@@ -163,6 +188,7 @@ def main() -> int:
             and contains(
                 ".env.example",
                 "OPENAI_API_KEY",
+                "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
                 "OPENAI_BASE_URL",
                 "ANTHROPIC_API_KEY",
                 "GEMINI_API_KEY",
@@ -175,6 +201,9 @@ def main() -> int:
             contains(
                 ".github/workflows/operational-smoke.yml",
                 "run_llm_smoke",
+                "RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA",
+                "RCA_LLM_SMOKE_MAX_LATENCY_MS",
+                "RCA_LLM_SMOKE_MAX_ESTIMATED_COST_USD",
                 "scripts/llm-staging-smoke.py",
                 "validation-results/llm-staging-smoke",
             ),

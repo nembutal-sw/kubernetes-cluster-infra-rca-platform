@@ -38,6 +38,10 @@ LLM이 실패하거나 응답 형식이 틀려도 RCA report 생성은 중단되
 | `RCA_LLM_MAX_ATTEMPTS` | 최대 재시도 횟수, 기본 `2`, 최대 `3` |
 | `RCA_LLM_FAILURE_THRESHOLD` | circuit breaker 연속 실패 기준, 기본 `3` |
 | `RCA_LLM_COOLDOWN_SECONDS` | circuit breaker 대기 시간, 기본 `60` |
+| `RCA_LLM_INPUT_COST_PER_MILLION_TOKENS` | 입력 100만 token당 USD 단가, 기본 `0` |
+| `RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS` | 출력 100만 token당 USD 단가, 기본 `0` |
+
+단가가 모두 `0`이면 비용 추정을 비활성화합니다. 모델 가격은 코드에 고정하지 않으며, 실제 provider 계약 단가를 운영 환경에 설정합니다.
 
 ## Examples
 
@@ -101,6 +105,7 @@ LLM에는 raw collector output을 직접 넘기지 않습니다. Backend가 만�
 - collector status
 - evidence quality와 quality gate
 - derived signals
+- derived signal로 만든 `evidence_catalog`와 허용 ID 목록
 - rule-based root cause candidates
 - policy-classified recommended actions
 - redaction이 적용된 collector 요약
@@ -118,7 +123,7 @@ LLM은 JSON object를 반환해야 합니다. 허용되는 필드는 아래 네 
     {
       "cause": "candidate cause",
       "confidence": "low|medium|high",
-      "supporting_evidence": ["evidence line"]
+      "supporting_evidence_ids": ["ev-0123456789abcdef"]
     }
   ],
   "action_suggestions": [
@@ -134,6 +139,8 @@ LLM은 JSON object를 반환해야 합니다. 허용되는 필드는 아래 네 
 
 `summary`는 문자열 또는 object를 허용합니다. object인 경우 Backend는 `most_likely_cause`, `confidence`, `reasoning` 값을 사람이 읽기 쉬운 문자열로 정리합니다.
 
+`supporting_evidence_ids`는 입력의 `evidence_catalog[].evidence_id`만 참조할 수 있습니다. Backend는 검증을 통과한 ID를 사람이 읽을 수 있는 근거와 `evidence_paths`로 해석한 후 report에 저장합니다.
+
 ## Validation
 
 Provider 응답은 신뢰하지 않는 입력으로 취급합니다. Backend는 report에 반영하기 전에 다음을 검증합니다.
@@ -141,6 +148,8 @@ Provider 응답은 신뢰하지 않는 입력으로 취급합니다. Backend는 
 - 응답에서 JSON object만 추출합니다. 설명 문구나 fenced code block이 섞여 있어도 JSON object만 사용합니다.
 - `summary`, `root_cause_candidates`, `action_suggestions`, `additional_checks` 키가 있어야 합니다.
 - candidate와 action item은 object여야 합니다.
+- root cause candidate는 하나 이상의 `supporting_evidence_ids`를 가져야 하며, catalog에 없는 ID는 거부합니다.
+- LLM이 만든 자유 형식 supporting evidence는 신뢰하지 않으며 report 근거로 사용하지 않습니다.
 - `additional_checks` item은 문자열이어야 합니다.
 - `confidence`는 `low`, `medium`, `high`만 허용하며, 그 외 값은 `low`로 낮춥니다.
 - `action_key` 형식이 맞지 않으면 `manual_investigation`으로 낮춥니다.
@@ -168,7 +177,23 @@ LLM 호출 실패, timeout, schema validation 실패는 RCA pipeline 실패가 �
 - 연속 실패 기준 초과: circuit breaker open
 - 실패 메시지: token, API key, authorization 계열 문자열 redaction
 
-Completed response에는 `prompt_version = "llm-rca-analyzer/v1"`이 포함됩니다.
+Completed response에는 `prompt_version = "llm-rca-analyzer/v2"`, 전체 호출 `latency_ms`, provider usage가 포함됩니다.
+
+```json
+{
+  "usage": {
+    "usage_available": true,
+    "input_tokens": 1200,
+    "output_tokens": 300,
+    "total_tokens": 1500,
+    "cost_estimation_enabled": true,
+    "estimated_cost_usd": 0.0042,
+    "pricing_unit": "usd_per_million_tokens"
+  }
+}
+```
+
+Provider가 usage metadata를 제공하지 않으면 token 값은 `0`, `usage_available=false`로 기록합니다. schema validation 재시도로 여러 응답을 받았다면 report usage는 모든 응답의 합계입니다. 비용은 provider 청구서가 아니라 설정 단가에 따른 추정치입니다.
 
 ## LLM Staging Smoke
 
@@ -181,14 +206,29 @@ export RCA_ADMIN_PASSWORD='...'
 
 python3 scripts/llm-staging-smoke.py \
   --scenario disk-pressure \
-  --expected-llm-status completed
+  --expected-llm-status completed \
+  --require-usage-metadata \
+  --max-llm-latency-ms 60000 \
+  --max-estimated-cost-usd 0.01
+```
+
+기본 실행은 report 생성 전에 `POST /api/llm/test`로 실제 provider 연결을 한 번 확인합니다. 연결 호출을 생략해야 하는 제한된 환경에서만 `--skip-connectivity-test`를 사용합니다. 비용 상한을 사용하려면 input/output token 단가가 설정되어 있어야 합니다.
+
+GitHub `Operational Smoke` workflow에서는 기존 수동 실행 입력 수 제한을 유지하기 위해 아래 repository variable로 선택 기준을 설정합니다.
+
+```text
+RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA=false
+RCA_LLM_SMOKE_MAX_LATENCY_MS=60000
+RCA_LLM_SMOKE_MAX_ESTIMATED_COST_USD=0
 ```
 
 확인 항목:
 
 - `/api/v1/platform/info`의 LLM enabled/provider/model/credential/base URL 상태
+- `/api/llm/test` 실제 provider 연결 결과와 latency
 - Demo scenario 기반 RCA report 생성
 - report evidence의 `llm_analysis.status`
+- prompt v2 evidence ID, token usage, latency, 예상 비용 상한
 - LLM 결과가 비어 있지 않은지
 - LLM-origin action의 `automation_allowed=false`
 - 실패 메시지에 secret-like 문자열이 남지 않는지

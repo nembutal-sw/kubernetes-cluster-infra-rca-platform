@@ -606,5 +606,11 @@ export interface LlmConfigurationInfo {
   failureThreshold?: number;
   cooldown_seconds?: number;
   cooldownSeconds?: number;
+  input_cost_per_million_tokens?: number;
+  inputCostPerMillionTokens?: number;
+  output_cost_per_million_tokens?: number;
+  outputCostPerMillionTokens?: number;
+  cost_estimation_enabled?: boolean;
+  costEstimationEnabled?: boolean;
   [key: string]: unknown;
 }

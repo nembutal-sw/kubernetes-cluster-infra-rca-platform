@@ -120,6 +120,9 @@ jobs:
       LLM_SMOKE_SCENARIO: ${{ inputs.llm_scenario || 'disk-pressure' }}
       LLM_SMOKE_EXPECTED_STATUS: ${{ inputs.llm_expected_status || 'completed' }}
       LLM_SMOKE_ALLOW_DISABLED: ${{ inputs.llm_allow_disabled }}
+      LLM_SMOKE_REQUIRE_USAGE_METADATA: ${{ vars.RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA || 'false' }}
+      LLM_SMOKE_MAX_LATENCY_MS: ${{ vars.RCA_LLM_SMOKE_MAX_LATENCY_MS || '60000' }}
+      LLM_SMOKE_MAX_ESTIMATED_COST_USD: ${{ vars.RCA_LLM_SMOKE_MAX_ESTIMATED_COST_USD || '0' }}
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
     steps:
       - uses: actions/checkout@v7
@@ -197,11 +200,16 @@ jobs:
             --password "${SMOKE_PASSWORD}"
             --scenario "${LLM_SMOKE_SCENARIO}"
             --expected-llm-status "${LLM_SMOKE_EXPECTED_STATUS}"
+            --max-llm-latency-ms "${LLM_SMOKE_MAX_LATENCY_MS}"
+            --max-estimated-cost-usd "${LLM_SMOKE_MAX_ESTIMATED_COST_USD}"
             --task-timeout-seconds "${SMOKE_TASK_TIMEOUT_SECONDS}"
             --output-dir validation-results/llm-staging-smoke
           )
           if [ "${LLM_SMOKE_ALLOW_DISABLED}" = "true" ]; then
             args+=(--allow-disabled)
+          fi
+          if [ "${LLM_SMOKE_REQUIRE_USAGE_METADATA}" = "true" ]; then
+            args+=(--require-usage-metadata)
           fi
 
           python scripts/llm-staging-smoke.py "${args[@]}"

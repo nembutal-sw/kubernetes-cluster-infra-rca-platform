@@ -60,7 +60,10 @@ public class LlmConfigurationService {
             llm.getMaxAttempts(),
             llm.getMaxOutputTokens(),
             llm.getFailureThreshold(),
-            llm.getCooldownSeconds()
+            llm.getCooldownSeconds(),
+            llm.getInputCostPerMillionTokens(),
+            llm.getOutputCostPerMillionTokens(),
+            llm.getInputCostPerMillionTokens() > 0 || llm.getOutputCostPerMillionTokens() > 0
         );
     }
 

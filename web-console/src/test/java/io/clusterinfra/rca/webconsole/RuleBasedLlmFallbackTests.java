@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class RuleBasedLlmFallbackTests {
     @Test
@@ -36,7 +38,7 @@ class RuleBasedLlmFallbackTests {
         when(llm.analyze(anyMap())).thenReturn(Map.of(
             "status", "failed",
             "provider", "openai",
-            "prompt_version", "llm-rca-analyzer/v1",
+            "prompt_version", "llm-rca-analyzer/v2",
             "attempts", 2,
             "error", "LlmResponseValidationException: schema invalid"
         ));
@@ -70,7 +72,21 @@ class RuleBasedLlmFallbackTests {
             .orElseThrow();
         assertThat(llmSection)
             .containsEntry("status", "failed")
-            .containsEntry("prompt_version", "llm-rca-analyzer/v1");
+            .containsEntry("prompt_version", "llm-rca-analyzer/v2");
+
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(llm).analyze(payloadCaptor.capture());
+        Map<String, Object> payload = payloadCaptor.getValue();
+        List<Map<String, Object>> catalog = (List<Map<String, Object>>) payload.get("evidence_catalog");
+        assertThat(catalog).hasSize(1);
+        assertThat(catalog.getFirst())
+            .containsEntry("signal", "disk_usage_critical")
+            .containsEntry("component", "disk");
+        assertThat(String.valueOf(catalog.getFirst().get("evidence_id")))
+            .matches("ev-[a-f0-9]{16}");
+        assertThat(payload.get("llm_evidence_policy").toString())
+            .contains("supporting_evidence_ids")
+            .contains(String.valueOf(catalog.getFirst().get("evidence_id")));
     }
 
     private RuleBasedRcaAnalyzer analyzer(LlmAnalysisService llm) {

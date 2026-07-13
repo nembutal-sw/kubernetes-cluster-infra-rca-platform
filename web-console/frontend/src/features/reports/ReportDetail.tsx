@@ -7,7 +7,7 @@ import { EvidenceQualityPanel } from "./EvidenceQualityPanel";
 
 import { BundleVerificationPanel } from "./BundleVerificationPanel";
 
-import { CandidateList, CheckList, EvidenceSummary, PolicySummary, RuleEvidencePanel } from "./ReportEvidencePanels";
+import { CandidateList, CheckList, EvidenceSummary, LlmUsagePanel, PolicySummary, RuleEvidencePanel } from "./ReportEvidencePanels";
 
 import { ActionList, ActionRequestList } from "./ActionWorkflow";
 
@@ -35,6 +35,7 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
   const signals = derivedSignals(report);
   const quality = recordOrNull(reportEvidenceQuality(report));
   const gate = recordOrNull(reportQualityGate(report));
+  const llmAnalysis = reportLlmAnalysis(report);
   const llmActions = actions.filter((action) => action.source === "llm");
   const canExport = ["admin", "operator"].includes(currentUser.role);
   const exportSecurity = recordValue(platformInfo?.export_security || platformInfo?.exportSecurity);
@@ -73,7 +74,7 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
         <MetricTile label={t("Quality gate")} value={String(gate?.status || "unknown")} tone={qualityGateTone(gate?.status)} icon="shield-check" />
         <MetricTile label={t("Evidence quality")} value={String(quality?.status || "unknown")} tone={qualityTone(quality?.status)} icon="clipboard2-pulse" />
         <MetricTile label={t("Policy blocked")} value={actions.filter((action) => !action.automation_allowed).length} tone="amber" icon="shield-lock" />
-        <MetricTile label="LLM" value={llmActions.length ? t("LLM diagnostic only") : "n/a"} tone={llmActions.length ? "amber" : "muted"} icon="stars" />
+        <MetricTile label="LLM" value={String(llmAnalysis.status || "n/a")} tone={llmAnalysis.status === "completed" ? "blue" : "muted"} icon="stars" />
       </div>
 
       {llmActions.length > 0 && (
@@ -100,6 +101,12 @@ export function ReportDetail({ detail, currentUser, onPrepareAction, onDecideAct
       <Surface title={t("Rule evidence")} subtitle={t("Rule-based detector output before LLM analysis")}>
         <RuleEvidencePanel signals={signals} t={t} />
       </Surface>
+
+      {Object.keys(llmAnalysis).length > 0 && (
+        <Surface title={t("LLM usage")} subtitle={t("Provider latency, token usage, and configured cost estimate")}>
+          <LlmUsagePanel analysis={llmAnalysis} t={t} />
+        </Surface>
+      )}
 
       <div className="detail-grid">
         <Surface title={t("Root cause candidates")} subtitle={t("Ranked by rule and evidence confidence")}>
@@ -140,4 +147,10 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
 
 function recordValue(value: unknown): Record<string, unknown> {
   return recordOrNull(value) || {};
+}
+
+function reportLlmAnalysis(report: RcaReport): Record<string, unknown> {
+  const evidence = Array.isArray(report.evidence) ? report.evidence : [];
+  const section = evidence.find((item) => recordValue(item).type === "llm_analysis");
+  return recordValue(recordValue(section).analysis);
 }

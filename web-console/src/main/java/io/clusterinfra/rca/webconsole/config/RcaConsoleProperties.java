@@ -401,6 +401,8 @@ public class RcaConsoleProperties {
         private int maxAttempts = 2;
         private int failureThreshold = 3;
         private int cooldownSeconds = 60;
+        private double inputCostPerMillionTokens;
+        private double outputCostPerMillionTokens;
 
         public boolean isEnabled() {
             return enabled;
@@ -464,6 +466,22 @@ public class RcaConsoleProperties {
 
         public void setCooldownSeconds(int cooldownSeconds) {
             this.cooldownSeconds = cooldownSeconds;
+        }
+
+        public double getInputCostPerMillionTokens() {
+            return inputCostPerMillionTokens;
+        }
+
+        public void setInputCostPerMillionTokens(double inputCostPerMillionTokens) {
+            this.inputCostPerMillionTokens = inputCostPerMillionTokens;
+        }
+
+        public double getOutputCostPerMillionTokens() {
+            return outputCostPerMillionTokens;
+        }
+
+        public void setOutputCostPerMillionTokens(double outputCostPerMillionTokens) {
+            this.outputCostPerMillionTokens = outputCostPerMillionTokens;
         }
     }
 

@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.analysis.LlmEvidenceCatalog;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.LlmTestResponse;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
@@ -20,10 +21,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.time.Duration;
 import java.time.Instant;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import jakarta.annotation.PreDestroy;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
@@ -33,7 +38,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class LlmAnalysisService {
-    private static final String PROMPT_VERSION = "llm-rca-analyzer/v1";
+    private static final String PROMPT_VERSION = "llm-rca-analyzer/v2";
     private static final String TEST_PROMPT_VERSION = "llm-connectivity-test/v1";
     private static final int MAX_INPUT_CHARS = 250_000;
     private static final Set<String> REQUIRED_RESULT_KEYS = Set.of(
@@ -47,6 +52,9 @@ public class LlmAnalysisService {
         Use only the supplied preprocessed evidence. Never claim that a remediation was executed.
         Return JSON only with keys:
         summary, root_cause_candidates, action_suggestions, additional_checks.
+        Each root_cause_candidate must contain cause, confidence, and supporting_evidence_ids.
+        supporting_evidence_ids must contain one or more exact evidence_id values from evidence_catalog.
+        Never create evidence IDs or return free-form supporting evidence.
         Each action_suggestion must contain action_key, action, and reason.
         Prefer read-only verification. Treat destructive or mutating operations as human-reviewed suggestions.
         """;
@@ -118,11 +126,20 @@ public class LlmAnalysisService {
         }
         long startedNanos = System.nanoTime();
         try {
-            String content = callWithTimeout(
+            Instant requestStartedAt = Instant.now();
+            LlmCallResult callResult = callWithTimeout(
                 chatModel,
                 TEST_SYSTEM_PROMPT,
                 "Connectivity check for Cluster RCA Console. Reply with: ok"
             );
+            metrics.llmRequest(
+                "connectivity_test",
+                "completed",
+                providerName,
+                properties.getLlm().getModel(),
+                Duration.between(requestStartedAt, Instant.now())
+            );
+            recordUsage("connectivity_test", providerName, callResult.usage());
             Duration duration = Duration.between(startedAt, Instant.now());
             metrics.llmAnalysis("test_completed", providerName, duration);
             return new LlmTestResponse(
@@ -132,11 +149,18 @@ public class LlmAnalysisService {
                 properties.getLlm().getModel(),
                 TEST_PROMPT_VERSION,
                 Duration.ofNanos(System.nanoTime() - startedNanos).toMillis(),
-                content == null ? 0 : content.length(),
+                callResult.content().length(),
                 ""
             );
         } catch (Exception exception) {
             Duration duration = Duration.between(startedAt, Instant.now());
+            metrics.llmRequest(
+                "connectivity_test",
+                "failed",
+                providerName,
+                properties.getLlm().getModel(),
+                duration
+            );
             metrics.llmAnalysis("test_failed", providerName, duration);
             return new LlmTestResponse(
                 "failed",
@@ -175,16 +199,34 @@ public class LlmAnalysisService {
         long startedNanos = System.nanoTime();
         int maxAttempts = Math.max(1, Math.min(properties.getLlm().getMaxAttempts(), 3));
         Exception lastFailure = null;
+        LlmUsage accumulatedUsage = LlmUsage.unavailable();
         try {
             String input = objectMapper.writeValueAsString(payload);
             if (input.length() > MAX_INPUT_CHARS) {
                 metrics.llmAnalysis("skipped", providerName, Duration.between(startedAt, Instant.now()));
                 return Map.of("status", "skipped", "reason", "preprocessed evidence exceeds llm input limit");
             }
+            Map<String, Map<String, Object>> evidenceCatalog = LlmEvidenceCatalog.index(
+                payload.get("evidence_catalog")
+            );
             for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                Instant requestStartedAt = Instant.now();
+                boolean providerRequestCompleted = false;
                 try {
-                    String content = callWithTimeout(chatModel, SYSTEM_PROMPT, input);
-                    Map<String, Object> result = parseValidatedResult(content);
+                    LlmCallResult callResult = callWithTimeout(chatModel, SYSTEM_PROMPT, input);
+                    Duration requestDuration = Duration.between(requestStartedAt, Instant.now());
+                    metrics.llmRequest(
+                        "analysis",
+                        "completed",
+                        providerName,
+                        properties.getLlm().getModel(),
+                        requestDuration
+                    );
+                    providerRequestCompleted = true;
+                    accumulatedUsage = accumulatedUsage.plus(callResult.usage());
+                    Map<String, Object> usage = usageSummary(accumulatedUsage);
+                    recordUsage("analysis", providerName, callResult.usage());
+                    Map<String, Object> result = parseValidatedResult(callResult.content(), evidenceCatalog);
                     consecutiveFailures.set(0);
                     circuitOpenUntil.set(null);
                     Map<String, Object> response = new LinkedHashMap<>();
@@ -194,10 +236,20 @@ public class LlmAnalysisService {
                     response.put("prompt_version", PROMPT_VERSION);
                     response.put("attempts", attempt);
                     response.put("latency_ms", Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
+                    response.put("usage", usage);
                     response.put("result", result);
                     metrics.llmAnalysis("completed", providerName, Duration.between(startedAt, Instant.now()));
                     return response;
                 } catch (Exception exception) {
+                    if (!providerRequestCompleted) {
+                        metrics.llmRequest(
+                            "analysis",
+                            "failed",
+                            providerName,
+                            properties.getLlm().getModel(),
+                            Duration.between(requestStartedAt, Instant.now())
+                        );
+                    }
                     lastFailure = exception;
                 }
             }
@@ -211,17 +263,20 @@ public class LlmAnalysisService {
         }
         Exception failure = lastFailure == null ? new IllegalStateException("analysis failed") : lastFailure;
         metrics.llmAnalysis("failed", providerName, Duration.between(startedAt, Instant.now()));
-        return Map.of(
-            "status", "failed",
-            "provider", properties.getLlm().getProvider(),
-            "prompt_version", PROMPT_VERSION,
-            "attempts", maxAttempts,
-            "error", failure.getClass().getSimpleName() + ": " + safeMessage(failure)
-        );
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "failed");
+        response.put("provider", properties.getLlm().getProvider());
+        response.put("model", properties.getLlm().getModel());
+        response.put("prompt_version", PROMPT_VERSION);
+        response.put("attempts", maxAttempts);
+        response.put("latency_ms", Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
+        response.put("usage", usageSummary(accumulatedUsage));
+        response.put("error", failure.getClass().getSimpleName() + ": " + safeMessage(failure));
+        return Map.copyOf(response);
     }
 
-    private String callWithTimeout(ChatModel chatModel, String systemPrompt, String input) throws Exception {
-        Future<String> future = executor.submit(() -> {
+    private LlmCallResult callWithTimeout(ChatModel chatModel, String systemPrompt, String input) throws Exception {
+        Future<LlmCallResult> future = executor.submit(() -> {
             ChatClient.ChatClientRequestSpec request = ChatClient.builder(chatModel)
                 .build()
                 .prompt()
@@ -231,7 +286,12 @@ public class LlmAnalysisService {
             if (options != null) {
                 request = request.options(options);
             }
-            return request.call().content();
+            ChatResponse response = request.call().chatResponse();
+            if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+                throw new IllegalStateException("llm provider returned an empty response");
+            }
+            String content = response.getResult().getOutput().getText();
+            return new LlmCallResult(content == null ? "" : content, usage(response));
         });
         try {
             return future.get(Math.max(1, properties.getLlm().getTimeoutSeconds()), TimeUnit.SECONDS);
@@ -241,16 +301,19 @@ public class LlmAnalysisService {
         }
     }
 
-    private Map<String, Object> parseValidatedResult(String content) throws Exception {
+    private Map<String, Object> parseValidatedResult(
+        String content,
+        Map<String, Map<String, Object>> evidenceCatalog
+    ) throws Exception {
         Map<String, Object> raw = objectMapper.readValue(extractJsonObject(content), new TypeReference<>() {
         });
-        validateRawResult(raw);
-        Map<String, Object> normalized = normalizeResult(raw);
+        validateRawResult(raw, evidenceCatalog.keySet());
+        Map<String, Object> normalized = normalizeResult(raw, evidenceCatalog);
         validateNormalizedResult(normalized);
         return normalized;
     }
 
-    private void validateRawResult(Map<String, Object> raw) {
+    private void validateRawResult(Map<String, Object> raw, Set<String> allowedEvidenceIds) {
         List<String> violations = new ArrayList<>();
         for (String key : REQUIRED_RESULT_KEYS) {
             if (!raw.containsKey(key)) {
@@ -267,6 +330,7 @@ public class LlmAnalysisService {
         validateMapList(raw.get("root_cause_candidates"), "root_cause_candidates", violations);
         validateMapList(raw.get("action_suggestions"), "action_suggestions", violations);
         validateStringList(raw.get("additional_checks"), "additional_checks", violations);
+        validateEvidenceReferences(raw.get("root_cause_candidates"), allowedEvidenceIds, violations);
         if (!violations.isEmpty()) {
             throw new LlmResponseValidationException(String.join("; ", violations));
         }
@@ -315,16 +379,59 @@ public class LlmAnalysisService {
         }
     }
 
-    private Map<String, Object> normalizeResult(Map<String, Object> raw) {
+    private void validateEvidenceReferences(
+        Object value,
+        Set<String> allowedEvidenceIds,
+        List<String> violations
+    ) {
+        if (!(value instanceof List<?> candidates)) {
+            return;
+        }
+        for (int index = 0; index < Math.min(candidates.size(), 5); index++) {
+            if (!(candidates.get(index) instanceof Map<?, ?> candidate)) {
+                continue;
+            }
+            if (candidate.containsKey("supporting_evidence")) {
+                violations.add("root_cause_candidates[" + index
+                    + "] free-form supporting_evidence is not allowed");
+            }
+            Object references = candidate.get("supporting_evidence_ids");
+            if (!(references instanceof List<?> referenceList)) {
+                violations.add("root_cause_candidates[" + index + "].supporting_evidence_ids must be a list");
+                continue;
+            }
+            List<String> evidenceIds = new ArrayList<>();
+            for (int referenceIndex = 0; referenceIndex < Math.min(referenceList.size(), 10); referenceIndex++) {
+                Object reference = referenceList.get(referenceIndex);
+                if (!(reference instanceof String evidenceId) || evidenceId.isBlank()) {
+                    violations.add("root_cause_candidates[" + index + "].supporting_evidence_ids["
+                        + referenceIndex + "] must be a non-blank string");
+                    continue;
+                }
+                evidenceIds.add(evidenceId.trim());
+                if (!allowedEvidenceIds.contains(evidenceId.trim())) {
+                    violations.add("root_cause_candidates[" + index + "] references unknown evidence ID: "
+                        + evidenceId.trim());
+                }
+            }
+            if (!limitedString(candidate.get("cause"), 1000).isBlank() && evidenceIds.isEmpty()) {
+                violations.add("root_cause_candidates[" + index + "] must reference supporting evidence");
+            }
+        }
+    }
+
+    private Map<String, Object> normalizeResult(
+        Map<String, Object> raw,
+        Map<String, Map<String, Object>> evidenceCatalog
+    ) {
         Map<String, Object> normalized = new LinkedHashMap<>();
         normalized.put("summary", summary(raw.get("summary")));
         normalized.put(
             "root_cause_candidates",
-            mapList(raw.get("root_cause_candidates"), 5).stream().map(item -> Map.of(
-                "cause", limitedString(item.get("cause"), 1000),
-                "confidence", confidence(item.get("confidence")),
-                "supporting_evidence", stringList(item.get("supporting_evidence"), 10, 500)
-            )).filter(item -> !String.valueOf(item.get("cause")).isBlank()).toList()
+            mapList(raw.get("root_cause_candidates"), 5).stream()
+                .map(item -> normalizeCandidate(item, evidenceCatalog))
+                .filter(item -> !String.valueOf(item.get("cause")).isBlank())
+                .toList()
         );
         normalized.put(
             "action_suggestions",
@@ -337,6 +444,23 @@ public class LlmAnalysisService {
         );
         normalized.put("additional_checks", stringList(raw.get("additional_checks"), 10, 1000));
         return normalized;
+    }
+
+    private Map<String, Object> normalizeCandidate(
+        Map<String, Object> item,
+        Map<String, Map<String, Object>> evidenceCatalog
+    ) {
+        List<String> evidenceIds = stringList(item.get("supporting_evidence_ids"), 10, 64).stream()
+            .filter(evidenceCatalog::containsKey)
+            .distinct()
+            .toList();
+        Map<String, Object> candidate = new LinkedHashMap<>();
+        candidate.put("cause", limitedString(item.get("cause"), 1000));
+        candidate.put("confidence", confidence(item.get("confidence")));
+        candidate.put("supporting_evidence_ids", evidenceIds);
+        candidate.put("supporting_evidence", LlmEvidenceCatalog.descriptions(evidenceIds, evidenceCatalog));
+        candidate.put("evidence_paths", LlmEvidenceCatalog.evidencePaths(evidenceIds, evidenceCatalog));
+        return Map.copyOf(candidate);
     }
 
     private String summary(Object value) {
@@ -488,6 +612,67 @@ public class LlmAnalysisService {
         };
     }
 
+    private LlmUsage usage(ChatResponse response) {
+        Usage providerUsage = response.getMetadata() == null ? null : response.getMetadata().getUsage();
+        if (providerUsage == null) {
+            return LlmUsage.unavailable();
+        }
+        Integer promptTokens = providerUsage.getPromptTokens();
+        Integer completionTokens = providerUsage.getCompletionTokens();
+        Integer totalTokens = providerUsage.getTotalTokens();
+        boolean available = promptTokens != null || completionTokens != null || totalTokens != null;
+        int input = nonNegative(promptTokens);
+        int output = nonNegative(completionTokens);
+        int total = totalTokens == null ? input + output : nonNegative(totalTokens);
+        return new LlmUsage(input, output, total, available);
+    }
+
+    private Map<String, Object> usageSummary(LlmUsage usage) {
+        double inputPrice = Math.max(0, properties.getLlm().getInputCostPerMillionTokens());
+        double outputPrice = Math.max(0, properties.getLlm().getOutputCostPerMillionTokens());
+        boolean costEstimationEnabled = inputPrice > 0 || outputPrice > 0;
+        BigDecimal estimatedCost = estimatedCost(usage, inputPrice, outputPrice);
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("usage_available", usage.available());
+        summary.put("input_tokens", usage.inputTokens());
+        summary.put("output_tokens", usage.outputTokens());
+        summary.put("total_tokens", usage.totalTokens());
+        summary.put("cost_estimation_enabled", costEstimationEnabled);
+        summary.put("estimated_cost_usd", estimatedCost);
+        summary.put("pricing_unit", "usd_per_million_tokens");
+        return Map.copyOf(summary);
+    }
+
+    private void recordUsage(String operation, String provider, LlmUsage usage) {
+        Map<String, Object> summary = usageSummary(usage);
+        metrics.llmUsage(
+            operation,
+            provider,
+            properties.getLlm().getModel(),
+            usage.inputTokens(),
+            usage.outputTokens(),
+            usage.totalTokens(),
+            ((BigDecimal) summary.get("estimated_cost_usd")).doubleValue(),
+            usage.available()
+        );
+    }
+
+    private BigDecimal estimatedCost(LlmUsage usage, double inputPrice, double outputPrice) {
+        if (!usage.available() || (inputPrice <= 0 && outputPrice <= 0)) {
+            return BigDecimal.ZERO.setScale(8, RoundingMode.HALF_UP);
+        }
+        BigDecimal inputCost = BigDecimal.valueOf(usage.inputTokens())
+            .multiply(BigDecimal.valueOf(inputPrice));
+        BigDecimal outputCost = BigDecimal.valueOf(usage.outputTokens())
+            .multiply(BigDecimal.valueOf(outputPrice));
+        return inputCost.add(outputCost)
+            .divide(BigDecimal.valueOf(1_000_000), 8, RoundingMode.HALF_UP);
+    }
+
+    private int nonNegative(Integer value) {
+        return value == null ? 0 : Math.max(0, value);
+    }
+
     private String safeMessage(Exception exception) {
         String message = exception.getMessage();
         if (message == null || message.isBlank()) {
@@ -505,6 +690,31 @@ public class LlmAnalysisService {
     static class LlmResponseValidationException extends RuntimeException {
         LlmResponseValidationException(String message) {
             super(message);
+        }
+    }
+
+    private record LlmCallResult(String content, LlmUsage usage) {
+    }
+
+    private record LlmUsage(int inputTokens, int outputTokens, int totalTokens, boolean available) {
+        private static LlmUsage unavailable() {
+            return new LlmUsage(0, 0, 0, false);
+        }
+
+        private LlmUsage plus(LlmUsage other) {
+            if (other == null || !other.available()) {
+                return this;
+            }
+            return new LlmUsage(
+                saturatedAdd(inputTokens, other.inputTokens()),
+                saturatedAdd(outputTokens, other.outputTokens()),
+                saturatedAdd(totalTokens, other.totalTokens()),
+                true
+            );
+        }
+
+        private static int saturatedAdd(int left, int right) {
+            return (int) Math.min(Integer.MAX_VALUE, (long) left + right);
         }
     }
 }

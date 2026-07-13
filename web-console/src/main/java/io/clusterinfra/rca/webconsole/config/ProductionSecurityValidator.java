@@ -131,6 +131,14 @@ public class ProductionSecurityValidator implements InitializingBean {
     }
 
     private void validateLlm(List<String> violations) {
+        if (!Double.isFinite(properties.getLlm().getInputCostPerMillionTokens())
+            || properties.getLlm().getInputCostPerMillionTokens() < 0) {
+            violations.add("RCA_LLM_INPUT_COST_PER_MILLION_TOKENS must be a non-negative number");
+        }
+        if (!Double.isFinite(properties.getLlm().getOutputCostPerMillionTokens())
+            || properties.getLlm().getOutputCostPerMillionTokens() < 0) {
+            violations.add("RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS must be a non-negative number");
+        }
         if (!properties.getLlm().isEnabled()) {
             return;
         }

@@ -37,6 +37,11 @@ interface PolicySummaryProps {
   t: TFunction;
 }
 
+interface LlmUsagePanelProps {
+  analysis: Record<string, unknown>;
+  t: TFunction;
+}
+
 type ScoreStyle = CSSProperties & { "--score": string };
 
 export function CandidateList({ candidates, t }: CandidateListProps) {
@@ -170,6 +175,37 @@ export function PolicySummary({ actions, t }: PolicySummaryProps) {
           <span>{t(POLICY_HELP[policy] || "Policy decision")}</span>
         </article>
       ))}
+    </div>
+  );
+}
+
+export function LlmUsagePanel({ analysis, t }: LlmUsagePanelProps) {
+  const usage = recordValue(analysis.usage);
+  const available = Boolean(usage.usage_available ?? usage.usageAvailable);
+  const costEnabled = Boolean(usage.cost_estimation_enabled ?? usage.costEstimationEnabled);
+  const inputTokens = Number(usage.input_tokens ?? usage.inputTokens ?? 0);
+  const outputTokens = Number(usage.output_tokens ?? usage.outputTokens ?? 0);
+  const totalTokens = Number(usage.total_tokens ?? usage.totalTokens ?? 0);
+  const estimatedCost = Number(usage.estimated_cost_usd ?? usage.estimatedCostUsd ?? 0);
+  const latencyMs = Number(analysis.latency_ms ?? analysis.latencyMs ?? 0);
+  return (
+    <div className="llm-diagnostics">
+      <div className="signal-badges">
+        <StatusBadge value={analysis.status || "unknown"} tone={analysis.status === "completed" ? "ok" : "muted"} t={t} />
+        <span>{String(analysis.provider || "none")}</span>
+        <span>{String(analysis.model || "n/a")}</span>
+        <code>{String(analysis.prompt_version || analysis.promptVersion || "n/a")}</code>
+      </div>
+      <div className="rule-value-grid">
+        <div><span>{t("Latency")}</span><strong>{latencyMs > 0 ? `${latencyMs.toLocaleString()} ms` : "n/a"}</strong></div>
+        <div><span>{t("Input tokens")}</span><strong>{available ? inputTokens.toLocaleString() : "n/a"}</strong></div>
+        <div><span>{t("Output tokens")}</span><strong>{available ? outputTokens.toLocaleString() : "n/a"}</strong></div>
+        <div><span>{t("Total tokens")}</span><strong>{available ? totalTokens.toLocaleString() : "n/a"}</strong></div>
+        <div><span>{t("Estimated cost")}</span><strong>{!costEnabled ? t("Disabled") : available ? `$${estimatedCost.toFixed(8)}` : "n/a"}</strong></div>
+      </div>
+      {!available && analysis.status === "completed" && (
+        <div className="next-step"><span>{t("Usage metadata")}</span><strong>{t("Provider did not return token usage metadata.")}</strong></div>
+      )}
     </div>
   );
 }

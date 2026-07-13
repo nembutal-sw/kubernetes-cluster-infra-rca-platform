@@ -30,6 +30,7 @@ The chart can render:
 - Optional PostgreSQL StatefulSet
 - Optional MariaDB StatefulSet
 - Optional ServiceMonitor for Prometheus Operator
+- Optional PrometheusRule for LLM latency, error, usage, circuit breaker, and cost SLOs
 
 ## Important Values
 
@@ -75,6 +76,8 @@ platform:
     llmProvider: none
     llmModel: ""
     springAiChatModel: none
+    llmInputCostPerMillionTokens: 0
+    llmOutputCostPerMillionTokens: 0
     gitopsEnabled: false
     gitopsProvider: github
     # Empty selects the GitHub or GitLab default. Gitea requires /api/v1.
@@ -164,6 +167,31 @@ When `platform.serviceMonitor.enabled=true`, the chart creates a `ServiceMonitor
 ```
 
 The ServiceMonitor can read the metrics token from the platform secret or another Kubernetes secret.
+
+## LLM PrometheusRule
+
+`platform.prometheusRule.enabled=true`이면 LLM recording rule과 alert를 생성합니다. Prometheus Operator CRD가 없는 클러스터에서는 활성화하지 않습니다.
+
+```yaml
+platform:
+  prometheusRule:
+    enabled: true
+    evaluationWindow: 10m
+    latency:
+      p95Seconds: 60
+    errorRate:
+      ratio: 0.10
+      minimumRequests: 5
+    usageMetadata:
+      unavailableRatio: 0.10
+      minimumRequests: 5
+    costBudget:
+      enabled: false
+      lookback: 24h
+      maxUsd: 25
+```
+
+비용 rule은 configured token price를 기반으로 한 추정값을 사용합니다. provider 청구 금액과 일치하는지 별도로 확인해야 합니다.
 
 ## Agent Compatibility Configuration
 

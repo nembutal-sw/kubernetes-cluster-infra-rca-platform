@@ -113,6 +113,10 @@ spec:
               value: {{ .Values.platform.config.llmFailureThreshold | quote }}
             - name: RCA_LLM_COOLDOWN_SECONDS
               value: {{ .Values.platform.config.llmCooldownSeconds | quote }}
+            - name: RCA_LLM_INPUT_COST_PER_MILLION_TOKENS
+              value: {{ .Values.platform.config.llmInputCostPerMillionTokens | quote }}
+            - name: RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS
+              value: {{ .Values.platform.config.llmOutputCostPerMillionTokens | quote }}
             - name: RCA_INCIDENT_CORRELATION_WINDOW_MINUTES
               value: {{ .Values.platform.config.incidentCorrelationWindowMinutes | quote }}
             - name: RCA_INCIDENT_CORRELATION_MINIMUM_SCORE

@@ -84,6 +84,11 @@ RCA_MONITORING_UNAUTHORIZED_INTERVAL_MINUTES=60
 | `rca.report.generation.duration` | RCA report 생성 시간 |
 | `rca.llm.analysis` | LLM 분석 결과 |
 | `rca.llm.analysis.duration` | LLM 분석 소요 시간 |
+| `rca.llm.request` | provider 호출 결과, operation/provider/model 기준 |
+| `rca.llm.request.duration` | provider 단일 호출 지연 시간 |
+| `rca.llm.usage` | provider usage metadata 제공 여부 |
+| `rca.llm.tokens` | provider가 반환한 input/output/total token 누적값 |
+| `rca.llm.estimated.cost.usd` | 설정 단가로 계산한 예상 USD 비용 누적값 |
 | `rca.notification` | incident notification 결과 |
 | `rca.maintenance.run` | scheduled maintenance 실행 결과 |
 | `rca.maintenance.duration` | scheduled maintenance 소요 시간 |
@@ -130,6 +135,42 @@ ServiceMonitor scrape path:
 /actuator/prometheus
 ```
 
+### LLM PrometheusRule
+
+Prometheus Operator를 사용하는 환경에서는 LLM SLO recording rule과 alert를 선택적으로 생성할 수 있다. 기본값은 비활성화다.
+
+```yaml
+platform:
+  serviceMonitor:
+    enabled: true
+  prometheusRule:
+    enabled: true
+    evaluationWindow: 10m
+    latency:
+      p95Seconds: 60
+      for: 10m
+    errorRate:
+      ratio: 0.10
+      minimumRequests: 5
+    usageMetadata:
+      unavailableRatio: 0.10
+      minimumRequests: 5
+    costBudget:
+      enabled: true
+      lookback: 24h
+      maxUsd: 25
+```
+
+생성되는 alert:
+
+- `ClusterRcaLlmHighLatency`: analysis 요청 p95 latency 초과
+- `ClusterRcaLlmHighErrorRate`: 최소 호출 수를 넘긴 뒤 분석 실패율 초과
+- `ClusterRcaLlmUsageMetadataMissing`: provider usage metadata 누락률 초과
+- `ClusterRcaLlmCircuitBreakerOpen`: LLM circuit breaker open 감지
+- `ClusterRcaLlmEstimatedCostBudgetExceeded`: 설정 단가 기준 예상 비용 예산 초과
+
+비용 alert는 `costBudget.enabled=true`일 때만 생성한다. `RCA_LLM_INPUT_COST_PER_MILLION_TOKENS`와 `RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS`를 실제 계약 단가로 설정하지 않았다면 비용 alert를 켜지 않는다.
+
 ## Notes
 
 - Metrics에는 raw evidence나 민감정보를 넣지 않는다.
@@ -138,3 +179,4 @@ ServiceMonitor scrape path:
 - Slack과 generic webhook delivery는 같은 notification outcome metric을 공유한다.
 - gauge refresh는 incident processing과 분리한다.
 - retention metric은 cluster, node, resource ID를 tag로 사용하지 않는다.
+- `PrometheusRule`은 Prometheus Operator CRD가 설치된 환경에서만 활성화한다.

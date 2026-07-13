@@ -518,7 +518,10 @@ public final class RcaModels {
         int maxAttempts,
         int maxOutputTokens,
         int failureThreshold,
-        int cooldownSeconds
+        int cooldownSeconds,
+        double inputCostPerMillionTokens,
+        double outputCostPerMillionTokens,
+        boolean costEstimationEnabled
     ) {
     }
 

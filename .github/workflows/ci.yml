@@ -163,6 +163,15 @@ jobs:
             --set-string platform.secret.openaiBaseUrl=http://llm-gateway.rca-system.svc:8000/v1)"
           grep -q 'RCA_LLM_PROVIDER' <<< "$llm_self_hosted"
           grep -q 'SPRING_AI_OPENAI_SDK_BASE_URL' <<< "$llm_self_hosted"
+          llm_rules="$(helm template rca charts/cluster-infra-rca-platform \
+            --set platform.prometheusRule.enabled=true \
+            --set platform.prometheusRule.costBudget.enabled=true)"
+          grep -q 'kind: PrometheusRule' <<< "$llm_rules"
+          grep -q 'ClusterRcaLlmHighLatency' <<< "$llm_rules"
+          grep -q 'ClusterRcaLlmHighErrorRate' <<< "$llm_rules"
+          grep -q 'ClusterRcaLlmUsageMetadataMissing' <<< "$llm_rules"
+          grep -q 'ClusterRcaLlmCircuitBreakerOpen' <<< "$llm_rules"
+          grep -q 'ClusterRcaLlmEstimatedCostBudgetExceeded' <<< "$llm_rules"
       - name: Render Agent chart variants
         run: |
           helm template rca-agent charts/cluster-infra-rca-agent \

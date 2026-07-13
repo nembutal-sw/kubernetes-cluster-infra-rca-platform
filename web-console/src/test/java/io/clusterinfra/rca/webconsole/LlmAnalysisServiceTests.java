@@ -21,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -29,6 +31,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 class LlmAnalysisServiceTests {
     private LlmAnalysisService service;
+    private SimpleMeterRegistry registry;
 
     @AfterEach
     void closeExecutor() {
@@ -44,7 +47,7 @@ class LlmAnalysisServiceTests {
             {
               "summary": "Storage pressure",
               "root_cause_candidates": [
-                {"cause": "inode exhaustion", "confidence": "HIGH", "supporting_evidence": ["inode=98%"]}
+                {"cause": "inode exhaustion", "confidence": "HIGH", "supporting_evidence_ids": ["ev-inode"]}
               ],
               "action_suggestions": [
                 {"action_key": "../../restart", "action": "Inspect storage", "reason": "Confirm the signal"}
@@ -55,10 +58,10 @@ class LlmAnalysisServiceTests {
             """));
         service = service(model, properties());
 
-        Map<String, Object> result = service.analyze(Map.of("schema_version", "1.0"));
+        Map<String, Object> result = service.analyze(evidencePayload());
 
         assertThat(result.get("status")).isEqualTo("completed");
-        assertThat(result.get("prompt_version")).isEqualTo("llm-rca-analyzer/v1");
+        assertThat(result.get("prompt_version")).isEqualTo("llm-rca-analyzer/v2");
         @SuppressWarnings("unchecked")
         Map<String, Object> normalized = (Map<String, Object>) result.get("result");
         assertThat(normalized).containsOnlyKeys(
@@ -69,8 +72,139 @@ class LlmAnalysisServiceTests {
         );
         assertThat(normalized.toString())
             .contains("inode exhaustion")
+            .contains("ev-inode")
+            .contains("filesystem.inode_used_percent")
             .contains("manual_investigation")
             .doesNotContain("untrusted_extra");
+    }
+
+    @Test
+    void rejectsRootCauseCandidateThatReferencesUnknownEvidence() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(response("""
+            {
+              "summary": "Storage pressure",
+              "root_cause_candidates": [
+                {"cause": "inode exhaustion", "confidence": "high", "supporting_evidence_ids": ["ev-invented"]}
+              ],
+              "action_suggestions": [],
+              "additional_checks": []
+            }
+            """));
+        service = service(model, properties());
+
+        Map<String, Object> result = service.analyze(evidencePayload());
+
+        assertThat(result.get("status")).isEqualTo("failed");
+        assertThat(String.valueOf(result.get("error")))
+            .contains("LlmResponseValidationException")
+            .contains("unknown evidence ID: ev-invented");
+    }
+
+    @Test
+    void rejectsLegacyFreeFormEvidenceWithoutCatalogReference() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(response("""
+            {
+              "summary": "Storage pressure",
+              "root_cause_candidates": [
+                {"cause": "inode exhaustion", "confidence": "high", "supporting_evidence": ["inode=98%"]}
+              ],
+              "action_suggestions": [],
+              "additional_checks": []
+            }
+            """));
+        service = service(model, properties());
+
+        Map<String, Object> result = service.analyze(evidencePayload());
+
+        assertThat(result.get("status")).isEqualTo("failed");
+        assertThat(String.valueOf(result.get("error")))
+            .contains("free-form supporting_evidence is not allowed")
+            .contains("supporting_evidence_ids must be a list");
+    }
+
+    @Test
+    void recordsProviderUsageAndConfiguredCostEstimate() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(responseWithUsage("""
+            {
+              "summary": "Storage pressure",
+              "root_cause_candidates": [],
+              "action_suggestions": [],
+              "additional_checks": []
+            }
+            """, 1000, 500, 1500));
+        RcaConsoleProperties properties = properties();
+        properties.getLlm().setInputCostPerMillionTokens(2.5);
+        properties.getLlm().setOutputCostPerMillionTokens(10.0);
+        service = service(model, properties);
+
+        Map<String, Object> result = service.analyze(evidencePayload());
+
+        assertThat(result.get("status")).isEqualTo("completed");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> usage = (Map<String, Object>) result.get("usage");
+        assertThat(usage)
+            .containsEntry("usage_available", true)
+            .containsEntry("input_tokens", 1000)
+            .containsEntry("output_tokens", 500)
+            .containsEntry("total_tokens", 1500);
+        assertThat(String.valueOf(usage.get("estimated_cost_usd"))).isEqualTo("0.00750000");
+        assertThat(registry.get("rca.llm.tokens")
+            .tag("operation", "analysis")
+            .tag("provider", "openai")
+            .tag("model", "contract-test")
+            .tag("type", "input")
+            .counter().count()).isEqualTo(1000);
+        assertThat(registry.get("rca.llm.estimated.cost.usd")
+            .tag("operation", "analysis")
+            .tag("provider", "openai")
+            .tag("model", "contract-test")
+            .counter().count()).isEqualTo(0.0075);
+    }
+
+    @Test
+    void aggregatesUsageAcrossSchemaRetryAttempts() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenReturn(
+            responseWithUsage("""
+                {
+                  "summary": [],
+                  "root_cause_candidates": [],
+                  "action_suggestions": [],
+                  "additional_checks": []
+                }
+                """, 100, 20, 120),
+            responseWithUsage("""
+                {
+                  "summary": "Validated on retry",
+                  "root_cause_candidates": [],
+                  "action_suggestions": [],
+                  "additional_checks": []
+                }
+                """, 200, 30, 230)
+        );
+        RcaConsoleProperties properties = properties();
+        properties.getLlm().setMaxAttempts(2);
+        service = service(model, properties);
+
+        Map<String, Object> result = service.analyze(evidencePayload());
+
+        assertThat(result.get("status")).isEqualTo("completed");
+        assertThat(result.get("attempts")).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> usage = (Map<String, Object>) result.get("usage");
+        assertThat(usage)
+            .containsEntry("input_tokens", 300)
+            .containsEntry("output_tokens", 50)
+            .containsEntry("total_tokens", 350);
+        assertThat(registry.get("rca.llm.tokens")
+            .tag("operation", "analysis")
+            .tag("provider", "openai")
+            .tag("model", "contract-test")
+            .tag("type", "total")
+            .counter().count()).isEqualTo(350);
     }
 
     @Test
@@ -209,11 +343,25 @@ class LlmAnalysisServiceTests {
         @SuppressWarnings("unchecked")
         ObjectProvider<ChatModel> provider = mock(ObjectProvider.class);
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(model));
+        registry = new SimpleMeterRegistry();
         return new LlmAnalysisService(
             provider,
             new ObjectMapper(),
             properties,
-            new RcaMetrics(new SimpleMeterRegistry())
+            new RcaMetrics(registry)
+        );
+    }
+
+    private Map<String, Object> evidencePayload() {
+        return Map.of(
+            "schema_version", "1.0",
+            "evidence_catalog", List.of(Map.of(
+                "evidence_id", "ev-inode",
+                "signal", "inode_exhaustion",
+                "component", "disk",
+                "interpretation", "inode usage is above the critical threshold",
+                "evidence_paths", List.of("filesystem.inode_used_percent")
+            ))
         );
     }
 
@@ -229,5 +377,12 @@ class LlmAnalysisServiceTests {
 
     private ChatResponse response(String content) {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(content))));
+    }
+
+    private ChatResponse responseWithUsage(String content, int input, int output, int total) {
+        return new ChatResponse(
+            List.of(new Generation(new AssistantMessage(content))),
+            ChatResponseMetadata.builder().usage(new DefaultUsage(input, output, total)).build()
+        );
     }
 }

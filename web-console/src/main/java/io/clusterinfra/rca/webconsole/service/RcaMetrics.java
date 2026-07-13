@@ -181,6 +181,91 @@ public class RcaMetrics {
         ).record(nonNegative(duration));
     }
 
+    public void llmRequest(
+        String operation,
+        String result,
+        String provider,
+        String model,
+        Duration duration
+    ) {
+        increment(
+            "rca.llm.request",
+            "LLM provider request outcomes",
+            1,
+            "operation", operation,
+            "result", result,
+            "provider", provider,
+            "model", model
+        );
+        timer(
+            "rca.llm.request.duration",
+            "LLM provider request duration",
+            "operation", operation,
+            "result", result,
+            "provider", provider,
+            "model", model
+        ).record(nonNegative(duration));
+    }
+
+    public void llmUsage(
+        String operation,
+        String provider,
+        String model,
+        int inputTokens,
+        int outputTokens,
+        int totalTokens,
+        double estimatedCostUsd,
+        boolean usageAvailable
+    ) {
+        increment(
+            "rca.llm.usage",
+            "LLM provider usage metadata availability",
+            1,
+            "operation", operation,
+            "provider", provider,
+            "model", model,
+            "result", usageAvailable ? "available" : "unavailable"
+        );
+        if (!usageAvailable) {
+            return;
+        }
+        incrementDouble(
+            "rca.llm.tokens",
+            "LLM tokens reported by the provider",
+            inputTokens,
+            "operation", operation,
+            "provider", provider,
+            "model", model,
+            "type", "input"
+        );
+        incrementDouble(
+            "rca.llm.tokens",
+            "LLM tokens reported by the provider",
+            outputTokens,
+            "operation", operation,
+            "provider", provider,
+            "model", model,
+            "type", "output"
+        );
+        incrementDouble(
+            "rca.llm.tokens",
+            "LLM tokens reported by the provider",
+            totalTokens,
+            "operation", operation,
+            "provider", provider,
+            "model", model,
+            "type", "total"
+        );
+        incrementDouble(
+            "rca.llm.estimated.cost.usd",
+            "Estimated LLM cost in USD using configured per-million-token prices",
+            estimatedCostUsd,
+            "operation", operation,
+            "provider", provider,
+            "model", model
+        );
+    }
+
     public void notification(String result, String severity) {
         increment(
             "rca.notification",
@@ -258,6 +343,17 @@ public class RcaMetrics {
             .increment(Math.max(0, amount));
     }
 
+    private void incrementDouble(String name, String description, double amount, String... tags) {
+        if (!Double.isFinite(amount) || amount < 0) {
+            return;
+        }
+        Counter.builder(name)
+            .description(description)
+            .tags(normalizedTags(tags))
+            .register(registry)
+            .increment(amount);
+    }
+
     private Timer timer(String name, String description, String... tags) {
         return Timer.builder(name)
             .description(description)
@@ -283,7 +379,8 @@ public class RcaMetrics {
         if (value == null || value.isBlank()) {
             return "unknown";
         }
-        return value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]+", "_");
+        String normalized = value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]+", "_");
+        return normalized.length() <= 80 ? normalized : normalized.substring(0, 80);
     }
 
     private Duration nonNegative(Duration duration) {

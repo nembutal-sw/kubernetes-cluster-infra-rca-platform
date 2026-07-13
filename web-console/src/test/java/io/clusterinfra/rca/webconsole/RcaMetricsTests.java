@@ -28,6 +28,8 @@ class RcaMetricsTests {
         metrics.reportGenerated("created", Duration.ofMillis(250));
         metrics.incident("created");
         metrics.llmAnalysis("completed", "openai", Duration.ofMillis(500));
+        metrics.llmRequest("analysis", "completed", "openai", "gpt-test", Duration.ofMillis(450));
+        metrics.llmUsage("analysis", "openai", "gpt-test", 100, 25, 125, 0.00125, true);
         metrics.notification("sent", "critical");
         metrics.retentionCleanup("evidence_bundles", 3);
         metrics.maintenanceRun("completed", Duration.ofSeconds(1));
@@ -54,6 +56,12 @@ class RcaMetricsTests {
             .tag("data_type", "evidence_bundles").counter().count()).isEqualTo(3);
         assertThat(registry.get("rca.maintenance.duration")
             .tag("result", "completed").timer().count()).isEqualTo(1);
+        assertThat(registry.get("rca.llm.request.duration")
+            .tag("operation", "analysis").tag("result", "completed")
+            .tag("provider", "openai").tag("model", "gpt-test").timer().count()).isEqualTo(1);
+        assertThat(registry.get("rca.llm.tokens")
+            .tag("operation", "analysis").tag("provider", "openai")
+            .tag("model", "gpt-test").tag("type", "total").counter().count()).isEqualTo(125);
         assertThat(registry.get("rca.agent.offline.count").gauge().value()).isEqualTo(2);
         assertThat(registry.get("rca.analysis.queue.depth").gauge().value()).isEqualTo(7);
         assertThat(registry.get("rca.analysis.dead.letter.count").gauge().value()).isEqualTo(2);

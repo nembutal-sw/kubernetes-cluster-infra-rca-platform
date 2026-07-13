@@ -1,0 +1,149 @@
+{{- if .Values.platform.prometheusRule.enabled }}
+{{- $rule := .Values.platform.prometheusRule }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "cluster-infra-rca-platform.fullname" . }}-llm
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    {{- with $rule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ include "cluster-infra-rca-platform.fullname" . }}.llm
+      interval: {{ $rule.groupInterval }}
+      rules:
+        - record: rca:llm_request_duration:p95_seconds
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le, namespace, service, provider, model) (
+                rate(rca_llm_request_duration_seconds_bucket{operation="analysis"}[{{ $rule.evaluationWindow }}])
+              )
+            )
+        - record: rca:llm_analysis_error_ratio:window
+          expr: |
+            sum by (namespace, service, provider) (
+              rate(rca_llm_analysis_total{result="failed"}[{{ $rule.evaluationWindow }}])
+            )
+            /
+            clamp_min(
+              sum by (namespace, service, provider) (
+                rate(rca_llm_analysis_total{result=~"completed|failed"}[{{ $rule.evaluationWindow }}])
+              ),
+              0.000000001
+            )
+        - record: rca:llm_usage_unavailable_ratio:window
+          expr: |
+            sum by (namespace, service, provider, model) (
+              rate(rca_llm_usage_total{operation="analysis",result="unavailable"}[{{ $rule.evaluationWindow }}])
+            )
+            /
+            clamp_min(
+              sum by (namespace, service, provider, model) (
+                rate(rca_llm_usage_total{operation="analysis"}[{{ $rule.evaluationWindow }}])
+              ),
+              0.000000001
+            )
+        {{- if $rule.latency.enabled }}
+        - alert: ClusterRcaLlmHighLatency
+          expr: rca:llm_request_duration:p95_seconds > {{ $rule.latency.p95Seconds }}
+          for: {{ $rule.latency.for }}
+          labels:
+            severity: {{ $rule.latency.severity | quote }}
+            {{- with $rule.ruleLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Cluster RCA LLM request latency exceeds the p95 SLO
+            description: "LLM analysis p95 latency is {{`{{ $value }}`}} seconds for provider={{`{{ $labels.provider }}`}} model={{`{{ $labels.model }}`}}."
+            {{- if $rule.runbookUrl }}
+            runbook_url: {{ $rule.runbookUrl | quote }}
+            {{- end }}
+        {{- end }}
+        {{- if $rule.errorRate.enabled }}
+        - alert: ClusterRcaLlmHighErrorRate
+          expr: |
+            (rca:llm_analysis_error_ratio:window > {{ $rule.errorRate.ratio }})
+            and on (namespace, service, provider)
+            (
+              sum by (namespace, service, provider) (
+                increase(rca_llm_analysis_total{result=~"completed|failed"}[{{ $rule.evaluationWindow }}])
+              ) >= {{ $rule.errorRate.minimumRequests }}
+            )
+          for: {{ $rule.errorRate.for }}
+          labels:
+            severity: {{ $rule.errorRate.severity | quote }}
+            {{- with $rule.ruleLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Cluster RCA LLM analysis error ratio exceeds its SLO
+            description: "LLM analysis error ratio is {{`{{ $value | humanizePercentage }}`}} for provider={{`{{ $labels.provider }}`}}."
+            {{- if $rule.runbookUrl }}
+            runbook_url: {{ $rule.runbookUrl | quote }}
+            {{- end }}
+        {{- end }}
+        {{- if $rule.usageMetadata.enabled }}
+        - alert: ClusterRcaLlmUsageMetadataMissing
+          expr: |
+            (rca:llm_usage_unavailable_ratio:window > {{ $rule.usageMetadata.unavailableRatio }})
+            and on (namespace, service, provider, model)
+            (
+              sum by (namespace, service, provider, model) (
+                increase(rca_llm_usage_total{operation="analysis"}[{{ $rule.evaluationWindow }}])
+              ) >= {{ $rule.usageMetadata.minimumRequests }}
+            )
+          for: {{ $rule.usageMetadata.for }}
+          labels:
+            severity: {{ $rule.usageMetadata.severity | quote }}
+            {{- with $rule.ruleLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Cluster RCA LLM provider omits token usage metadata
+            description: "Usage metadata unavailable ratio is {{`{{ $value | humanizePercentage }}`}} for provider={{`{{ $labels.provider }}`}} model={{`{{ $labels.model }}`}}."
+            {{- if $rule.runbookUrl }}
+            runbook_url: {{ $rule.runbookUrl | quote }}
+            {{- end }}
+        {{- end }}
+        {{- if $rule.circuitBreaker.enabled }}
+        - alert: ClusterRcaLlmCircuitBreakerOpen
+          expr: |
+            sum by (namespace, service, provider) (
+              increase(rca_llm_analysis_total{result="circuit_open"}[{{ $rule.circuitBreaker.lookback }}])
+            ) > 0
+          for: {{ $rule.circuitBreaker.for }}
+          labels:
+            severity: {{ $rule.circuitBreaker.severity | quote }}
+            {{- with $rule.ruleLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Cluster RCA LLM circuit breaker opened
+            description: "The LLM circuit breaker opened for provider={{`{{ $labels.provider }}`}}. Rule-based RCA remains active."
+            {{- if $rule.runbookUrl }}
+            runbook_url: {{ $rule.runbookUrl | quote }}
+            {{- end }}
+        {{- end }}
+        {{- if $rule.costBudget.enabled }}
+        - alert: ClusterRcaLlmEstimatedCostBudgetExceeded
+          expr: |
+            sum by (namespace, service, provider, model) (
+              increase(rca_llm_estimated_cost_usd_total{operation="analysis"}[{{ $rule.costBudget.lookback }}])
+            ) > {{ $rule.costBudget.maxUsd }}
+          for: {{ $rule.costBudget.for }}
+          labels:
+            severity: {{ $rule.costBudget.severity | quote }}
+            {{- with $rule.ruleLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: Cluster RCA LLM estimated cost budget exceeded
+            description: "Configured-price LLM cost is ${{`{{ $value }}`}} for provider={{`{{ $labels.provider }}`}} model={{`{{ $labels.model }}`}} over {{ $rule.costBudget.lookback }}."
+            {{- if $rule.runbookUrl }}
+            runbook_url: {{ $rule.runbookUrl | quote }}
+            {{- end }}
+        {{- end }}
+{{- end }}

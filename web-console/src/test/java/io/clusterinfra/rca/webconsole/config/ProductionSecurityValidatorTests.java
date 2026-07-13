@@ -56,6 +56,26 @@ class ProductionSecurityValidatorTests {
     }
 
     @Test
+    void negativeLlmTokenPriceFailsContextStartup() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.input-cost-per-million-tokens=-1"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_LLM_INPUT_COST_PER_MILLION_TOKENS must be a non-negative number");
+            });
+    }
+
+    @Test
     void enabledLlmRequiresProviderModelChatModelAndCredential() {
         contextRunner
             .withPropertyValues(
