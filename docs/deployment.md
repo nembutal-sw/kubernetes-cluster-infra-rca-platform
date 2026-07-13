@@ -84,3 +84,17 @@ RCA_NOTIFICATION_WEBHOOK_TOKEN=...
 ```
 
 `RCA_NOTIFICATION_WEBHOOK_TOKEN`이 설정되면 Platform은 `Authorization: Bearer <token>` header를 추가합니다. Production profile에서는 notification이 켜져 있을 때 Slack 또는 generic webhook 중 하나 이상이 HTTPS URL이어야 합니다.
+
+## GitOps Provider Wiring
+
+승인된 catalog override를 GitHub draft PR로 생성하려면 GitOps 연동을 활성화합니다.
+
+```bash
+RCA_GITOPS_ENABLED=true
+RCA_GITOPS_REPOSITORY=owner/repository
+RCA_GITOPS_BASE_BRANCH=main
+RCA_GITOPS_TOKEN=...
+RCA_GITOPS_WEBHOOK_SECRET=...
+```
+
+Kubernetes에서는 repository, branch, file path를 `platform.config.gitops*`에 두고 token과 webhook secret은 `platform.secret.gitopsToken`, `platform.secret.gitopsWebhookSecret` 또는 External Secret으로 주입합니다. 자세한 workflow와 API는 [gitops.md](gitops.md)를 참고합니다.

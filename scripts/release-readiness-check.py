@@ -85,6 +85,27 @@ def main() -> int:
             "Kubernetes smoke test waits for agents, evidence collection, and RCA report generation.",
         ),
         check(
+            "real-cluster-agent-lifecycle",
+            exists("scripts/real-cluster-agent-e2e.sh")
+            and contains(
+                "scripts/real-cluster-agent-e2e.sh",
+                "--apply",
+                "namespace_owned_by_run",
+                "statePersistence.enabled=false",
+                "developmentSourceBundle.enabled=true",
+                "/api/evidence/requests",
+                "verify_evidence_bundle.py",
+            )
+            and contains(
+                "charts/cluster-infra-rca-agent/values.yaml",
+                "developmentSourceBundle:",
+                "enabled: false",
+                "statePersistence:",
+                "enabled: true",
+            ),
+            "Real-cluster Agent E2E is apply-gated, ownership-scoped, registry-independent, and bundle-verified.",
+        ),
+        check(
             "operational-daemonset-check",
             exists("scripts/daemonset_operational_check.py")
             and contains("scripts/daemonset_operational_check.py", "hostPath", "readOnly"),
@@ -226,6 +247,31 @@ def main() -> int:
                 "\"rules\"",
             ),
             "Static operational catalog guard validates collector selection, actions, rules, and non-executable plans.",
+        ),
+        check(
+            "github-gitops-change-tracking",
+            exists("web-console/src/main/resources/db/migration/V18__gitops_change_tracking.sql")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GitHubGitOpsProvider.java")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitHubWebhookService.java")
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitOpsChangeService.java",
+                "CatalogOverrideStatus.approved",
+                "createPending",
+                "deduplicated",
+                "deployment outcome can only be recorded after PR merge",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitHubWebhookService.java",
+                "HmacSHA256",
+                "MessageDigest.isEqual",
+                "claimWebhookDelivery",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
+                "RCA_GITOPS_TOKEN",
+                "RCA_GITOPS_WEBHOOK_SECRET",
+            ),
+            "GitHub GitOps integration requires approval, deduplicates PR creation, verifies webhook signatures, and tracks deployment outcomes.",
         ),
         check(
             "supply-chain-ci",

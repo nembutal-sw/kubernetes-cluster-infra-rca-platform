@@ -150,6 +150,13 @@ platform:
     pipelineMaxAttempts: 5
     pipelineRetryBaseSeconds: 5
     pipelineRetryMaxSeconds: 300
+    gitopsEnabled: false
+    gitopsProvider: github
+    gitopsApiBaseUrl: https://api.github.com
+    gitopsRepository: ""
+    gitopsBaseBranch: main
+    gitopsFilePath: ops/catalog/operational-catalog.override.json
+    gitopsTimeoutSeconds: 15
   secret:
     create: true
     existingSecret: ""
@@ -165,6 +172,8 @@ platform:
     slackWebhookUrl: ""
     notificationWebhookUrl: ""
     notificationWebhookToken: ""
+    gitopsToken: ""
+    gitopsWebhookSecret: ""
     openaiApiKey: ""
     openaiBaseUrl: ""
     anthropicApiKey: ""

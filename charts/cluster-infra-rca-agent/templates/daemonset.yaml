@@ -52,11 +52,43 @@ spec:
       {{- end }}
       tolerations:
         {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- if .Values.developmentSourceBundle.enabled }}
+      initContainers:
+        - name: unpack-agent-source
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-c"]
+          args:
+            - >-
+              import tarfile;
+              tarfile.open('/bundle/node-agent.tar.gz', 'r:gz').extractall('/work', filter='data')
+          securityContext:
+            {{- if eq $mode "safe" }}
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            {{- else }}
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: agent-source-bundle
+              mountPath: /bundle
+              readOnly: true
+            - name: agent-source
+              mountPath: /work
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "node_agent.main"]
+          {{- if .Values.developmentSourceBundle.enabled }}
+          workingDir: /app
+          {{- end }}
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
@@ -225,6 +257,11 @@ spec:
             {{- end }}
             {{- end }}
           volumeMounts:
+            {{- if .Values.developmentSourceBundle.enabled }}
+            - name: agent-source
+              mountPath: /app
+              readOnly: true
+            {{- end }}
             {{- if ne $mode "safe" }}
             - name: host-root
               mountPath: /host/root
@@ -264,6 +301,16 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:
+        {{- if .Values.developmentSourceBundle.enabled }}
+        - name: agent-source-bundle
+          configMap:
+            name: {{ required "developmentSourceBundle.configMapName is required when source bundle is enabled" .Values.developmentSourceBundle.configMapName }}
+            items:
+              - key: {{ .Values.developmentSourceBundle.key | quote }}
+                path: node-agent.tar.gz
+        - name: agent-source
+          emptyDir: {}
+        {{- end }}
         {{- if ne $mode "safe" }}
         - name: host-root
           hostPath:
@@ -297,7 +344,7 @@ spec:
         {{- end }}
         {{- end }}
         - name: agent-state
-          {{- if eq $mode "safe" }}
+          {{- if or (eq $mode "safe") (not .Values.statePersistence.enabled) }}
           emptyDir: {}
           {{- else }}
           hostPath:

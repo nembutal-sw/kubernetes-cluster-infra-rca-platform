@@ -21,6 +21,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문�
 | `llm-analyzer.md` | LLM provider, fallback, diagnostic-only 원칙 |
 | `policy-engine.md` | 조치 등급, guardrail, manual-only workflow |
 | `audit-and-actions.md` | Audit event와 human-in-the-loop action request lifecycle |
+| `gitops.md` | 승인된 catalog 변경의 GitHub PR 생성과 배포 결과 추적 |
 | `web-console.md` | Web Console 화면 구성과 운영자 workflow |
 | `security.md` | 인증 필터, RBAC, production validation, export 제한 |
 | `threat-model.md` | 자산, 신뢰 경계, abuse case, mitigation |
@@ -52,14 +53,14 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Policy Engine
   -> RCA Report
   -> Timeline / Confidence / Impact Scope
-  -> Manual Action Workflow / Audit / Notification
+  -> Manual Action Workflow / GitOps PR / Audit / Notification
 ```
 
 ## Safety Position
 
 - Agent는 read-only evidence collection만 수행합니다.
 - Agent-side action execution은 사용하지 않습니다.
-- 승인 workflow는 실행이 아니라 승인/거절 기록, 수동 처리 완료, runbook/GitOps PR 안내입니다.
+- 승인 workflow는 직접 실행이 아니라 승인/거절 기록, 수동 처리 완료, runbook 또는 reviewed GitOps PR입니다.
 - LLM 제안은 진단 보조이며 `automation_allowed=false`를 유지합니다.
 - Report/export는 역할 기반으로 제한하고 audit event를 남깁니다.
 - Production profile은 위험한 기본 설정을 fail-fast로 차단합니다.

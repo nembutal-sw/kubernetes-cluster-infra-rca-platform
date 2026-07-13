@@ -91,6 +91,7 @@ export function ClusterForm({ onCreate, disabled, t }: ClusterFormProps) {
         {t("Cluster name")}
         <input
           className="form-control"
+          data-testid="cluster-name"
           value={form.name}
           disabled={disabled}
           required
@@ -101,6 +102,7 @@ export function ClusterForm({ onCreate, disabled, t }: ClusterFormProps) {
         {t("Environment")}
         <select
           className="form-select"
+          data-testid="cluster-environment"
           value={form.environment}
           disabled={disabled}
           onChange={(event) => setForm({ ...form, environment: event.target.value })}
@@ -115,6 +117,7 @@ export function ClusterForm({ onCreate, disabled, t }: ClusterFormProps) {
         {t("Description")}
         <textarea
           className="form-control"
+          data-testid="cluster-description"
           rows={2}
           value={form.description}
           disabled={disabled}
@@ -125,12 +128,13 @@ export function ClusterForm({ onCreate, disabled, t }: ClusterFormProps) {
         {t("Backend URL")}
         <input
           className="form-control"
+          data-testid="cluster-backend-url"
           value={form.backend_url}
           disabled={disabled}
           onChange={(event) => setForm({ ...form, backend_url: event.target.value })}
         />
       </label>
-      <button className="btn btn-primary icon-button" disabled={disabled || busy || !form.name.trim()}>
+      <button className="btn btn-primary icon-button" data-testid="cluster-create" disabled={disabled || busy || !form.name.trim()}>
         <Icon name="plus-circle" />
         <span>{busy ? "..." : t("Generate install command")}</span>
       </button>
@@ -153,7 +157,7 @@ export function ClusterList({
   return (
     <div className="cluster-list">
       {clusters.map((cluster) => (
-        <article key={cluster.cluster_id} className={`cluster-row ${selectedCluster?.cluster_id === cluster.cluster_id ? "selected" : ""}`}>
+        <article key={cluster.cluster_id} data-testid="cluster-row" data-cluster-id={cluster.cluster_id} className={`cluster-row ${selectedCluster?.cluster_id === cluster.cluster_id ? "selected" : ""}`}>
           <button type="button" className="cluster-main" onClick={() => onSelect(cluster)}>
             <div className="cluster-node-icon"><Icon name="hdd-network" /></div>
             <div>
@@ -169,18 +173,19 @@ export function ClusterList({
             {canOperate && (
               <button
                 className="btn btn-sm btn-outline-secondary"
+                data-testid="cluster-install-command"
                 onClick={() => onGenerateInstall(cluster.cluster_id, window.location.origin)}
               >
                 {t("Install command")}
               </button>
             )}
             {currentUser.role === "admin" && (
-              <button className="btn btn-sm btn-outline-secondary" onClick={() => onRotateToken(cluster)}>
+              <button className="btn btn-sm btn-outline-secondary" aria-label={t("Rotate agent token")} title={t("Rotate agent token")} onClick={() => onRotateToken(cluster)}>
                 <Icon name="arrow-repeat" />
               </button>
             )}
             {currentUser.role === "admin" && (
-              <button className="btn btn-sm btn-outline-danger" onClick={() => onDelete(cluster)}>
+              <button className="btn btn-sm btn-outline-danger" data-testid="cluster-delete" aria-label={t("Delete cluster")} title={t("Delete cluster")} onClick={() => onDelete(cluster)}>
                 <Icon name="trash" />
               </button>
             )}
@@ -194,7 +199,7 @@ export function ClusterList({
 export function InstallCommand({ command, onCopy, t }: InstallCommandProps) {
   const commandText = (command.commands || []).join("\n");
   return (
-    <div className="install-command">
+    <div className="install-command" data-testid="install-command">
       <div className="install-head">
         <strong>{t("Install command")}</strong>
         <button className="btn btn-sm btn-outline-secondary icon-button" onClick={() => onCopy(commandText)}>

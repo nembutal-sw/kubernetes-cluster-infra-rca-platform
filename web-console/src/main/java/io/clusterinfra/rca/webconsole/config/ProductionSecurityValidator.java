@@ -81,6 +81,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         validatePublicBaseUrl(violations);
         validateLlm(violations);
         validateNotification(violations);
+        validateGitOps(violations);
         if (properties.getObservability().isEnabled()) {
             rejectUnsafe(
                 properties.getObservability().getMetricsToken(),
@@ -192,6 +193,32 @@ public class ProductionSecurityValidator implements InitializingBean {
         if (webhookUrl.isBlank() && !properties.getNotification().getWebhookToken().isBlank()) {
             violations.add("RCA_NOTIFICATION_WEBHOOK_TOKEN requires RCA_NOTIFICATION_WEBHOOK_URL");
         }
+    }
+
+    private void validateGitOps(List<String> violations) {
+        RcaConsoleProperties.GitOps gitOps = properties.getGitOps();
+        if (!gitOps.isEnabled()) {
+            return;
+        }
+        if (!"github".equalsIgnoreCase(gitOps.getProvider())) {
+            violations.add("RCA_GITOPS_PROVIDER must be github");
+        }
+        if (!gitOps.getRepository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
+            violations.add("RCA_GITOPS_REPOSITORY must use owner/repository format");
+        }
+        validateHttpsUrl(gitOps.getApiBaseUrl(), "RCA_GITOPS_API_BASE_URL", violations);
+        rejectUnsafe(
+            gitOps.getToken(),
+            UNSAFE_SECRETS,
+            "RCA_GITOPS_TOKEN must be a non-default secret when GitOps is enabled",
+            violations
+        );
+        rejectUnsafe(
+            gitOps.getWebhookSecret(),
+            UNSAFE_SECRETS,
+            "RCA_GITOPS_WEBHOOK_SECRET must be a non-default secret when GitOps is enabled",
+            violations
+        );
     }
 
     private void validateHttpsUrl(String value, String label, List<String> violations) {

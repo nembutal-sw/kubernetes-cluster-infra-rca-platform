@@ -69,6 +69,16 @@
 - 권한 없는 경로 redirect와 존재하지 않는 상세 리소스 안내
 - 모바일/데스크톱 및 영문/한글 route smoke 검증
 
+### Console Workflow E2E
+
+- Playwright test runner와 전용 H2/demo Spring Boot 서버 구성
+- 보호된 상세 URL 로그인 복원과 세션 만료 검증
+- Cluster 생성, 설치 명령 발급, 상세 새로 고침, 삭제 검증
+- Demo Evidence, RCA report, 승인, 거절, 수동 완료 workflow 검증
+- Viewer 변경/export 제한과 모바일 keyboard confirmation 검증
+- CI 독립 job 및 실패 trace/screenshot/video/HTML artifact 보존
+- 테스트 과정에서 발견된 Cluster 생성 직후 설치 명령 초기화 race condition 수정
+
 ### Catalog Externalization
 
 - classpath 기본 catalog와 외부 JSON override path 추가
@@ -122,6 +132,12 @@
 - PR URL과 deployment outcome 저장
 - rollback handoff와 verification checklist 제공
 
+현재 상태:
+
+- GitHub draft PR 생성과 PR 상태 webhook 동기화 완료
+- deployment, verification, rollback 결과 저장 및 Settings UI 표시 완료
+- GitLab/Gitea provider는 후속 대상
+
 ### Agent And Webhook Auth Regression
 
 대상:
@@ -150,13 +166,18 @@
 - disk, inode, memory, pid, network, conntrack, runtime, kubelet, systemd, kernel, cni, dns collector 결과 확인
 - 플랫폼별 차이를 compatibility matrix에 기록
 
+현재 상태:
+
+- RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료
+- kubeadm, 관리형 Kubernetes, OpenShift 계열 검증 대기
+
 ## Next Priority
 
-1. 사용자 업무 흐름 중심 Playwright E2E 확장
-2. 실제 Kubernetes Agent lifecycle E2E 실행기
-3. GitHub GitOps PR 생성과 변경 결과 추적
-4. Report/Incident/Task pagination과 검색/필터
-5. Collector별 typed evidence schema와 분석 품질 평가
+1. kubeadm과 관리형 Kubernetes Agent compatibility 검증
+2. GitLab/Gitea GitOps provider 확장
+3. Report/Incident/Task pagination과 검색/필터
+4. Collector별 typed evidence schema와 분석 품질 평가
+5. Playwright API 오류 주입과 Agent 연결 상태 시나리오 확장
 
 ## Positioning
 

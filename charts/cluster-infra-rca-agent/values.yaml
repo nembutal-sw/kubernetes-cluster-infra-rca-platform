@@ -12,6 +12,16 @@ image:
 
 imagePullSecrets: []
 
+# Development-only source injection for registry-independent canary validation.
+# Keep disabled for production releases.
+developmentSourceBundle:
+  enabled: false
+  configMapName: ""
+  key: node-agent.tar.gz
+
+statePersistence:
+  enabled: true
+
 backendUrl: ""
 mode: safe
 

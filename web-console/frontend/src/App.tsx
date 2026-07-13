@@ -36,6 +36,8 @@ import type {
   CatalogOverrideDraft,
   CatalogOverrideHandoff,
   CatalogOverridePreviewResponse,
+  GitOpsChange,
+  GitOpsDeploymentState,
   ClusterCreateForm,
   ClusterThresholdSettings,
   ClusterView,
@@ -251,10 +253,13 @@ function ConsoleApp() {
       },
     });
     notify(t("Cluster created."));
-    await loadConsoleData(true);
-    await generateInstallCommand(cluster.cluster_id, form.backend_url);
     setSelectedCluster(cluster);
     navigate(clusterPath(cluster.cluster_id));
+    await Promise.all([
+      loadConsoleData(true),
+      loadClusterDetail(cluster),
+      generateInstallCommand(cluster.cluster_id, form.backend_url),
+    ]);
   }
 
   async function deleteCluster(cluster: ClusterView, confirmName: string) {
@@ -527,6 +532,44 @@ function ConsoleApp() {
     );
   }
 
+  async function createCatalogGitOpsChange(draft: CatalogOverrideDraft): Promise<GitOpsChange> {
+    const change = await callApi<GitOpsChange>(
+      `/api/v1/catalog/overrides/drafts/${encodeURIComponent(draft.draft_id)}/gitops-changes`,
+      { method: "POST", body: { confirmed: true } },
+    );
+    notify(t(change.pull_request_state === "failed" ? "GitOps PR creation failed." : "GitOps pull request created."), change.pull_request_state === "failed" ? "danger" : "success");
+    return change;
+  }
+
+  async function loadCatalogGitOpsChanges(draft: CatalogOverrideDraft): Promise<GitOpsChange[]> {
+    const query = new URLSearchParams({
+      sourceType: "catalog_override_draft",
+      sourceId: draft.draft_id,
+      limit: "10",
+    });
+    const changes = await callApi<GitOpsChange[]>(`/api/v1/gitops/changes?${query.toString()}`);
+    return Array.isArray(changes) ? changes : [];
+  }
+
+  async function updateGitOpsOutcome(
+    change: GitOpsChange,
+    state: GitOpsDeploymentState,
+    verificationResult: string,
+    rollbackReference: string,
+  ): Promise<GitOpsChange> {
+    const updated = await callApi<GitOpsChange>(`/api/v1/gitops/changes/${encodeURIComponent(change.change_id)}/outcome`, {
+      method: "POST",
+      body: {
+        confirmed: true,
+        deployment_state: state,
+        verification_result: verificationResult,
+        rollback_reference: rollbackReference,
+      },
+    });
+    notify(t("GitOps deployment state recorded."));
+    return updated;
+  }
+
   if (bootLoading) {
     return <BootScreen t={t} />;
   }
@@ -686,6 +729,9 @@ function ConsoleApp() {
               onCreateCatalogOverrideDraft={createCatalogOverrideDraft}
               onDecideCatalogOverrideDraft={decideCatalogOverrideDraft}
               onLoadCatalogOverrideHandoff={loadCatalogOverrideHandoff}
+              onCreateCatalogGitOpsChange={createCatalogGitOpsChange}
+              onLoadCatalogGitOpsChanges={loadCatalogGitOpsChanges}
+              onUpdateGitOpsOutcome={updateGitOpsOutcome}
               t={t}
             />
           )}

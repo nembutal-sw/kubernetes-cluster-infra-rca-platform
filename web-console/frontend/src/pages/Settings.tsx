@@ -21,6 +21,8 @@ import type {
   NotificationTestResponse,
   OperationalCatalogDetail,
   CatalogOverridePreviewResponse,
+  GitOpsChange,
+  GitOpsDeploymentState,
   PasswordChangeForm,
   PlatformInfo,
   TFunction,
@@ -49,6 +51,14 @@ interface SettingsViewProps {
     note: string,
   ) => Promise<CatalogOverrideDraft>;
   onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
+  onCreateCatalogGitOpsChange: (draft: CatalogOverrideDraft) => Promise<GitOpsChange>;
+  onLoadCatalogGitOpsChanges: (draft: CatalogOverrideDraft) => Promise<GitOpsChange[]>;
+  onUpdateGitOpsOutcome: (
+    change: GitOpsChange,
+    state: GitOpsDeploymentState,
+    verificationResult: string,
+    rollbackReference: string,
+  ) => Promise<GitOpsChange>;
   t: TFunction;
 }
 
@@ -70,6 +80,9 @@ export function SettingsView({
   onCreateCatalogOverrideDraft,
   onDecideCatalogOverrideDraft,
   onLoadCatalogOverrideHandoff,
+  onCreateCatalogGitOpsChange,
+  onLoadCatalogGitOpsChanges,
+  onUpdateGitOpsOutcome,
   t,
 }: SettingsViewProps) {
   return (
@@ -110,6 +123,9 @@ export function SettingsView({
         onCreateCatalogOverrideDraft={onCreateCatalogOverrideDraft}
         onDecideCatalogOverrideDraft={onDecideCatalogOverrideDraft}
         onLoadCatalogOverrideHandoff={onLoadCatalogOverrideHandoff}
+        onCreateCatalogGitOpsChange={onCreateCatalogGitOpsChange}
+        onLoadCatalogGitOpsChanges={onLoadCatalogGitOpsChanges}
+        onUpdateGitOpsOutcome={onUpdateGitOpsOutcome}
         t={t}
       />
       <PlatformInfoSection platformInfo={platformInfo} t={t} />

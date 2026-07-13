@@ -80,8 +80,8 @@ public record AnalysisContext(
         for (Map.Entry<String, Object> entry : flattened.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
             if (!key.contains(fragment.toLowerCase(Locale.ROOT))
-                || !(key.contains("status") || key.contains("state") || key.contains("healthy")
-                || key.contains("ready") || key.contains("active") || key.contains("ok"))) {
+                || !isStatusField(key)
+                || isSkippedProbe(entry.getKey())) {
                 continue;
             }
             String value = string(entry.getValue()).toLowerCase(Locale.ROOT);
@@ -90,6 +90,35 @@ public record AnalysisContext(
             }
         }
         return Optional.empty();
+    }
+
+    private boolean isSkippedProbe(String path) {
+        int separator = path.lastIndexOf('.');
+        if (separator < 0) {
+            return false;
+        }
+        return Boolean.TRUE.equals(flattened.get(path.substring(0, separator) + ".skipped"));
+    }
+
+    private static boolean isStatusField(String path) {
+        int separator = path.lastIndexOf('.');
+        String field = separator >= 0 ? path.substring(separator + 1) : path;
+        int arraySuffix = field.lastIndexOf(']');
+        if (arraySuffix >= 0 && arraySuffix + 1 < field.length()) {
+            field = field.substring(arraySuffix + 1);
+        }
+        return field.equals("status")
+            || field.equals("state")
+            || field.equals("healthy")
+            || field.equals("ready")
+            || field.equals("active")
+            || field.equals("ok")
+            || field.endsWith("_status")
+            || field.endsWith("_state")
+            || field.endsWith("_healthy")
+            || field.endsWith("_ready")
+            || field.endsWith("_active")
+            || field.endsWith("_ok");
     }
 
     public boolean contains(String value) {

@@ -562,6 +562,35 @@ def test_systemd_and_kubelet_collectors_support_daemonset_file_mode(
     assert any("kubelet" in line for line in evidence["kubelet"]["host_log_excerpt"])
 
 
+def test_systemd_file_mode_detects_usr_local_host_unit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    root = tmp_path / "root"
+    unit_dir = root / "usr/local/lib/systemd/system"
+    unit_dir.mkdir(parents=True)
+    (unit_dir / "rke2-server.service").write_text(
+        "[Service]\nExecStart=/usr/local/bin/rke2 server\n",
+        encoding="utf-8",
+    )
+    paths = AgentPaths(
+        root=root,
+        proc=paths.proc,
+        sys=paths.sys,
+        etc=paths.etc,
+        var_log=paths.var_log,
+        run=paths.run,
+    )
+    monkeypatch.setenv("SYSTEMD_COLLECTOR_MODE", "file")
+
+    evidence = collect_evidence(["systemd"], paths=paths, runner=FakeRunner())
+    unit = evidence["systemd"]["units"]["rke2-server"]
+
+    assert unit["unit_file_present"] is True
+    assert unit["paths"] == [str(unit_dir / "rke2-server.service")]
+
+
 def test_kubernetes_collector_reports_config_error_outside_cluster(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

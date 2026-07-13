@@ -122,7 +122,7 @@ export function DemoScenarios({ scenarios, clusters, onRunDemo, t }: DemoScenari
   return (
     <div className="scenario-grid">
       {scenarios.map((scenario) => (
-        <article key={scenario.key} className="scenario-card">
+        <article key={scenario.key} className="scenario-card" data-testid={`scenario-${scenario.key}`}>
           <h3>{scenario.name}</h3>
           <p>{scenario.description}</p>
           <div className="scenario-controls">
@@ -131,7 +131,7 @@ export function DemoScenarios({ scenarios, clusters, onRunDemo, t }: DemoScenari
               {clusters.map((cluster) => <option key={cluster.cluster_id} value={cluster.cluster_id}>{cluster.name}</option>)}
             </select>
             <input className="form-control form-control-sm" value={nodeName} onChange={(event) => setNodeName(event.target.value)} />
-            <button className="btn btn-sm btn-primary" onClick={() => onRunDemo(scenario, clusterId, nodeName)}>{t("Run")}</button>
+            <button className="btn btn-sm btn-primary" data-testid="scenario-run" onClick={() => onRunDemo(scenario, clusterId, nodeName)}>{t("Run")}</button>
           </div>
         </article>
       ))}

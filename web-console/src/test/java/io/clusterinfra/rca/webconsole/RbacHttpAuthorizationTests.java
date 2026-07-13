@@ -114,6 +114,24 @@ class RbacHttpAuthorizationTests {
         ), HttpStatus.OK);
         assertStatus(operator, HttpMethod.GET, "/api/v1/catalog/overrides/drafts/" + draftId + "/handoff", null, HttpStatus.OK);
         assertStatus(auditor, HttpMethod.GET, "/api/v1/catalog/overrides/drafts/" + draftId + "/handoff", null, HttpStatus.FORBIDDEN);
+        assertStatus(admin, HttpMethod.POST, "/api/v1/catalog/overrides/drafts/" + draftId + "/gitops-changes", Map.of(
+            "confirmed", true
+        ), HttpStatus.SERVICE_UNAVAILABLE);
+        assertStatus(viewer, HttpMethod.POST, "/api/v1/catalog/overrides/drafts/" + draftId + "/gitops-changes", Map.of(
+            "confirmed", true
+        ), HttpStatus.FORBIDDEN);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.OK);
+        assertStatus(approver, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.OK);
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.OK);
+        assertStatus(null, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.UNAUTHORIZED);
+        assertStatus(operator, HttpMethod.POST, "/api/v1/gitops/changes/change-missing/outcome", Map.of(
+            "confirmed", true,
+            "deployment_state", "in_progress"
+        ), HttpStatus.NOT_FOUND);
+        assertStatus(approver, HttpMethod.POST, "/api/v1/gitops/changes/change-missing/outcome", Map.of(
+            "confirmed", true,
+            "deployment_state", "in_progress"
+        ), HttpStatus.FORBIDDEN);
         assertStatus(approver, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
 

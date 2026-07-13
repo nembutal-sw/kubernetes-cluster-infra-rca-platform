@@ -168,6 +168,7 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
             {t("Username")}
             <input
               className="form-control"
+              data-testid="login-username"
               autoComplete="username"
               value={form.username}
               onChange={(event) => setForm({ ...form, username: event.target.value })}
@@ -177,13 +178,14 @@ export function LoginPage({ onLogin, locale, setLocale, t, toast }: LoginPagePro
             {t("Password")}
             <input
               className="form-control"
+              data-testid="login-password"
               type="password"
               autoComplete="current-password"
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
             />
           </label>
-          <button className="btn btn-primary w-100" disabled={busy}>
+          <button className="btn btn-primary w-100" data-testid="login-submit" disabled={busy}>
             {busy ? "..." : t("Sign in")}
           </button>
         </form>
@@ -311,7 +313,7 @@ export function ActionDialog({ state, onClose, onConfirm, t }: ActionDialogProps
   }
   return (
     <div className="modal-backdrop-custom">
-      <section className="console-modal">
+      <section className="console-modal" data-testid="action-request-dialog">
         <header>
           <div>
             <p className="section-kicker">{t("Policy gate")}</p>
@@ -332,10 +334,10 @@ export function ActionDialog({ state, onClose, onConfirm, t }: ActionDialogProps
           <p>{action.reason}</p>
           {commandPreview.length > 0 && <pre className="command-preview">{commandPreview.join("\n")}</pre>}
         </div>
-        <textarea className="form-control" rows={3} placeholder={t("Operator note")} value={note} onChange={(event) => setNote(event.target.value)} />
+        <textarea className="form-control" data-testid="action-request-note" rows={3} placeholder={t("Operator note")} value={note} onChange={(event) => setNote(event.target.value)} />
         <footer>
           <button className="btn btn-outline-secondary" onClick={onClose}>{t("Cancel")}</button>
-          <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? "..." : t("Confirm")}</button>
+          <button className="btn btn-primary" data-testid="action-request-confirm" onClick={submit} disabled={busy}>{busy ? "..." : t("Confirm")}</button>
         </footer>
       </section>
     </div>
@@ -347,7 +349,7 @@ export function DeleteClusterDialog({ state, onClose, onConfirm, t }: DeleteClus
   const cluster = state.cluster;
   return (
     <div className="modal-backdrop-custom">
-      <section className="console-modal">
+      <section className="console-modal" data-testid="delete-cluster-dialog">
         <header>
           <div>
             <p className="section-kicker">{cluster.cluster_id}</p>
@@ -358,10 +360,10 @@ export function DeleteClusterDialog({ state, onClose, onConfirm, t }: DeleteClus
         <div className="alert alert-danger">
           {t("Type the cluster name to confirm deletion.")} <strong>{cluster.name}</strong>
         </div>
-        <input className="form-control" value={confirmName} onChange={(event) => setConfirmName(event.target.value)} />
+        <input className="form-control" data-testid="delete-cluster-confirm-name" value={confirmName} onChange={(event) => setConfirmName(event.target.value)} />
         <footer>
           <button className="btn btn-outline-secondary" onClick={onClose}>{t("Cancel")}</button>
-          <button className="btn btn-danger" disabled={confirmName !== cluster.name} onClick={() => onConfirm(cluster, confirmName)}>{t("Delete")}</button>
+          <button className="btn btn-danger" data-testid="delete-cluster-confirm" disabled={confirmName !== cluster.name} onClick={() => onConfirm(cluster, confirmName)}>{t("Delete")}</button>
         </footer>
       </section>
     </div>

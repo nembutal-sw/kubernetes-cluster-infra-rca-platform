@@ -28,6 +28,7 @@ public class RcaConsoleProperties {
     private final Monitoring monitoring = new Monitoring();
     private final Observability observability = new Observability();
     private final Catalog catalog = new Catalog();
+    private final GitOps gitOps = new GitOps();
 
     public String getPublicApiBaseUrl() {
         return publicApiBaseUrl == null ? "" : publicApiBaseUrl.trim();
@@ -135,6 +136,10 @@ public class RcaConsoleProperties {
 
     public Catalog getCatalog() {
         return catalog;
+    }
+
+    public GitOps getGitOps() {
+        return gitOps;
     }
 
     public static class Agent {
@@ -291,6 +296,94 @@ public class RcaConsoleProperties {
 
         public void setExternalPath(String externalPath) {
             this.externalPath = externalPath;
+        }
+    }
+
+    public static class GitOps {
+        private boolean enabled;
+        private String provider = "github";
+        private String apiBaseUrl = "https://api.github.com";
+        private String repository = "";
+        private String baseBranch = "main";
+        private String filePath = "ops/catalog/operational-catalog.override.json";
+        private String token = "";
+        private String webhookSecret = "";
+        private int timeoutSeconds = 15;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getProvider() {
+            return clean(provider, "github");
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
+
+        public String getApiBaseUrl() {
+            return clean(apiBaseUrl, "https://api.github.com").replaceAll("/+$", "");
+        }
+
+        public void setApiBaseUrl(String apiBaseUrl) {
+            this.apiBaseUrl = apiBaseUrl;
+        }
+
+        public String getRepository() {
+            return clean(repository, "");
+        }
+
+        public void setRepository(String repository) {
+            this.repository = repository;
+        }
+
+        public String getBaseBranch() {
+            return clean(baseBranch, "main");
+        }
+
+        public void setBaseBranch(String baseBranch) {
+            this.baseBranch = baseBranch;
+        }
+
+        public String getFilePath() {
+            return clean(filePath, "ops/catalog/operational-catalog.override.json");
+        }
+
+        public void setFilePath(String filePath) {
+            this.filePath = filePath;
+        }
+
+        public String getToken() {
+            return clean(token, "");
+        }
+
+        public void setToken(String token) {
+            this.token = token;
+        }
+
+        public String getWebhookSecret() {
+            return clean(webhookSecret, "");
+        }
+
+        public void setWebhookSecret(String webhookSecret) {
+            this.webhookSecret = webhookSecret;
+        }
+
+        public int getTimeoutSeconds() {
+            return Math.max(3, Math.min(timeoutSeconds, 60));
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
+
+        private String clean(String value, String fallback) {
+            return value == null || value.isBlank() ? fallback : value.trim();
         }
     }
 

@@ -16,6 +16,8 @@ import type {
   CatalogOverrideDraft,
   CatalogOverrideHandoff,
   CatalogOverridePreviewResponse,
+  GitOpsChange,
+  GitOpsDeploymentState,
   LlmConfigurationInfo,
   LlmDiagnosticCheck,
   LlmDiagnosticResponse,
@@ -87,6 +89,14 @@ interface CatalogSectionProps {
     note: string,
   ) => Promise<CatalogOverrideDraft>;
   onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
+  onCreateCatalogGitOpsChange: (draft: CatalogOverrideDraft) => Promise<GitOpsChange>;
+  onLoadCatalogGitOpsChanges: (draft: CatalogOverrideDraft) => Promise<GitOpsChange[]>;
+  onUpdateGitOpsOutcome: (
+    change: GitOpsChange,
+    state: GitOpsDeploymentState,
+    verificationResult: string,
+    rollbackReference: string,
+  ) => Promise<GitOpsChange>;
   t: TFunction;
 }
 
@@ -331,6 +341,9 @@ export function CatalogSection({
   onCreateCatalogOverrideDraft,
   onDecideCatalogOverrideDraft,
   onLoadCatalogOverrideHandoff,
+  onCreateCatalogGitOpsChange,
+  onLoadCatalogGitOpsChanges,
+  onUpdateGitOpsOutcome,
   t,
 }: CatalogSectionProps) {
   const [overrideJson, setOverrideJson] = useState(DEFAULT_CATALOG_OVERRIDE_JSON);
@@ -340,6 +353,7 @@ export function CatalogSection({
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftBusyId, setDraftBusyId] = useState("");
   const [handoffs, setHandoffs] = useState<Record<string, CatalogOverrideHandoff>>({});
+  const [gitOpsChanges, setGitOpsChanges] = useState<Record<string, GitOpsChange[]>>({});
   const summary = catalogDetail?.summary || platformInfo?.catalog || {};
   const collectors = Object.entries(catalogDetail?.collectors || {});
   const actions = Object.entries(catalogDetail?.actions || {});
@@ -398,8 +412,44 @@ export function CatalogSection({
   async function showHandoff(draft: CatalogOverrideDraft) {
     setDraftBusyId(`${draft.draft_id}:handoff`);
     try {
-      const handoff = await onLoadCatalogOverrideHandoff(draft);
+      const [handoff, trackedChanges] = await Promise.all([
+        onLoadCatalogOverrideHandoff(draft),
+        onLoadCatalogGitOpsChanges(draft),
+      ]);
       setHandoffs((current) => ({ ...current, [draft.draft_id]: handoff }));
+      setGitOpsChanges((current) => ({ ...current, [draft.draft_id]: trackedChanges }));
+    } finally {
+      setDraftBusyId("");
+    }
+  }
+  async function createGitOpsChange(draft: CatalogOverrideDraft) {
+    if (!window.confirm(t("Create a draft GitOps pull request for this approved catalog change?"))) {
+      return;
+    }
+    setDraftBusyId(`${draft.draft_id}:gitops`);
+    try {
+      const change = await onCreateCatalogGitOpsChange(draft);
+      setGitOpsChanges((current) => ({ ...current, [draft.draft_id]: [change] }));
+    } finally {
+      setDraftBusyId("");
+    }
+  }
+  async function updateGitOpsOutcome(change: GitOpsChange, state: GitOpsDeploymentState) {
+    const verification = window.prompt(t("Verification result"), change.verification_result || "") || "";
+    const rollback = state === "rolled_back"
+      ? window.prompt(t("Rollback reference"), change.rollback_reference || "") || ""
+      : change.rollback_reference || "";
+    if (!window.confirm(`${t("Record deployment state")}: ${state}?`)) {
+      return;
+    }
+    setDraftBusyId(`${change.change_id}:outcome`);
+    try {
+      const updated = await onUpdateGitOpsOutcome(change, state, verification, rollback);
+      setGitOpsChanges((current) => ({
+        ...current,
+        [change.source_id || ""]: (current[change.source_id || ""] || []).map((item) =>
+          item.change_id === updated.change_id ? updated : item),
+      }));
     } finally {
       setDraftBusyId("");
     }
@@ -552,8 +602,12 @@ export function CatalogSection({
             currentUser={currentUser}
             draftBusyId={draftBusyId}
             handoffs={handoffs}
+            gitOpsEnabled={platformInfo?.gitops?.enabled === true}
+            gitOpsChanges={gitOpsChanges}
             onDecide={decideDraft}
             onShowHandoff={showHandoff}
+            onCreateGitOps={createGitOpsChange}
+            onUpdateGitOpsOutcome={updateGitOpsOutcome}
             t={t}
           />
         </div>
@@ -627,16 +681,24 @@ function CatalogOverrideDraftsPanel({
   currentUser,
   draftBusyId,
   handoffs,
+  gitOpsEnabled,
+  gitOpsChanges,
   onDecide,
   onShowHandoff,
+  onCreateGitOps,
+  onUpdateGitOpsOutcome,
   t,
 }: {
   drafts: CatalogOverrideDraft[];
   currentUser: UserAccount | null;
   draftBusyId: string;
   handoffs: Record<string, CatalogOverrideHandoff>;
+  gitOpsEnabled: boolean;
+  gitOpsChanges: Record<string, GitOpsChange[]>;
   onDecide: (draft: CatalogOverrideDraft, decision: "approve" | "reject" | "discard") => void | Promise<void>;
   onShowHandoff: (draft: CatalogOverrideDraft) => void | Promise<void>;
+  onCreateGitOps: (draft: CatalogOverrideDraft) => void | Promise<void>;
+  onUpdateGitOpsOutcome: (change: GitOpsChange, state: GitOpsDeploymentState) => void | Promise<void>;
   t: TFunction;
 }) {
   if (!drafts.length) {
@@ -650,6 +712,7 @@ function CatalogOverrideDraftsPanel({
     <div className="catalog-draft-list">
       {drafts.map((draft) => {
         const handoff = handoffs[draft.draft_id];
+        const trackedChanges = gitOpsChanges[draft.draft_id] || [];
         const diff = Array.isArray(draft.diff) ? draft.diff : [];
         return (
           <article className="catalog-draft-item" key={draft.draft_id}>
@@ -687,11 +750,69 @@ function CatalogOverrideDraftsPanel({
                   <span>{t("Show handoff")}</span>
                 </button>
               )}
+              {draft.status === "approved" && gitOpsEnabled && canDiscard && (
+                <button className="btn btn-sm btn-success icon-button" disabled={draftBusyId === `${draft.draft_id}:gitops`} onClick={() => onCreateGitOps(draft)}>
+                  <Icon name={draftBusyId === `${draft.draft_id}:gitops` ? "arrow-repeat" : "git"} />
+                  <span>{t("Create GitOps PR")}</span>
+                </button>
+              )}
             </div>
             {handoff && <CatalogOverrideHandoffPanel handoff={handoff} t={t} />}
+            {trackedChanges.map((change) => (
+              <GitOpsChangePanel
+                key={change.change_id}
+                change={change}
+                busy={draftBusyId === `${change.change_id}:outcome`}
+                canUpdate={canDiscard}
+                onUpdate={onUpdateGitOpsOutcome}
+                t={t}
+              />
+            ))}
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function GitOpsChangePanel({
+  change,
+  busy,
+  canUpdate,
+  onUpdate,
+  t,
+}: {
+  change: GitOpsChange;
+  busy: boolean;
+  canUpdate: boolean;
+  onUpdate: (change: GitOpsChange, state: GitOpsDeploymentState) => void | Promise<void>;
+  t: TFunction;
+}) {
+  const nextStates: GitOpsDeploymentState[] = change.pull_request_state !== "merged" ? []
+    : change.deployment_state === "pending" ? ["in_progress"]
+      : change.deployment_state === "in_progress" ? ["succeeded", "failed"]
+        : ["succeeded", "failed"].includes(String(change.deployment_state)) ? ["rolled_back"] : [];
+  return (
+    <div className="catalog-handoff gitops-change-panel">
+      <div className="catalog-preview-status">
+        <strong>{change.repository || "GitOps"} #{change.pull_request_number || "-"}</strong>
+        <StatusBadge value={change.pull_request_state || "creating"} tone={change.pull_request_state === "merged" ? "green" : change.pull_request_state === "failed" ? "red" : "blue"} t={t} />
+        <StatusBadge value={change.deployment_state || "pending"} tone={change.deployment_state === "succeeded" ? "green" : change.deployment_state === "failed" ? "red" : "gray"} t={t} />
+      </div>
+      {change.pull_request_url && <a href={change.pull_request_url} target="_blank" rel="noreferrer">{t("Open pull request")}</a>}
+      <code>{change.branch || "-"}</code>
+      {change.error_message && <div className="alert alert-danger mb-0">{change.error_message}</div>}
+      {change.verification_result && <p>{change.verification_result}</p>}
+      {change.rollback_reference && <p>{t("Rollback reference")}: {change.rollback_reference}</p>}
+      {canUpdate && nextStates.length > 0 && (
+        <div className="catalog-draft-actions">
+          {nextStates.map((state) => (
+            <button key={state} className="btn btn-sm btn-outline-secondary" disabled={busy} onClick={() => onUpdate(change, state)}>
+              {t(state === "in_progress" ? "Start deployment" : state === "succeeded" ? "Mark succeeded" : state === "failed" ? "Mark failed" : "Record rollback")}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

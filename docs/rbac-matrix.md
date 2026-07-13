@@ -26,6 +26,9 @@ Web Console API의 기본 역할 계약을 정리한다. 실제 회귀 검증은
 | Action execute request | `ADMIN`, `OPERATOR` | 직접 실행이 아니라 승인 요청 또는 수동 처리 흐름 |
 | Action approve/reject | `ADMIN`, `APPROVER` | 승인 후에도 agent 자동 실행은 금지 |
 | Manual completion | `ADMIN`, `OPERATOR` | 외부 runbook/GitOps 처리 완료 표시 |
+| GitOps PR create | `ADMIN`, `OPERATOR` | 승인된 catalog draft만 허용 |
+| GitOps change read | 모든 Console role | PR, 배포, 검증, rollback 상태 조회 |
+| GitOps deployment outcome | `ADMIN`, `OPERATOR` | merged PR의 외부 배포 결과 기록 |
 | Metrics scrape | `ADMIN`, `OPERATOR`, `AUDITOR`, `METRICS` | `METRICS`는 token 기반 전용 role |
 
 ## Guardrails
@@ -33,5 +36,5 @@ Web Console API의 기본 역할 계약을 정리한다. 실제 회귀 검증은
 - `VIEWER`는 변경 API에 접근할 수 없다.
 - `APPROVER`는 승인 역할이며 export 역할이 아니다.
 - `AUDITOR`는 audit/metrics 중심 역할이며 운영 변경 API에 접근할 수 없다.
-- Agent/Webhook/Manifest API는 session role이 아니라 전용 token/filter로 보호한다.
+- Agent/Alertmanager/Manifest API는 전용 token/filter로 보호하고, GitHub webhook은 HMAC signature와 delivery replay guard로 보호한다.
 - LLM이 제안한 조치는 항상 `automation_allowed=false` 상태를 유지하고, action workflow는 승인/감사/수동 완료 기록으로 제한한다.

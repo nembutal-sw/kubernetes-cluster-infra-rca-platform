@@ -517,6 +517,19 @@ export const KO: Record<string, string> = {
   Current: "현재",
   Proposed: "제안",
   "No catalog changes detected.": "감지된 카탈로그 변경 사항이 없습니다.",
+  "Create a draft GitOps pull request for this approved catalog change?": "승인된 카탈로그 변경으로 GitOps 초안 PR을 생성할까요?",
+  "Create GitOps PR": "GitOps PR 생성",
+  "GitOps pull request created.": "GitOps pull request를 생성했습니다.",
+  "GitOps PR creation failed.": "GitOps PR 생성에 실패했습니다.",
+  "GitOps deployment state recorded.": "GitOps 배포 상태를 기록했습니다.",
+  "Open pull request": "Pull request 열기",
+  "Verification result": "검증 결과",
+  "Rollback reference": "롤백 참조",
+  "Record deployment state": "배포 상태 기록",
+  "Start deployment": "배포 시작",
+  "Mark succeeded": "성공으로 기록",
+  "Mark failed": "실패로 기록",
+  "Record rollback": "롤백 기록",
 };
 
 export const POLICY_HELP: Record<string, string> = {

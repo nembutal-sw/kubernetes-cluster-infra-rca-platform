@@ -199,3 +199,15 @@ rca:
   catalog:
     classpath-location: ${RCA_CATALOG_CLASSPATH_LOCATION:classpath:catalog/operational-catalog.json}
     external-path: ${RCA_CATALOG_EXTERNAL_PATH:}
+  gitops:
+    enabled: ${RCA_GITOPS_ENABLED:false}
+    provider: ${RCA_GITOPS_PROVIDER:github}
+    api-base-url: ${RCA_GITOPS_API_BASE_URL:https://api.github.com}
+    repository: ${RCA_GITOPS_REPOSITORY:}
+    base-branch: ${RCA_GITOPS_BASE_BRANCH:main}
+    file-path: ${RCA_GITOPS_FILE_PATH:ops/catalog/operational-catalog.override.json}
+    token: ${RCA_GITOPS_TOKEN:}
+    webhook-secret: ${RCA_GITOPS_WEBHOOK_SECRET:}
+    timeout-seconds: ${RCA_GITOPS_TIMEOUT_SECONDS:15}
+    classpath-location: ${RCA_CATALOG_CLASSPATH_LOCATION:classpath:catalog/operational-catalog.json}
+    external-path: ${RCA_CATALOG_EXTERNAL_PATH:}

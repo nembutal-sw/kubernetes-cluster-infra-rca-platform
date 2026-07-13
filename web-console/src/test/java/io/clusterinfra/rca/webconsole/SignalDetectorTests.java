@@ -18,6 +18,7 @@ import io.clusterinfra.rca.webconsole.analysis.detector.KubeletFailureDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodePressureConditionDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.NodeReadinessDetector;
 import io.clusterinfra.rca.webconsole.analysis.detector.PidPressureDetector;
+import io.clusterinfra.rca.webconsole.analysis.detector.RuntimeFailureDetector;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import java.util.List;
 import java.util.Map;
@@ -189,13 +190,79 @@ class SignalDetectorTests {
     }
 
     @Test
+    void rke2InventoryAbsenceAndOptionalCliProbeDoNotBecomeRuntimeFailures() {
+        AnalysisContext context = context(Map.of(
+            "systemd", Map.of(
+                "collection_mode", "file",
+                "units", Map.of(
+                    "microk8s.daemon-kubelet", Map.of("unit_file_present", false),
+                    "microk8s.daemon-containerd", Map.of("unit_file_present", false)
+                )
+            ),
+            "runtime", Map.of(
+                "status", "ok",
+                "runtime_kind", "containerd",
+                "runtime_socket_healthy", true,
+                "containerd_socket_healthy", true,
+                "ctr_version", Map.of("ok", false, "stderr", "command not found: ctr")
+            ),
+            "kubelet", Map.of(
+                "status", "ok",
+                "collection_mode", "file",
+                "journal", Map.of("ok", false, "skipped", true)
+            ),
+            "kubernetes", Map.of(
+                "node_ready", true,
+                "container_runtime_version", "containerd://2.1.4-k3s2"
+            )
+        ));
+
+        assertThat(new KubeletFailureDetector().detect(context)).isEmpty();
+        assertThat(new RuntimeFailureDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void runtimeDetectorStillReportsExplicitSocketFailure() {
+        AnalysisContext context = context(Map.of(
+            "runtime", Map.of(
+                "status", "failed",
+                "runtime_socket_healthy", false,
+                "containerd_socket_healthy", false
+            )
+        ));
+
+        assertThat(new RuntimeFailureDetector().detect(context))
+            .extracting(Signal::name)
+            .contains("container_runtime_unit_unhealthy", "containerd_unit_unhealthy");
+    }
+
+    @Test
     void unrelatedErrorTextDoesNotBecomeKernelIoSignal() {
         AnalysisContext context = context(Map.of(
-            "application", Map.of("message", "request error rate is 1 percent"),
-            "kernel", Map.of("messages", List.of("device initialized successfully"))
+            "application", Map.of(
+                "message", "request error rate is 1 percent",
+                "io_error_detected", true
+            ),
+            "kernel", Map.of(
+                "messages", List.of("device initialized successfully"),
+                "io_error_detected", false,
+                "read_only_filesystem_detected", false
+            ),
+            "disk", Map.of("kernel_io_error_detected", false)
         ));
 
         assertThat(new KernelLogDetector().detect(context)).isEmpty();
+    }
+
+    @Test
+    void kernelDetectorUsesStructuredBooleanEvidence() {
+        AnalysisContext context = context(Map.of(
+            "kernel", Map.of("io_error_detected", true, "kernel_log_excerpt", List.of())
+        ));
+
+        assertThat(new KernelLogDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("kernel_io_error");
     }
 
     @Test

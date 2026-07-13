@@ -7,7 +7,9 @@ import io.clusterinfra.rca.webconsole.analysis.SignalDetector;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -33,11 +35,14 @@ public class KernelLogDetector implements SignalDetector {
     @Override
     public List<Signal> detect(AnalysisContext context) {
         List<Signal> signals = new ArrayList<>();
-        String searchable = context.searchable();
-        if (KERNEL_IO.matcher(searchable).find()) {
+        String searchable = kernelEvidenceText(context);
+        boolean readOnly = containsTrue(context, "read_only_filesystem_detected")
+            || containsTrue(context, "root_mount_read_only")
+            || searchable.toLowerCase(Locale.ROOT).contains("read-only file system");
+        if (containsTrue(context, "io_error_detected") || containsTrue(context, "kernel_io_error_detected")
+            || KERNEL_IO.matcher(searchable).find()) {
             signals.add(DetectorSupport.matchedSignal(
-                searchable.toLowerCase(Locale.ROOT).contains("read-only file system")
-                    ? "root_filesystem_read_only" : "kernel_io_error",
+                readOnly ? "root_filesystem_read_only" : "kernel_io_error",
                 "kernel",
                 "critical",
                 "kernel log match",
@@ -47,7 +52,8 @@ public class KernelLogDetector implements SignalDetector {
                 "kernel", "disk"
             ));
         }
-        if (OOM.matcher(searchable).find()) {
+        if (containsTrue(context, "oom_detected") || containsTrue(context, "oom_kill_detected")
+            || OOM.matcher(searchable).find()) {
             signals.add(DetectorSupport.matchedSignal(
                 "kernel_oom_detected",
                 "memory",
@@ -59,7 +65,7 @@ public class KernelLogDetector implements SignalDetector {
                 "kernel", "memory"
             ));
         }
-        if (BLOCKED_TASK.matcher(searchable).find()) {
+        if (containsTrue(context, "blocked_task_detected") || BLOCKED_TASK.matcher(searchable).find()) {
             signals.add(DetectorSupport.matchedSignal(
                 "blocked_task_detected",
                 "kernel",
@@ -72,5 +78,33 @@ public class KernelLogDetector implements SignalDetector {
             ));
         }
         return signals;
+    }
+
+    private String kernelEvidenceText(AnalysisContext context) {
+        return context.flattened().entrySet().stream()
+            .filter(entry -> isKernelTextField(entry.getKey(), entry.getValue()))
+            .map(entry -> String.valueOf(entry.getValue()))
+            .collect(Collectors.joining("\n"));
+    }
+
+    private boolean isKernelTextField(String path, Object value) {
+        if (!(value instanceof String)) {
+            return false;
+        }
+        String normalized = path.toLowerCase(Locale.ROOT);
+        return normalized.startsWith("kernel.")
+            || normalized.startsWith("disk.kernel_log")
+            || normalized.startsWith("memory.kernel_log");
+    }
+
+    private boolean containsTrue(AnalysisContext context, String fieldSuffix) {
+        return context.flattened().entrySet().stream()
+            .filter(entry -> {
+                String path = entry.getKey().toLowerCase(Locale.ROOT);
+                return (path.startsWith("kernel.") || path.startsWith("disk.") || path.startsWith("memory."))
+                    && path.endsWith(fieldSuffix);
+            })
+            .map(Map.Entry::getValue)
+            .anyMatch(Boolean.TRUE::equals);
     }
 }

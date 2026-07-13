@@ -124,6 +124,7 @@ API:
 - 거절: `POST /api/v1/catalog/overrides/drafts/{draftId}/reject`
 - 폐기: `POST /api/v1/catalog/overrides/drafts/{draftId}/discard`
 - handoff: `GET /api/v1/catalog/overrides/drafts/{draftId}/handoff`
+- GitOps PR 생성: `POST /api/v1/catalog/overrides/drafts/{draftId}/gitops-changes`
 
 권한:
 
@@ -131,6 +132,7 @@ API:
 - draft 생성/폐기: `ADMIN`, `OPERATOR`
 - draft 승인/거절: `ADMIN`, `APPROVER`
 - handoff 조회: `ADMIN`, `OPERATOR`, `APPROVER`
+- GitOps PR 생성: `ADMIN`, `OPERATOR` (`approved` draft만 허용)
 
 상태:
 
@@ -143,5 +145,5 @@ API:
 handoff API는 GitOps PR 본문, runbook 단계, override 파일 내용을 반환한다.
 운영자는 이 내용을 이용해 별도 변경관리/PR/배포 절차에서 반영한다.
 
-현재 Web Console은 catalog를 직접 저장하거나 적용하지 않는다.
+GitOps 연동이 활성화되면 Web Console은 승인된 draft로 GitHub draft PR을 생성하고 상태를 추적할 수 있다. catalog를 실행 중인 Platform에 직접 적용하지는 않는다.
 운영 변경은 외부 JSON 파일을 배포하고 `RCA_CATALOG_EXTERNAL_PATH` 또는 `rca.catalog.external-path`로 연결한다.

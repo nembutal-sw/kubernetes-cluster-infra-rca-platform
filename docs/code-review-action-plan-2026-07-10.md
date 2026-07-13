@@ -6,13 +6,13 @@
 
 | 항목 | 상태 | 확인 결과 |
 | --- | --- | --- |
-| 실클러스터 준비도 검사 | 부분 완료 | Helm lint, server-side dry-run, 노드/Pod/Event 조회, Agent local collect까지 자동화됨 |
-| Agent 전체 E2E | 미완료 | canary 배포부터 register, evidence, report, incident, bundle, uninstall까지 잇는 실행기가 없음 |
+| 실클러스터 준비도 검사 | RKE2 완료 | Helm lint, server-side dry-run, canary 배포와 정리까지 실제 ARM64 RKE2에서 검증함 |
+| Agent 전체 E2E | RKE2 완료 | register, heartbeat, evidence, report, incident, bundle 검증과 uninstall을 자동화함 |
 | Console API 상태 모델 | 완료 | API별 `LoadState<T>`, stale 데이터 유지, 부분 장애 배너, 갱신 시각 적용 |
 | Agent Health 조회 | 완료 | `/api/v1/agent-health` 집계 API로 Dashboard N+1 제거 |
 | URL Routing | 완료 | React Router 기반 상세 URL, 직접 진입, 새로 고침, 뒤로 가기, RBAC/missing resource 처리를 적용함 |
-| Frontend 사용자 흐름 테스트 | 진행 중 | Vitest/RTL 회귀 테스트와 route smoke는 완료, 업무 흐름 Playwright E2E는 남음 |
-| GitOps 변경 추적 | 부분 완료 | 승인, diff, PR 본문과 runbook handoff는 있으나 실제 PR 생성과 상태 동기화가 없음 |
+| Frontend 사용자 흐름 테스트 | 핵심 흐름 완료 | Playwright로 세션, Cluster onboarding, RCA/manual action, Viewer, 모바일 keyboard 흐름을 검증함 |
+| GitOps 변경 추적 | GitHub 완료 | 승인된 catalog draft의 draft PR 생성, webhook 상태 동기화, 배포/검증/rollback 추적을 지원함 |
 | 공통 API 오류 형식 | 완료 | Backend/보안 필터 공통 오류 형식, trace header, Frontend typed error 적용 |
 
 ## Implementation Order
@@ -96,6 +96,8 @@ React Router를 적용해 화면 상태를 URL과 일치시킵니다.
 
 ### Phase 3. Frontend Regression Tests
 
+상태: 핵심 흐름 완료 (2026-07-12), 오류 주입과 Agent 연결 상태는 지속 확장
+
 화면이 렌더링되는지만 확인하는 smoke test와 실제 운영 업무 흐름 테스트를 분리합니다.
 
 도구:
@@ -122,7 +124,19 @@ React Router를 적용해 화면 상태를 URL과 일치시킵니다.
 - CI에서 component test와 Playwright 업무 흐름이 별도 job으로 실행됨
 - 실패한 시나리오의 screenshot, trace, log가 artifact로 남음
 
+구현 및 검증 결과:
+
+- Vitest 대상과 Playwright E2E 대상을 분리
+- 보호 URL 로그인 복원과 세션 만료 검증
+- Cluster 생성, 설치 명령, 상세 새로 고침, 삭제 검증
+- Demo Evidence부터 RCA report, 승인, 수동 완료, 거절까지 검증
+- Viewer mutation/export 비노출과 제한 Route redirect 검증
+- 모바일 viewport에서 수평 overflow와 keyboard-only 삭제 확인 검증
+- CI `console-workflow-e2e` job 및 실패 artifact 업로드 구성
+
 ### Phase 4. Real Cluster Agent E2E
+
+상태: RKE2 기준 완료 (2026-07-13), kubeadm과 관리형 Kubernetes 검증은 후속 진행
 
 기존 `real-cluster-readiness-check.py`는 배포 전 read-only 검사로 유지합니다. 별도 E2E 실행기를 추가해 실제 lifecycle을 검증합니다.
 
@@ -165,7 +179,17 @@ Cluster create
 3. kubeadm
 4. 선택한 관리형 Kubernetes 한 종류
 
+RKE2 검증 결과:
+
+- 단일 ARM64 node canary의 register, heartbeat, real evidence, report, incident, bundle 검증 통과
+- RKE2 systemd unit과 내장 containerd socket 인식 확인
+- file collector의 미수집/건너뜀 상태가 kubelet, runtime, kernel 장애로 판정되던 오탐 수정
+- Rancher aggregated API discovery 오류로 namespace 삭제가 지연될 경우 artifact에 경고와 조건을 보존
+- 종료 후 테스트 namespace, ClusterRole, ClusterRoleBinding, Helm release 잔여 리소스 없음 확인
+
 ### Phase 5. GitOps Change Tracking
+
+상태: GitHub provider 기준 완료 (2026-07-13)
 
 첫 Provider는 GitHub만 지원하고, Platform은 PR 생성과 상태 추적까지만 담당합니다. Kubernetes 리소스를 직접 변경하지 않습니다.
 

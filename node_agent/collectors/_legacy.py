@@ -1590,7 +1590,7 @@ def _systemd_unit_file_summaries(paths: AgentPaths) -> list[dict[str, Any]]:
         matches: list[str] = []
         for root in roots:
             candidate = root / file_name
-            exists, _error = _safe_exists(candidate)
+            exists, _error = _safe_lexists(candidate)
             if exists:
                 matches.append(str(candidate))
         summaries.append(
@@ -1616,6 +1616,7 @@ def _systemd_unit_file_roots(paths: AgentPaths) -> list[Path]:
             [
                 host_root / "etc/systemd/system",
                 host_root / "usr/lib/systemd/system",
+                host_root / "usr/local/lib/systemd/system",
                 host_root / "lib/systemd/system",
             ]
         )
@@ -2502,6 +2503,13 @@ def _permission_denied(value: object) -> bool:
 def _safe_exists(path: Path) -> tuple[bool, str | None]:
     try:
         return path.exists(), None
+    except OSError as exc:
+        return False, _clean_text(str(exc), limit=500)
+
+
+def _safe_lexists(path: Path) -> tuple[bool, str | None]:
+    try:
+        return os.path.lexists(path), None
     except OSError as exc:
         return False, _clean_text(str(exc), limit=500)
 

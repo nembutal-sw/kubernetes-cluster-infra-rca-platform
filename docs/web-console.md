@@ -71,6 +71,16 @@ bookmarking, and browser history. After authentication, the console resumes the 
 requested. A route outside the user's role is redirected to `/overview`; a missing detail resource
 keeps its URL and shows an explicit not-found notice with a return-to-list action.
 
+## Workflow E2E
+
+Playwright workflow tests run against an isolated Spring Boot process with an in-memory H2 database.
+They cover protected URL login/session expiry, cluster onboarding and install command generation,
+Demo Evidence to RCA report processing, approval/rejection/manual completion, Viewer UI restrictions,
+and mobile keyboard confirmation. The test environment never connects to an operational database or cluster.
+
+CI runs this suite as the separate `console-workflow-e2e` job. Failed runs retain the HTML report,
+trace, screenshot, and video as a seven-day artifact.
+
 ## Main Views
 
 | View | Purpose |

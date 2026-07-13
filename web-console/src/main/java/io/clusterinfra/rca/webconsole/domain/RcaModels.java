@@ -73,6 +73,14 @@ public final class RcaModels {
         draft, approved, rejected, discarded
     }
 
+    public enum GitOpsChangeState {
+        creating, open, merged, closed, failed
+    }
+
+    public enum GitOpsDeploymentState {
+        pending, in_progress, succeeded, failed, rolled_back
+    }
+
     public record ClusterCreateRequest(
         @NotBlank @Size(max = 255) String name,
         @Size(max = 64) String environment,
@@ -205,6 +213,53 @@ public final class RcaModels {
         Map<String, String> files,
         String pullRequestTitle,
         String pullRequestBody
+    ) {
+    }
+
+    public record GitOpsChangeCreateRequest(
+        boolean confirmed
+    ) {
+    }
+
+    public record GitOpsOutcomeUpdateRequest(
+        boolean confirmed,
+        GitOpsDeploymentState deploymentState,
+        @Size(max = 2000) String verificationResult,
+        @Size(max = 1000) String rollbackReference
+    ) {
+    }
+
+    public record GitOpsChange(
+        String changeId,
+        String sourceType,
+        String sourceId,
+        String provider,
+        String repository,
+        String branch,
+        String baseBranch,
+        String filePath,
+        Long pullRequestNumber,
+        String pullRequestUrl,
+        GitOpsChangeState pullRequestState,
+        String headSha,
+        GitOpsDeploymentState deploymentState,
+        String verificationResult,
+        String rollbackReference,
+        String errorMessage,
+        String requestedBy,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant deploymentStartedAt,
+        Instant deploymentCompletedAt
+    ) {
+    }
+
+    public record GitOpsWebhookResult(
+        String deliveryId,
+        String event,
+        String outcome,
+        String changeId,
+        GitOpsChangeState state
     ) {
     }
 
@@ -385,6 +440,7 @@ public final class RcaModels {
         LlmConfigurationInfo llm,
         NotificationConfigurationInfo notification,
         Map<String, Object> catalog,
+        Map<String, Object> gitops,
         Map<String, Object> thresholds,
         Map<String, Object> operations
     ) {

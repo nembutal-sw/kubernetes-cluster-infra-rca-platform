@@ -164,6 +164,20 @@ spec:
               value: {{ .Values.platform.config.notificationMaxAttempts | quote }}
             - name: RCA_NOTIFICATION_TIMEOUT_SECONDS
               value: {{ .Values.platform.config.notificationTimeoutSeconds | quote }}
+            - name: RCA_GITOPS_ENABLED
+              value: {{ .Values.platform.config.gitopsEnabled | quote }}
+            - name: RCA_GITOPS_PROVIDER
+              value: {{ .Values.platform.config.gitopsProvider | quote }}
+            - name: RCA_GITOPS_API_BASE_URL
+              value: {{ .Values.platform.config.gitopsApiBaseUrl | quote }}
+            - name: RCA_GITOPS_REPOSITORY
+              value: {{ .Values.platform.config.gitopsRepository | quote }}
+            - name: RCA_GITOPS_BASE_BRANCH
+              value: {{ .Values.platform.config.gitopsBaseBranch | quote }}
+            - name: RCA_GITOPS_FILE_PATH
+              value: {{ .Values.platform.config.gitopsFilePath | quote }}
+            - name: RCA_GITOPS_TIMEOUT_SECONDS
+              value: {{ .Values.platform.config.gitopsTimeoutSeconds | quote }}
             - name: RCA_PIPELINE_ENABLED
               value: {{ .Values.platform.config.pipelineEnabled | quote }}
             - name: RCA_PIPELINE_BATCH_SIZE

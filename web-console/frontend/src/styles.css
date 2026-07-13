@@ -3110,6 +3110,23 @@ code {
   min-width: 0;
 }
 
+.gitops-change-panel {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.gitops-change-panel .catalog-preview-status {
+  flex-wrap: wrap;
+}
+
+.gitops-change-panel code,
+.gitops-change-panel a,
+.gitops-change-panel p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .notification-history {
   display: grid;
   gap: 12px;

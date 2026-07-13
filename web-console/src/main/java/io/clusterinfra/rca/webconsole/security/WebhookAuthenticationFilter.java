@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class WebhookAuthenticationFilter extends OncePerRequestFilter {
     private static final String ALERTMANAGER_PATH = "/api/webhooks/alertmanager";
+    private static final String GITHUB_GITOPS_PATH = "/api/webhooks/gitops/github";
 
     private final AccessService access;
     private final AuditService audit;
@@ -29,12 +30,12 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
     }
 
     public static Set<String> protectedPaths() {
-        return Set.of(ALERTMANAGER_PATH);
+        return Set.of(ALERTMANAGER_PATH, GITHUB_GITOPS_PATH);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !ALERTMANAGER_PATH.equals(SecurityFilterSupport.path(request));
+        return !protectedPaths().contains(SecurityFilterSupport.path(request));
     }
 
     @Override
@@ -44,6 +45,11 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         FilterChain filterChain
     ) throws ServletException, IOException {
         try {
+            if (GITHUB_GITOPS_PATH.equals(SecurityFilterSupport.path(request))) {
+                requireGitHubHeaders(request);
+                filterChain.doFilter(request, response);
+                return;
+            }
             access.verifyWebhookToken(
                 request.getHeader(HttpHeaders.AUTHORIZATION),
                 request.getHeader("X-Webhook-Token")
@@ -61,14 +67,30 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    private void requireGitHubHeaders(HttpServletRequest request) {
+        if (blank(request.getHeader("X-GitHub-Event"))
+            || blank(request.getHeader("X-GitHub-Delivery"))
+            || blank(request.getHeader("X-Hub-Signature-256"))) {
+            throw new ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED,
+                "GitHub webhook signature headers are required"
+            );
+        }
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private void auditFailure(HttpServletRequest request, String reason) {
         try {
+            boolean github = GITHUB_GITOPS_PATH.equals(SecurityFilterSupport.path(request));
             audit.record(
                 "system",
-                "alertmanager",
+                github ? "github" : "alertmanager",
                 "webhook.auth_failed",
                 "webhook",
-                "alertmanager",
+                github ? "github-gitops" : "alertmanager",
                 "failed",
                 Map.of("reason", reason == null ? "authentication_failed" : reason),
                 request

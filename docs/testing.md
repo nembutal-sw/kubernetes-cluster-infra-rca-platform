@@ -162,6 +162,40 @@ docker run --rm --network host \
   sh -lc 'npm ci --no-audit --no-fund && npm run smoke:routes'
 ```
 
+## Web Console Workflow E2E
+
+Workflow E2E는 전용 Spring Boot 프로세스와 메모리 H2 DB를 자동으로 실행합니다. 운영 DB나
+Kubernetes 클러스터는 사용하지 않습니다.
+
+```bash
+cd web-console
+mvn --batch-mode --no-transfer-progress -DskipTests package
+
+cd frontend
+npx playwright install chromium
+npm run e2e
+```
+
+설치된 Chrome을 사용할 때:
+
+```powershell
+$env:PLAYWRIGHT_CHANNEL = "chrome"
+$env:PLAYWRIGHT_VIDEO = "false"
+npm run e2e
+```
+
+검증 범위:
+
+- 보호된 상세 URL 로그인 복원과 세션 만료
+- Cluster 생성, 설치 명령, 상세 새로 고침, 삭제
+- Demo Evidence, analysis task, RCA report 생성
+- 조치 요청 승인, 거절, 수동 처리 완료
+- Viewer 변경/export 제한
+- 모바일 수평 overflow와 keyboard confirmation
+
+실패 시 `playwright-report/`와 `test-results/`에 HTML report, trace, screenshot, video가 남습니다.
+GitHub Actions는 이를 `console-workflow-e2e` artifact로 7일간 보존합니다.
+
 ## Evidence Bundle Verification
 
 다운로드한 evidence bundle ZIP은 서버 없이 오프라인에서 검증할 수 있습니다.
@@ -256,6 +290,32 @@ bash scripts/kind-smoke.sh
 - Agent registration/heartbeat
 - evidence request/response
 - incident 및 RCA report 생성
+
+## Real Cluster Agent E2E
+
+실제 Kubernetes 노드 한 대에 read-only canary Agent를 배포해 등록부터 RCA 보고서와 evidence
+bundle 생성까지 검증합니다. 기본 실행은 preflight만 수행하며 리소스를 만들지 않습니다.
+
+```bash
+bash scripts/real-cluster-agent-e2e.sh \
+  --base-url https://rca.example.com \
+  --node worker-1
+```
+
+실제 수명주기 검증은 비밀번호를 명령행 인자가 아닌 환경 변수로 전달하고 `--apply`를 지정합니다.
+
+```bash
+RCA_E2E_PASSWORD='...' bash scripts/real-cluster-agent-e2e.sh \
+  --apply \
+  --base-url https://rca.example.com \
+  --username admin \
+  --node worker-1
+```
+
+canary는 고유 namespace와 Platform 테스트 cluster만 생성하고, host path는 read-only로 마운트하며
+한 노드에만 배포됩니다. 종료 시 소유권 label을 확인한 리소스만 삭제합니다. Kubernetes API discovery
+오류 등으로 namespace 삭제가 지연되면 강제로 finalizer를 제거하지 않고 `cleanup-warning.txt`와
+`namespace-pending.json`을 결과 디렉터리에 저장합니다.
 
 ## Important Test Classes
 

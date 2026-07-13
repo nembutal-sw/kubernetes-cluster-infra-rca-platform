@@ -75,6 +75,12 @@ platform:
     llmProvider: none
     llmModel: ""
     springAiChatModel: none
+    gitopsEnabled: false
+    gitopsProvider: github
+    gitopsApiBaseUrl: https://api.github.com
+    gitopsRepository: ""
+    gitopsBaseBranch: main
+    gitopsFilePath: ops/catalog/operational-catalog.override.json
   secret:
     defaultAdminUsername: admin
     defaultAdminPassword: admin
@@ -83,6 +89,8 @@ platform:
     encryptionSecret: ""
     exportSignatureSecret: ""
     slackWebhookUrl: ""
+    gitopsToken: ""
+    gitopsWebhookSecret: ""
     openaiApiKey: ""
     openaiBaseUrl: ""
     anthropicApiKey: ""

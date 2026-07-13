@@ -62,6 +62,7 @@ public class SecurityConfig {
                     "/api/agents/action-executions",
                     "/api/agents/action-results",
                     "/api/webhooks/alertmanager",
+                    "/api/webhooks/gitops/github",
                     "/api/clusters/*/agent-manifest"
                 ).permitAll()
                 .requestMatchers("/actuator/metrics/**", "/actuator/prometheus")

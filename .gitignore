@@ -25,6 +25,8 @@ target/
 node_modules/
 web-console/frontend/node/
 coverage/
+playwright-report/
+test-results/
 validation-results/
 
 # Python

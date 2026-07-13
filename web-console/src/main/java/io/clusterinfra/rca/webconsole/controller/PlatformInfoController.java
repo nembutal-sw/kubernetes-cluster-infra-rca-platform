@@ -57,8 +57,22 @@ public class PlatformInfoController {
             llmConfiguration.info(),
             notificationInfo(),
             catalogService.info(),
+            gitOpsInfo(),
             thresholdService.info(),
             operationsInfo()
+        );
+    }
+
+    private Map<String, Object> gitOpsInfo() {
+        RcaConsoleProperties.GitOps gitOps = properties.getGitOps();
+        return Map.of(
+            "enabled", gitOps.isEnabled(),
+            "provider", gitOps.getProvider(),
+            "repository", gitOps.getRepository(),
+            "base_branch", gitOps.getBaseBranch(),
+            "file_path", gitOps.getFilePath(),
+            "token_configured", !gitOps.getToken().isBlank(),
+            "webhook_secret_configured", !gitOps.getWebhookSecret().isBlank()
         );
     }
 

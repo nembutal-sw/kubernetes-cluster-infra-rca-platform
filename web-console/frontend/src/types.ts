@@ -296,6 +296,33 @@ export interface CatalogOverrideHandoff {
   [key: string]: unknown;
 }
 
+export type GitOpsDeploymentState = "pending" | "in_progress" | "succeeded" | "failed" | "rolled_back";
+
+export interface GitOpsChange {
+  change_id: string;
+  source_type?: string;
+  source_id?: string;
+  provider?: string;
+  repository?: string;
+  branch?: string;
+  base_branch?: string;
+  file_path?: string;
+  pull_request_number?: number;
+  pull_request_url?: string;
+  pull_request_state?: string;
+  head_sha?: string;
+  deployment_state?: GitOpsDeploymentState;
+  verification_result?: string;
+  rollback_reference?: string;
+  error_message?: string;
+  requested_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  deployment_started_at?: string;
+  deployment_completed_at?: string;
+  [key: string]: unknown;
+}
+
 export interface AgentTokenRotateResponse {
   agent_token?: string;
   note?: string;
@@ -437,6 +464,7 @@ export interface PlatformInfo {
   llm?: LlmConfigurationInfo;
   notification?: NotificationConfigurationInfo;
   catalog?: JsonObject;
+  gitops?: JsonObject;
   thresholds?: JsonObject;
   operations?: JsonObject;
   [key: string]: unknown;

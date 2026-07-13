@@ -30,7 +30,7 @@ export function ActionList({ report, actions, onPrepareAction, t }: ActionListPr
         const llm = action.source === "llm";
         const commandPreview = action.execution_plan?.command_preview || [];
         return (
-          <article key={`${action.action_key}-${index}`} className={`action-card ${automationBlocked ? "blocked" : "allowed"}`}>
+          <article key={`${action.action_key}-${index}`} className={`action-card ${automationBlocked ? "blocked" : "allowed"}`} data-testid="recommended-action" data-action-index={index}>
             <div className="action-head">
               <StatusBadge value={action.policy} tone={policyTone(action.policy)} t={t} />
               {llm && <span className="llm-pill">{t("LLM diagnostic only")}</span>}
@@ -49,7 +49,7 @@ export function ActionList({ report, actions, onPrepareAction, t }: ActionListPr
             {commandPreview.length > 0 && (
               <pre className="command-preview">{commandPreview.join("\n")}</pre>
             )}
-            <button className="btn btn-sm btn-primary icon-button" onClick={() => onPrepareAction(report, action, index)}>
+            <button className="btn btn-sm btn-primary icon-button" data-testid="request-action" onClick={() => onPrepareAction(report, action, index)}>
               <Icon name={action.automation_allowed ? "collection" : "person-check"} />
               <span>{action.automation_allowed ? t("Collect evidence") : t("Request action")}</span>
             </button>
@@ -71,7 +71,7 @@ export function ActionRequestList({ items, executions, currentUser, onDecideActi
         const canComplete = ["admin", "operator"].includes(currentUser.role) && item.status === "approved_manual";
         const note = noteById[item.action_request_id] || "";
         return (
-          <article key={item.action_request_id} className="request-item">
+          <article key={item.action_request_id} className="request-item" data-testid="action-request" data-request-id={item.action_request_id}>
             <div>
               <strong>{item.action_key}</strong>
               <span>{item.action_request_id}</span>
@@ -85,10 +85,10 @@ export function ActionRequestList({ items, executions, currentUser, onDecideActi
             {execution && <pre className="command-preview">{execution.status}: {execution.command_key}</pre>}
             {(canApprove || canComplete) && (
               <div className="request-actions">
-                <input className="form-control form-control-sm" placeholder={t("Decision note")} value={note} onChange={(event) => setNoteById({ ...noteById, [item.action_request_id]: event.target.value })} />
-                {canApprove && <button className="btn btn-sm btn-success" onClick={() => onDecideAction(item, "approve", note)}>{t("Approve")}</button>}
-                {canApprove && <button className="btn btn-sm btn-outline-danger" onClick={() => onDecideAction(item, "reject", note)}>{t("Reject")}</button>}
-                {canComplete && <button className="btn btn-sm btn-primary" disabled={!note} onClick={() => onCompleteManual(item, note)}>{t("Complete manual")}</button>}
+                <input className="form-control form-control-sm" data-testid="action-decision-note" placeholder={t("Decision note")} value={note} onChange={(event) => setNoteById({ ...noteById, [item.action_request_id]: event.target.value })} />
+                {canApprove && <button className="btn btn-sm btn-success" data-testid="action-approve" onClick={() => onDecideAction(item, "approve", note)}>{t("Approve")}</button>}
+                {canApprove && <button className="btn btn-sm btn-outline-danger" data-testid="action-reject" onClick={() => onDecideAction(item, "reject", note)}>{t("Reject")}</button>}
+                {canComplete && <button className="btn btn-sm btn-primary" data-testid="action-complete-manual" disabled={!note} onClick={() => onCompleteManual(item, note)}>{t("Complete manual")}</button>}
               </div>
             )}
           </article>

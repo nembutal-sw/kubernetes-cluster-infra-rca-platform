@@ -62,6 +62,46 @@ jobs:
         working-directory: web-console
         run: mvn --batch-mode --no-transfer-progress verify
 
+  console-workflow-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: web-console/pom.xml
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-console/frontend/package-lock.json
+      - name: Package isolated E2E platform
+        run: mvn --batch-mode --no-transfer-progress -f web-console/pom.xml -DskipTests package
+      - name: Install Playwright Chromium
+        working-directory: web-console/frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run console workflow E2E
+        working-directory: web-console/frontend
+        env:
+          CONSOLE_BASE_URL: http://127.0.0.1:18087
+          CONSOLE_E2E_SERVER_COMMAND: java -jar ../target/cluster-infra-rca-platform-0.1.0.jar
+          CONSOLE_USERNAME: e2e-admin
+          CONSOLE_PASSWORD: e2e-password-123
+        run: npm run e2e
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: console-workflow-e2e
+          path: |
+            web-console/frontend/playwright-report
+            web-console/frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   helm-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -168,6 +208,7 @@ jobs:
       - node-agent-test
       - frontend-build
       - web-console-test
+      - console-workflow-e2e
       - helm-validate
       - release-readiness-gate
     runs-on: ubuntu-latest

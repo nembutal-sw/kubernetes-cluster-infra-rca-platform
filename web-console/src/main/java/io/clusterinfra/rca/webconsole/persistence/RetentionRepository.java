@@ -46,6 +46,7 @@ public class RetentionRepository {
         cleanupEvidenceRequests(cutoffs.evidenceRequestCutoff(), batchSize, result);
         cleanupOrphanEvidence(cutoffs.evidenceCutoff(), batchSize, result);
         cleanupExpiredSessions(cutoffs.now(), batchSize, result);
+        cleanupGitOpsWebhookDeliveries(cutoffs.auditCutoff(), batchSize, result);
         cleanupAuditEvents(cutoffs.auditCutoff(), batchSize, result);
 
         return result.freeze();
@@ -330,6 +331,24 @@ public class RetentionRepository {
         }
     }
 
+    private void cleanupGitOpsWebhookDeliveries(Instant cutoff, int limit, MutableResult result) {
+        for (String deliveryId : ids(
+            """
+                SELECT delivery_id FROM gitops_webhook_deliveries
+                WHERE received_at < ?
+                ORDER BY received_at
+                LIMIT ?
+                """,
+            timestamp(cutoff),
+            limit
+        )) {
+            result.gitOpsWebhookDeliveries += jdbc.update(
+                "DELETE FROM gitops_webhook_deliveries WHERE delivery_id = ?",
+                deliveryId
+            );
+        }
+    }
+
     private List<String> ids(String sql, Object... arguments) {
         return jdbc.query(sql, (resultSet, rowNumber) -> resultSet.getString(1), arguments);
     }
@@ -353,6 +372,7 @@ public class RetentionRepository {
     public record CleanupResult(
         int userSessions,
         int auditEvents,
+        int gitOpsWebhookDeliveries,
         int realtimeEvents,
         int topologyObservations,
         int analysisTasks,
@@ -372,6 +392,7 @@ public class RetentionRepository {
             Map<String, Integer> counts = new LinkedHashMap<>();
             counts.put("user_sessions", userSessions);
             counts.put("audit_events", auditEvents);
+            counts.put("gitops_webhook_deliveries", gitOpsWebhookDeliveries);
             counts.put("realtime_events", realtimeEvents);
             counts.put("topology_observations", topologyObservations);
             counts.put("analysis_tasks", analysisTasks);
@@ -389,6 +410,7 @@ public class RetentionRepository {
     private static final class MutableResult {
         private int userSessions;
         private int auditEvents;
+        private int gitOpsWebhookDeliveries;
         private int realtimeEvents;
         private int topologyObservations;
         private int analysisTasks;
@@ -404,6 +426,7 @@ public class RetentionRepository {
             return new CleanupResult(
                 userSessions,
                 auditEvents,
+                gitOpsWebhookDeliveries,
                 realtimeEvents,
                 topologyObservations,
                 analysisTasks,

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "e2e": "playwright test",
+    "e2e:report": "playwright show-report",
     "preview": "vite preview",
     "smoke:routes": "node scripts/route-smoke.mjs"
   },

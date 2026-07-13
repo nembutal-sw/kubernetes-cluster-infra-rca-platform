@@ -205,6 +205,47 @@ class ProductionSecurityValidatorTests {
             .run(context -> assertThat(context).hasNotFailed());
     }
 
+    @Test
+    void enabledGitOpsRequiresRepositoryAndSecrets() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_GITOPS_REPOSITORY")
+                    .hasStackTraceContaining("RCA_GITOPS_TOKEN")
+                    .hasStackTraceContaining("RCA_GITOPS_WEBHOOK_SECRET");
+            });
+    }
+
+    @Test
+    void safeGitOpsConfigurationLoads() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true",
+                "rca.gitops.repository=acme/rca-config",
+                "rca.gitops.token=a-strong-github-token",
+                "rca.gitops.webhook-secret=a-strong-github-webhook-secret"
+            )
+            .run(context -> assertThat(context).hasNotFailed());
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(RcaConsoleProperties.class)
     static class ValidatorConfiguration {
