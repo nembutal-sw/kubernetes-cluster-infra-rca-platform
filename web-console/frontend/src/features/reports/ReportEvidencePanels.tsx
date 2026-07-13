@@ -50,6 +50,7 @@ export function CandidateList({ candidates, t }: CandidateListProps) {
     <div className="candidate-list">
       {candidates.map((candidate, index) => {
         const score = candidate.confidence_score || 0;
+        const evidenceIds = candidate.supporting_evidence_ids || [];
         const scoreStyle: ScoreStyle = { "--score": `${score}%` };
         return (
         <article key={`${candidate.cause || candidate.reason}-${index}`} className="candidate-item">
@@ -62,6 +63,12 @@ export function CandidateList({ candidates, t }: CandidateListProps) {
             <div className="supporting-lines">
               {(candidate.supporting_evidence || []).slice(0, 3).map((line) => <span key={line}>{line}</span>)}
             </div>
+            {evidenceIds.length > 0 && (
+              <div className="evidence-id-list" aria-label={t("Evidence IDs")}>
+                <span>{t("Evidence IDs")}</span>
+                {evidenceIds.slice(0, 10).map((evidenceId) => <code key={evidenceId}>{evidenceId}</code>)}
+              </div>
+            )}
             {(candidate.evidence_paths || []).length > 0 && (
               <div className="path-list" aria-label={t("Evidence paths")}>
                 {(candidate.evidence_paths || []).slice(0, 5).map((path) => <code key={path}>{path}</code>)}

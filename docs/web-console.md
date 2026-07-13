@@ -76,7 +76,8 @@ keeps its URL and shows an explicit not-found notice with a return-to-list actio
 Playwright workflow tests run against an isolated Spring Boot process with an in-memory H2 database.
 They cover protected URL login/session expiry, cluster onboarding and install command generation,
 Demo Evidence to RCA report processing, approval/rejection/manual completion, Viewer UI restrictions,
-and mobile keyboard confirmation. The test environment never connects to an operational database or cluster.
+structured partial API failures with stale-data recovery, all Agent connection states, mobile overflow,
+and keyboard confirmation. The test environment never connects to an operational database or cluster.
 
 CI runs this suite as the separate `console-workflow-e2e` job. Failed runs retain the HTML report,
 trace, screenshot, and video as a seven-day artifact.
@@ -85,7 +86,7 @@ trace, screenshot, and video as a seven-day artifact.
 
 | View | Purpose |
 | --- | --- |
-| Clusters | register clusters, inspect status, view agent install command |
+| Clusters | register clusters, inspect fleet-wide Agent health, filter connection states, view install command |
 | Reports | inspect RCA reports and confidence scores |
 | Incidents | inspect correlation and timeline |
 | Pipeline | inspect analysis task queue |
@@ -104,6 +105,7 @@ Report detail should show:
 - root cause candidates
 - confidence score
 - supporting evidence
+- provider-grounded supporting evidence IDs
 - evidence paths
 - derived signals
 - impact scope

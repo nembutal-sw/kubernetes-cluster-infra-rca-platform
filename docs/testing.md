@@ -194,6 +194,8 @@ npm run e2e
 - Demo Evidence, analysis task, RCA report 생성
 - 조치 요청 승인, 거절, 수동 처리 완료
 - Viewer 변경/export 제한
+- 부분 API 503 오류, stale 데이터 유지, 오류 code/trace ID, 재시도 복구
+- Agent 연결 상태 6종과 상태 필터
 - 모바일 수평 overflow와 keyboard confirmation
 
 실패 시 `playwright-report/`와 `test-results/`에 HTML report, trace, screenshot, video가 남습니다.

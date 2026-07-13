@@ -1222,6 +1222,150 @@ code {
   color: var(--amber);
 }
 
+.agent-fleet-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.agent-fleet-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-fleet-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-fleet-filters button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.agent-fleet-filters button strong {
+  min-width: 20px;
+  color: var(--ink);
+  text-align: right;
+}
+
+.agent-fleet-filters button.active {
+  border-color: var(--primary);
+  background: var(--blue-soft);
+  color: var(--primary-strong);
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+
+.agent-fleet-search {
+  position: relative;
+  width: min(320px, 100%);
+  flex: 0 0 min(320px, 100%);
+}
+
+.agent-fleet-search i {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.agent-fleet-search input {
+  min-height: 38px;
+  padding-left: 34px;
+}
+
+.agent-fleet-list {
+  display: grid;
+  gap: 7px;
+}
+
+.agent-fleet-row {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  padding: 11px 12px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(130px, 0.7fr) minmax(100px, 0.55fr) minmax(130px, 0.7fr) minmax(70px, 0.4fr) minmax(220px, 1.4fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-fleet-row.green { border-left-color: var(--green); }
+.agent-fleet-row.amber { border-left-color: var(--amber); }
+.agent-fleet-row.red { border-left-color: var(--red); }
+
+.agent-fleet-node {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.agent-fleet-node > i {
+  color: var(--primary);
+  font-size: 1.05rem;
+}
+
+.agent-fleet-node div,
+.agent-fleet-cell,
+.agent-fleet-reason {
+  min-width: 0;
+}
+
+.agent-fleet-node strong,
+.agent-fleet-node span,
+.agent-fleet-cell span,
+.agent-fleet-cell strong,
+.agent-fleet-reason span,
+.agent-fleet-reason strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.agent-fleet-node button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  padding: 2px 0 0;
+  font-size: 0.76rem;
+  text-align: left;
+}
+
+.agent-fleet-node span,
+.agent-fleet-cell span,
+.agent-fleet-reason span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.agent-fleet-cell strong,
+.agent-fleet-reason strong {
+  margin-top: 3px;
+  font-size: 0.8rem;
+}
+
+.agent-fleet-reason strong {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .health-reason {
   color: var(--muted);
   display: inline-block;
@@ -2237,6 +2381,29 @@ code {
   white-space: normal;
   overflow-wrap: anywhere;
   font-size: 0.75rem;
+}
+
+.evidence-id-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.evidence-id-list > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.evidence-id-list code {
+  border: 1px solid #b9dce2;
+  border-radius: 4px;
+  background: #edf8fa;
+  color: var(--teal);
+  padding: 3px 6px;
+  font-size: 0.72rem;
 }
 
 .rule-signal-grid {
@@ -4052,6 +4219,26 @@ code {
     align-items: stretch;
   }
 
+  .agent-fleet-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-fleet-search {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .agent-fleet-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .agent-fleet-node,
+  .agent-fleet-reason {
+    grid-column: 1 / -1;
+  }
+
   .cluster-meta,
   .row-actions,
   .request-actions,
@@ -4101,6 +4288,20 @@ code {
 
   .login-observability {
     grid-template-columns: 1fr;
+  }
+
+  .agent-fleet-filters button {
+    flex: 1 1 132px;
+    justify-content: space-between;
+  }
+
+  .agent-fleet-row {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-fleet-node,
+  .agent-fleet-reason {
+    grid-column: auto;
   }
 
   .intel-panel-head,

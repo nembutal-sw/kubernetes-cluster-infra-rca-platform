@@ -242,6 +242,79 @@ test("applies viewer navigation and mutation restrictions in the console", async
   }
 });
 
+test("keeps stale data visible and exposes structured API failure context", async ({ page }) => {
+  let reportRequests = 0;
+  await page.route("**/api/rca/reports*", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    reportRequests += 1;
+    if (reportRequests === 2) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "report_store_unavailable",
+          title: "Report store unavailable",
+          detail: "The report query is temporarily unavailable.",
+          trace_id: "trace-e2e-reports",
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await login(page);
+  await expect.poll(() => reportRequests).toBe(1);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+
+  const failure = page.getByTestId("data-status-failure-reports");
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText("The report query is temporarily unavailable.");
+  await expect(failure).toContainText("HTTP 503");
+  await expect(failure).toContainText("report_store_unavailable");
+  await expect(failure).toContainText("trace-e2e-reports");
+  await expect(failure).toContainText("Showing last successful data");
+
+  await page.getByTestId("data-status-retry").click();
+  await expect(page.getByTestId("data-status-banner")).toHaveCount(0);
+  expect(reportRequests).toBeGreaterThanOrEqual(3);
+});
+
+test("shows agent connection states and filters them without mobile overflow", async ({ page }) => {
+  const healthFixture = [
+    agentHealthFixture("worker-ok", "healthy", 8),
+    agentHealthFixture("worker-stale", "stale", 420),
+    agentHealthFixture("worker-collector", "collector_degraded", 30, "Kernel collector unavailable"),
+    agentHealthFixture("worker-version", "version_mismatch", 18, "Agent protocol is outside supported range"),
+    agentHealthFixture("worker-auth", "unauthorized", 10, "Agent authentication failed"),
+    agentHealthFixture("worker-offline", "offline", 7_500),
+  ];
+  await page.route("**/api/v1/agent-health*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(healthFixture),
+  }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page, "/clusters");
+
+  const panel = page.getByTestId("agent-fleet-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("agent-fleet-row")).toHaveCount(6);
+  await panel.getByTestId("agent-status-filter-unauthorized").click();
+  await expect(panel.getByTestId("agent-fleet-row")).toHaveCount(1);
+  await expect(panel).toContainText("worker-auth");
+  await expect(panel).toContainText("Agent authentication failed");
+
+  const dimensions = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
+});
+
 test("keeps the cluster confirmation workflow usable on mobile with a keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const token = await login(page);
@@ -275,3 +348,20 @@ test("keeps the cluster confirmation workflow usable on mobile with a keyboard",
     await deleteCluster(page.request, cluster, token);
   }
 });
+
+function agentHealthFixture(nodeName: string, healthStatus: string, heartbeatAgeSeconds: number, reason = "") {
+  return {
+    agent_id: `agent-${nodeName}`,
+    cluster_id: "cluster-e2e-health",
+    node_name: nodeName,
+    agent_version: "0.1.0",
+    agent_protocol_version: "1",
+    platform_protocol_version: "1",
+    health_status: healthStatus,
+    reported_status: healthStatus === "healthy" ? "healthy" : "degraded",
+    supported_collectors: ["disk", "kernel", "runtime"],
+    heartbeat_age_seconds: heartbeatAgeSeconds,
+    last_heartbeat_at: new Date(Date.now() - heartbeatAgeSeconds * 1000).toISOString(),
+    reasons: reason ? [reason] : [],
+  };
+}

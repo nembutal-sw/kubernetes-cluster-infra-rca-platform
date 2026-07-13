@@ -76,7 +76,23 @@
 - Cluster 생성, 설치 명령 발급, 상세 새로 고침, 삭제 검증
 - Demo Evidence, RCA report, 승인, 거절, 수동 완료 workflow 검증
 - Viewer 변경/export 제한과 모바일 keyboard confirmation 검증
+- 부분 API 503 오류 주입, 마지막 정상 데이터 유지, 오류 code/trace ID 표시, 재시도 복구 검증
+- Agent `healthy`, `stale`, `collector_degraded`, `version_mismatch`, `unauthorized`, `offline` 상태와 모바일 필터 UI 검증
 - CI 독립 job 및 실패 trace/screenshot/video/HTML artifact 보존
+
+### LLM Evidence And SLO Controls
+
+- LLM이 `evidence_catalog`의 안정적인 Evidence ID만 참조하도록 응답 계약 강제
+- Provider 응답의 token usage, 요청 지연, 설정 단가 기반 예상 비용 기록
+- RCA 상세 화면에 LLM 지연, token, 비용과 supporting Evidence ID 표시
+- Helm chart에 선택형 LLM SLO recording rule과 latency/error/usage/circuit/cost 경보 추가
+- 실제 Provider 연결과 usage/cost 한도를 검증하는 staging smoke 보강
+
+### Agent Fleet Operations UX
+
+- Clusters 화면에 전체 Agent 연결 상태, 하트비트 경과, 버전/프로토콜, Collector 수, 위험 사유 표시
+- 상태별 segmented filter와 노드/클러스터/버전/사유 검색 지원
+- 데스크톱 1440px과 모바일 390px에서 수평 overflow 없는 레이아웃 검증
 - 테스트 과정에서 발견된 Cluster 생성 직후 설치 명령 초기화 race condition 수정
 
 ### Catalog Externalization
@@ -181,12 +197,12 @@
 
 ## Next Priority
 
-Collector별 Typed Evidence Adapter와 Golden Scenario Precision/Recall/Top-k 평가는 완료했습니다.
-다음 우선순위는 LLM supporting evidence ID 강제와 호출 비용/지연 추적입니다.
+Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
+남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
 1. kubeadm과 관리형 Kubernetes Agent compatibility 검증
-2. LLM supporting evidence ID 강제와 호출 비용/지연 추적
-3. Playwright API 오류 주입과 Agent 연결 상태 시나리오 확장
+2. 실제 LLM Provider staging smoke와 SLO 임계값 burn-in
+3. Prometheus Operator 환경에서 LLM `PrometheusRule` firing/notification 검증
 
 ## Positioning
 

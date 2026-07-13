@@ -31,7 +31,7 @@ export function DataStatusBanner({ states, lastCompleteRefreshAt, onRetry, t }: 
   if (!failures.length) return null;
 
   return (
-    <section className="data-status-banner" role="status" aria-live="polite">
+    <section className="data-status-banner" data-testid="data-status-banner" role="status" aria-live="polite">
       <div className="data-status-summary">
         <Icon name="exclamation-triangle" />
         <div>
@@ -42,7 +42,7 @@ export function DataStatusBanner({ states, lastCompleteRefreshAt, onRetry, t }: 
               : t("A complete refresh has not succeeded yet.")}
           </span>
         </div>
-        <button className="btn btn-sm btn-outline-danger icon-button" onClick={onRetry}>
+        <button className="btn btn-sm btn-outline-danger icon-button" data-testid="data-status-retry" onClick={onRetry}>
           <Icon name="arrow-clockwise" />
           <span>{t("Retry failed data")}</span>
         </button>
@@ -51,7 +51,7 @@ export function DataStatusBanner({ states, lastCompleteRefreshAt, onRetry, t }: 
         {failures.map(([source, state]) => {
           const error = state.error!;
           return (
-            <article key={source}>
+            <article key={source} data-testid={`data-status-failure-${source}`}>
               <div>
                 <strong>{t(SOURCE_LABELS[source])}</strong>
                 {state.stale && <span className="stale-label">{t("Showing last successful data")}</span>}

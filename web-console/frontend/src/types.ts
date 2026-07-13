@@ -129,11 +129,15 @@ export interface AgentHealthView {
   cluster_id?: string;
   node_name: string;
   agent_version?: string;
+  agent_protocol_version?: string;
+  platform_protocol_version?: string;
   health_status?: string;
   status?: string;
   reported_status?: string;
   last_heartbeat_at?: string;
+  heartbeat_age_seconds?: number;
   supported_collectors?: string[];
+  health?: JsonObject;
   reasons?: string[];
   health_reasons?: string[];
   [key: string]: unknown;
@@ -165,6 +169,7 @@ export interface RootCauseCandidate {
   confidence?: string;
   confidence_score?: number;
   evidence_refs?: string[];
+  supporting_evidence_ids?: string[];
   evidence_paths?: string[];
   supporting_evidence?: string[];
   score_reason?: string;

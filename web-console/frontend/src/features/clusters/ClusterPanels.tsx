@@ -2,7 +2,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
 import { EmptyState, Icon, ResponsiveTable, StatusBadge } from "../../components/common";
-import { agentHealthTone, agentReason, relativeTime, summarizeAgentFleet } from "../../lib/consoleUtils";
+import { agentHealthTone, agentReason, normalizedAgentStatus, relativeTime, summarizeAgentFleet } from "../../lib/consoleUtils";
 import type {
   AgentHealthView,
   ClusterCreateForm,
@@ -56,6 +56,13 @@ interface ClusterDetailProps {
 interface AgentHealthSummaryProps {
   agents: AgentHealthView[];
   cluster: ClusterView;
+  t: TFunction;
+}
+
+interface AgentFleetPanelProps {
+  agents: AgentHealthView[];
+  clusters: ClusterView[];
+  onOpenCluster: (cluster: ClusterView) => MaybePromise;
   t: TFunction;
 }
 
@@ -485,6 +492,146 @@ export function AgentHealthSummary({ agents, cluster, t }: AgentHealthSummaryPro
       </div>
     </div>
   );
+}
+
+const AGENT_STATUS_FILTERS = [
+  { key: "all", label: "All" },
+  { key: "healthy", label: "Healthy" },
+  { key: "stale", label: "Stale" },
+  { key: "collector_degraded", label: "Collector degraded" },
+  { key: "version_mismatch", label: "Version mismatch" },
+  { key: "unauthorized", label: "Unauthorized" },
+  { key: "offline", label: "Offline" },
+] as const;
+
+export function AgentFleetPanel({ agents, clusters, onOpenCluster, t }: AgentFleetPanelProps) {
+  const [statusFilter, setStatusFilter] = useState<(typeof AGENT_STATUS_FILTERS)[number]["key"]>("all");
+  const [query, setQuery] = useState("");
+  const clusterById = new Map(clusters.map((cluster) => [cluster.cluster_id, cluster]));
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredAgents = agents.filter((agent) => {
+    const status = normalizedAgentStatus(agent);
+    const statusMatches = statusFilter === "all" || agentStatusMatches(status, statusFilter);
+    if (!statusMatches) return false;
+    if (!normalizedQuery) return true;
+    const cluster = agent.cluster_id ? clusterById.get(agent.cluster_id) : undefined;
+    return [agent.node_name, agent.cluster_id, cluster?.name, agent.agent_version, agentReason(agent)]
+      .some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+  });
+
+  return (
+    <div className="agent-fleet-panel" data-testid="agent-fleet-panel">
+      <div className="agent-fleet-toolbar">
+        <div className="agent-fleet-filters" role="group" aria-label={t("Agent status filters")}>
+          {AGENT_STATUS_FILTERS.map((filter) => {
+            const count = filter.key === "all"
+              ? agents.length
+              : agents.filter((agent) => agentStatusMatches(normalizedAgentStatus(agent), filter.key)).length;
+            return (
+              <button
+                key={filter.key}
+                type="button"
+                data-testid={`agent-status-filter-${filter.key}`}
+                className={statusFilter === filter.key ? "active" : ""}
+                aria-pressed={statusFilter === filter.key}
+                onClick={() => setStatusFilter(filter.key)}
+              >
+                <span>{t(filter.label)}</span>
+                <strong>{count}</strong>
+              </button>
+            );
+          })}
+        </div>
+        <label className="agent-fleet-search">
+          <Icon name="search" />
+          <span className="visually-hidden">{t("Search agents")}</span>
+          <input
+            className="form-control form-control-sm"
+            data-testid="agent-fleet-search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("Search node, cluster, version, or reason")}
+          />
+        </label>
+      </div>
+
+      {!agents.length && <EmptyState message={t("No agents registered.")} />}
+      {agents.length > 0 && !filteredAgents.length && <EmptyState message={t("No agents match the current filters.")} />}
+      {filteredAgents.length > 0 && (
+        <div className="agent-fleet-list">
+          {filteredAgents.map((agent) => {
+            const cluster = agent.cluster_id ? clusterById.get(agent.cluster_id) : undefined;
+            const status = normalizedAgentStatus(agent);
+            const collectors = agent.supported_collectors || [];
+            return (
+              <article key={agent.agent_id || `${agent.cluster_id}-${agent.node_name}`} data-testid="agent-fleet-row" className={`agent-fleet-row ${agentHealthTone(agent)}`}>
+                <div className="agent-fleet-node">
+                  <Icon name="server" />
+                  <div>
+                    <strong>{agent.node_name}</strong>
+                    {cluster ? (
+                      <button type="button" onClick={() => onOpenCluster(cluster)}>{cluster.name}</button>
+                    ) : <span>{agent.cluster_id || t("Unknown cluster")}</span>}
+                  </div>
+                </div>
+                <div className="agent-fleet-cell">
+                  <span>{t("Status")}</span>
+                  <StatusBadge value={agentStatusLabel(status)} tone={agentHealthTone(agent)} t={t} />
+                </div>
+                <div className="agent-fleet-cell">
+                  <span>{t("Heartbeat age")}</span>
+                  <strong>{formatHeartbeatAge(agent)}</strong>
+                </div>
+                <div className="agent-fleet-cell">
+                  <span>{t("Version / protocol")}</span>
+                  <strong>{agent.agent_version || "n/a"} · {agent.agent_protocol_version || "n/a"} / {agent.platform_protocol_version || "n/a"}</strong>
+                </div>
+                <div className="agent-fleet-cell">
+                  <span>{t("Collectors")}</span>
+                  <strong>{collectors.length}</strong>
+                </div>
+                <div className="agent-fleet-reason">
+                  <span>{t("Risk reason")}</span>
+                  <strong>{agentReason(agent)}</strong>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function agentStatusMatches(status: string, filter: (typeof AGENT_STATUS_FILTERS)[number]["key"]): boolean {
+  if (filter === "all") return true;
+  if (filter === "healthy") return ["healthy", "registered"].includes(status);
+  if (filter === "collector_degraded") return ["collector_degraded", "degraded"].includes(status);
+  return status === filter;
+}
+
+function agentStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    healthy: "Healthy",
+    registered: "Healthy",
+    stale: "Stale",
+    collector_degraded: "Collector degraded",
+    degraded: "Collector degraded",
+    version_mismatch: "Version mismatch",
+    unauthorized: "Unauthorized",
+    offline: "Offline",
+  };
+  return labels[status] || "Unknown";
+}
+
+function formatHeartbeatAge(agent: AgentHealthView): string {
+  const seconds = Number(agent.heartbeat_age_seconds);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+    return `${Math.round(seconds / 3600)}h`;
+  }
+  return relativeTime(agent.last_heartbeat_at);
 }
 
 function topologyEntities(topology: JsonObject | null | undefined): TopologyEntity[] {

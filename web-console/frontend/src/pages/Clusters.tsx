@@ -1,6 +1,7 @@
 import { PageHeader, Surface } from "../components/common";
-import { ClusterDetail, ClusterForm, ClusterList, InstallCommand } from "../features/clusters/ClusterPanels";
+import { AgentFleetPanel, ClusterDetail, ClusterForm, ClusterList, InstallCommand } from "../features/clusters/ClusterPanels";
 import type {
+  AgentHealthView,
   ClusterCreateForm,
   ClusterDetailState,
   ClusterView,
@@ -15,7 +16,7 @@ interface ClustersViewProps {
   clusters: ClusterView[];
   selectedCluster: ClusterView | null;
   clusterDetail: ClusterDetailState | null;
-  agentHealth?: unknown[];
+  agentHealth: AgentHealthView[];
   installCommand: InstallCommandView | null;
   currentUser: UserAccount;
   onCreate: (form: ClusterCreateForm) => MaybePromise;
@@ -34,6 +35,7 @@ export function ClustersView({
   clusters,
   selectedCluster,
   clusterDetail,
+  agentHealth,
   installCommand,
   currentUser,
   onCreate,
@@ -70,6 +72,9 @@ export function ClustersView({
           />
         </Surface>
       </div>
+      <Surface title={t("Agent connectivity")} subtitle={t("Fleet-wide heartbeat, compatibility, and collector posture")}>
+        <AgentFleetPanel agents={agentHealth} clusters={clusters} onOpenCluster={onSelect} t={t} />
+      </Surface>
       {selectedCluster && (
         <Surface title={selectedCluster.name} subtitle={`${selectedCluster.cluster_id} / ${selectedCluster.environment || "n/a"}`}>
           <ClusterDetail
