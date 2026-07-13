@@ -202,7 +202,7 @@ rca:
   gitops:
     enabled: ${RCA_GITOPS_ENABLED:false}
     provider: ${RCA_GITOPS_PROVIDER:github}
-    api-base-url: ${RCA_GITOPS_API_BASE_URL:https://api.github.com}
+    api-base-url: ${RCA_GITOPS_API_BASE_URL:}
     repository: ${RCA_GITOPS_REPOSITORY:}
     base-branch: ${RCA_GITOPS_BASE_BRANCH:main}
     file-path: ${RCA_GITOPS_FILE_PATH:ops/catalog/operational-catalog.override.json}

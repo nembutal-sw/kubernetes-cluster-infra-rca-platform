@@ -61,6 +61,14 @@ jobs:
       - name: Test and package Spring Boot platform
         working-directory: web-console
         run: mvn --batch-mode --no-transfer-progress verify
+      - name: Upload rule-analysis quality report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: rule-analysis-quality
+          path: web-console/target/analysis-quality-report.json
+          if-no-files-found: error
+          retention-days: 30
 
   console-workflow-e2e:
     runs-on: ubuntu-latest

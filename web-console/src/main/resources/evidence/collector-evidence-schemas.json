@@ -1,0 +1,182 @@
+{
+  "schema_version": "collector-evidence/v1",
+  "collectors": {
+    "node": {
+      "version": "1.0",
+      "fields": {
+        "uptime_seconds": {"type": "number", "unit": "seconds"},
+        "kernel_tainted": {"type": "boolean"},
+        "load_average": {"type": "string"}
+      }
+    },
+    "kubernetes": {
+      "version": "1.0",
+      "fields": {
+        "node_ready": {"type": "boolean", "aliases": ["ready"]},
+        "node_conditions": {"type": "object"},
+        "api_server_latency_ms": {"type": "number", "unit": "milliseconds"},
+        "api_readyz_failed_check_count": {"type": "integer"},
+        "api_livez_failed_check_count": {"type": "integer"},
+        "api_request_error_count": {"type": "integer"},
+        "api_timeout_detected": {"type": "boolean"},
+        "cni_daemonsets_unavailable": {"type": "array"},
+        "coredns_endpoint_count": {"type": "integer"},
+        "coredns_ready_endpoint_count": {"type": "integer"},
+        "etcd_readyz_healthy": {"type": "boolean"},
+        "etcd_non_running_pods": {"type": "array"}
+      }
+    },
+    "systemd": {
+      "version": "1.0",
+      "fields": {
+        "collection_mode": {"type": "string"},
+        "failed_units": {"type": "array"},
+        "kubelet_status": {"type": "string"},
+        "kubelet_restart_count": {"type": "integer"},
+        "containerd_status": {"type": "string"},
+        "containerd_restart_count": {"type": "integer"},
+        "runtime_units": {"type": "array"},
+        "distribution_units": {"type": "array"}
+      }
+    },
+    "runtime": {
+      "version": "1.0",
+      "fields": {
+        "runtime_kind": {"type": "string"},
+        "runtime_socket_exists": {"type": "boolean"},
+        "runtime_socket_healthy": {"type": "boolean", "aliases": ["socket_healthy"]},
+        "runtime_socket_latency_ms": {"type": "number", "unit": "milliseconds"},
+        "runtime_pid_running": {"type": "boolean"}
+      }
+    },
+    "containerd": {
+      "version": "1.0",
+      "fields": {
+        "active": {"type": "boolean"},
+        "status": {"type": "string"},
+        "socket_healthy": {"type": "boolean", "aliases": ["containerd_socket_healthy"]},
+        "socket_latency_ms": {"type": "number", "aliases": ["containerd_socket_latency_ms"], "unit": "milliseconds"}
+      }
+    },
+    "kubelet": {
+      "version": "1.0",
+      "fields": {
+        "active": {"type": "boolean"},
+        "status": {"type": "string", "aliases": ["kubelet_status"]},
+        "kubelet_restart_count": {"type": "integer"},
+        "collection_mode": {"type": "string"}
+      }
+    },
+    "kernel": {
+      "version": "1.0",
+      "fields": {
+        "io_error_detected": {"type": "boolean"},
+        "nic_error_detected": {"type": "boolean"},
+        "oom_detected": {"type": "boolean"},
+        "blocked_task_detected": {"type": "boolean"},
+        "read_only_filesystem_detected": {"type": "boolean"},
+        "kernel_log_excerpt": {"type": "text", "aliases": ["messages"]}
+      }
+    },
+    "disk": {
+      "version": "1.0",
+      "fields": {
+        "usage_percent": {"type": "number", "aliases": ["root_usage_percent"], "unit": "percent"},
+        "inode_usage_percent": {"type": "number", "unit": "percent"},
+        "await_ms": {"type": "number", "aliases": ["io_latency_ms"], "unit": "milliseconds"},
+        "io_wait_percent": {"type": "number", "unit": "percent"},
+        "root_mount_read_only": {"type": "boolean"},
+        "kernel_io_error_detected": {"type": "boolean"},
+        "filesystems": {"type": "array"}
+      }
+    },
+    "inode": {
+      "version": "1.0",
+      "fields": {
+        "inode_usage_percent": {"type": "number", "aliases": ["root_inode_usage_percent"], "unit": "percent"},
+        "filesystems": {"type": "array"}
+      }
+    },
+    "memory": {
+      "version": "1.0",
+      "fields": {
+        "usage_percent": {"type": "number", "unit": "percent"},
+        "mem_total_kib": {"type": "integer", "unit": "KiB"},
+        "mem_available_kib": {"type": "integer", "aliases": ["available_kib"], "unit": "KiB"},
+        "swap_usage_percent": {"type": "number", "unit": "percent"},
+        "oom_kill_detected": {"type": "boolean"},
+        "pressure": {"type": "object"}
+      }
+    },
+    "process": {
+      "version": "1.0",
+      "fields": {
+        "process_count": {"type": "integer"},
+        "zombie_process_count": {"type": "integer", "aliases": ["zombie_count"]},
+        "pid_max": {"type": "integer"},
+        "pid_usage_percent": {"type": "number", "unit": "percent"}
+      }
+    },
+    "network": {
+      "version": "1.0",
+      "fields": {
+        "interfaces": {"type": "array"},
+        "interfaces_down": {"type": "array"},
+        "nic_link_flap_detected": {"type": "boolean"},
+        "tcp_retrans_segments": {"type": "integer"},
+        "tcp_retrans_segments_per_hour_since_boot": {"type": "number", "unit": "events/hour"},
+        "conntrack_usage_percent": {"type": "number", "unit": "percent"}
+      }
+    },
+    "conntrack": {
+      "version": "1.0",
+      "fields": {
+        "count": {"type": "integer"},
+        "max": {"type": "integer"},
+        "usage_percent": {"type": "number", "unit": "percent"},
+        "insert_failed": {"type": "integer"},
+        "drop": {"type": "integer"},
+        "early_drop": {"type": "integer"},
+        "table_full_detected": {"type": "boolean"}
+      }
+    },
+    "cni": {
+      "version": "1.0",
+      "fields": {
+        "config_dir_exists": {"type": "boolean", "aliases": ["configured"]},
+        "config_count": {"type": "integer"},
+        "plugin_types": {"type": "array"},
+        "mtu": {"type": "integer", "aliases": ["overlay_mtu"]},
+        "mtu_values": {"type": "array"},
+        "plugin_errors_detected": {"type": "boolean"},
+        "parse_errors": {"type": "array"}
+      }
+    },
+    "dns": {
+      "version": "1.0",
+      "fields": {
+        "dns_configured": {"type": "boolean"},
+        "nameservers": {"type": "array"},
+        "nameserver_count": {"type": "integer"},
+        "dns_lookup_latency_ms": {"type": "number", "unit": "milliseconds"},
+        "ndots": {"type": "integer"},
+        "timeout_seconds": {"type": "number", "unit": "seconds"},
+        "attempts": {"type": "integer"}
+      }
+    },
+    "etcd": {
+      "version": "1.0",
+      "fields": {
+        "fsync_latency_ms": {"type": "number", "unit": "milliseconds"},
+        "readyz_healthy": {"type": "boolean", "aliases": ["etcd_readyz_healthy"]}
+      }
+    },
+    "ebpf": {
+      "version": "1.0",
+      "fields": {
+        "events": {"type": "array"},
+        "dropped_event_count": {"type": "integer"}
+      }
+    }
+  }
+}

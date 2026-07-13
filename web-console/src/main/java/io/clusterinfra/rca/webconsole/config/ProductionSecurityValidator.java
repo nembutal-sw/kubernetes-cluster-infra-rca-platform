@@ -200,13 +200,20 @@ public class ProductionSecurityValidator implements InitializingBean {
         if (!gitOps.isEnabled()) {
             return;
         }
-        if (!"github".equalsIgnoreCase(gitOps.getProvider())) {
-            violations.add("RCA_GITOPS_PROVIDER must be github");
+        String provider = gitOps.getProvider().toLowerCase(Locale.ROOT);
+        if (!Set.of("github", "gitlab", "gitea").contains(provider)) {
+            violations.add("RCA_GITOPS_PROVIDER must be github, gitlab, or gitea");
         }
-        if (!gitOps.getRepository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
-            violations.add("RCA_GITOPS_REPOSITORY must use owner/repository format");
+        boolean validRepository = Set.of("github", "gitea").contains(provider)
+            ? gitOps.getRepository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+            : gitOps.getRepository().matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+");
+        if (!validRepository) {
+            violations.add("RCA_GITOPS_REPOSITORY is invalid for the configured provider");
         }
         validateHttpsUrl(gitOps.getApiBaseUrl(), "RCA_GITOPS_API_BASE_URL", violations);
+        if ("gitea".equals(provider) && gitOps.getApiBaseUrl().isBlank()) {
+            violations.add("RCA_GITOPS_API_BASE_URL is required for gitea");
+        }
         rejectUnsafe(
             gitOps.getToken(),
             UNSAFE_SECRETS,

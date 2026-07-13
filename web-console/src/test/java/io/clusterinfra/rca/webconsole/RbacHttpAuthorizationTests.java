@@ -88,6 +88,9 @@ class RbacHttpAuthorizationTests {
         assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);
         assertStatus(auditor, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);
         assertStatus(null, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.UNAUTHORIZED);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/evidence/schemas", null, HttpStatus.OK);
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/evidence/schemas", null, HttpStatus.OK);
+        assertStatus(null, HttpMethod.GET, "/api/v1/evidence/schemas", null, HttpStatus.UNAUTHORIZED);
         Map<String, Object> catalogPreview = Map.of(
             "override_json", "{\"schema_version\":\"rca-catalog/v1\",\"version\":\"rbac-preview\"}",
             "reason", "rbac test"
@@ -134,6 +137,13 @@ class RbacHttpAuthorizationTests {
         ), HttpStatus.FORBIDDEN);
         assertStatus(approver, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/rca/reports", null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/reports?limit=10", null, HttpStatus.OK);
+        assertStatus(approver, HttpMethod.GET, "/api/v1/rca/incidents?status=open", null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/analysis-tasks?limit=10", null, HttpStatus.OK);
+        assertStatus(approver, HttpMethod.GET, "/api/v1/rca/analysis-tasks?limit=10", null, HttpStatus.FORBIDDEN);
+        assertStatus(null, HttpMethod.GET, "/api/v1/rca/reports?limit=10", null, HttpStatus.UNAUTHORIZED);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/reports?cursor=invalid", null, HttpStatus.UNPROCESSABLE_ENTITY);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/incidents?status=invalid", null, HttpStatus.BAD_REQUEST);
 
         assertStatus(viewer, HttpMethod.GET, "/api/rca/reports/export", null, HttpStatus.FORBIDDEN);
         assertStatus(approver, HttpMethod.GET, "/api/rca/reports/export", null, HttpStatus.FORBIDDEN);

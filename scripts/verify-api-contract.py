@@ -43,6 +43,7 @@ EXPECTED_WEBHOOK_PATHS = {
 }
 VERSIONED_REQUIRED_PATHS = {
     "/api/v1/platform/info",
+    "/api/v1/evidence/schemas",
 }
 
 

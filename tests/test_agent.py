@@ -48,6 +48,7 @@ def test_collector_registry_exposes_operational_metadata(tmp_path: Path) -> None
     assert by_name["systemd"]["requires_host_pid"] is True
     assert by_name["disk"]["risk_level"] == "read_only"
     assert by_name["disk"]["max_output_bytes"] == 1_048_576
+    assert by_name["disk"]["schema_version"] == "collector-evidence/v1"
 
 
 def test_capability_report_marks_node_diagnostics_ready(
@@ -139,6 +140,7 @@ def test_safe_agent_mode_disables_host_level_collectors(
 
     assert evidence["node"]["status"] == "ok"
     assert evidence["kubernetes"]["status"] == "ok"
+    assert evidence["node"]["_schema_version"] == "collector-evidence/v1"
     assert evidence["kernel"]["status"] == "disabled"
     assert evidence["runtime"]["status"] == "disabled"
 

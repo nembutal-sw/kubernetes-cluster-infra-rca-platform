@@ -143,7 +143,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(18);
+        assertThat(migration.migrationsExecuted).isEqualTo(19);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         UserRepository users = userRepository(dataSource);
@@ -454,6 +454,18 @@ class DatabaseCompatibilityTests {
         ).orElseThrow();
         assertThat(recurrenceIncident.recurrenceOfIncidentId()).isEqualTo(storedIncident.incidentId());
         assertThat(recurrenceIncident.recurrenceSequence()).isEqualTo(1);
+        var reportPage = reports.pageReports(cluster.clusterId(), RcaJobStatus.completed, "disk", null, 2);
+        assertThat(reportPage.items()).hasSize(2);
+        assertThat(reportPage.hasMore()).isTrue();
+        assertThat(reports.pageReports(
+            cluster.clusterId(), null, null, reportPage.nextCursor(), 2
+        ).items()).isNotEmpty();
+        assertThat(incidents.page(
+            cluster.clusterId(), null, "recurred", null, 10
+        ).items()).extracting(item -> item.incidentId()).contains(recurrenceIncident.incidentId());
+        assertThat(tasks.page(
+            cluster.clusterId(), null, "DiskPressure", null, 5
+        ).items()).isNotEmpty();
 
         var actionRequest = actions.createRequest(
             report.reportId(),
@@ -545,7 +557,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(17);
+        assertThat(migration.migrationsExecuted).isEqualTo(18);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

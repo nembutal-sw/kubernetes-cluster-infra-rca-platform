@@ -1,3 +1,12 @@
+{{- if .Values.platform.config.gitopsEnabled }}
+{{- $gitopsProvider := lower .Values.platform.config.gitopsProvider }}
+{{- if not (has $gitopsProvider (list "github" "gitlab" "gitea")) }}
+{{- fail "platform.config.gitopsProvider must be github, gitlab, or gitea" }}
+{{- end }}
+{{- if and (eq $gitopsProvider "gitea") (empty .Values.platform.config.gitopsApiBaseUrl) }}
+{{- fail "platform.config.gitopsApiBaseUrl is required for gitea" }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

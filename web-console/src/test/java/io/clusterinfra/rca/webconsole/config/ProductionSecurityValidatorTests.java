@@ -246,6 +246,99 @@ class ProductionSecurityValidatorTests {
             .run(context -> assertThat(context).hasNotFailed());
     }
 
+    @Test
+    void safeGitLabConfigurationWithNestedGroupLoads() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true",
+                "rca.gitops.provider=gitlab",
+                "rca.gitops.repository=acme/platform/rca-config",
+                "rca.gitops.token=a-strong-gitlab-token",
+                "rca.gitops.webhook-secret=a-strong-gitlab-webhook-secret"
+            )
+            .run(context -> {
+                assertThat(context).hasNotFailed();
+                RcaConsoleProperties properties = context.getBean(RcaConsoleProperties.class);
+                assertThat(properties.getGitOps().getApiBaseUrl()).isEqualTo("https://gitlab.com/api/v4");
+            });
+    }
+
+    @Test
+    void githubConfigurationRejectsNestedRepositoryPath() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true",
+                "rca.gitops.provider=github",
+                "rca.gitops.repository=acme/platform/rca-config",
+                "rca.gitops.token=a-strong-github-token",
+                "rca.gitops.webhook-secret=a-strong-github-webhook-secret"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_GITOPS_REPOSITORY is invalid");
+            });
+    }
+
+    @Test
+    void safeGiteaConfigurationLoads() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true",
+                "rca.gitops.provider=gitea",
+                "rca.gitops.api-base-url=https://git.example.com/api/v1",
+                "rca.gitops.repository=acme/rca-config",
+                "rca.gitops.token=a-strong-gitea-token",
+                "rca.gitops.webhook-secret=a-strong-gitea-webhook-secret"
+            )
+            .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void giteaConfigurationRequiresExplicitApiBaseUrl() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.gitops.enabled=true",
+                "rca.gitops.provider=gitea",
+                "rca.gitops.repository=acme/rca-config",
+                "rca.gitops.token=a-strong-gitea-token",
+                "rca.gitops.webhook-secret=a-strong-gitea-webhook-secret"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_GITOPS_API_BASE_URL is required for gitea");
+            });
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(RcaConsoleProperties.class)
     static class ValidatorConfiguration {

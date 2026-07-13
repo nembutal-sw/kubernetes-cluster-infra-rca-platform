@@ -18,6 +18,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class WebhookAuthenticationFilter extends OncePerRequestFilter {
     private static final String ALERTMANAGER_PATH = "/api/webhooks/alertmanager";
     private static final String GITHUB_GITOPS_PATH = "/api/webhooks/gitops/github";
+    private static final String GITLAB_GITOPS_PATH = "/api/webhooks/gitops/gitlab";
+    private static final String GITEA_GITOPS_PATH = "/api/webhooks/gitops/gitea";
 
     private final AccessService access;
     private final AuditService audit;
@@ -30,7 +32,7 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
     }
 
     public static Set<String> protectedPaths() {
-        return Set.of(ALERTMANAGER_PATH, GITHUB_GITOPS_PATH);
+        return Set.of(ALERTMANAGER_PATH, GITHUB_GITOPS_PATH, GITLAB_GITOPS_PATH, GITEA_GITOPS_PATH);
     }
 
     @Override
@@ -47,6 +49,16 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         try {
             if (GITHUB_GITOPS_PATH.equals(SecurityFilterSupport.path(request))) {
                 requireGitHubHeaders(request);
+                filterChain.doFilter(request, response);
+                return;
+            }
+            if (GITLAB_GITOPS_PATH.equals(SecurityFilterSupport.path(request))) {
+                requireGitLabHeaders(request);
+                filterChain.doFilter(request, response);
+                return;
+            }
+            if (GITEA_GITOPS_PATH.equals(SecurityFilterSupport.path(request))) {
+                requireGiteaHeaders(request);
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -78,19 +90,45 @@ public class WebhookAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    private void requireGitLabHeaders(HttpServletRequest request) {
+        if (blank(request.getHeader("X-Gitlab-Event"))
+            || blank(request.getHeader("X-Gitlab-Event-UUID"))
+            || blank(request.getHeader("X-Gitlab-Token"))) {
+            throw new ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED,
+                "GitLab webhook authentication headers are required"
+            );
+        }
+    }
+
+    private void requireGiteaHeaders(HttpServletRequest request) {
+        if (blank(request.getHeader("X-Gitea-Event"))
+            || blank(request.getHeader("X-Gitea-Delivery"))
+            || blank(request.getHeader("X-Gitea-Signature"))) {
+            throw new ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED,
+                "Gitea webhook signature headers are required"
+            );
+        }
+    }
+
     private boolean blank(String value) {
         return value == null || value.isBlank();
     }
 
     private void auditFailure(HttpServletRequest request, String reason) {
         try {
-            boolean github = GITHUB_GITOPS_PATH.equals(SecurityFilterSupport.path(request));
+            String path = SecurityFilterSupport.path(request);
+            boolean github = GITHUB_GITOPS_PATH.equals(path);
+            boolean gitlab = GITLAB_GITOPS_PATH.equals(path);
+            boolean gitea = GITEA_GITOPS_PATH.equals(path);
+            String provider = github ? "github" : gitlab ? "gitlab" : gitea ? "gitea" : "alertmanager";
             audit.record(
                 "system",
-                github ? "github" : "alertmanager",
+                provider,
                 "webhook.auth_failed",
                 "webhook",
-                github ? "github-gitops" : "alertmanager",
+                github || gitlab || gitea ? provider + "-gitops" : "alertmanager",
                 "failed",
                 Map.of("reason", reason == null ? "authentication_failed" : reason),
                 request

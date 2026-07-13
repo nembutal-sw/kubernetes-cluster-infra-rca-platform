@@ -81,6 +81,18 @@ public final class RcaModels {
         pending, in_progress, succeeded, failed, rolled_back
     }
 
+    public record CursorPage<T>(
+        List<T> items,
+        String nextCursor,
+        boolean hasMore,
+        long total,
+        int limit
+    ) {
+        public CursorPage {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
     public record ClusterCreateRequest(
         @NotBlank @Size(max = 255) String name,
         @Size(max = 64) String environment,

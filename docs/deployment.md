@@ -87,14 +87,17 @@ RCA_NOTIFICATION_WEBHOOK_TOKEN=...
 
 ## GitOps Provider Wiring
 
-승인된 catalog override를 GitHub draft PR로 생성하려면 GitOps 연동을 활성화합니다.
+승인된 catalog override를 GitHub/Gitea draft PR 또는 GitLab draft MR로 생성하려면 GitOps 연동을 활성화합니다.
 
 ```bash
 RCA_GITOPS_ENABLED=true
-RCA_GITOPS_REPOSITORY=owner/repository
+RCA_GITOPS_PROVIDER=github # github | gitlab | gitea
+RCA_GITOPS_REPOSITORY=namespace/repository
 RCA_GITOPS_BASE_BRANCH=main
 RCA_GITOPS_TOKEN=...
 RCA_GITOPS_WEBHOOK_SECRET=...
 ```
+
+`RCA_GITOPS_API_BASE_URL`을 비우면 GitHub는 `https://api.github.com`, GitLab은 `https://gitlab.com/api/v4`를 사용합니다. Gitea는 `https://git.example.com/api/v1` 같은 명시적인 URL이 필요합니다.
 
 Kubernetes에서는 repository, branch, file path를 `platform.config.gitops*`에 두고 token과 webhook secret은 `platform.secret.gitopsToken`, `platform.secret.gitopsWebhookSecret` 또는 External Secret으로 주입합니다. 자세한 workflow와 API는 [gitops.md](gitops.md)를 참고합니다.

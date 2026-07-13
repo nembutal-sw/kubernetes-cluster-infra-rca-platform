@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
@@ -27,6 +28,16 @@ public class IncidentWorkflowService {
 
     public List<Incident> list(String clusterId) {
         return incidents.list(clusterId);
+    }
+
+    public CursorPage<Incident> page(
+        String clusterId,
+        IncidentStatus status,
+        String query,
+        String cursor,
+        Integer limit
+    ) {
+        return incidents.page(clusterId, status, query, cursor, limit);
     }
 
     public Incident requireIncident(String incidentId) {

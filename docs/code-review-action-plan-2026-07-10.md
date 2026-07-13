@@ -12,7 +12,7 @@
 | Agent Health 조회 | 완료 | `/api/v1/agent-health` 집계 API로 Dashboard N+1 제거 |
 | URL Routing | 완료 | React Router 기반 상세 URL, 직접 진입, 새로 고침, 뒤로 가기, RBAC/missing resource 처리를 적용함 |
 | Frontend 사용자 흐름 테스트 | 핵심 흐름 완료 | Playwright로 세션, Cluster onboarding, RCA/manual action, Viewer, 모바일 keyboard 흐름을 검증함 |
-| GitOps 변경 추적 | GitHub 완료 | 승인된 catalog draft의 draft PR 생성, webhook 상태 동기화, 배포/검증/rollback 추적을 지원함 |
+| GitOps 변경 추적 | GitHub/GitLab/Gitea 완료 | 승인된 catalog draft의 draft PR/MR 생성, webhook 상태 동기화, 배포/검증/rollback 추적을 지원함 |
 | 공통 API 오류 형식 | 완료 | Backend/보안 필터 공통 오류 형식, trace header, Frontend typed error 적용 |
 
 ## Implementation Order
@@ -189,17 +189,17 @@ RKE2 검증 결과:
 
 ### Phase 5. GitOps Change Tracking
 
-상태: GitHub provider 기준 완료 (2026-07-13)
+상태: GitHub/GitLab/Gitea provider 기준 완료 (2026-07-13)
 
-첫 Provider는 GitHub만 지원하고, Platform은 PR 생성과 상태 추적까지만 담당합니다. Kubernetes 리소스를 직접 변경하지 않습니다.
+GitHub, GitLab, Gitea를 지원하며, Platform은 PR/MR 생성과 상태 추적까지만 담당합니다. Kubernetes 리소스를 직접 변경하지 않습니다.
 
 구현 항목:
 
-- `GitOpsProvider` interface와 GitHub adapter
+- `GitOpsProvider` interface와 GitHub/GitLab/Gitea adapter
 - 승인된 catalog override에서 branch, commit, PR 생성
 - Provider credential은 Secret/env로 주입하고 DB와 Audit에 저장하지 않음
 - PR URL, number, state, head SHA 저장
-- GitHub Webhook signature 검증과 merged/closed 동기화
+- GitHub/Gitea HMAC 및 GitLab secret token 검증과 merged/closed 동기화
 - deployment, verification, rollback 결과 기록 API
 - Action Request 또는 Catalog Override Draft와 변경 기록 연결
 - 실패 시 rollback PR handoff 제공
@@ -238,9 +238,9 @@ gitops_changes
 
 P0 작업이 끝난 뒤 다음 순서로 진행합니다.
 
-1. Report, Incident, Task cursor pagination과 검색/필터
-2. Collector별 Typed Evidence Adapter
-3. Golden Scenario dataset과 Precision/Recall/Top-k 평가
+1. Report, Incident, Task cursor pagination과 검색/필터: 완료
+2. Collector별 Typed Evidence Adapter: 완료
+3. Golden Scenario dataset과 Precision/Recall/Top-k 평가: 완료
 4. LLM supporting evidence ID 강제와 호출량/비용 지표
 5. 이전 장애 비교, maintenance window, saved view
 

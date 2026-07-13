@@ -113,6 +113,14 @@
 - release image SBOM과 image scan report를 GitHub Release asset으로 업로드
 - release readiness static gate에 supply-chain workflow 검증 추가
 
+### Operations Data Pagination
+
+- Report, Incident, Analysis Task versioned cursor API 추가
+- timestamp와 ID 기반 keyset ordering, literal 검색, cluster/status 필터 적용
+- PostgreSQL/MariaDB 공통 복합 인덱스 추가
+- Reports, Incidents, Pipeline UI에 검색과 이전/다음 탐색 연결
+- 기존 배열 API는 호환성을 위해 유지
+
 ## Active Backlog
 
 최신 코드 리뷰를 현재 `main`과 대조한 세부 실행 순서와 완료 기준은
@@ -134,9 +142,9 @@
 
 현재 상태:
 
-- GitHub draft PR 생성과 PR 상태 webhook 동기화 완료
+- GitHub/Gitea draft PR과 GitLab draft MR 생성, provider별 webhook 상태 동기화 완료
 - deployment, verification, rollback 결과 저장 및 Settings UI 표시 완료
-- GitLab/Gitea provider는 후속 대상
+- GitHub, GitLab, Gitea provider 지원 완료
 
 ### Agent And Webhook Auth Regression
 
@@ -173,11 +181,12 @@
 
 ## Next Priority
 
+Collector별 Typed Evidence Adapter와 Golden Scenario Precision/Recall/Top-k 평가는 완료했습니다.
+다음 우선순위는 LLM supporting evidence ID 강제와 호출 비용/지연 추적입니다.
+
 1. kubeadm과 관리형 Kubernetes Agent compatibility 검증
-2. GitLab/Gitea GitOps provider 확장
-3. Report/Incident/Task pagination과 검색/필터
-4. Collector별 typed evidence schema와 분석 품질 평가
-5. Playwright API 오류 주입과 Agent 연결 상태 시나리오 확장
+2. LLM supporting evidence ID 강제와 호출 비용/지연 추적
+3. Playwright API 오류 주입과 Agent 연결 상태 시나리오 확장
 
 ## Positioning
 

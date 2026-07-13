@@ -537,7 +537,7 @@ function ConsoleApp() {
       `/api/v1/catalog/overrides/drafts/${encodeURIComponent(draft.draft_id)}/gitops-changes`,
       { method: "POST", body: { confirmed: true } },
     );
-    notify(t(change.pull_request_state === "failed" ? "GitOps PR creation failed." : "GitOps pull request created."), change.pull_request_state === "failed" ? "danger" : "success");
+    notify(t(change.pull_request_state === "failed" ? "GitOps change request creation failed." : "GitOps change request created."), change.pull_request_state === "failed" ? "danger" : "success");
     return change;
   }
 
@@ -656,7 +656,9 @@ function ConsoleApp() {
           )}
           {activeView === "reports" && (
             <ReportsView
-              reports={reports}
+              callApi={callApi}
+              clusters={clusters}
+              refreshToken={lastUpdatedAt}
               selectedReportId={selectedReportId}
               setSelectedReportId={openReport}
               detail={reportDetail}
@@ -674,7 +676,9 @@ function ConsoleApp() {
           )}
           {activeView === "incidents" && (
             <IncidentsView
-              incidents={incidents}
+              callApi={callApi}
+              clusters={clusters}
+              refreshToken={lastUpdatedAt}
               selectedIncidentId={route.incidentId}
               onSelectIncident={openIncident}
               onOpenReport={openReport}
@@ -685,6 +689,8 @@ function ConsoleApp() {
           )}
           {activeView === "pipeline" && (
             <PipelineView
+              callApi={callApi}
+              refreshToken={lastUpdatedAt}
               tasks={analysisTasks}
               actionRequests={actionRequests}
               demoScenarios={demoScenarios}

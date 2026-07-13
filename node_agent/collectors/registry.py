@@ -28,6 +28,7 @@ Collector = Callable[[], dict[str, Any]]
 @dataclass(frozen=True)
 class CollectorMetadata:
     name: str
+    schema_version: str = "collector-evidence/v1"
     risk_level: str = "read_only"
     requires_host_network: bool = False
     requires_host_pid: bool = False

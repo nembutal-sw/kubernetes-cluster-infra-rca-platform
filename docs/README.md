@@ -4,11 +4,14 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문�
 
 ## Documents
 
+Typed Evidence 계약과 정량 RCA 품질 게이트는 `evidence-schema-and-quality.md`를 참고합니다.
+
 | Document | Purpose |
 | --- | --- |
 | `architecture.md` | 전체 아키텍처와 주요 컴포넌트 |
 | `agent-api.md` | Agent 등록, heartbeat, evidence API 계약 |
 | `collector-output-contract.md` | Collector 출력 envelope, 안정 필드, degraded 상태 |
+| `evidence-schema-and-quality.md` | Collector typed evidence 계약과 정량 RCA 품질 게이트 |
 | `node-agent.md` | Python Node Agent runtime, collectors, spool, safety boundary |
 | `agent-evidence-fields.md` | Collector별 evidence field 참고 |
 | `agent-permission-model.md` | `safe`, `node-diagnostics`, `ebpf` 권한 모델 |
@@ -21,7 +24,8 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 운영 검증 문�
 | `llm-analyzer.md` | LLM provider, fallback, diagnostic-only 원칙 |
 | `policy-engine.md` | 조치 등급, guardrail, manual-only workflow |
 | `audit-and-actions.md` | Audit event와 human-in-the-loop action request lifecycle |
-| `gitops.md` | 승인된 catalog 변경의 GitHub PR 생성과 배포 결과 추적 |
+| `gitops.md` | 승인된 catalog 변경의 GitHub/Gitea PR 및 GitLab MR 생성과 배포 결과 추적 |
+| `pagination.md` | Report, Incident, Analysis Task cursor pagination과 검색·필터 계약 |
 | `web-console.md` | Web Console 화면 구성과 운영자 workflow |
 | `security.md` | 인증 필터, RBAC, production validation, export 제한 |
 | `threat-model.md` | 자산, 신뢰 경계, abuse case, mitigation |

@@ -1,7 +1,9 @@
 package io.clusterinfra.rca.webconsole.controller;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.IncidentWorkflowService;
@@ -36,6 +38,18 @@ public class IncidentController {
         @RequestParam(name = "cluster_id", required = false) String clusterId
     ) {
         return incidents.list(clusterId);
+    }
+
+    @GetMapping("/api/v1/rca/incidents")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public CursorPage<Incident> incidentPage(
+        @RequestParam(name = "cluster_id", required = false) String clusterId,
+        @RequestParam(name = "status", required = false) IncidentStatus status,
+        @RequestParam(name = "q", required = false) String query,
+        @RequestParam(name = "cursor", required = false) String cursor,
+        @RequestParam(name = "limit", defaultValue = "50") Integer limit
+    ) {
+        return incidents.page(clusterId, status, query, cursor, limit);
     }
 
     @GetMapping("/api/rca/incidents/{incidentId}")

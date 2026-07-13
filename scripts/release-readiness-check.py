@@ -249,10 +249,26 @@ def main() -> int:
             "Static operational catalog guard validates collector selection, actions, rules, and non-executable plans.",
         ),
         check(
-            "github-gitops-change-tracking",
+            "typed-evidence-quality-gate",
+            exists("web-console/src/main/resources/evidence/collector-evidence-schemas.json")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/analysis/CollectorEvidenceAdapter.java")
+            and exists("web-console/src/test/java/io/clusterinfra/rca/webconsole/RuleAnalysisQualityTests.java")
+            and contains(
+                ".github/workflows/ci.yml",
+                "rule-analysis-quality",
+                "analysis-quality-report.json",
+            ),
+            "Collector evidence is normalized through a versioned typed contract and golden scenarios enforce quality metrics.",
+        ),
+        check(
+            "gitops-change-tracking",
             exists("web-console/src/main/resources/db/migration/V18__gitops_change_tracking.sql")
             and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GitHubGitOpsProvider.java")
             and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitHubWebhookService.java")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GitLabGitOpsProvider.java")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitLabWebhookService.java")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GiteaGitOpsProvider.java")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GiteaWebhookService.java")
             and contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitOpsChangeService.java",
                 "CatalogOverrideStatus.approved",
@@ -267,11 +283,43 @@ def main() -> int:
                 "claimWebhookDelivery",
             )
             and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GitLabWebhookService.java",
+                "MessageDigest.isEqual",
+                "claimWebhookDelivery",
+                "Merge Request Hook",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/GiteaWebhookService.java",
+                "HmacSHA256",
+                "MessageDigest.isEqual",
+                "claimWebhookDelivery",
+            )
+            and contains(
                 "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
                 "RCA_GITOPS_TOKEN",
                 "RCA_GITOPS_WEBHOOK_SECRET",
             ),
-            "GitHub GitOps integration requires approval, deduplicates PR creation, verifies webhook signatures, and tracks deployment outcomes.",
+            "GitHub/GitLab/Gitea GitOps integration requires approval, deduplicates PR creation, verifies provider webhooks, and tracks deployment outcomes.",
+        ),
+        check(
+            "operations-cursor-pagination",
+            exists("web-console/src/main/resources/db/migration/V19__cursor_pagination_indexes.sql")
+            and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/CursorPageSupport.java")
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/ReportRepository.java",
+                "pageReports",
+                "created_at DESC, report_id DESC",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/IncidentRepository.java",
+                "last_seen_at DESC, incident_id DESC",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/AnalysisTaskRepository.java",
+                "created_at DESC, task_id DESC",
+            )
+            and exists("web-console/frontend/src/hooks/useCursorPage.ts"),
+            "Report, incident, and task lists use indexed keyset cursors with versioned APIs and shared UI navigation.",
         ),
         check(
             "supply-chain-ci",

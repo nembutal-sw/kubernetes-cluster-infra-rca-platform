@@ -1,10 +1,16 @@
-import { EmptyState, PageHeader, StatusBadge, Surface } from "../components/common";
-import type { IncidentView, TFunction, UserAccount } from "../types";
+import { useState } from "react";
+
+import { EmptyState, Icon, PageHeader, StatusBadge, Surface } from "../components/common";
+import { CursorPager } from "../components/CursorPager";
+import { useCursorPage, useDebouncedValue } from "../hooks/useCursorPage";
+import type { ApiCall, ClusterView, IncidentView, TFunction, UserAccount } from "../types";
 
 type MaybePromise<T = void> = T | Promise<T>;
 
 interface IncidentsViewProps {
-  incidents: IncidentView[];
+  callApi: ApiCall;
+  clusters: ClusterView[];
+  refreshToken?: string;
   selectedIncidentId?: string;
   onSelectIncident: (incidentId: string) => void;
   onOpenReport: (reportId: string) => void;
@@ -13,15 +19,41 @@ interface IncidentsViewProps {
   t: TFunction;
 }
 
-export function IncidentsView({ incidents, selectedIncidentId, onSelectIncident, onOpenReport, onChangeStatus, currentUser, t }: IncidentsViewProps) {
+export function IncidentsView({ callApi, clusters, refreshToken, selectedIncidentId, onSelectIncident, onOpenReport, onChangeStatus, currentUser, t }: IncidentsViewProps) {
   const canOperate = ["admin", "operator"].includes(currentUser.role);
+  const [query, setQuery] = useState("");
+  const [clusterId, setClusterId] = useState("");
+  const [status, setStatus] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const result = useCursorPage<IncidentView>(callApi, "/api/v1/rca/incidents", {
+    q: debouncedQuery,
+    cluster_id: clusterId,
+    status,
+  }, refreshToken);
+  const incidents = result.page.items;
   const orderedIncidents = selectedIncidentId
     ? [...incidents].sort((left, right) => Number(right.incident_id === selectedIncidentId) - Number(left.incident_id === selectedIncidentId))
     : incidents;
   return (
     <div className="page-stack">
       <PageHeader title={t("Incidents")} subtitle={t("Correlated evidence grouped by node, cause, and recurrence.")} />
-      <Surface title={t("Incidents")} subtitle={`${incidents.length} ${t("total")}`}>
+      <div className="ops-filter-bar">
+        <div className="input-group input-group-sm ops-search-control">
+          <span className="input-group-text"><Icon name="search" /></span>
+          <input className="form-control" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search incidents")} aria-label={t("Search incidents")} />
+        </div>
+        <select className="form-select form-select-sm" value={clusterId} onChange={(event) => setClusterId(event.target.value)} aria-label={t("Filter by cluster")}>
+          <option value="">{t("All clusters")}</option>
+          {clusters.map((cluster) => <option key={cluster.cluster_id} value={cluster.cluster_id}>{cluster.name}</option>)}
+        </select>
+        <select className="form-select form-select-sm" value={status} onChange={(event) => setStatus(event.target.value)} aria-label={t("Filter by status")}>
+          <option value="">{t("All statuses")}</option>
+          <option value="open">{t("open")}</option>
+          <option value="resolved">{t("resolved")}</option>
+        </select>
+      </div>
+      {result.error && <div className="alert alert-warning py-2 mb-0">{result.error.detail}</div>}
+      <Surface title={t("Incidents")} subtitle={`${result.page.total} ${t("total")}`}>
         <div className="incident-list">
           {orderedIncidents.length ? orderedIncidents.map((incident) => (
             <article
@@ -60,6 +92,7 @@ export function IncidentsView({ incidents, selectedIncidentId, onSelectIncident,
             </article>
           )) : <EmptyState message={t("No incidents loaded.")} />}
         </div>
+        <CursorPager page={result.pageNumber} total={result.page.total} loading={result.loading} canPrevious={result.canPrevious} canNext={result.canNext} onPrevious={result.previous} onNext={result.next} t={t} />
       </Surface>
     </div>
   );

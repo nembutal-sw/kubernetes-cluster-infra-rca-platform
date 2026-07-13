@@ -302,7 +302,7 @@ public class RcaConsoleProperties {
     public static class GitOps {
         private boolean enabled;
         private String provider = "github";
-        private String apiBaseUrl = "https://api.github.com";
+        private String apiBaseUrl = "";
         private String repository = "";
         private String baseBranch = "main";
         private String filePath = "ops/catalog/operational-catalog.override.json";
@@ -327,7 +327,12 @@ public class RcaConsoleProperties {
         }
 
         public String getApiBaseUrl() {
-            return clean(apiBaseUrl, "https://api.github.com").replaceAll("/+$", "");
+            String defaultUrl = switch (getProvider().toLowerCase(java.util.Locale.ROOT)) {
+                case "gitlab" -> "https://gitlab.com/api/v4";
+                case "gitea" -> "";
+                default -> "https://api.github.com";
+            };
+            return clean(apiBaseUrl, defaultUrl).replaceAll("/+$", "");
         }
 
         public void setApiBaseUrl(String apiBaseUrl) {

@@ -17,6 +17,7 @@ public class SignalDetectionEngine {
     private final ObjectMapper objectMapper;
     private final OperationalCatalogService catalogService;
     private final ClusterThresholdService thresholdService;
+    private final CollectorEvidenceAdapter evidenceAdapter;
 
     @Autowired
     public SignalDetectionEngine(
@@ -24,13 +25,15 @@ public class SignalDetectionEngine {
         RcaConsoleProperties properties,
         ObjectMapper objectMapper,
         OperationalCatalogService catalogService,
-        ClusterThresholdService thresholdService
+        ClusterThresholdService thresholdService,
+        CollectorEvidenceAdapter evidenceAdapter
     ) {
         this.detectors = detectors.stream().sorted(Comparator.comparing(SignalDetector::id)).toList();
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.catalogService = catalogService;
         this.thresholdService = thresholdService;
+        this.evidenceAdapter = evidenceAdapter;
     }
 
     public SignalDetectionEngine(
@@ -43,7 +46,8 @@ public class SignalDetectionEngine {
             properties,
             objectMapper,
             OperationalCatalogService.defaultService(),
-            ClusterThresholdService.defaultsOnly(properties)
+            ClusterThresholdService.defaultsOnly(properties),
+            new CollectorEvidenceAdapter(objectMapper)
         );
     }
 
@@ -58,7 +62,25 @@ public class SignalDetectionEngine {
             properties,
             objectMapper,
             catalogService,
-            ClusterThresholdService.defaultsOnly(properties)
+            ClusterThresholdService.defaultsOnly(properties),
+            new CollectorEvidenceAdapter(objectMapper)
+        );
+    }
+
+    public SignalDetectionEngine(
+        List<SignalDetector> detectors,
+        RcaConsoleProperties properties,
+        ObjectMapper objectMapper,
+        OperationalCatalogService catalogService,
+        ClusterThresholdService thresholdService
+    ) {
+        this(
+            detectors,
+            properties,
+            objectMapper,
+            catalogService,
+            thresholdService,
+            new CollectorEvidenceAdapter(objectMapper)
         );
     }
 
@@ -70,7 +92,8 @@ public class SignalDetectionEngine {
         RcaConsoleProperties.Thresholds thresholds = clusterId == null || clusterId.isBlank()
             ? properties.getThresholds()
             : thresholdService.resolve(clusterId);
-        AnalysisContext context = AnalysisContext.create(collectors, thresholds, objectMapper);
+        CollectorEvidenceAdapter.AdaptationResult adapted = evidenceAdapter.adapt(collectors);
+        AnalysisContext context = AnalysisContext.create(adapted.collectors(), thresholds, objectMapper);
         LinkedHashMap<String, Signal> unique = new LinkedHashMap<>();
         detectors.stream()
             .filter(detector -> catalogService.detectorEnabled(detector.id()))

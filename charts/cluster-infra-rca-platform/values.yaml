@@ -152,7 +152,8 @@ platform:
     pipelineRetryMaxSeconds: 300
     gitopsEnabled: false
     gitopsProvider: github
-    gitopsApiBaseUrl: https://api.github.com
+    # Empty uses the GitHub/GitLab default. Gitea requires an explicit /api/v1 URL.
+    gitopsApiBaseUrl: ""
     gitopsRepository: ""
     gitopsBaseBranch: main
     gitopsFilePath: ops/catalog/operational-catalog.override.json

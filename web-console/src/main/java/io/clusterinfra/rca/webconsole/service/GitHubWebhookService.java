@@ -112,7 +112,9 @@ public class GitHubWebhookService {
 
     private void verifySignature(String suppliedSignature, byte[] body) {
         String secret = properties.getGitOps().getWebhookSecret();
-        if (!properties.getGitOps().isEnabled() || secret.isBlank()) {
+        if (!properties.getGitOps().isEnabled()
+            || !PROVIDER.equalsIgnoreCase(properties.getGitOps().getProvider())
+            || secret.isBlank()) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitHub webhook verification is not configured");
         }
         if (suppliedSignature == null || !suppliedSignature.startsWith("sha256=")) {

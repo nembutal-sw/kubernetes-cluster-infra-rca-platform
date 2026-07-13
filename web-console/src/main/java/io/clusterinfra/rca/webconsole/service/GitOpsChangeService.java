@@ -22,6 +22,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -176,8 +177,21 @@ public class GitOpsChangeService {
         if (!config.isEnabled()) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitOps integration is disabled");
         }
-        if (!config.getRepository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
-            throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitOps repository must use owner/repository format");
+        String provider = config.getProvider().toLowerCase(Locale.ROOT);
+        boolean validRepository = Set.of("github", "gitea").contains(provider)
+            ? config.getRepository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+            : config.getRepository().matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+");
+        if (!validRepository) {
+            throw new ResponseStatusException(
+                SERVICE_UNAVAILABLE,
+                "GitOps repository is invalid for the configured provider"
+            );
+        }
+        if ("gitea".equals(provider) && config.getApiBaseUrl().isBlank()) {
+            throw new ResponseStatusException(
+                SERVICE_UNAVAILABLE,
+                "GitOps API base URL is required for gitea"
+            );
         }
         if (!config.getBaseBranch().matches("[A-Za-z0-9._/-]+") || config.getBaseBranch().contains("..")) {
             throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitOps base branch is invalid");

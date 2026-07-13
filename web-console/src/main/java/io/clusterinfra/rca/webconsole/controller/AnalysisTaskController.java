@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.controller;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionDecisionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
@@ -47,6 +48,18 @@ public class AnalysisTaskController {
         @RequestParam(name = "limit", defaultValue = "200") Integer limit
     ) {
         return analysisTasks.list(status, limit);
+    }
+
+    @GetMapping("/api/v1/rca/analysis-tasks")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public CursorPage<AnalysisTask> analysisTaskPage(
+        @RequestParam(name = "cluster_id", required = false) String clusterId,
+        @RequestParam(name = "status", required = false) AnalysisTaskStatus status,
+        @RequestParam(name = "q", required = false) String query,
+        @RequestParam(name = "cursor", required = false) String cursor,
+        @RequestParam(name = "limit", defaultValue = "50") Integer limit
+    ) {
+        return analysisTasks.page(clusterId, status, query, cursor, limit);
     }
 
     @GetMapping("/api/rca/analysis-tasks/{taskId}")

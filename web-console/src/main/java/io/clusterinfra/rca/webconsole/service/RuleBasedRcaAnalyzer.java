@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalog.ActionDefinition;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
+import io.clusterinfra.rca.webconsole.analysis.CollectorEvidenceAdapter;
 import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
@@ -42,6 +43,7 @@ public class RuleBasedRcaAnalyzer {
     private final TopologyService topology;
     private final EvidenceQualityAnalyzer evidenceQualityAnalyzer;
     private final OperationalCatalogService catalogService;
+    private final CollectorEvidenceAdapter evidenceAdapter;
 
     @Autowired
     public RuleBasedRcaAnalyzer(
@@ -55,7 +57,8 @@ public class RuleBasedRcaAnalyzer {
         ImpactScopeAnalyzer impactScopeAnalyzer,
         TopologyService topology,
         EvidenceQualityAnalyzer evidenceQualityAnalyzer,
-        OperationalCatalogService catalogService
+        OperationalCatalogService catalogService,
+        CollectorEvidenceAdapter evidenceAdapter
     ) {
         this.policyEngine = policyEngine;
         this.llm = llm;
@@ -68,6 +71,7 @@ public class RuleBasedRcaAnalyzer {
         this.topology = topology;
         this.evidenceQualityAnalyzer = evidenceQualityAnalyzer;
         this.catalogService = catalogService;
+        this.evidenceAdapter = evidenceAdapter;
     }
 
     public RuleBasedRcaAnalyzer(
@@ -93,17 +97,27 @@ public class RuleBasedRcaAnalyzer {
             impactScopeAnalyzer,
             topology,
             evidenceQualityAnalyzer,
-            OperationalCatalogService.defaultService()
+            OperationalCatalogService.defaultService(),
+            new CollectorEvidenceAdapter(objectMapper)
         );
     }
 
     public RcaReport analyze(String reportId, EvidenceBundle evidence) {
+        CollectorEvidenceAdapter.AdaptationResult adaptedEvidence = evidenceAdapter.adapt(evidence.collectors());
         List<Signal> signals = deriveSignals(evidence.clusterId(), evidence.collectors());
         List<RootCauseCandidate> candidates = candidates(evidence.alertName(), signals);
         List<RecommendedAction> actions = actions(evidence.alertName(), signals);
         Map<String, Object> evidenceQuality = evidenceQualityAnalyzer.assess(evidence);
         Map<String, Object> qualityGate = qualityGate(signals, candidates, evidenceQuality);
-        Map<String, Object> preprocessed = preprocess(evidence, signals, candidates, actions, evidenceQuality, qualityGate);
+        Map<String, Object> preprocessed = preprocess(
+            evidence,
+            signals,
+            candidates,
+            actions,
+            evidenceQuality,
+            qualityGate,
+            adaptedEvidence.contract()
+        );
         Map<String, Object> llmAnalysis = llm.analyze(preprocessed);
         candidates = mergeLlmCandidates(candidates, llmAnalysis);
         candidates = applyEvidenceQualityPenalty(candidates, evidenceQuality);
@@ -120,6 +134,10 @@ public class RuleBasedRcaAnalyzer {
         reportEvidence.add(Map.of(
             "type", "evidence_quality",
             "quality", evidenceQuality
+        ));
+        reportEvidence.add(Map.of(
+            "type", "evidence_contract",
+            "contract", adaptedEvidence.contract()
         ));
         reportEvidence.add(Map.of(
             "type", "quality_gate",
@@ -244,7 +262,8 @@ public class RuleBasedRcaAnalyzer {
         List<RootCauseCandidate> candidates,
         List<RecommendedAction> actions,
         Map<String, Object> evidenceQuality,
-        Map<String, Object> qualityGate
+        Map<String, Object> qualityGate,
+        Map<String, Object> evidenceContract
     ) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("schema_version", "1.0");
@@ -255,6 +274,7 @@ public class RuleBasedRcaAnalyzer {
         result.put("collectors", sanitize(evidence.collectors(), 0));
         result.put("collector_status", evidenceQuality.getOrDefault("collector_status", Map.of()));
         result.put("evidence_quality", evidenceQuality);
+        result.put("evidence_contract", evidenceContract);
         result.put("quality_gate", qualityGate);
         result.put("derived_signals", signals.stream().map(Signal::asMap).toList());
         result.put("rule_candidates", candidates);

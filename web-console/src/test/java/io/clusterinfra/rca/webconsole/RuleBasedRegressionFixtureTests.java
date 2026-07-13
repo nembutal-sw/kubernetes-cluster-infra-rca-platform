@@ -97,6 +97,13 @@ class RuleBasedRegressionFixtureTests {
         assertThat(String.valueOf(qualityGate.get("status"))).as(key + " sufficient fixture gate")
             .isNotEqualTo("insufficient");
 
+        Map<String, Object> evidenceContract = evidenceMap(report, "evidence_contract", "contract");
+        assertThat(evidenceContract).as(key + " evidence contract")
+            .containsEntry("schema_version", "collector-evidence/v1")
+            .containsKey("collectors");
+        assertThat(evidenceContract.get("status")).as(key + " evidence contract status")
+            .isNotEqualTo("invalid");
+
         List<String> actionKeys = report.recommendedActions().stream()
             .map(RecommendedAction::actionKey)
             .toList();

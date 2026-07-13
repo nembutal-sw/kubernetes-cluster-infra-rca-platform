@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
@@ -13,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -137,6 +139,69 @@ public class IncidentRepository {
             "SELECT * FROM incidents WHERE cluster_id = ? ORDER BY last_seen_at DESC",
             this::mapIncident,
             clusterId
+        );
+    }
+
+    public CursorPage<Incident> page(
+        String clusterId,
+        IncidentStatus status,
+        String query,
+        String cursor,
+        Integer limit
+    ) {
+        int safeLimit = CursorPageSupport.safeLimit(limit);
+        CursorPageSupport.Cursor decodedCursor = CursorPageSupport.decode(cursor);
+        String cleanQuery = CursorPageSupport.cleanQuery(query);
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        List<Object> filterArguments = new ArrayList<>();
+        if (clusterId != null && !clusterId.isBlank()) {
+            where.append(" AND cluster_id = ?");
+            filterArguments.add(clusterId.trim());
+        }
+        if (status != null) {
+            where.append(" AND status = ?");
+            filterArguments.add(status.name());
+        }
+        if (cleanQuery != null) {
+            String pattern = CursorPageSupport.likePattern(cleanQuery);
+            where.append(
+                " AND (LOWER(incident_id) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(cluster_id) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(node_name) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(alert_name) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(root_cause) LIKE ? ESCAPE '!')"
+            );
+            for (int index = 0; index < 5; index++) {
+                filterArguments.add(pattern);
+            }
+        }
+        Long count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM incidents" + where,
+            Long.class,
+            filterArguments.toArray()
+        );
+        StringBuilder pageWhere = new StringBuilder(where);
+        List<Object> pageArguments = new ArrayList<>(filterArguments);
+        if (decodedCursor != null) {
+            pageWhere.append(" AND (last_seen_at < ? OR (last_seen_at = ? AND incident_id < ?))");
+            Timestamp cursorTime = timestamp(decodedCursor.timestamp());
+            pageArguments.add(cursorTime);
+            pageArguments.add(cursorTime);
+            pageArguments.add(decodedCursor.id());
+        }
+        pageArguments.add(safeLimit + 1);
+        List<Incident> rows = jdbc.query(
+            "SELECT * FROM incidents" + pageWhere
+                + " ORDER BY last_seen_at DESC, incident_id DESC LIMIT ?",
+            this::mapIncident,
+            pageArguments.toArray()
+        );
+        return CursorPageSupport.page(
+            rows,
+            safeLimit,
+            count == null ? 0 : count,
+            Incident::lastSeenAt,
+            Incident::incidentId
         );
     }
 

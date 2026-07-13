@@ -77,7 +77,8 @@ platform:
     springAiChatModel: none
     gitopsEnabled: false
     gitopsProvider: github
-    gitopsApiBaseUrl: https://api.github.com
+    # Empty selects the GitHub or GitLab default. Gitea requires /api/v1.
+    gitopsApiBaseUrl: ""
     gitopsRepository: ""
     gitopsBaseBranch: main
     gitopsFilePath: ops/catalog/operational-catalog.override.json
@@ -97,6 +98,8 @@ platform:
     geminiApiKey: ""
     ollamaBaseUrl: ""
 ```
+
+`gitopsProvider`는 `github`, `gitlab`, `gitea`만 허용됩니다. GitLab subgroup을 사용할 때 `gitopsRepository`는 `group/subgroup/repository` 형식으로 지정합니다. Gitea는 `gitopsApiBaseUrl`을 반드시 지정하며, 누락하거나 지원하지 않는 provider를 입력하면 Helm template 단계에서 실패합니다.
 
 ## Production Notes
 

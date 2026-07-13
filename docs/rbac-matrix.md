@@ -36,5 +36,5 @@ Web Console API의 기본 역할 계약을 정리한다. 실제 회귀 검증은
 - `VIEWER`는 변경 API에 접근할 수 없다.
 - `APPROVER`는 승인 역할이며 export 역할이 아니다.
 - `AUDITOR`는 audit/metrics 중심 역할이며 운영 변경 API에 접근할 수 없다.
-- Agent/Alertmanager/Manifest API는 전용 token/filter로 보호하고, GitHub webhook은 HMAC signature와 delivery replay guard로 보호한다.
+- Agent/Alertmanager/Manifest API는 전용 token/filter로 보호한다. GitHub/Gitea webhook은 HMAC signature, GitLab webhook은 secret token으로 인증하며 모든 provider에 delivery replay guard를 적용한다.
 - LLM이 제안한 조치는 항상 `automation_allowed=false` 상태를 유지하고, action workflow는 승인/감사/수동 완료 기록으로 제한한다.

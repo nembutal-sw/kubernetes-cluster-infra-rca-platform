@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
@@ -13,6 +14,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -81,6 +83,69 @@ public class ReportRepository {
 
     public List<RcaReport> listReports() {
         return jdbc.query("SELECT * FROM rca_reports ORDER BY created_at DESC", this::mapReport);
+    }
+
+    public CursorPage<RcaReport> pageReports(
+        String clusterId,
+        RcaJobStatus status,
+        String query,
+        String cursor,
+        Integer limit
+    ) {
+        int safeLimit = CursorPageSupport.safeLimit(limit);
+        CursorPageSupport.Cursor decodedCursor = CursorPageSupport.decode(cursor);
+        String cleanQuery = CursorPageSupport.cleanQuery(query);
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        List<Object> filterArguments = new ArrayList<>();
+        if (clusterId != null && !clusterId.isBlank()) {
+            where.append(" AND cluster_id = ?");
+            filterArguments.add(clusterId.trim());
+        }
+        if (status != null) {
+            where.append(" AND status = ?");
+            filterArguments.add(status.name());
+        }
+        if (cleanQuery != null) {
+            String pattern = CursorPageSupport.likePattern(cleanQuery);
+            where.append(
+                " AND (LOWER(report_id) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(cluster_id) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(COALESCE(incident_id, '')) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(trigger_json) LIKE ? ESCAPE '!'"
+                    + " OR LOWER(summary_json) LIKE ? ESCAPE '!')"
+            );
+            for (int index = 0; index < 5; index++) {
+                filterArguments.add(pattern);
+            }
+        }
+        Long count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM rca_reports" + where,
+            Long.class,
+            filterArguments.toArray()
+        );
+        StringBuilder pageWhere = new StringBuilder(where);
+        List<Object> pageArguments = new ArrayList<>(filterArguments);
+        if (decodedCursor != null) {
+            pageWhere.append(" AND (created_at < ? OR (created_at = ? AND report_id < ?))");
+            Timestamp cursorTime = timestamp(decodedCursor.timestamp());
+            pageArguments.add(cursorTime);
+            pageArguments.add(cursorTime);
+            pageArguments.add(decodedCursor.id());
+        }
+        pageArguments.add(safeLimit + 1);
+        List<RcaReport> rows = jdbc.query(
+            "SELECT * FROM rca_reports" + pageWhere
+                + " ORDER BY created_at DESC, report_id DESC LIMIT ?",
+            this::mapReport,
+            pageArguments.toArray()
+        );
+        return CursorPageSupport.page(
+            rows,
+            safeLimit,
+            count == null ? 0 : count,
+            RcaReport::createdAt,
+            RcaReport::reportId
+        );
     }
 
     public Optional<RcaReport> findReport(String reportId) {

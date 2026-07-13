@@ -13,6 +13,7 @@ Platform API는 Spring Boot Web Console과 Node Agent, Alertmanager webhook, RCA
 - Report/evidence bundle export는 `ADMIN`, `OPERATOR`에게만 허용합니다.
 - `/api/v1/platform/info`로 platform/API/agent protocol 정보를 제공합니다.
 - API 오류는 `code`, `title`, `detail`, `suggestion`, `trace_id` 공통 형식으로 반환합니다.
+- 대량 Report/Incident/Analysis Task 목록은 `/api/v1/rca/*` cursor pagination API를 제공합니다.
 
 ---
 
@@ -27,6 +28,16 @@ http://localhost:8080
 ```
 
 The UI and API are served from the same Spring Boot application.
+
+## Cursor-Paged Operations Data
+
+```text
+GET /api/v1/rca/reports
+GET /api/v1/rca/incidents
+GET /api/v1/rca/analysis-tasks
+```
+
+These endpoints accept `q`, `cluster_id`, `status`, `limit`, and opaque `cursor` parameters. Existing `/api/rca/*` list endpoints remain available for compatibility. See [pagination.md](pagination.md) for the response contract and ordering rules.
 
 ## Authentication
 
@@ -305,3 +316,13 @@ Error response:
 
 `trace_id` is also returned in the `X-Request-ID` response header. A valid incoming
 `X-Request-ID` or `X-Correlation-ID` is preserved; otherwise the Platform generates one.
+
+## Evidence Schema API
+
+```text
+GET /api/v1/evidence/schemas
+```
+
+인증된 `ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`가 조회할 수 있습니다. 응답에는
+`collector-evidence/v1` 계약 버전, Collector별 필드 타입, alias, 단위가 포함됩니다. 이 API는
+진단 계약 확인용 read-only API이며 Evidence 원문은 반환하지 않습니다.

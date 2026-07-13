@@ -10,6 +10,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -45,6 +46,20 @@ public class ApiExceptionHandler {
             .map(error -> error.getField() + ": " + error.getDefaultMessage())
             .orElse("request validation failed");
         return ApiErrorResponse.response(request, HttpStatus.UNPROCESSABLE_ENTITY, "validation_failed", detail);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<Map<String, Object>> handleTypeMismatch(
+        MethodArgumentTypeMismatchException exception,
+        HttpServletRequest request
+    ) {
+        String parameter = exception.getName() == null ? "query parameter" : exception.getName();
+        return ApiErrorResponse.response(
+            request,
+            HttpStatus.BAD_REQUEST,
+            "invalid_parameter",
+            parameter + " has an unsupported value"
+        );
     }
 
     @ExceptionHandler(AuthenticationException.class)

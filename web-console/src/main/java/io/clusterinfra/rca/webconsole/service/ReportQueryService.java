@@ -3,6 +3,8 @@ package io.clusterinfra.rca.webconsole.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
@@ -43,6 +45,16 @@ public class ReportQueryService {
 
     public List<RcaReport> listReports() {
         return reports.listReports();
+    }
+
+    public CursorPage<RcaReport> pageReports(
+        String clusterId,
+        RcaJobStatus status,
+        String query,
+        String cursor,
+        Integer limit
+    ) {
+        return reports.pageReports(clusterId, status, query, cursor, limit);
     }
 
     public RcaReport requireReport(String reportId) {

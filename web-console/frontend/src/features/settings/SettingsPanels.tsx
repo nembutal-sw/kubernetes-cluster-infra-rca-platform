@@ -423,7 +423,7 @@ export function CatalogSection({
     }
   }
   async function createGitOpsChange(draft: CatalogOverrideDraft) {
-    if (!window.confirm(t("Create a draft GitOps pull request for this approved catalog change?"))) {
+    if (!window.confirm(t("Create a draft GitOps change request for this approved catalog change?"))) {
       return;
     }
     setDraftBusyId(`${draft.draft_id}:gitops`);
@@ -753,7 +753,7 @@ function CatalogOverrideDraftsPanel({
               {draft.status === "approved" && gitOpsEnabled && canDiscard && (
                 <button className="btn btn-sm btn-success icon-button" disabled={draftBusyId === `${draft.draft_id}:gitops`} onClick={() => onCreateGitOps(draft)}>
                   <Icon name={draftBusyId === `${draft.draft_id}:gitops` ? "arrow-repeat" : "git"} />
-                  <span>{t("Create GitOps PR")}</span>
+                  <span>{t("Create GitOps change")}</span>
                 </button>
               )}
             </div>
@@ -799,7 +799,7 @@ function GitOpsChangePanel({
         <StatusBadge value={change.pull_request_state || "creating"} tone={change.pull_request_state === "merged" ? "green" : change.pull_request_state === "failed" ? "red" : "blue"} t={t} />
         <StatusBadge value={change.deployment_state || "pending"} tone={change.deployment_state === "succeeded" ? "green" : change.deployment_state === "failed" ? "red" : "gray"} t={t} />
       </div>
-      {change.pull_request_url && <a href={change.pull_request_url} target="_blank" rel="noreferrer">{t("Open pull request")}</a>}
+      {change.pull_request_url && <a href={change.pull_request_url} target="_blank" rel="noreferrer">{t("Open change request")}</a>}
       <code>{change.branch || "-"}</code>
       {change.error_message && <div className="alert alert-danger mb-0">{change.error_message}</div>}
       {change.verification_result && <p>{change.verification_result}</p>}
@@ -826,11 +826,11 @@ function CatalogOverrideHandoffPanel({ handoff, t }: { handoff: CatalogOverrideH
         {(handoff.runbook_steps || []).map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
       </ol>
       <label>
-        {t("Pull request title")}
+        {t("Change request title")}
         <input className="form-control" readOnly value={handoff.pull_request_title || ""} />
       </label>
       <label>
-        {t("Pull request body")}
+        {t("Change request body")}
         <textarea className="form-control monospace-control" rows={8} readOnly value={handoff.pull_request_body || ""} />
       </label>
       {Object.entries(files).map(([path, content]) => (

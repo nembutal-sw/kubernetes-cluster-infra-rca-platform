@@ -1,5 +1,11 @@
 # Performance Tuning
 
+## RCA Operations Pagination
+
+Report, Incident, Analysis Task 운영 목록은 offset 대신 timestamp와 ID를 결합한 keyset cursor를 사용합니다. 기본 페이지 크기는 50, 최대값은 200입니다. `V19__cursor_pagination_indexes.sql`의 복합 인덱스가 정렬과 cursor 조건을 지원합니다.
+
+UI는 필터 변경 시 첫 페이지로 돌아가며 이전 페이지는 브라우저 메모리의 cursor history로 이동합니다. 자세한 API 계약은 [pagination.md](pagination.md)를 참고합니다.
+
 ## Evidence Request Pagination
 
 클러스터별 요청 조회는 최신순으로 반환하며 기본 `limit=100`, 최대 `200`입니다.

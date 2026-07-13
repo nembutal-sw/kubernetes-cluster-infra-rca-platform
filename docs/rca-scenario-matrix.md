@@ -54,6 +54,9 @@ IncidentCorrelationDatasetTests
 
 ## Timeline Expectations
 
+정량 품질 평가는 `RuleAnalysisQualityTests`가 같은 fixture로 수행합니다. Precision, Recall, Top-1,
+Top-3 결과는 `web-console/target/analysis-quality-report.json`에 생성되며 CI artifact로 보존됩니다.
+
 연쇄 장애는 causal edge가 생겨야 합니다.
 
 | Root Signal | Downstream Signal | Expected Rule |

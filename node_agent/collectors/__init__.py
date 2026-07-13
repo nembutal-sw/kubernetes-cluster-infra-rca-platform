@@ -30,6 +30,7 @@ from node_agent.collectors.runtime import collect_runtime
 from node_agent.collectors.systemd import collect_systemd
 
 DEFAULT_COLLECTORS = list(_legacy.DEFAULT_COLLECTORS)
+EVIDENCE_SCHEMA_VERSION = "collector-evidence/v1"
 stat = _legacy.stat
 _probe_unix_socket = _legacy._probe_unix_socket
 
@@ -50,6 +51,7 @@ def collect_evidence(
         if collector is None:
             known = collector_name in build_registry(paths, runner, "node-diagnostics")
             evidence[collector_name] = {
+                "_schema_version": EVIDENCE_SCHEMA_VERSION,
                 "status": "disabled" if known else "unsupported",
                 "error": (
                     f"collector is not available in AGENT_MODE={agent_mode()}: {collector_name}"
@@ -58,7 +60,10 @@ def collect_evidence(
                 ),
             }
             continue
-        evidence[collector_name] = _legacy._safe_collect(collector)
+        evidence[collector_name] = {
+            "_schema_version": EVIDENCE_SCHEMA_VERSION,
+            **_legacy._safe_collect(collector),
+        }
     return evidence
 
 

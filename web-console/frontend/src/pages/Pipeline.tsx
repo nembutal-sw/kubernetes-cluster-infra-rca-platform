@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 
-import { EmptyState, MetricTile, PageHeader, StatusBadge, Surface } from "../components/common";
+import { EmptyState, Icon, MetricTile, PageHeader, StatusBadge, Surface } from "../components/common";
+import { CursorPager } from "../components/CursorPager";
+import { useCursorPage, useDebouncedValue } from "../hooks/useCursorPage";
 import { requestTone, summarizeAgentFleet, summarizePipeline, taskTone } from "../lib/consoleUtils";
 import type {
   ActionRequestView,
   AgentHealthView,
   AnalysisTaskView,
+  ApiCall,
   ClusterView,
   DemoScenarioView,
   TFunction,
@@ -14,6 +17,8 @@ import type {
 type MaybePromise<T = void> = T | Promise<T>;
 
 interface PipelineViewProps {
+  callApi: ApiCall;
+  refreshToken?: string;
   tasks: AnalysisTaskView[];
   actionRequests: ActionRequestView[];
   demoScenarios: DemoScenarioView[];
@@ -42,11 +47,20 @@ interface DemoScenariosProps {
   t: TFunction;
 }
 
-export function PipelineView({ tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }: PipelineViewProps) {
+export function PipelineView({ callApi, refreshToken, tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }: PipelineViewProps) {
   const pipeline = summarizePipeline(tasks);
   const fleet = summarizeAgentFleet(agentHealth, clusters);
   const pendingApprovals = actionRequests.filter((item) => item.status === "pending_approval").length;
   const blockedRequests = actionRequests.filter((item) => ["blocked", "rejected"].includes(item.status || "")).length;
+  const [query, setQuery] = useState("");
+  const [clusterId, setClusterId] = useState("");
+  const [status, setStatus] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const taskResult = useCursorPage<AnalysisTaskView>(callApi, "/api/v1/rca/analysis-tasks", {
+    q: debouncedQuery,
+    cluster_id: clusterId,
+    status,
+  }, refreshToken, 30);
 
   return (
     <div className="page-stack">
@@ -59,8 +73,24 @@ export function PipelineView({ tasks, actionRequests, demoScenarios, clusters, a
         <MetricTile label={t("Healthy agents")} value={fleet.total ? `${fleet.healthy}/${fleet.total}` : "n/a"} tone={fleet.unhealthy ? "amber" : "green"} icon="hdd-network" />
       </section>
       <div className="split-grid">
-        <Surface title={t("Analysis tasks")} subtitle={`${tasks.length} ${t("tasks")}`}>
-          <TaskList tasks={tasks} onRetry={onRetry} t={t} />
+        <Surface title={t("Analysis tasks")} subtitle={`${taskResult.page.total} ${t("tasks")}`}>
+          <div className="ops-filter-bar compact">
+            <div className="input-group input-group-sm ops-search-control">
+              <span className="input-group-text"><Icon name="search" /></span>
+              <input className="form-control" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search tasks")} aria-label={t("Search tasks")} />
+            </div>
+            <select className="form-select form-select-sm" value={clusterId} onChange={(event) => setClusterId(event.target.value)} aria-label={t("Filter by cluster")}>
+              <option value="">{t("All clusters")}</option>
+              {clusters.map((cluster) => <option key={cluster.cluster_id} value={cluster.cluster_id}>{cluster.name}</option>)}
+            </select>
+            <select className="form-select form-select-sm" value={status} onChange={(event) => setStatus(event.target.value)} aria-label={t("Filter by status")}>
+              <option value="">{t("All statuses")}</option>
+              {["queued", "processing", "retry_wait", "completed", "skipped", "dead_letter"].map((value) => <option key={value} value={value}>{t(value)}</option>)}
+            </select>
+          </div>
+          {taskResult.error && <div className="alert alert-warning py-2">{taskResult.error.detail}</div>}
+          <TaskList tasks={taskResult.page.items} onRetry={onRetry} t={t} />
+          <CursorPager page={taskResult.pageNumber} total={taskResult.page.total} loading={taskResult.loading} canPrevious={taskResult.canPrevious} canNext={taskResult.canNext} onPrevious={taskResult.previous} onNext={taskResult.next} t={t} />
         </Surface>
         <Surface title={t("Action requests")} subtitle={`${actionRequests.length} ${t("requests")}`}>
           <RequestQueue items={actionRequests} t={t} />

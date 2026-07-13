@@ -33,6 +33,14 @@ export interface LoadState<T> {
   stale: boolean;
 }
 
+export interface CursorPageResponse<T> {
+  items: T[];
+  next_cursor?: string | null;
+  has_more: boolean;
+  total: number;
+  limit: number;
+}
+
 export type ConsoleDataSource =
   | "clusters"
   | "reports"

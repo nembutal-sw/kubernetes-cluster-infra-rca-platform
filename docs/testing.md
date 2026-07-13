@@ -61,6 +61,9 @@ docker build -f Dockerfile.web-console .
 
 ## Rule-Based RCA Fixtures
 
+`RuleAnalysisQualityTests`는 fixture 전체의 Precision, Recall, Top-1, Top-3 품질 게이트를 검증하고
+`web-console/target/analysis-quality-report.json`을 생성합니다. CI는 이 파일을 artifact로 보존합니다.
+
 Rule-based RCA 회귀 시나리오는 아래 JSON에 둡니다.
 
 ```text

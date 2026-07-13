@@ -1,6 +1,8 @@
 package io.clusterinfra.rca.webconsole.controller;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.CursorPage;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.security.AccessService;
@@ -50,6 +52,18 @@ public class ReportController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<RcaReport> reports() {
         return reportQuery.listReports();
+    }
+
+    @GetMapping("/api/v1/rca/reports")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
+    public CursorPage<RcaReport> reportPage(
+        @RequestParam(name = "cluster_id", required = false) String clusterId,
+        @RequestParam(name = "status", required = false) RcaJobStatus status,
+        @RequestParam(name = "q", required = false) String query,
+        @RequestParam(name = "cursor", required = false) String cursor,
+        @RequestParam(name = "limit", defaultValue = "50") Integer limit
+    ) {
+        return reportQuery.pageReports(clusterId, status, query, cursor, limit);
     }
 
     @GetMapping("/api/rca/reports/{reportId}")
