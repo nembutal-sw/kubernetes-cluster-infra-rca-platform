@@ -50,6 +50,8 @@ bash scripts/deploy-compose-demo.sh \
 
 `.github/workflows/deploy-demo.yml`은 `CI`가 성공한 `main` 커밋만 `rca-demo` 라벨의 self-hosted runner에 배포합니다. 수동 실행도 지원합니다.
 
+같은 서버의 K3s 데모 Agent까지 갱신하려면 서버 로컬 `demo.env`에 `RCA_DEMO_K3S_AGENT_ENABLED=true`를 설정합니다. 워크플로는 현재 커밋의 Agent 이미지를 빌드해 K3s containerd에 import하고, 기존 Secret을 재사용해 `node-diagnostics` 모드로 배포합니다. 연결 확인에 실패하면 이전 이미지와 Backend URL로 롤백합니다.
+
 - runner는 배포 서버의 일반 사용자로 실행합니다.
 - runner 사용자에게 Docker 권한이 필요합니다.
 - 비밀값은 저장소나 Actions secret으로 복사하지 않고 서버의 `demo.env`에만 둡니다.

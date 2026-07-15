@@ -38,6 +38,14 @@ jobs:
           export RCA_DEPLOY_ENV_FILE="${RCA_DEPLOY_ENV_FILE:-$HOME/.config/cluster-infra-rca-platform/demo.env}"
           bash scripts/deploy-compose-demo.sh --env-file "${RCA_DEPLOY_ENV_FILE}"
 
+      - name: Deploy optional K3s demo Agent
+        env:
+          RCA_DEPLOY_ENV_FILE: ${{ vars.RCA_DEMO_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          export RCA_DEPLOY_ENV_FILE="${RCA_DEPLOY_ENV_FILE:-$HOME/.config/cluster-infra-rca-platform/demo.env}"
+          bash scripts/deploy-k3s-demo-agent.sh --env-file "${RCA_DEPLOY_ENV_FILE}"
+
       - name: Verify operational demo scenarios
         env:
           RCA_DEPLOY_ENV_FILE: ${{ vars.RCA_DEMO_ENV_FILE }}

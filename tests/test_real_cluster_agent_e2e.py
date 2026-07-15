@@ -40,3 +40,25 @@ def test_agent_chart_canary_options_are_safe_by_default() -> None:
     assert "filter='data'" in daemonset
     assert 'or (eq $mode "safe") (not .Values.statePersistence.enabled)' in daemonset
     assert "mountPath: /app\n              readOnly: true" in daemonset
+
+
+def test_k3s_demo_agent_deployment_is_opt_in_and_rolls_back() -> None:
+    script = (ROOT / "scripts" / "deploy-k3s-demo-agent.sh").read_text(encoding="utf-8")
+
+    required = (
+        'RCA_DEMO_K3S_AGENT_ENABLED:-false',
+        'image.pullPolicy=Never',
+        'secret.existingSecret.name',
+        'mode=node-diagnostics',
+        'registered node agent|poll cycle completed',
+        'Agent verification failed; restoring the previous deployment.',
+        'legacy_daemonset_recreated',
+    )
+    for marker in required:
+        assert marker in script
+
+    assert "APPROVED_ACTIONS_ENABLED=true" not in script
+    assert "kubectl drain" not in script
+    assert "kubectl cordon" not in script
+    assert "systemctl restart" not in script
+    assert "reboot" not in script
