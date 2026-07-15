@@ -61,6 +61,9 @@ data:
   AGENT_MAX_SPOOL_FILES: "1000"
   AGENT_MAX_SPOOL_BYTES: "268435456"
   KUBERNETES_API_TIMEOUT_SECONDS: "5"
+  KUBERNETES_API_MAX_ATTEMPTS: "2"
+  KUBERNETES_API_URL: ""
+  KUBERNETES_API_MAX_RESPONSE_BYTES: "8388608"
   KUBERNETES_API_CACHE_TTL_SECONDS: "10"
   KUBERNETES_TOPOLOGY_ENABLED: "true"
   KUBERNETES_TOPOLOGY_MAX_ITEMS: "500"
@@ -176,6 +179,21 @@ spec:
                 configMapKeyRef:
                   name: cluster-infra-rca-agent-config
                   key: KUBERNETES_API_TIMEOUT_SECONDS
+            - name: KUBERNETES_API_MAX_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_API_MAX_ATTEMPTS
+            - name: KUBERNETES_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_API_URL
+            - name: KUBERNETES_API_MAX_RESPONSE_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-infra-rca-agent-config
+                  key: KUBERNETES_API_MAX_RESPONSE_BYTES
             - name: KUBERNETES_API_CACHE_TTL_SECONDS
               valueFrom:
                 configMapKeyRef:

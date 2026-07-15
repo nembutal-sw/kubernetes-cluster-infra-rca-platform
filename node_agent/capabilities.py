@@ -311,7 +311,7 @@ def _cni_config_check(paths: AgentPaths) -> dict[str, Any]:
         paths.root / "var/lib/k0s/etc/cni/net.d",
         paths.root / "var/snap/microk8s/common/etc/cni/net.d",
     ]
-    readable_dirs = [str(path) for path in candidates if path.exists() and _is_readable(path)]
+    readable_dirs = [str(path) for path in candidates if _is_readable(path)]
     status = "available" if readable_dirs else "limited"
     return _check(
         "cni_config",

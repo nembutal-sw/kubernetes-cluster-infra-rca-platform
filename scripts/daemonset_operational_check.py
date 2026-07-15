@@ -24,6 +24,8 @@ REQUIRED_ENV_KEYS = {
     "HTTP_TIMEOUT_SECONDS",
     "COMMAND_TIMEOUT_SECONDS",
     "KUBERNETES_API_TIMEOUT_SECONDS",
+    "KUBERNETES_API_MAX_ATTEMPTS",
+    "KUBERNETES_API_MAX_RESPONSE_BYTES",
     "SYSTEMD_COLLECTOR_MODE",
 }
 NODE_DIAGNOSTIC_HOSTPATHS = {
@@ -244,6 +246,9 @@ def main() -> int:
                 failures.append(f"hostPath {name} must be {path}, actual={actual or '<missing>'}")
             if readonly.get(name) is not True:
                 failures.append(f"hostPath mount {name} must be readOnly")
+        capabilities = container.get("securityContext", {}).get("capabilities", {}).get("add", [])
+        if "SYSLOG" not in capabilities:
+            warnings.append("SYSLOG capability is absent; dmesg may be unavailable when kernel.dmesg_restrict=1")
     if mode == "ebpf":
         for name, path in EBPF_HOSTPATHS.items():
             actual = hostpaths.get(name)

@@ -2,59 +2,86 @@
 
 ## Docker Compose
 
+로컬 또는 관리 VM에서는 Docker Compose로 Platform과 PostgreSQL을 함께 실행할 수 있습니다.
+
 ```bash
+cp .env.example .env
 docker compose up --build -d
 ```
 
-기본 구성:
+기본 노출 주소는 다음과 같습니다.
 
 - Platform: `127.0.0.1:8080`
 - PostgreSQL: `127.0.0.1:5432`
 
-MariaDB를 사용할 때:
+Agent가 다른 노드에서 Platform에 접근해야 한다면 `RCA_BIND_ADDRESS`를 관리 네트워크의 명시적인 IP로 설정합니다. 데모 환경에서도 `0.0.0.0` 대신 Tailscale 또는 사내 관리망 주소를 권장합니다.
+
+MariaDB를 사용할 때는 다음 프로필을 사용하고 JDBC URL과 DB 계정을 함께 변경합니다.
 
 ```bash
 docker compose --profile mariadb up -d mariadb
 ```
 
-그 후 `RCA_JDBC_URL=jdbc:mariadb://mariadb:3306/rca`를 지정합니다.
+```dotenv
+RCA_JDBC_URL=jdbc:mariadb://mariadb:3306/rca
+```
+
+## Demo Deployment
+
+`scripts/deploy-compose-demo.sh`는 데모 스택의 빌드와 배포를 한 번에 수행합니다. 실행 전에 권한이 `600`인 환경 파일을 준비해야 합니다.
+
+```bash
+chmod 600 ~/.config/cluster-infra-rca-platform/demo.env
+bash scripts/deploy-compose-demo.sh \
+  --env-file ~/.config/cluster-infra-rca-platform/demo.env
+```
+
+배포 스크립트는 다음 순서로 동작합니다.
+
+1. 필수 비밀값과 명시적 bind address를 검증합니다.
+2. 실행 중인 PostgreSQL의 논리 백업을 생성합니다.
+3. 새 Platform 이미지를 먼저 빌드합니다.
+4. PostgreSQL과 Platform의 health 상태를 확인합니다.
+5. Platform이 준비되지 않으면 이전 이미지로 되돌립니다.
+
+데모 환경 파일에는 `RCA_DEMO_ENABLED=true`가 필요합니다. LLM을 연결하지 않아도 rule-based RCA와 데모 시나리오는 동작합니다.
+
+## Continuous Deployment
+
+`.github/workflows/deploy-demo.yml`은 `CI`가 성공한 `main` 커밋만 `rca-demo` 라벨의 self-hosted runner에 배포합니다. 수동 실행도 지원합니다.
+
+- runner는 배포 서버의 일반 사용자로 실행합니다.
+- runner 사용자에게 Docker 권한이 필요합니다.
+- 비밀값은 저장소나 Actions secret으로 복사하지 않고 서버의 `demo.env`에만 둡니다.
+- pull request 워크플로에서는 배포 runner 라벨을 사용하지 않습니다.
+- GitHub 환경 이름은 `suse-demo`이며 필요하면 승인 규칙을 추가합니다.
+
+self-hosted runner는 저장소의 코드를 서버에서 실행할 수 있으므로 쓰기 권한과 branch protection을 제한해야 합니다.
 
 ## Kubernetes
+
+Platform chart는 PostgreSQL 또는 MariaDB를 선택적으로 함께 배포할 수 있습니다.
 
 ```bash
 helm upgrade --install rca charts/cluster-infra-rca-platform
 ```
 
-운영 권장 사항:
+운영 환경에서는 장애 대상 클러스터와 분리된 관리 클러스터 또는 VM에 Platform을 배포하는 구성을 권장합니다. 같은 클러스터에 배포할 때는 별도 node pool, PodDisruptionBudget, 외부 DB 백업, 독립적인 상태 확인 경로를 준비해야 합니다.
 
-- 진단 대상과 다른 관리 클러스터 또는 VM에 중앙 플랫폼 배포
-- 기본 admin 비밀번호와 webhook token 교체
-- 외부 TLS Ingress 사용
-- DB volume 백업 및 복구 절차 준비
-- Agent가 접근 가능한 `RCA_PUBLIC_API_BASE_URL` 설정
-- LLM API key는 Kubernetes Secret 또는 외부 secret manager 사용
-- 알림이 필요하면 `RCA_SLACK_WEBHOOK_URL` 또는 `RCA_NOTIFICATION_WEBHOOK_URL` 설정
+필수 운영 항목은 다음과 같습니다.
 
-중앙 플랫폼을 진단 대상 클러스터에 배포해야 한다면 최소한 별도 node pool, PodDisruptionBudget, DB 백업, 외부 상태 확인 경로를 구성해야 합니다.
+- 기본 관리자 계정, webhook token, 암호화 키 교체
+- TLS Ingress와 관리망 접근 제어
+- DB 백업 및 복구 훈련
+- Agent가 접근할 수 있는 `RCA_PUBLIC_API_BASE_URL` 설정
+- LLM API key를 Kubernetes Secret 또는 외부 secret manager로 관리
+- Pipeline의 `retry_wait`, `dead_letter`, lease 상태 모니터링
 
-Platform chart는 다음 운영 옵션을 제공합니다.
+## LLM Provider
 
-- 전용 ServiceAccount와 service account token 비활성화
-- PodDisruptionBudget, rolling update, graceful shutdown
-- 선택적 ingress NetworkPolicy
-- External Secrets Operator 연동
-- PostgreSQL/MariaDB backup CronJob
-- topology spread constraint와 replica 확장
+LLM은 기본적으로 비활성화되어 있습니다. OpenAI 호환 API 예시는 다음과 같습니다.
 
-중앙 플랫폼 자체가 장애 클러스터와 함께 중단되지 않도록 별도 관리 클러스터 또는 외부 VM 배포를 권장합니다.
-
-RCA 분석은 DB queue에서 비동기로 처리됩니다. 운영 중에는 Pipeline 화면에서 `retry_wait`와 `dead_letter` 작업을 확인하고, LLM 최대 처리 시간보다 task lease를 길게 설정합니다. 자세한 설정은 [durable-analysis-pipeline.md](durable-analysis-pipeline.md)를 참고합니다.
-
-## LLM Provider Wiring
-
-Docker Compose에서는 provider credential 값을 `.env`에 넣고 Platform 컨테이너로 전달합니다.
-
-```bash
+```dotenv
 RCA_LLM_ENABLED=true
 RCA_LLM_PROVIDER=openai_compatible
 RCA_LLM_MODEL=provider-model-name
@@ -63,41 +90,31 @@ OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-Kubernetes에서는 `platform.config.*`에는 provider/model 같은 비밀이 아닌 설정을 넣고, `platform.secret.*` 또는 External Secrets Operator에는 credential/base URL을 넣습니다. Settings 화면의 LLM diagnostics에서 설정 여부를 확인할 수 있지만, API key 값은 표시하지 않습니다.
+Kubernetes에서는 provider와 model 같은 일반 설정만 values에 두고, API key와 base URL은 Secret 또는 External Secrets Operator로 주입합니다. Settings의 LLM diagnostics는 설정 여부만 표시하며 API key 원문은 노출하지 않습니다.
 
-## Notification Delivery
+## Notifications
 
-Incident notification은 선택 기능입니다.
+Incident 알림은 선택 기능입니다. Slack 또는 일반 webhook을 사용할 수 있습니다.
 
-```bash
+```dotenv
 RCA_NOTIFICATION_ENABLED=true
 RCA_NOTIFICATION_MINIMUM_SEVERITY=critical
 RCA_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 ```
 
-Slack 대신 SIEM, ITSM, event router로 structured JSON을 보내려면 generic webhook을 사용합니다.
+일반 webhook에서 `RCA_NOTIFICATION_WEBHOOK_TOKEN`을 설정하면 `Authorization: Bearer` 헤더가 추가됩니다. 운영 profile에서는 HTTPS endpoint를 사용해야 합니다.
 
-```bash
-RCA_NOTIFICATION_ENABLED=true
-RCA_NOTIFICATION_WEBHOOK_URL=https://siem.example.com/rca/events
-RCA_NOTIFICATION_WEBHOOK_TOKEN=...
-```
+## GitOps
 
-`RCA_NOTIFICATION_WEBHOOK_TOKEN`이 설정되면 Platform은 `Authorization: Bearer <token>` header를 추가합니다. Production profile에서는 notification이 켜져 있을 때 Slack 또는 generic webhook 중 하나 이상이 HTTPS URL이어야 합니다.
+운영 catalog 변경을 draft PR 또는 MR로 제안하려면 GitOps 연동을 활성화합니다.
 
-## GitOps Provider Wiring
-
-승인된 catalog override를 GitHub/Gitea draft PR 또는 GitLab draft MR로 생성하려면 GitOps 연동을 활성화합니다.
-
-```bash
+```dotenv
 RCA_GITOPS_ENABLED=true
-RCA_GITOPS_PROVIDER=github # github | gitlab | gitea
+RCA_GITOPS_PROVIDER=github
 RCA_GITOPS_REPOSITORY=namespace/repository
 RCA_GITOPS_BASE_BRANCH=main
 RCA_GITOPS_TOKEN=...
 RCA_GITOPS_WEBHOOK_SECRET=...
 ```
 
-`RCA_GITOPS_API_BASE_URL`을 비우면 GitHub는 `https://api.github.com`, GitLab은 `https://gitlab.com/api/v4`를 사용합니다. Gitea는 `https://git.example.com/api/v1` 같은 명시적인 URL이 필요합니다.
-
-Kubernetes에서는 repository, branch, file path를 `platform.config.gitops*`에 두고 token과 webhook secret은 `platform.secret.gitopsToken`, `platform.secret.gitopsWebhookSecret` 또는 External Secret으로 주입합니다. 자세한 workflow와 API는 [gitops.md](gitops.md)를 참고합니다.
+token과 webhook secret은 환경 파일 또는 Secret에만 저장합니다. 자세한 흐름은 [gitops.md](gitops.md)를 참고합니다.

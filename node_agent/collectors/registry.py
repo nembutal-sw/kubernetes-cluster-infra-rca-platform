@@ -50,7 +50,7 @@ class CollectorDefinition:
 def definitions(paths: AgentPaths, runner: CommandRunner) -> dict[str, CollectorDefinition]:
     return {
         "node": _definition("node", lambda: collect_node(paths), host_pid=True),
-        "kubernetes": _definition("kubernetes", collect_kubernetes, host_network=True),
+        "kubernetes": _definition("kubernetes", lambda: collect_kubernetes(paths), host_network=True),
         "systemd": _definition("systemd", lambda: collect_systemd(paths, runner), host_pid=True),
         "kernel": _definition("kernel", lambda: collect_kernel(paths, runner), host_pid=True),
         "disk": _definition("disk", lambda: collect_disk(paths), host_pid=True),

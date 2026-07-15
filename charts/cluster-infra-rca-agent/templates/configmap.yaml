@@ -16,6 +16,9 @@ data:
   AGENT_MAX_SPOOL_FILES: {{ int64 .Values.maxSpoolFiles | quote }}
   AGENT_MAX_SPOOL_BYTES: {{ int64 .Values.maxSpoolBytes | quote }}
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}
+  KUBERNETES_API_MAX_ATTEMPTS: {{ .Values.kubernetesApiMaxAttempts | quote }}
+  KUBERNETES_API_URL: {{ .Values.kubernetesApiUrl | quote }}
+  KUBERNETES_API_MAX_RESPONSE_BYTES: {{ int64 .Values.kubernetesApiMaxResponseBytes | quote }}
   KUBERNETES_API_CACHE_TTL_SECONDS: {{ .Values.kubernetesApiCacheTtlSeconds | quote }}
   KUBERNETES_TOPOLOGY_ENABLED: {{ .Values.kubernetesTopologyEnabled | quote }}
   KUBERNETES_TOPOLOGY_MAX_ITEMS: {{ .Values.kubernetesTopologyMaxItems | quote }}

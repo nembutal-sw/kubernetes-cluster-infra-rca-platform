@@ -1,0 +1,65 @@
+name: Deploy Demo
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: suse-demo-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, rca-demo]
+    timeout-minutes: 45
+    environment: suse-demo
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Deploy demo stack
+        env:
+          RCA_DEPLOY_ENV_FILE: ${{ vars.RCA_DEMO_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          export RCA_DEPLOY_ENV_FILE="${RCA_DEPLOY_ENV_FILE:-$HOME/.config/cluster-infra-rca-platform/demo.env}"
+          bash scripts/deploy-compose-demo.sh --env-file "${RCA_DEPLOY_ENV_FILE}"
+
+      - name: Verify operational demo scenarios
+        env:
+          RCA_DEPLOY_ENV_FILE: ${{ vars.RCA_DEMO_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          env_file="${RCA_DEPLOY_ENV_FILE:-$HOME/.config/cluster-infra-rca-platform/demo.env}"
+          set -a
+          source "${env_file}"
+          set +a
+          echo "::add-mask::${RCA_DEFAULT_ADMIN_PASSWORD}"
+          export RCA_BASE_URL="${RCA_PUBLIC_API_BASE_URL}"
+          export RCA_ADMIN_USERNAME="${RCA_DEFAULT_ADMIN_USERNAME}"
+          export RCA_ADMIN_PASSWORD="${RCA_DEFAULT_ADMIN_PASSWORD}"
+          export RCA_SCENARIOS="disk-pressure,inode-exhaustion"
+          python3 scripts/operational_scenario_validation.py \
+            --output-dir validation-results/deploy-demo
+
+      - name: Upload deployment validation
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deploy-demo-validation-${{ github.run_id }}
+          path: validation-results/deploy-demo
+          if-no-files-found: ignore
+          retention-days: 14

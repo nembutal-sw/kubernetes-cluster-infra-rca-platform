@@ -157,6 +157,26 @@ class SignalDetectorTests {
     }
 
     @Test
+    void apiServerDetectorDoesNotTreatTimeoutDurationAsServerLatency() {
+        AnalysisContext context = context(Map.of(
+            "kubernetes", Map.of(
+                "api_request_latencies", List.of(Map.of(
+                    "operation", "node",
+                    "ok", false,
+                    "latency_ms", 5_002.0,
+                    "error", "timed out"
+                )),
+                "api_request_error_count", 1,
+                "api_timeout_detected", true
+            )
+        ));
+
+        assertThat(new ApiServerLatencyDetector().detect(context))
+            .extracting(Signal::name)
+            .containsExactly("api_server_request_errors");
+    }
+
+    @Test
     void etcdDetectorSeparatesLatencyReadyzAndPodHealth() {
         AnalysisContext context = context(Map.of(
             "etcd", Map.of("fsync_latency_ms", 900.0),

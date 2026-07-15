@@ -110,6 +110,27 @@ class TopologyExtractorTests {
         assertThat(observation.podInventoryCollected()).isFalse();
     }
 
+    @Test
+    void keepsNodeReadinessUnknownWhenApiCollectionFailed() {
+        var observation = extractor.extract(new EvidenceBundle(
+            "evidence-api-timeout",
+            "cluster-1",
+            "worker-a",
+            "ScheduledCollection",
+            Instant.parse("2026-06-21T08:00:00Z"),
+            Map.of("kubernetes", Map.of(
+                "node_name", "worker-a",
+                "api_available", false,
+                "api_error", "timed out"
+            ))
+        ));
+
+        var node = observation.entities().getFirst();
+        assertThat(node.attributes()).containsEntry("readiness_known", false);
+        assertThat(node.attributes()).doesNotContainKey("ready");
+        assertThat(observation.inventoryComplete()).isFalse();
+    }
+
     private Map<String, Object> response(List<Map<String, Object>> items) {
         return Map.of("ok", true, "data", Map.of("items", items));
     }

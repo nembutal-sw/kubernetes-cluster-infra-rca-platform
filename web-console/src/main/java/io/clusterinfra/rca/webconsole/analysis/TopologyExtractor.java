@@ -33,6 +33,12 @@ public class TopologyExtractor {
         if (!text(kubernetes.get("node_name")).isBlank()) {
             String nodeName = text(kubernetes.get("node_name"));
             String nodeId = id("node", "", nodeName);
+            Map<String, Object> attributes = new LinkedHashMap<>();
+            Object nodeReady = kubernetes.get("node_ready");
+            attributes.put("readiness_known", nodeReady instanceof Boolean);
+            if (nodeReady instanceof Boolean ready) {
+                attributes.put("ready", ready);
+            }
             entities.putIfAbsent(nodeId, new TopologyEntity(
                 nodeId,
                 "Node",
@@ -41,7 +47,7 @@ public class TopologyExtractor {
                 nodeName,
                 nodeRoles(strings(kubernetes.get("node_labels"))),
                 strings(kubernetes.get("node_labels")),
-                Map.of("ready", Boolean.TRUE.equals(kubernetes.get("node_ready")))
+                attributes
             ));
         }
 

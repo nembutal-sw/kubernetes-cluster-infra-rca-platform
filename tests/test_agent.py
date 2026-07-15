@@ -125,6 +125,28 @@ def test_capability_report_respects_safe_mode(
     assert report["collectors"]["runtime"]["status"] == "disabled"
 
 
+def test_cni_capability_treats_permission_denied_as_limited(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    denied = paths.etc_root() / "cni/net.d"
+    original_exists = Path.exists
+
+    def permission_aware_exists(path: Path) -> bool:
+        if path == denied:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", permission_aware_exists)
+
+    check = capabilities._cni_config_check(paths)
+
+    assert check["status"] == "limited"
+    assert check["details"]["readable_dirs"] == []
+    assert str(denied) in check["details"]["candidate_dirs"]
+
+
 def test_safe_agent_mode_disables_host_level_collectors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -649,6 +671,146 @@ def test_kubernetes_api_client_reuses_successful_response_within_ttl(
     assert second["ok"] is True
     assert second["cache_hit"] is True
     assert calls == 1
+
+
+def test_kubernetes_api_client_retries_transport_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("service-account-token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_API_URL", "https://127.0.0.1:6443")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN", str(token_path))
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(tmp_path / "missing-ca.crt"))
+    monkeypatch.setenv("KUBERNETES_API_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("KUBERNETES_API_CACHE_TTL_SECONDS", "0")
+    monkeypatch.setattr(collectors._legacy.time, "sleep", lambda _: None)
+    calls = 0
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self, _: int) -> bytes:
+            return b'{"kind":"Node"}'
+
+    def flaky_urlopen(*_: object, **__: object) -> FakeResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise collectors._legacy.urllib.error.URLError("timed out")
+        return FakeResponse()
+
+    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", flaky_urlopen)
+    client = _KubernetesApiClient(timeout_seconds=1)
+
+    response = client.get_json("/api/v1/nodes/worker-a")
+
+    assert response["ok"] is True
+    assert response["attempts"] == 2
+    assert client.endpoint_source == "explicit"
+    assert calls == 2
+
+
+def test_kubernetes_api_client_parses_response_larger_than_legacy_text_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token_path = tmp_path / "token"
+    token_path.write_text("service-account-token", encoding="utf-8")
+    monkeypatch.setenv("KUBERNETES_API_URL", "https://127.0.0.1:6443")
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_TOKEN", str(token_path))
+    monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(tmp_path / "missing-ca.crt"))
+    monkeypatch.setenv("KUBERNETES_API_MAX_RESPONSE_BYTES", "65536")
+    payload = json.dumps({"items": [{"metadata": {"name": "pod-a"}, "padding": "x" * 30000}]}).encode()
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self, _: int) -> bytes:
+            return payload
+
+    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+
+    response = _KubernetesApiClient(timeout_seconds=1).get_json("/api/v1/pods")
+
+    assert response["ok"] is True
+    assert response["data"]["items"][0]["metadata"]["name"] == "pod-a"
+
+
+def test_kubernetes_pod_view_omits_environment_and_commands() -> None:
+    response = {
+        "ok": True,
+        "status_code": 200,
+        "data": {
+            "metadata": {"resourceVersion": "1"},
+            "items": [{
+                "metadata": {"namespace": "payments", "name": "api", "labels": {"app": "api"}},
+                "spec": {
+                    "nodeName": "worker-a",
+                    "containers": [{
+                        "name": "api",
+                        "command": ["server", "--token", "secret-value"],
+                        "env": [{"name": "PASSWORD", "value": "secret-value"}],
+                    }],
+                },
+                "status": {
+                    "phase": "Running",
+                    "containerStatuses": [{"name": "api", "ready": True, "restartCount": 1}],
+                },
+            }],
+        },
+    }
+
+    view = collectors._legacy._kubernetes_response_view(response, collectors._legacy._sanitize_pod)
+    encoded = json.dumps(view)
+
+    assert "secret-value" not in encoded
+    assert view["data"]["items"][0]["spec"]["nodeName"] == "worker-a"
+    assert view["data"]["items"][0]["status"]["containerStatuses"][0]["restartCount"] == 1
+
+
+def test_api_request_summary_excludes_failed_request_latency() -> None:
+    summary: dict[str, Any] = {}
+
+    collectors._legacy._summarize_api_requests(summary, [
+        ("node", {"ok": False, "latency_ms": 5_002.0, "timeout": True, "error": "timed out"}),
+        ("readyz", {"ok": True, "latency_ms": 42.0, "status_code": 200}),
+    ])
+
+    assert summary["api_server_latency_ms"] == 42.0
+    assert summary["api_request_error_count"] == 1
+    assert summary["api_timeout_detected"] is True
+
+
+def test_file_systemd_collection_reads_host_processes_without_ps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _build_fake_host_paths(tmp_path)
+    process = paths.proc / "42"
+    process.mkdir(exist_ok=True)
+    (process / "comm").write_text("rke2\n", encoding="utf-8")
+    (process / "cmdline").write_bytes(b"rke2\x00server\x00--token\x00secret-value\x00")
+    monkeypatch.setenv("SYSTEMD_COLLECTOR_MODE", "file")
+
+    evidence = collect_evidence(["systemd"], paths=paths, runner=FakeRunner())
+
+    assert evidence["systemd"]["rke2_process_sample"]
+    assert evidence["systemd"]["embedded_kubelet_running"] is False
+    assert "secret-value" not in json.dumps(evidence["systemd"])
+    assert "<redacted>" in json.dumps(evidence["systemd"])
 
 
 def test_runtime_collector_uses_generic_cri_socket_fields(

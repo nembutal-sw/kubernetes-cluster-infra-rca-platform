@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-rca}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rca_password}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "${RCA_DATABASE_BIND_ADDRESS:-127.0.0.1}:${RCA_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -123,7 +123,7 @@ services:
       SPRING_AI_OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       SERVER_PORT: 8080
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${RCA_BIND_ADDRESS:-127.0.0.1}:${RCA_HTTP_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
       interval: 10s
@@ -142,7 +142,7 @@ services:
       MARIADB_PASSWORD: ${MARIADB_PASSWORD:-rca_password}
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root_password}
     ports:
-      - "127.0.0.1:3306:3306"
+      - "${RCA_DATABASE_BIND_ADDRESS:-127.0.0.1}:${RCA_MARIADB_PORT:-3306}:3306"
     volumes:
       - mariadb-data:/var/lib/mysql
     healthcheck:

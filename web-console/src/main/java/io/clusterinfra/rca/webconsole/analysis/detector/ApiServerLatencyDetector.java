@@ -140,6 +140,10 @@ public class ApiServerLatencyDetector implements SignalDetector {
             if (!key.startsWith("kubernetes.api_request_latencies[") || !key.endsWith(".latency_ms")) {
                 continue;
             }
+            String requestPrefix = entry.getKey().substring(0, entry.getKey().length() - ".latency_ms".length());
+            if (Boolean.FALSE.equals(context.flattened().get(requestPrefix + ".ok"))) {
+                continue;
+            }
             Optional<Double> number = number(entry.getValue());
             if (number.isEmpty()) {
                 continue;

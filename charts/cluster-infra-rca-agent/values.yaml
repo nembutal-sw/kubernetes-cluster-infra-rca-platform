@@ -49,6 +49,9 @@ retryMaxSeconds: 120
 maxSpoolFiles: 1000
 maxSpoolBytes: 268435456
 kubernetesApiTimeoutSeconds: 5
+kubernetesApiMaxAttempts: 2
+kubernetesApiUrl: ""
+kubernetesApiMaxResponseBytes: 8388608
 kubernetesApiCacheTtlSeconds: 10
 kubernetesTopologyEnabled: true
 kubernetesTopologyMaxItems: 500
@@ -59,6 +62,11 @@ hostLogMaxLines: 80
 controlPlaneProbePorts: "6443,9345"
 runtimeSocketPaths: ""
 systemdCollectorMode: file
+
+kernelLog:
+  # CAP_SYSLOG is added only in node-diagnostics/ebpf mode so dmesg can be
+  # collected on hosts with kernel.dmesg_restrict=1.
+  readDmesg: true
 
 ebpf:
   enabled: false
