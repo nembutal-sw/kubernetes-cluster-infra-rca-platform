@@ -43,6 +43,7 @@ jobs:
           RCA_DEPLOY_ENV_FILE: ${{ vars.RCA_DEMO_ENV_FILE }}
         run: |
           set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
           export RCA_DEPLOY_ENV_FILE="${RCA_DEPLOY_ENV_FILE:-$HOME/.config/cluster-infra-rca-platform/demo.env}"
           bash scripts/deploy-k3s-demo-agent.sh --env-file "${RCA_DEPLOY_ENV_FILE}"
 
