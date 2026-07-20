@@ -21,13 +21,17 @@ Node Agent는 RKE2나 containerd만 가정하지 않습니다. 런타임 evidenc
 | --- | --- | --- | --- |
 | RKE2 / containerd / Cilium | 완료 | ARM64/amd64 완료, 2026-07-21 검증 | `verified_real` |
 | K3s / containerd / Flannel | 완료 | amd64 완료 | `verified_real` |
-| kubeadm | 완료 | 대기 | `contract_fixture_only` |
+| kubeadm / containerd / Flannel | 완료 | amd64 완료, 2026-07-21 검증 | `verified_real` |
 | EKS / AKS / GKE | 완료 | 대기 | `contract_fixture_only` |
 | OpenShift / CRI-O / OVN-Kubernetes | 완료 | 대기 | `contract_fixture_only` |
 | MicroK8s / K0s | 기본 신호만 지원 | 대기 | `planned` |
 
 fixture 통과는 실제 DaemonSet lifecycle 지원을 의미하지 않습니다. 운영 배포 전에는 node-scoped canary로
 register, heartbeat, evidence response와 필수 collector 14개를 다시 검증해야 합니다.
+
+kubeadm 실검증은 Ubuntu 24.04.4, Kubernetes 1.33.13, containerd, Flannel v0.28.4
+단일 노드에서 수행했습니다. 다른 아키텍처, 런타임, CNI 조합은 별도 canary 전까지
+검증 완료로 판정하지 않습니다.
 
 호환성 기준 데이터는 `config/platform-compatibility-matrix.json`에 있으며 다음 명령으로 검증합니다.
 

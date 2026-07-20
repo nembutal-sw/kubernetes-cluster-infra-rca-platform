@@ -211,16 +211,17 @@
 - RKE2 amd64 canary lifecycle, 14개 collector 요청, RCA 및 evidence bundle 검증 완료
 - K3s openSUSE amd64/containerd/Flannel canary lifecycle 검증 완료
 - kubeadm, EKS, AKS, GKE, OpenShift 판별 fixture 회귀 테스트 완료
-- kubeadm, 관리형 Kubernetes, OpenShift 실제 canary 검증 대기
+- kubeadm Ubuntu 24.04 amd64/containerd/Flannel Agent real canary 검증 완료
+- 관리형 Kubernetes와 OpenShift 실제 canary 검증 대기
 
 ## Next Priority
 
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. kubeadm Agent real canary 검증
-2. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
-3. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
+1. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
+2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
+3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
 
 Gemini staging smoke는 2026-07-21에 `gemini-3.1-flash-lite`와 provider 호출 예산
 1로 성공했습니다. DiskPressure evidence 기반 report가 완료됐고 LLM root cause

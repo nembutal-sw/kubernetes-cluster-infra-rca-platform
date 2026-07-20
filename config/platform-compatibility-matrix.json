@@ -63,10 +63,19 @@
       ]
     },
     "kubeadm": {
-      "validation_level": "contract_fixture",
-      "profiles": [],
+      "validation_level": "real_e2e",
+      "profiles": [
+        {
+          "architecture": "amd64",
+          "runtime": "containerd",
+          "cni": "flannel",
+          "result": "passed",
+          "validated_on": "2026-07-21"
+        }
+      ],
       "notes": [
-        "Detection and manifest contracts are tested; real DaemonSet lifecycle validation is pending."
+        "The Kubernetes v1.33.13 canary ran on Ubuntu 24.04 with containerd and Flannel v0.28.4.",
+        "The real canary verified all 14 required collectors and kept direct action execution disabled."
       ]
     },
     "eks": {

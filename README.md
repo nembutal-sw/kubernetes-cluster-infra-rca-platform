@@ -55,7 +55,8 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
 - 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
 
-남은 실환경 검증은 kubeadm, EKS/AKS/GKE, OpenShift canary입니다.
+남은 실환경 검증은 EKS/AKS/GKE와 OpenShift canary입니다. kubeadm은
+Ubuntu 24.04 amd64, Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
 
 ## Quick Start
 

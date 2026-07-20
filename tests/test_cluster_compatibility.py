@@ -160,6 +160,28 @@ def test_detects_embedded_flannel_from_node_annotation() -> None:
     assert evaluate_compatibility(fingerprint, CATALOG)["status"] == "verified_real"
 
 
+def test_kubeadm_real_profile_requires_flannel_on_amd64_containerd() -> None:
+    kubeadm_node = node(
+        version="v1.33.13",
+        annotations={
+            "kubeadm.alpha.kubernetes.io/cri-socket": "unix:///run/containerd/containerd.sock"
+        },
+    )
+    verified = build_cluster_fingerprint(
+        [kubeadm_node],
+        [pod("kube-flannel-ds", "ghcr.io/flannel-io/flannel:v0.28.4", "kube-flannel")],
+    )
+    unverified = build_cluster_fingerprint(
+        [kubeadm_node],
+        [pod("calico-node", "docker.io/calico/node:v3.30")],
+    )
+
+    assert evaluate_compatibility(verified, CATALOG)["status"] == "verified_real"
+    assessment = evaluate_compatibility(unverified, CATALOG)
+    assert assessment["status"] == "unverified"
+    assert "cni:calico" in assessment["unverified_dimensions"]
+
+
 def test_contract_fixture_never_claims_real_support() -> None:
     fingerprint = build_cluster_fingerprint(
         [node(provider_id="aws:///redacted/fixture", labels={"eks.amazonaws.com/nodegroup": "workers"})],

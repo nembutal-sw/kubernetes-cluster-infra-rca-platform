@@ -136,7 +136,8 @@ React Router를 적용해 화면 상태를 URL과 일치시킵니다.
 
 ### Phase 4. Real Cluster Agent E2E
 
-상태: RKE2 기준 완료 (2026-07-13), kubeadm과 관리형 Kubernetes 검증은 후속 진행
+상태: RKE2 기준 완료 (2026-07-13), kubeadm amd64/containerd/Flannel 검증 완료
+(2026-07-21), 관리형 Kubernetes 검증은 후속 진행
 
 기존 `real-cluster-readiness-check.py`는 배포 전 read-only 검사로 유지합니다. 별도 E2E 실행기를 추가해 실제 lifecycle을 검증합니다.
 

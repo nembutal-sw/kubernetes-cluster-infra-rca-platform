@@ -105,6 +105,16 @@ Bearer 인증과 firing/resolved webhook 전달을 검증했습니다. 이 결�
   finalize했으며, 임시 RBAC, Platform cluster, 프로세스, 포트와 파일을 모두 제거함
 - amd64 노드에 새로 받은 Python canary 이미지도 digest를 확인한 후 제거함
 
+2026-07-21 kubeadm amd64 검증 결과:
+
+- 격리된 Ubuntu 24.04.4 VM에 Kubernetes 1.33.13, containerd, Flannel v0.28.4 구성
+- 단일 노드와 모든 system pod가 `Ready`인 상태에서 Agent 등록과 heartbeat 정상
+- 필수 collector 14개 등록 및 evidence request 완료, evidence 8건 수집
+- RCA report, analysis task, incident, topology와 서명된 evidence bundle 생성 확인
+- 권장 조치 3건은 모두 rule-based read-only `AUTO_SAFE`로 판정됐으며 직접 변경 조치는 실행하지 않음
+- canary namespace와 Platform 테스트 cluster 삭제 완료
+- 검증용 VM, LXD bridge, storage pool, 프록시와 임시 파일은 결과 회수 후 제거
+
 이 관찰을 바탕으로 다음 collector와 rule이 보강되었습니다.
 
 - Kubernetes API collector
