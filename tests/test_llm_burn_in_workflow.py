@@ -20,6 +20,8 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "inputs.dry_run && 'llm-burn-in-preview' || 'llm-burn-in'" in content
     assert "Live campaigns must run from the default branch" in content
     assert "--require-new-time-bucket" in content
+    assert "--planning-baseline config/llm-burn-in-planning-baseline.json" in content
+    assert "scripts/llm-burn-in-planning-baseline.py" in content
 
 
 def test_workflow_reuses_only_successful_manual_burn_in_history() -> None:

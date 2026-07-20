@@ -282,6 +282,13 @@ workflow는 기본 dry-run, 실행당 최대 provider 1회 호출, 명시적 확
 같은 8시간 구간이어서 provider 호출은 수행하지 않았고, campaign v3의 시간 구간 gate가
 계획 0건과 호출 0건을 반환하는 것을 확인했습니다.
 
+로컬 승인 표본 5개의 원본 report를 공개 저장소에 올리지 않고 workflow 계획에
+연결하기 위해 `llm-burn-in-planning-baseline/v1`을 추가했습니다. baseline에는
+result/report SHA-256, 시나리오, timestamp, action 안전성만 포함하며 URL, cluster/node,
+evidence와 credential은 제외합니다. Campaign v4는 이 baseline을 시간 구간과 다음
+시나리오 선택에만 사용하고 `readiness_eligible=false`를 강제합니다. 따라서 GitHub
+artifact의 실제 표본 수가 늘기 전까지 SLO readiness는 별도로 충족되지 않습니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

@@ -1,0 +1,67 @@
+{
+  "schema_version": "llm-burn-in-planning-baseline/v1",
+  "generated_at": "2026-07-20T20:04:56.317538+00:00",
+  "purpose": "provider-call-planning-only",
+  "readiness_eligible": false,
+  "time_bucket_hours": 8,
+  "sample_count": 5,
+  "scenario_count": 5,
+  "scenarios": [
+    "disk-pressure",
+    "inode-exhaustion",
+    "memory-pressure",
+    "network-link-flap",
+    "node-not-ready"
+  ],
+  "time_buckets": [
+    "2026-07-20T08:00:00Z",
+    "2026-07-20T16:00:00Z"
+  ],
+  "source_bundle_sha256": "26b1531a79c10f0b10af49ea5ec898181cfaeee54874c756bcc9918e351de3f4",
+  "safety": {
+    "llm_action_count": 12,
+    "unsafe_llm_action_count": 0
+  },
+  "samples": [
+    {
+      "sample_sha256": "d9c817079800b8c6eae41e0cdb17e2ba520677714c77cc3b3422283f9c5a99b1",
+      "report_sha256": "c286e2a37d82778fb5036c62d8685c2d44c458cf6f908aedde284984e0246c50",
+      "scenario": "disk-pressure",
+      "started_at": "2026-07-20T15:32:10.829013Z",
+      "llm_action_count": 2,
+      "unsafe_llm_action_count": 0
+    },
+    {
+      "sample_sha256": "5128f2243f9ae611b8669d3a1f00addf47753c5096a722e6c2e170e321c8f805",
+      "report_sha256": "435d702514991811b1993970cad012df46a9a7214a5715cce4429f27a6b78ce5",
+      "scenario": "node-not-ready",
+      "started_at": "2026-07-20T17:23:46.840107Z",
+      "llm_action_count": 2,
+      "unsafe_llm_action_count": 0
+    },
+    {
+      "sample_sha256": "cfe6ea5cdf9e79f27481a7d1f39104ee05d222080f0a99c0c4b011003adc1af0",
+      "report_sha256": "d729365abbb2e571d26add37d59d36e37fb7c86f2e34334021630cdee32949eb",
+      "scenario": "inode-exhaustion",
+      "started_at": "2026-07-20T18:48:50.417036Z",
+      "llm_action_count": 2,
+      "unsafe_llm_action_count": 0
+    },
+    {
+      "sample_sha256": "1ec03733715f341b4d71480c32934e73596abbe6912b8f982bd7a1fa7f133a49",
+      "report_sha256": "f3441f1ce718476b4c630781f2eb5dd2fd30952d030af5ff2adccf2010ec3831",
+      "scenario": "network-link-flap",
+      "started_at": "2026-07-20T18:49:04.751179Z",
+      "llm_action_count": 3,
+      "unsafe_llm_action_count": 0
+    },
+    {
+      "sample_sha256": "1a92afb6655204cc22a09efa5e7f5d27f99979f8ae27583a284c4cc01b647494",
+      "report_sha256": "228f6585316922de277bf586e86fb07b80db20a31dd2874ec9fa1b85ae8dfd04",
+      "scenario": "memory-pressure",
+      "started_at": "2026-07-20T19:07:29.932821Z",
+      "llm_action_count": 3,
+      "unsafe_llm_action_count": 0
+    }
+  ]
+}

@@ -182,6 +182,64 @@ def test_new_time_bucket_mode_caps_effective_budget_at_one() -> None:
     assert campaign.effective_provider_call_budget(10, False) == 10
 
 
+def test_planning_baseline_is_validated_and_deduplicated_from_history(tmp_path: Path) -> None:
+    campaign = load_module()
+    result = write_result(tmp_path, "disk-pressure")
+    sample_hash = campaign.sha256_file(result)
+    report_hash = "b" * 64
+    sample = {
+        "sample_sha256": sample_hash,
+        "report_sha256": report_hash,
+        "scenario": "disk-pressure",
+        "started_at": "2026-07-21T00:00:00Z",
+        "llm_action_count": 0,
+        "unsafe_llm_action_count": 0,
+    }
+    baseline_path = tmp_path / "planning.json"
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "llm-burn-in-planning-baseline/v1",
+                "purpose": "provider-call-planning-only",
+                "readiness_eligible": False,
+                "sample_count": 1,
+                "source_bundle_sha256": campaign.baseline_source_digest([sample]),
+                "safety": {
+                    "llm_action_count": 0,
+                    "unsafe_llm_action_count": 0,
+                },
+                "samples": [sample],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    baseline_counts, baseline_buckets, baseline_hashes, source_digest = (
+        campaign.load_planning_baseline(baseline_path, 8)
+    )
+    counts, buckets = campaign.merge_planning_history(
+        baseline_counts,
+        baseline_buckets,
+        baseline_hashes,
+        [result],
+        8,
+    )
+
+    assert counts == Counter({"disk-pressure": 1})
+    assert buckets == {"2026-07-21T00:00:00Z"}
+    assert source_digest == campaign.baseline_source_digest([sample])
+
+    tampered = json.loads(baseline_path.read_text(encoding="utf-8"))
+    tampered["samples"][0]["scenario"] = "memory-pressure"
+    baseline_path.write_text(json.dumps(tampered), encoding="utf-8")
+    try:
+        campaign.load_planning_baseline(baseline_path, 8)
+    except ValueError as exc:
+        assert "digest does not match" in str(exc)
+    else:
+        raise AssertionError("tampered planning metadata was accepted")
+
+
 def test_smoke_command_enforces_single_call_without_password() -> None:
     campaign = load_module()
 

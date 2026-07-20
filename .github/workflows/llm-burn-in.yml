@@ -215,7 +215,8 @@ jobs:
             scripts/llm-staging-smoke.py \
             scripts/llm-burn-in-report.py \
             scripts/llm-burn-in-campaign.py \
-            scripts/llm-burn-in-history.py
+            scripts/llm-burn-in-history.py \
+            scripts/llm-burn-in-planning-baseline.py
 
       - name: Normalize downloaded cumulative history
         if: ${{ inputs.history_run_id != '' }}
@@ -232,6 +233,7 @@ jobs:
             --base-url "${BURN_IN_BASE_URL:-http://127.0.0.1:8080}"
             --username "${BURN_IN_USERNAME}"
             --scenarios "${BURN_IN_SCENARIOS}"
+            --planning-baseline config/llm-burn-in-planning-baseline.json
             --provider-call-budget "${BURN_IN_CALL_BUDGET}"
             --target-samples "${BURN_IN_TARGET_SAMPLES}"
             --target-scenarios "${BURN_IN_TARGET_SCENARIOS}"

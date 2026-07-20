@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,7 @@ from typing import Any
 
 
 RESULT_NAME = "llm-staging-smoke-result.json"
+PLANNING_BASELINE_SCHEMA = "llm-burn-in-planning-baseline/v1"
 MAX_PROVIDER_CALL_BUDGET = 20
 DEFAULT_SCENARIOS = (
     "disk-pressure",
@@ -43,6 +45,10 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help=f"Existing {RESULT_NAME} file or directory. Repeat for multiple inputs.",
+    )
+    parser.add_argument(
+        "--planning-baseline",
+        help="Planning-only baseline. Its samples never count toward aggregate readiness.",
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
@@ -113,6 +119,10 @@ def load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -146,11 +156,14 @@ def is_successful_result(result: dict[str, Any]) -> bool:
 
 def successful_scenario_counts(result_paths: list[Path]) -> Counter[str]:
     counts: Counter[str] = Counter()
+    seen: set[str] = set()
     for path in result_paths:
         result = load_json(path)
+        sample_hash = sha256_file(path)
         scenario = str(result.get("scenario") or "").strip()
-        if is_successful_result(result) and scenario:
+        if is_successful_result(result) and scenario and sample_hash not in seen:
             counts[scenario] += 1
+            seen.add(sample_hash)
     return counts
 
 
@@ -162,6 +175,117 @@ def successful_time_buckets(result_paths: list[Path], bucket_hours: int) -> set[
         if is_successful_result(result) and bucket is not None:
             buckets.add(bucket)
     return buckets
+
+
+def baseline_source_digest(samples: list[dict[str, Any]]) -> str:
+    digest_samples = sorted(
+        (
+            {
+                "sample_sha256": sample["sample_sha256"],
+                "report_sha256": sample["report_sha256"],
+                "scenario": sample["scenario"],
+                "started_at": sample["started_at"],
+                "llm_action_count": sample["llm_action_count"],
+                "unsafe_llm_action_count": sample["unsafe_llm_action_count"],
+            }
+            for sample in samples
+        ),
+        key=lambda sample: sample["sample_sha256"],
+    )
+    canonical = json.dumps(
+        digest_samples,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256((canonical + "\n").encode("ascii")).hexdigest()
+
+
+def load_planning_baseline(
+    path: Path,
+    bucket_hours: int,
+) -> tuple[Counter[str], set[str], set[str], str]:
+    baseline = load_json(path)
+    if baseline.get("schema_version") != PLANNING_BASELINE_SCHEMA:
+        raise ValueError("planning baseline schema is unsupported")
+    if baseline.get("purpose") != "provider-call-planning-only":
+        raise ValueError("planning baseline purpose is invalid")
+    if baseline.get("readiness_eligible") is not False:
+        raise ValueError("planning baseline must not be readiness eligible")
+    safety = baseline.get("safety") if isinstance(baseline.get("safety"), dict) else {}
+    if safety.get("unsafe_llm_action_count") != 0:
+        raise ValueError("planning baseline contains unsafe LLM actions")
+    samples = baseline.get("samples")
+    if not isinstance(samples, list) or not samples:
+        raise ValueError("planning baseline contains no samples")
+
+    counts: Counter[str] = Counter()
+    buckets: set[str] = set()
+    hashes: set[str] = set()
+    normalized_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        if not isinstance(sample, dict):
+            raise ValueError("planning baseline sample must be an object")
+        sample_hash = str(sample.get("sample_sha256") or "")
+        report_hash = str(sample.get("report_sha256") or "")
+        scenario = str(sample.get("scenario") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", sample_hash) or not re.fullmatch(
+            r"[0-9a-f]{64}", report_hash
+        ):
+            raise ValueError("planning baseline sample hash is invalid")
+        if sample_hash in hashes:
+            raise ValueError("planning baseline contains duplicate sample hashes")
+        if not SCENARIO_PATTERN.fullmatch(scenario):
+            raise ValueError("planning baseline scenario is invalid")
+        bucket = time_bucket(sample.get("started_at"), bucket_hours)
+        if bucket is None:
+            raise ValueError("planning baseline timestamp is invalid")
+        action_count = sample.get("llm_action_count")
+        if isinstance(action_count, bool) or not isinstance(action_count, int) or action_count < 0:
+            raise ValueError("planning baseline action count is invalid")
+        if sample.get("unsafe_llm_action_count") != 0:
+            raise ValueError("planning baseline sample contains unsafe LLM actions")
+        hashes.add(sample_hash)
+        counts[scenario] += 1
+        buckets.add(bucket)
+        normalized_samples.append(sample)
+
+    if baseline.get("sample_count") != len(normalized_samples):
+        raise ValueError("planning baseline sample count does not match its samples")
+    source_digest = baseline_source_digest(normalized_samples)
+    if baseline.get("source_bundle_sha256") != source_digest:
+        raise ValueError("planning baseline digest does not match its samples")
+    expected_action_count = sum(
+        int(sample.get("llm_action_count") or 0) for sample in normalized_samples
+    )
+    if safety.get("llm_action_count") != expected_action_count:
+        raise ValueError("planning baseline action count does not match its samples")
+    return counts, buckets, hashes, source_digest
+
+
+def merge_planning_history(
+    baseline_counts: Counter[str],
+    baseline_buckets: set[str],
+    baseline_hashes: set[str],
+    result_paths: list[Path],
+    bucket_hours: int,
+) -> tuple[Counter[str], set[str]]:
+    counts = Counter(baseline_counts)
+    buckets = set(baseline_buckets)
+    seen = set(baseline_hashes)
+    for path in result_paths:
+        result = load_json(path)
+        sample_hash = sha256_file(path)
+        if sample_hash in seen or not is_successful_result(result):
+            continue
+        scenario = str(result.get("scenario") or "").strip()
+        bucket = time_bucket(result.get("started_at"), bucket_hours)
+        if scenario:
+            counts[scenario] += 1
+        if bucket is not None:
+            buckets.add(bucket)
+        seen.add(sample_hash)
+    return counts, buckets
 
 
 def effective_provider_call_budget(requested: int, require_new_time_bucket: bool) -> int:
@@ -295,6 +419,8 @@ def main() -> int:
         return 2
     errors = validate_args(args, scenarios)
     errors.extend(validate_history_inputs(args.history))
+    if args.planning_baseline and not Path(args.planning_baseline).is_file():
+        errors.append("planning baseline does not exist")
     if errors:
         print("; ".join(errors), file=sys.stderr)
         return 2
@@ -302,20 +428,42 @@ def main() -> int:
     history_results = discover_results(args.history)
     counts = successful_scenario_counts(history_results)
     existing_time_buckets = successful_time_buckets(history_results, args.time_bucket_hours)
+    baseline_counts: Counter[str] = Counter()
+    baseline_time_buckets: set[str] = set()
+    baseline_hashes: set[str] = set()
+    baseline_digest: str | None = None
+    if args.planning_baseline:
+        try:
+            (
+                baseline_counts,
+                baseline_time_buckets,
+                baseline_hashes,
+                baseline_digest,
+            ) = load_planning_baseline(Path(args.planning_baseline), args.time_bucket_hours)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"invalid planning baseline: {exc}", file=sys.stderr)
+            return 2
+    planning_counts, planning_time_buckets = merge_planning_history(
+        baseline_counts,
+        baseline_time_buckets,
+        baseline_hashes,
+        history_results,
+        args.time_bucket_hours,
+    )
     current_time_bucket = time_bucket(datetime.now(timezone.utc), args.time_bucket_hours)
-    current_time_bucket_sampled = current_time_bucket in existing_time_buckets
+    current_time_bucket_sampled = current_time_bucket in planning_time_buckets
     calls_allowed = not args.require_new_time_bucket or not current_time_bucket_sampled
     effective_call_budget = effective_provider_call_budget(
         args.provider_call_budget,
         args.require_new_time_bucket,
     )
     temporal_sample_needed = (
-        len(existing_time_buckets) < args.target_time_buckets
+        len(planning_time_buckets) < args.target_time_buckets
         and not current_time_bucket_sampled
     )
     plan = build_plan(
         scenarios,
-        counts,
+        planning_counts,
         provider_call_budget=effective_call_budget,
         target_samples=args.target_samples,
         target_scenarios=args.target_scenarios,
@@ -379,7 +527,7 @@ def main() -> int:
         else "waiting_for_time_bucket"
         if not plan
         and (
-            len(existing_time_buckets) < args.target_time_buckets
+            len(planning_time_buckets) < args.target_time_buckets
             or (args.require_new_time_bucket and current_time_bucket_sampled)
         )
         else "no_calls_needed"
@@ -387,7 +535,7 @@ def main() -> int:
         else "passed"
     )
     summary = {
-        "schema_version": "llm-burn-in-campaign/v3",
+        "schema_version": "llm-burn-in-campaign/v4",
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
@@ -402,6 +550,12 @@ def main() -> int:
         "existing_successful_samples": sum(counts.values()),
         "existing_scenario_counts": dict(sorted(counts.items())),
         "existing_time_buckets": sorted(existing_time_buckets),
+        "planning_baseline_sample_count": sum(baseline_counts.values()),
+        "planning_baseline_readiness_eligible": False,
+        "planning_baseline_source_bundle_sha256": baseline_digest,
+        "planning_successful_samples": sum(planning_counts.values()),
+        "planning_scenario_counts": dict(sorted(planning_counts.items())),
+        "planning_time_buckets": sorted(planning_time_buckets),
         "current_time_bucket": current_time_bucket,
         "current_time_bucket_sampled": current_time_bucket_sampled,
         "require_new_time_bucket": args.require_new_time_bucket,

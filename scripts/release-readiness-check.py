@@ -164,7 +164,7 @@ def main() -> int:
             exists("scripts/llm-burn-in-campaign.py")
             and contains(
                 "scripts/llm-burn-in-campaign.py",
-                "llm-burn-in-campaign/v3",
+                "llm-burn-in-campaign/v4",
                 "MAX_PROVIDER_CALL_BUDGET",
                 "provider-call-budget",
                 "skip-connectivity-test",
@@ -172,10 +172,37 @@ def main() -> int:
                 "build_plan",
                 "target-time-buckets",
                 "require-new-time-bucket",
+                "planning-baseline",
                 "waiting_for_time_bucket",
             )
             and contains("docs/llm-analyzer.md", "Quota-Aware Campaign", "llm-burn-in-campaign.py"),
             "LLM burn-in campaigns are quota-bounded, history-aware, and fail-fast.",
+        ),
+        check(
+            "llm-burn-in-planning-baseline",
+            exists("scripts/llm-burn-in-planning-baseline.py")
+            and exists("config/llm-burn-in-planning-baseline.json")
+            and contains(
+                "scripts/llm-burn-in-planning-baseline.py",
+                "llm-burn-in-planning-baseline/v1",
+                "provider-call-planning-only",
+                "readiness_eligible",
+                "unsafe_llm_action_count",
+                "source_bundle_sha256",
+            )
+            and contains(
+                "config/llm-burn-in-planning-baseline.json",
+                "llm-burn-in-planning-baseline/v1",
+                '"readiness_eligible": false',
+                '"sample_count": 5',
+                '"unsafe_llm_action_count": 0',
+            )
+            and contains(
+                ".github/workflows/llm-burn-in.yml",
+                "--planning-baseline config/llm-burn-in-planning-baseline.json",
+            )
+            and contains("docs/llm-analyzer.md", "Planning Baseline", "readiness"),
+            "Approved local samples influence provider-call planning without exposing raw evidence or satisfying readiness gates.",
         ),
         check(
             "llm-burn-in-workflow",

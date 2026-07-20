@@ -275,6 +275,7 @@ export RCA_ADMIN_PASSWORD='...'
 python3 scripts/llm-burn-in-campaign.py \
   --base-url https://rca.example.com \
   --history validation-results/llm-staging-smoke/approved-history \
+  --planning-baseline config/llm-burn-in-planning-baseline.json \
   --provider-call-budget 1 \
   --target-time-buckets 3 \
   --time-bucket-hours 8 \
@@ -283,6 +284,21 @@ python3 scripts/llm-burn-in-campaign.py \
 ```
 
 기본 provider 호출 예산은 `0`이며 한 번의 캠페인에서 최대 20회까지만 허용합니다. 각 smoke는 connectivity test를 생략하고 최악의 provider 호출 수를 1로 제한합니다. `--require-new-time-bucket`을 사용하면 요청 예산과 관계없이 실행당 최대 1회로 줄이고, 현재 8시간 구간에 성공 표본이 있으면 `waiting_for_time_bucket`으로 종료합니다. history 경로가 없거나 결과 파일을 포함하지 않으면 호출 전에 실패하고, smoke 한 건이 실패하면 남은 계획을 중단합니다. 먼저 `--dry-run`으로 선택될 시나리오를 확인합니다.
+
+### Planning Baseline
+
+로컬에서 검증한 표본을 공개 저장소의 workflow 계획에 반영해야 할 때는 원본 report 대신 planning baseline을 사용합니다.
+
+```bash
+python3 scripts/llm-burn-in-planning-baseline.py \
+  validation-results/llm-staging-smoke/approved-history \
+  --output config/llm-burn-in-planning-baseline.json \
+  --time-bucket-hours 8
+```
+
+baseline에는 result/report SHA-256, 시나리오, timestamp, LLM action 개수와 안전성만 저장합니다. URL, cluster ID, node 이름, evidence 본문, credential은 저장하지 않습니다. 생성기는 통과 표본의 sibling report를 다시 읽어 LLM action의 `automation_allowed=false`, execution plan의 `executable=false`를 확인하며 unsafe action이 있으면 baseline을 만들지 않습니다.
+
+이 파일의 용도는 provider 호출 순서와 시간 구간 중복 방지뿐입니다. `readiness_eligible=false`이며 burn-in report의 표본 수, 성공률, latency, token, 비용 또는 SLO readiness 계산에는 포함되지 않습니다. Artifact에 원본 표본이 쌓이면 sample hash로 중복을 제거한 뒤 planning count에 합칩니다.
 
 ### Manual Burn-in Workflow
 
@@ -297,6 +313,6 @@ GitHub Actions의 `LLM Burn-in` workflow는 수동 실행만 허용하며 기본
 
 `dry_run=true` 실행은 비보호 `llm-burn-in-preview` Environment를 사용합니다. 실제 호출만 `llm-burn-in` GitHub Environment로 라우팅하므로 이 Environment에는 required reviewer를 설정합니다. 실제 호출은 저장소 기본 branch에서만 가능하고, 같은 8시간 구간에 누적 성공 표본이 있으면 호출하지 않습니다. 동시 실행은 하나로 제한하며 예약 실행은 제공하지 않습니다.
 
-첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. 실제 성공 실행 뒤 생성된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나, 수동 실행이 아니거나, 실패한 run은 history로 받아들이지 않습니다.
+첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. repository의 planning baseline은 이 단계부터 적용됩니다. 실제 성공 실행 뒤 생성된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나, 수동 실행이 아니거나, 실패한 run은 history로 받아들이지 않습니다.
 
 `scripts/llm-burn-in-history.py`는 이전 artifact와 현재 결과를 content hash로 중복 제거하고 `llm-burn-in-history/v1` manifest를 만듭니다. 절대 경로는 manifest에 기록하지 않으며, 통과 표본의 timestamp와 sibling RCA report가 빠지면 검증에 실패합니다. 실패 표본은 숨기지 않고 history에 남아 다음 aggregate report의 신뢰도 계산에 포함됩니다. Artifact에는 노드와 운영 evidence가 포함될 수 있으므로 repository 접근 권한을 제한하고 기본 30일 보존 기간을 조직 정책에 맞게 조정합니다.
