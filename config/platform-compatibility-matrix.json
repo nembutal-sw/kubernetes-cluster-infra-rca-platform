@@ -32,11 +32,19 @@
           "runtime": "containerd",
           "cni": "cilium",
           "result": "passed",
-          "validated_on": "2026-07-15"
+          "validated_on": "2026-07-21"
+        },
+        {
+          "architecture": "amd64",
+          "runtime": "containerd",
+          "cni": "cilium",
+          "result": "passed",
+          "validated_on": "2026-07-21"
         }
       ],
       "notes": [
-        "RKE2-specific sockets are detected without making RKE2 a runtime requirement."
+        "RKE2-specific sockets are detected without making RKE2 a runtime requirement.",
+        "ARM64 and amd64 canaries used file-based host evidence and kept direct action execution disabled."
       ]
     },
     "k3s": {

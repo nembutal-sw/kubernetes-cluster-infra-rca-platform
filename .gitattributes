@@ -1,7 +1,9 @@
+.gitattributes text eol=lf
 *.sh text eol=lf
 *.ps1 text eol=crlf
 *.py text eol=lf
 *.java text eol=lf
+*.json text eol=lf
 *.jsp text eol=lf
 *.js text eol=lf
 *.css text eol=lf

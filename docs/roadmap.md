@@ -208,16 +208,17 @@
 
 - 플랫폼/runtime/CNI/architecture fingerprint와 외부 compatibility matrix 구현 완료
 - RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료, 2026-07-21 현재 `main` 재검증 통과
+- RKE2 amd64 canary lifecycle, 14개 collector 요청, RCA 및 evidence bundle 검증 완료
 - K3s openSUSE amd64/containerd/Flannel canary lifecycle 검증 완료
 - kubeadm, EKS, AKS, GKE, OpenShift 판별 fixture 회귀 테스트 완료
-- RKE2 amd64, kubeadm, 관리형 Kubernetes, OpenShift 실제 canary 검증 대기
+- kubeadm, 관리형 Kubernetes, OpenShift 실제 canary 검증 대기
 
 ## Next Priority
 
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. RKE2 amd64와 kubeadm Agent real canary 검증
+1. kubeadm Agent real canary 검증
 2. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
 3. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 
@@ -230,6 +231,13 @@ $0.00140275였고, LLM-origin action은 모두 `automation_allowed=false`,
 `executable=false`를 유지했습니다. 초기 provider 연동 검증은 완료했으며 다음
 단계는 여러 장애 유형과 시간대에서 표본을 축적해 latency/error/token/cost SLO
 임계값을 조정하는 것입니다.
+
+같은 날 NodeNotReady 표본도 provider 호출 예산 1로 통과했습니다. 지연은 3.064초,
+input 1,700 token, output 468 token, total 2,168 token이었고 root cause candidate와
+action suggestion은 각각 2개였습니다. LLM-origin action은 모두
+`automation_allowed=false`를 유지했고, 159줄의 LLM Prometheus metric 표본을
+저장했습니다. 두 표본 모두 60초 latency 기준을 충족했지만 운영 SLO 임계값을
+확정하기에는 표본 수가 부족하므로 장애 유형과 시간대를 나눠 추가 burn-in합니다.
 
 LLM `PrometheusRule`은 Helm 렌더 결과를 대상으로 한 `promtool` 회귀 테스트에서
 정상/latency/error/usage/circuit/cost 시나리오의 firing 여부까지 검증합니다.

@@ -124,19 +124,24 @@ def test_detects_platform_runtime_and_cni_contract_fixtures(
 
 
 def test_real_e2e_profile_requires_matching_dimensions() -> None:
-    verified = build_cluster_fingerprint(
+    verified_arm64 = build_cluster_fingerprint(
         [node(version="v1.33.5+rke2r1", architecture="arm64", provider_id="rke2://fixture-node")],
         [pod("cilium-agent", "quay.io/cilium/cilium:v1.17")],
     )
-    unverified_arch = build_cluster_fingerprint(
+    verified_amd64 = build_cluster_fingerprint(
         [node(version="v1.33.5+rke2r1", architecture="amd64", provider_id="rke2://fixture-node")],
         [pod("cilium-agent", "quay.io/cilium/cilium:v1.17")],
     )
+    unverified_cni = build_cluster_fingerprint(
+        [node(version="v1.33.5+rke2r1", architecture="amd64", provider_id="rke2://fixture-node")],
+        [pod("calico-node", "docker.io/calico/node:v3.30")],
+    )
 
-    assert evaluate_compatibility(verified, CATALOG)["status"] == "verified_real"
-    unverified = evaluate_compatibility(unverified_arch, CATALOG)
+    assert evaluate_compatibility(verified_arm64, CATALOG)["status"] == "verified_real"
+    assert evaluate_compatibility(verified_amd64, CATALOG)["status"] == "verified_real"
+    unverified = evaluate_compatibility(unverified_cni, CATALOG)
     assert unverified["status"] == "unverified"
-    assert "architecture:amd64" in unverified["unverified_dimensions"]
+    assert "cni:calico" in unverified["unverified_dimensions"]
 
 
 def test_detects_embedded_flannel_from_node_annotation() -> None:

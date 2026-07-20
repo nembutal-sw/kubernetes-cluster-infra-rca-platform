@@ -19,7 +19,7 @@ Node Agent는 RKE2나 containerd만 가정하지 않습니다. 런타임 evidenc
 
 | Platform | Detection fixture | Real Agent E2E | 현재 판정 |
 | --- | --- | --- | --- |
-| RKE2 / containerd / Cilium | 완료 | ARM64 완료, 2026-07-21 재검증 | 혼합 클러스터의 amd64 canary 필요 |
+| RKE2 / containerd / Cilium | 완료 | ARM64/amd64 완료, 2026-07-21 검증 | `verified_real` |
 | K3s / containerd / Flannel | 완료 | amd64 완료 | `verified_real` |
 | kubeadm | 완료 | 대기 | `contract_fixture_only` |
 | EKS / AKS / GKE | 완료 | 대기 | `contract_fixture_only` |

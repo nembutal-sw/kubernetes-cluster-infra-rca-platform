@@ -129,5 +129,5 @@
 
 남은 실환경 검증:
 
-- RKE2 amd64와 kubeadm Agent canary
+- kubeadm Agent canary
 - EKS, AKS, GKE, OpenShift 보안 정책 및 collector 호환성 확인

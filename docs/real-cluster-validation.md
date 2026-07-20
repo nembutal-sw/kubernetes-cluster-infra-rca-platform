@@ -93,16 +93,17 @@ Bearer 인증과 firing/resolved webhook 전달을 검증했습니다. 이 결�
 - K3s 1-node: openSUSE, containerd, embedded Flannel, amd64 탐지 및 Agent E2E 완료
 - kubeadm, EKS, AKS, GKE, OpenShift는 fixture 탐지만 완료했으며 실제 지원 완료로 표시하지 않음
 
-2026-07-21 현재 `main` 기준 RKE2 ARM64 재검증 결과:
+2026-07-21 현재 `main` 기준 RKE2 ARM64/amd64 검증 결과:
 
-- `core-a` 단일 노드 Agent 등록과 heartbeat 정상
+- ARM64 `core-a`와 amd64 `edbe-b` 단일 노드 canary에서 Agent 등록과 heartbeat 정상
 - node, Kubernetes, systemd, runtime, kubelet, kernel, network, conntrack, disk,
   inode, memory, process, CNI, DNS collector 요청 완료
 - RCA report, incident, evidence bundle 5개 항목의 SHA-256 무결성 검증 통과
 - 파일 기반 systemd/kubelet 로그가 없는 노드에서는 해당 collector가 `limited`로 보고됨
 - 기존 Rancher `ext.cattle.io/v1` stale discovery로 namespace 정상 삭제가 지연됨
 - namespace 콘텐츠가 비어 있고 ownership이 일치함을 확인한 후 canary namespace만
-  finalize했으며, 임시 RBAC, Platform cluster, 프로세스, 포트와 파일이 모두 제거됨
+  finalize했으며, 임시 RBAC, Platform cluster, 프로세스, 포트와 파일을 모두 제거함
+- amd64 노드에 새로 받은 Python canary 이미지도 digest를 확인한 후 제거함
 
 이 관찰을 바탕으로 다음 collector와 rule이 보강되었습니다.
 
