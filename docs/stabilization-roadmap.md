@@ -125,9 +125,9 @@
 - Docker base image digest pinning 적용
 - container pinning 검증 스크립트 추가
 - CI에 Gitleaks, Trivy, Syft SBOM, Grype scan gate 구성
+- Kind CI에서 Prometheus Operator selector/reconciliation 및 Alertmanager 전달 검증
 
 남은 실환경 검증:
 
 - RKE2 amd64와 kubeadm Agent canary
 - EKS, AKS, GKE, OpenShift 보안 정책 및 collector 호환성 확인
-- 실제 Prometheus Operator selector/reconciliation 결과 확인

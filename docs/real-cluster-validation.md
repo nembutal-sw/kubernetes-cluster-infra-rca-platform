@@ -56,6 +56,11 @@ scripts/prometheus-operator-delivery-e2e.sh \
 스크립트는 기존 namespace 사용을 거부하고, 자신이 생성한 ownership label이
 일치할 때만 namespace를 정리합니다. 운영 리소스를 수정하지 않습니다.
 
+2026-07-21 GitHub Actions의 격리된 Kind 클러스터에서 고정 버전
+`kube-prometheus-stack`을 설치해 Operator selector/reconciliation, runbook URL,
+Bearer 인증과 firing/resolved webhook 전달을 검증했습니다. 이 결과는 CI 기준선이며,
+운영 클러스터에서는 실제 selector와 보안 정책으로 canary를 다시 실행해야 합니다.
+
 ## Output
 
 스크립트는 JSON 리포트를 생성합니다.

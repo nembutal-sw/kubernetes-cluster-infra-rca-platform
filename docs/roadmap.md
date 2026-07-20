@@ -219,8 +219,7 @@ Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오
 
 1. RKE2 amd64와 kubeadm Agent real canary 검증
 2. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
-3. Kind CI에서 Prometheus Operator selector/reconciliation canary 첫 실행 확인
-4. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
+3. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 
 Gemini staging smoke는 2026-07-21에 `gemini-3.1-flash-lite`와 provider 호출 예산
 1로 성공했습니다. DiskPressure evidence 기반 report가 완료됐고 LLM root cause
@@ -237,11 +236,11 @@ LLM `PrometheusRule`은 Helm 렌더 결과를 대상으로 한 `promtool` 회귀
 2026-07-21에는 실제 Prometheus `3.12.0`과 Alertmanager `0.33.1`을 사용해
 `ClusterRcaLlmCircuitBreakerOpen`의 firing/resolved webhook 전달, Bearer credentials
 file 인증, payload label을 검증했습니다. Helm chart에는 선택형
-`AlertmanagerConfig`와 필수 `clusterId` 주입을 추가했습니다. 남은 범위는 실제
-Kubernetes에서 Operator selector/reconciliation 상태와 runbook URL을 최종
-확인하는 작업입니다. 이를 위해 명시적 context 확인과 ownership 검사를 요구하는
-`prometheus-operator-delivery-e2e.sh` 및 Kind 기반 CI job을 추가했습니다. 첫 CI
-실행 결과를 확인한 뒤 검증 완료로 전환합니다.
+`AlertmanagerConfig`와 필수 `clusterId` 주입을 추가했습니다. 2026-07-21 Kind CI에서는
+고정 버전 `kube-prometheus-stack`을 설치하고 Operator의 selector/reconciliation,
+runbook URL, 인증된 firing/resolved webhook 전달을 모두 확인했습니다. 운영 또는
+관리형 클러스터에서는 해당 환경의 selector와 보안 정책을 반영한 canary를 별도로
+실행해야 합니다.
 
 ## Positioning
 
