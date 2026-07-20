@@ -1,30 +1,21 @@
 # Kubernetes Cluster Infra RCA Platform
 
-Kubernetes 애플리케이션 장애가 아니라, **클러스터 노드와 Linux 시스템 레벨 장애**를 진단하는 RCA 플랫폼입니다.
+Kubernetes 애플리케이션 로그가 아니라 **클러스터 노드와 Linux 시스템 계층의 장애 원인**을 수집하고 분석하는 RCA 플랫폼입니다.
 
-Node Agent가 커널 로그, systemd, 디스크, inode, 메모리, PID, 네트워크, conntrack, container runtime, kubelet, CNI, DNS evidence를 수집합니다. Platform은 evidence를 전처리한 뒤 Rule-based RCA, 선택적 LLM 설명, Policy Engine, incident correlation을 거쳐 보고서를 생성합니다.
+Node Agent가 노드 evidence를 읽기 전용으로 수집하고, Spring Boot Platform이 Rule-based 분석, 선택적 LLM 설명, Policy Engine, incident correlation을 거쳐 RCA 보고서를 만듭니다.
 
-LLM은 진단과 설명만 담당합니다. LLM이 제안한 조치는 기본적으로 `automation_allowed=false`이며 Platform과 Agent가 호스트 변경 명령을 자동 실행하지 않습니다.
-
-## Scope
-
-주요 진단 대상:
+## 진단 범위
 
 - `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
-- kubelet, containerd, CRI runtime 장애
-- CNI, DNS, CoreDNS, API Server, etcd latency
+- kubelet, containerd, CRI runtime, CNI, DNS, CoreDNS 장애
+- API Server와 etcd 지연
 - 디스크 용량, inode 고갈, I/O latency, kernel I/O error
 - systemd unit 실패와 restart loop
-- NIC link flap, conntrack 고갈, 노드 네트워크 장애
+- NIC link flap, MTU 문제, conntrack 고갈, 노드 네트워크 불안정
 
-보조 evidence:
+Pod 상태, HTTP 5xx, Service endpoint, Ingress 오류는 원인 단서와 영향 범위를 보완하는 evidence로 사용합니다.
 
-- `CrashLoopBackOff`, `ImagePullBackOff`, Pod `OOMKilled`
-- HTTP 5xx 증가
-- Service endpoint 없음
-- Ingress 설정 오류
-
-## Architecture
+## 처리 흐름
 
 ```text
 Alertmanager / Platform Scheduler / Demo Scenario
@@ -36,175 +27,251 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Optional LLM explanation
   -> Policy Engine
   -> Incident correlation
-  -> RCA Report / Timeline / Audit / Manual Action Workflow
+  -> Report / Timeline / Audit / Manual Action Workflow
 ```
 
-| Component | Stack | Role |
+운영 조치는 자동 실행하지 않습니다. 승인 요청, 승인/거절 기록, 수동 처리 완료, runbook, 검토된 GitOps PR 흐름만 제공합니다. LLM 조치는 항상 `automation_allowed=false`, `executable=false`입니다.
+
+## 구성
+
+| Component | Stack | 역할 |
 | --- | --- | --- |
-| Platform | Spring Boot 3.5.x, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
-| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 클러스터, Agent, evidence, report 관리 |
-| Node Agent | Python 3.10+ | 노드 evidence 수집, optional eBPF event |
-| Database | PostgreSQL 또는 MariaDB | 운영 데이터 저장 |
-| Migration | Flyway | DB 스키마 관리 |
+| Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
+| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
+| Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
+| Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
+| Migration | Flyway, 19 migrations | 신규 및 기존 schema 관리 |
+
+Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
+
+## 현재 구현 상태
+
+- 클러스터 등록·삭제, Agent token 회전과 설치 명령 생성
+- session 인증, RBAC, audit 검색·필터·export
+- typed evidence, Rule-based RCA 품질 gate, LLM provider 추상화
+- incident correlation, 장애 전파 timeline, 영향 범위
+- manual-only action workflow와 Catalog GitOps 변경 추적
+- PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
+- Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
+- 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
+
+남은 실환경 검증은 RKE2 amd64, kubeadm, EKS/AKS/GKE, OpenShift canary입니다.
 
 ## Quick Start
 
+### Docker Compose
+
+```bash
+cp .env.example .env
+```
+
+PowerShell:
+
 ```powershell
 Copy-Item .env.example .env
-$env:RCA_DEFAULT_ADMIN_USERNAME = "platform-admin"
-$env:RCA_DEFAULT_ADMIN_PASSWORD = "change-this-password"
-$env:RCA_WEBHOOK_TOKEN = "change-this-webhook-token"
+```
+
+`.env`에서 최소 설정을 입력합니다.
+
+```dotenv
+RCA_DEFAULT_ADMIN_USERNAME=admin
+RCA_DEFAULT_ADMIN_PASSWORD=<strong-password>
+RCA_WEBHOOK_TOKEN=<random-webhook-token>
+```
+
+```bash
 docker compose up --build -d
+docker compose ps
 ```
 
 ```text
-Web/API: http://localhost:8080
+Web Console / API  http://localhost:8080
+Readiness          http://localhost:8080/health/ready
 ```
 
-기본 관리자 계정은 코드에 고정하지 않습니다. `.env` 또는 배포 Secret으로 초기 관리자 계정을 명시적으로 주입해야 합니다.
+자주 쓰는 관리 명령:
 
-Docker 없이 실행하려면 Java 21과 Maven 3.9 이상이 필요합니다.
+```bash
+docker compose logs -f platform
+docker compose restart platform
+docker compose stop
+docker compose down
+```
 
-```powershell
+`docker compose down -v`는 DB volume까지 삭제하므로 테스트 데이터를 모두 버릴 때만 사용합니다.
+
+### Java 로컬 실행
+
+Docker 없이 H2 file DB로 실행할 수 있습니다. Java 21과 Maven 3.9 이상이 필요합니다.
+
+```bash
+export RCA_DEFAULT_ADMIN_USERNAME=admin
+export RCA_DEFAULT_ADMIN_PASSWORD='<strong-password>'
+export RCA_WEBHOOK_TOKEN='<random-webhook-token>'
 cd web-console
 mvn spring-boot:run
 ```
 
-## Database
-
-개발 기본값은 H2 file DB입니다. 운영 검증은 PostgreSQL과 MariaDB를 모두 지원하도록 유지합니다.
-
-PostgreSQL:
+PowerShell:
 
 ```powershell
-$env:RCA_JDBC_URL = "jdbc:postgresql://localhost:5432/rca"
-$env:RCA_DB_USERNAME = "rca"
-$env:RCA_DB_PASSWORD = "rca_password"
+$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
+$env:RCA_DEFAULT_ADMIN_USERNAME = "admin"
+$env:RCA_DEFAULT_ADMIN_PASSWORD = "<strong-password>"
+$env:RCA_WEBHOOK_TOKEN = "<random-webhook-token>"
+Set-Location web-console
+..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd spring-boot:run
 ```
 
-MariaDB:
+초기 계정은 코드에 고정되어 있지 않습니다. 첫 로그인 후 Settings에서 로그인 ID와 비밀번호를 변경할 수 있습니다.
 
-```powershell
-$env:RCA_JDBC_URL = "jdbc:mariadb://localhost:3306/rca"
-$env:RCA_DB_USERNAME = "rca"
-$env:RCA_DB_PASSWORD = "rca_password"
+## 처음 사용하는 순서
+
+1. Web Console에 로그인합니다.
+2. **Clusters**에서 클러스터 이름과 환경을 등록합니다.
+3. 생성된 Agent 설치 명령을 대상 클러스터에서 실행합니다.
+4. Agent가 `healthy`로 표시되는지 확인합니다.
+5. 수동 수집, Alertmanager webhook 또는 Platform Scheduler로 evidence를 수집합니다.
+6. **Reports**에서 원인 후보, evidence, 확인 명령, 권장 조치와 정책 등급을 확인합니다.
+
+## 자주 쓰는 옵션
+
+### Database
+
+| 방식 | 설정 |
+| --- | --- |
+| H2 file | 설정 없음. 로컬 개발용 |
+| PostgreSQL | `RCA_JDBC_URL=jdbc:postgresql://host:5432/rca` |
+| MariaDB | `RCA_JDBC_URL=jdbc:mariadb://host:3306/rca` |
+
+외부 DB:
+
+```bash
+export RCA_JDBC_URL='jdbc:postgresql://postgres.example:5432/rca'
+export RCA_DB_USERNAME='rca'
+export RCA_DB_PASSWORD='<database-password>'
 ```
 
-## Spring AI / LLM
+Docker Compose에서 MariaDB 사용:
 
-LLM은 선택 기능이며 기본값은 비활성화입니다.
-
-```text
-RCA_LLM_ENABLED=true
-RCA_LLM_PROVIDER=openai
-RCA_LLM_MODEL=gpt-5-mini
-RCA_SPRING_AI_CHAT_MODEL=openai-sdk
-SPRING_AI_OPENAI_SDK_API_KEY=...
+```dotenv
+RCA_JDBC_URL=jdbc:mariadb://mariadb:3306/rca
+RCA_DB_USERNAME=rca
+RCA_DB_PASSWORD=<database-password>
+MARIADB_PASSWORD=<database-password>
+MARIADB_ROOT_PASSWORD=<root-password>
 ```
 
-Provider별 설정:
+```bash
+docker compose --profile mariadb up -d mariadb
+docker compose build platform
+docker compose --profile mariadb up -d --no-deps platform
+```
 
-- OpenAI/OpenAI-compatible: `SPRING_AI_OPENAI_SDK_API_KEY`
-- OpenAI-compatible/self-hosted base URL: `SPRING_AI_OPENAI_SDK_BASE_URL`
-- Anthropic Claude: `SPRING_AI_ANTHROPIC_API_KEY`
-- Google Gemini: `SPRING_AI_GOOGLE_GENAI_API_KEY`
-- Ollama/local model: `SPRING_AI_OLLAMA_BASE_URL`
+### 기능 토글
 
-Web Console의 Settings 화면에서는 provider, model, key 설정 여부만 확인합니다. API key 값은 브라우저로 내려주지 않습니다.
+| 목적 | 환경 변수 |
+| --- | --- |
+| Demo UI와 RCA workflow | `RCA_DEMO_ENABLED=true` |
+| Prometheus 없는 자체 수집 | `RCA_MONITORING_ENABLED=true` |
+| Prometheus metrics | `RCA_OBSERVABILITY_ENABLED=true` |
+| Slack 또는 일반 webhook | `RCA_NOTIFICATION_ENABLED=true` |
+| Catalog GitOps PR/MR | `RCA_GITOPS_ENABLED=true` |
+| LLM 분석 보조 | `RCA_LLM_ENABLED=true` |
 
-LLM 호출이 실패해도 RCA report 생성은 실패하지 않습니다. Rule-based 분석은 계속 동작합니다.
+자체 수집 기본 예시:
 
-## Backend Scheduled Monitoring
-
-Prometheus나 Alertmanager를 쓰지 않는 환경에서는 Platform 자체 스케줄러가 등록된 Agent에 read-only collection request를 만들 수 있습니다.
-
-```text
+```dotenv
 RCA_MONITORING_ENABLED=true
 RCA_MONITORING_INTERVAL_MS=60000
-RCA_MONITORING_COLLECT_HEALTHY_AGENTS=true
 RCA_MONITORING_HEALTHY_INTERVAL_MINUTES=15
 RCA_MONITORING_DEGRADED_INTERVAL_MINUTES=5
 RCA_MONITORING_STALE_INTERVAL_MINUTES=2
 ```
 
-기본 동작:
+### LLM
 
-- pending request가 있는 노드는 새 요청을 만들지 않습니다.
-- 같은 노드와 같은 상태의 최근 request가 있으면 건너뜁니다.
-- healthy Agent는 baseline collector만 실행합니다.
-- stale 또는 degraded 상태는 systemd, kernel, kubelet을 포함한 deep collector를 실행합니다.
-- scheduled monitoring으로 수집된 healthy evidence는 RCA report 생성을 skip합니다.
+| Provider | Provider 값 | Chat model | Docker Compose credential |
+| --- | --- | --- | --- |
+| OpenAI | `openai` | `openai-sdk` | `OPENAI_API_KEY` |
+| Anthropic | `anthropic` | `anthropic` | `ANTHROPIC_API_KEY` |
+| Gemini | `gemini` | `google-genai` | `GEMINI_API_KEY` |
+| Ollama | `ollama` | `ollama` | `OLLAMA_BASE_URL` |
+| OpenAI-compatible | `openai_compatible` | `openai-sdk` | `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
+| Self-hosted | `self_hosted` | `openai-sdk` | `OPENAI_BASE_URL` |
 
-## Node Agent
+Gemini 예시:
 
-로컬 수집:
-
-```powershell
-python -m node_agent.main --collect-local --output evidence.json
+```dotenv
+RCA_LLM_ENABLED=true
+RCA_LLM_PROVIDER=gemini
+RCA_LLM_MODEL=gemini-3.1-flash-lite
+RCA_SPRING_AI_CHAT_MODEL=google-genai
+GEMINI_API_KEY=<api-key>
 ```
 
-DaemonSet 운영 기준:
+Java 직접 실행 시 credential은 `SPRING_AI_OPENAI_SDK_API_KEY`, `SPRING_AI_ANTHROPIC_API_KEY`, `SPRING_AI_GOOGLE_GENAI_API_KEY`, `SPRING_AI_OLLAMA_BASE_URL`을 사용합니다. 상세 예시는 [web-console/README.md](web-console/README.md)에 있습니다.
 
-- 기본 `safe` mode는 hostPath를 사용하지 않습니다.
-- `node-diagnostics` mode는 `/proc`, `/sys`, `/run`, `/var/log`, `/etc`를 read-only로 mount합니다.
-- systemd/journal 직접 접근보다 `systemdCollectorMode=file`을 우선 권장합니다.
-- evidence 전송 실패 시 spool 후 재전송합니다.
-- eBPF event 수집은 선택 기능입니다.
-- Agent-side action execution은 사용하지 않습니다.
+## Node Agent 설치
 
-Agent Helm 예시:
+Web Console이 생성한 설치 명령을 사용하는 방법이 가장 간단합니다. 수동 설치 시 Agent Secret을 먼저 만듭니다.
+
+```bash
+kubectl create namespace rca-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n rca-system create secret generic cluster-infra-rca-agent \
+  --from-literal=cluster-id='<cluster-id>' \
+  --from-literal=agent-token='<agent-token>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
 
 ```bash
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --namespace rca-system \
-  --create-namespace \
   --set backendUrl=https://rca.example.com \
-  --set secret.existingSecret.name=agent-auth \
+  --set secret.existingSecret.name=cluster-infra-rca-agent \
   --set mode=node-diagnostics \
   --set systemdCollectorMode=file
 ```
 
-eBPF 옵션:
+Mode별 추가 옵션:
+
+| Mode | Helm option | 용도 |
+| --- | --- | --- |
+| Safe | `--set mode=safe` | hostPath 없는 제한 수집 |
+| Node diagnostics | `--set mode=node-diagnostics` | Linux 노드 evidence 수집 |
+| eBPF | `--set mode=ebpf --set ebpf.enabled=true` | 실시간 kernel/network event |
+| Canary | `--set nodeSelector.cluster-infra-rca\.io/agent-canary=true` | label된 노드만 배포 |
+| mTLS | `--set tls.enabled=true --set tls.existingSecret=<tls-secret>` | Agent client 인증서 사용 |
+
+자세한 권한과 canary 절차는 [docs/helm-agent-chart.md](docs/helm-agent-chart.md)를 확인합니다.
+
+## Platform Helm 설치
+
+개발용 기본 예시:
 
 ```bash
-helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+helm upgrade --install rca charts/cluster-infra-rca-platform \
   --namespace rca-system \
-  --set backendUrl=https://rca.example.com \
-  --set secret.existingSecret.name=agent-auth \
-  --set mode=ebpf \
-  --set ebpf.enabled=true
+  --create-namespace \
+  --set-string platform.secret.defaultAdminUsername=admin \
+  --set-string platform.secret.defaultAdminPassword='<strong-password>' \
+  --set-string platform.secret.webhookToken='<webhook-token>'
 ```
 
-## Helm
+선택 옵션:
 
-Platform과 DB:
+| 목적 | Helm option |
+| --- | --- |
+| MariaDB | `--set database.type=mariadb` |
+| 외부 DB | `--set database.enabled=false`와 `platform.secret.jdbcUrl` |
+| ServiceMonitor | `--set platform.serviceMonitor.enabled=true` |
+| LLM PrometheusRule | `--set platform.prometheusRule.enabled=true` |
+| AlertmanagerConfig | `--set platform.alertmanagerConfig.enabled=true`와 `clusterId` |
+| Demo | `--set platform.config.demoEnabled=true` |
 
-```bash
-helm upgrade --install rca charts/cluster-infra-rca-platform
-```
+기본 image repository는 예시 값입니다. 실제 registry로 `platform.image.repository`, `platform.image.tag`, Agent의 `image.repository`, `image.tag`를 지정해야 합니다. 운영 secret은 CLI `--set`보다 기존 Secret 또는 External Secrets를 권장합니다.
 
-MariaDB:
-
-```bash
-helm upgrade --install rca charts/cluster-infra-rca-platform \
-  --set database.type=mariadb
-```
-
-외부 DB:
-
-```bash
-helm upgrade --install rca charts/cluster-infra-rca-platform \
-  --set database.enabled=false \
-  --set-string platform.secret.jdbcUrl='jdbc:postgresql://postgres.example:5432/rca' \
-  --set-string platform.secret.databaseUsername='rca' \
-  --set-string platform.secret.databasePassword='change-me'
-```
-
-이미지 repository 값은 placeholder입니다. 실제 배포 전 사용하는 registry로 변경해야 합니다.
-
-## Validation
-
-개발 검증:
+## 검증 명령
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
@@ -215,53 +282,34 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 bash scripts/linux-dev-check.sh --full
 ```
 
-운영 시나리오 검증:
+컴포넌트별 실행:
 
 ```bash
-export RCA_BASE_URL=http://127.0.0.1:18080
-export RCA_ADMIN_USERNAME=admin
-export RCA_ADMIN_PASSWORD='<admin-password>'
-
-python3 scripts/operational_scenario_validation.py
+python -m pytest -q
+mvn -f web-console/pom.xml verify
+python3 scripts/release-readiness-check.py
 ```
 
-DaemonSet read-only 검증:
+DB 호환 테스트가 실제 실행됐는지 확인:
 
 ```bash
-python3 scripts/daemonset_operational_check.py \
-  --namespace rca-system \
-  --output validation-results/daemonset-check.json
+mvn -f web-console/pom.xml -Dtest=DatabaseCompatibilityTests test
+python3 scripts/verify_database_compatibility_report.py
 ```
 
-플랫폼 호환성 catalog 검증:
+두 번째 명령은 Docker 미탐지로 DB 테스트가 skip된 경우에도 실패합니다. 브라우저 E2E, Helm, Alertmanager와 실클러스터 검증 명령은 [docs/README.md](docs/README.md)와 [docs/testing.md](docs/testing.md)에 정리되어 있습니다.
 
-```bash
-python3 scripts/cluster_compatibility.py --validate-catalog
-```
-
-자세한 기준은 [docs/testing.md](docs/testing.md), [docs/runtime-compatibility.md](docs/runtime-compatibility.md),
-[docs/daemonset-operations-checklist.md](docs/daemonset-operations-checklist.md)를 참고합니다.
-
-## Security Position
-
-- API 로그인은 session token 기반입니다.
-- Agent는 cluster token과 node token을 함께 검증합니다.
-- Webhook, manifest, metrics endpoint는 별도 인증 경계를 가집니다.
-- report/evidence export는 운영 역할로 제한하고 audit을 남깁니다.
-- 승인 workflow는 자동 실행이 아니라 승인, 거절, 수동 처리 완료 기록, runbook, GitOps PR 안내로 동작합니다.
-- production profile은 기본 비밀번호, 빈 webhook token, 개발용 secret을 fail-fast로 차단합니다.
-
-## Repository
+## 저장소 구조
 
 ```text
-web-console/  Spring Boot platform and React Web Console
-node_agent/   Python node evidence collector
-charts/       Platform and Agent Helm charts
-manifests/    Agent example manifest
-tests/        Node Agent tests
-docs/         Design and operation documents
-scripts/      Local and operational validation scripts
-examples/     Sample webhook and report payloads
+web-console/  Spring Boot Platform과 React Web Console
+node_agent/   Python Node Agent
+charts/       Platform과 Agent Helm chart
+manifests/    Agent 예제 manifest
+scripts/      개발 및 운영 검증 도구
+tests/        Python과 운영 스크립트 테스트
+docs/         설계, 보안, 운영 문서
+examples/     webhook과 report 예제
 ```
 
-상세 문서는 [docs](docs/)에서 확인합니다.
+API 인증 경계는 [docs/api-security-contract.md](docs/api-security-contract.md), 역할별 권한은 [docs/rbac-matrix.md](docs/rbac-matrix.md), 전체 문서 목록은 [docs/README.md](docs/README.md)를 참고합니다.
