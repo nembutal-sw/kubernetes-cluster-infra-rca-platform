@@ -61,6 +61,7 @@ export type ConsoleLoadStates = Record<ConsoleDataSource, LoadState<unknown>>;
 
 export type UserRole = "admin" | "operator" | "viewer" | "auditor" | "approver" | string;
 export type TFunction = (key: string) => string;
+export type NotifyFunction = (message: string, tone?: string) => void;
 
 export interface ToastState {
   tone?: string;

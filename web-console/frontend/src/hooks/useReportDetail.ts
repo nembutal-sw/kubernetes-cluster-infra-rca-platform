@@ -6,13 +6,12 @@ import type {
   ApiCall,
   EvidenceBundleManifest,
   JsonObject,
+  NotifyFunction,
   RcaReport,
   ReportDetailState,
   TFunction,
   UserAccount,
 } from "../types";
-
-type NotifyFunction = (message: string, tone?: string) => void;
 
 function hasExecutionAccess(role?: string): boolean {
   return role === "admin" || role === "operator" || role === "auditor";

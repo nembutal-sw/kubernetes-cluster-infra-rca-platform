@@ -65,6 +65,23 @@ def main() -> int:
             "/health/ready exposes bootstrap and database readiness signals.",
         ),
         check(
+            "database-compatibility-ci",
+            exists("scripts/verify_database_compatibility_report.py")
+            and contains(
+                ".github/workflows/ci.yml",
+                "Require PostgreSQL and MariaDB compatibility tests",
+                "python3 scripts/verify_database_compatibility_report.py",
+            )
+            and contains(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/DatabaseCompatibilityTests.java",
+                "postgresqlSupportsFreshSchemaAndRepositoryWorkflow",
+                "mariadbSupportsFreshSchemaAndRepositoryWorkflow",
+                "postgresqlBaselinesExistingAlembicSchemaWithoutLosingData",
+                "mariadbBaselinesExistingAlembicSchemaWithoutLosingData",
+            ),
+            "CI fails when PostgreSQL or MariaDB compatibility tests are missing or skipped.",
+        ),
+        check(
             "backend-monitoring",
             contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ScheduledCollectionService.java",

@@ -50,6 +50,20 @@
 
 ## Recently Completed
 
+### Frontend Workflow Decomposition
+
+- `App.tsx`를 URL routing, 인증 상태, page 조합 중심으로 축소
+- Cluster, Action, Incident, Export, Audit, Settings workflow를 domain hook으로 분리
+- 공통 API, 알림, 번역 함수 타입 경계를 명시
+- Cluster 생성과 승인 요청 workflow 회귀 테스트 추가
+
+### Database Compatibility CI Gate
+
+- PostgreSQL/MariaDB fresh schema와 기존 schema baseline 테스트 유지
+- Surefire 결과에서 DB 호환 테스트 4개의 실제 실행 여부 확인
+- Docker 미탐지로 Testcontainers가 skip되면 CI를 실패 처리
+- release readiness에 DB 호환 실행 계약 추가
+
 ### Console Data Reliability
 
 - 공통 API 오류 계약과 `X-Request-ID` trace 연결

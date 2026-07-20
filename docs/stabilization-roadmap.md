@@ -66,25 +66,30 @@
 
 ## Phase 4. Frontend Type Stability
 
-상태: 부분 반영
+상태: 완료
 
-- 현재 main의 LLM diagnostics, setup guide, notification UI를 우선 유지한다.
-- D 작업분의 frontend type cleanup은 백업 브랜치에 보존되어 있다.
-- 별도 phase에서 최신 UI 기준으로 다시 작게 나눠 반영한다.
+- `App.tsx`는 인증, URL routing, 화면 조합만 담당하도록 축소
+- API 호출 타입을 `ApiCall`, `DownloadApi`, `NotifyFunction`으로 통일
+- 화면별 상태 조회와 변경 workflow를 domain hook으로 분리
+- 핵심 cluster/action workflow에 React hook 회귀 테스트 추가
 
-권장 후속 분리:
+주요 분리 결과:
 
 - `useConsoleData`
+- `useClusterDetail`
 - `useReportDetail`
 - `useActionWorkflow`
 - `useClusterOperations`
+- `useOperationalActions`
 - `useAuditSearch`
-- `AuthContext`
-- `ToastContext`
+- `useSettingsOperations`
+- `useAuthenticatedApi`
+- `useConsoleLocale`
+- `useToast`
 
 ## Phase 5. RCA Quality Guardrails
 
-상태: 진행 중
+상태: 완료
 
 - LLM 결과가 report schema와 policy를 우회하지 못하도록 제한
 - rule-based 분석 설명과 evidence path 강화
@@ -100,15 +105,29 @@
 - LLM source action은 계속 `automation_allowed=false`
 - root cause candidate별 score reason과 evidence path 제공
 
+검증 결과:
+
+- structured response normalization과 허용 필드 제한 적용
+- malformed output, prompt injection, unknown evidence reference 회귀 테스트 적용
+- rule-based candidate의 supporting evidence ID와 evidence path 노출
+- cluster별 threshold override 저장 및 PostgreSQL/MariaDB 호환 검증
+
 ## Phase 6. Operational Verification
 
-상태: 진행 중
+상태: 코드 및 CI 검증 완료, 다중 배포판 실환경 canary 진행 중
 
 - worker 동시 claim 테스트 추가
 - lease 만료 후 중복 claim 방지 검증
 - worker crash retry, owner-bound fail, dead-letter, retry reset 검증
 - duplicate evidence submit idempotency 검증
 - PostgreSQL/MariaDB fresh schema 테스트에 동시 claim 계약 추가
+- CI에서 PostgreSQL/MariaDB 호환 테스트 4개의 실제 실행과 skip 0건 강제
 - Docker base image digest pinning 적용
 - container pinning 검증 스크립트 추가
 - CI에 Gitleaks, Trivy, Syft SBOM, Grype scan gate 구성
+
+남은 실환경 검증:
+
+- RKE2 amd64와 kubeadm Agent canary
+- EKS, AKS, GKE, OpenShift 보안 정책 및 collector 호환성 확인
+- 실제 Prometheus Operator selector/reconciliation 결과 확인

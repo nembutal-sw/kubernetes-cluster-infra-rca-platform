@@ -61,6 +61,8 @@ jobs:
       - name: Test and package Spring Boot platform
         working-directory: web-console
         run: mvn --batch-mode --no-transfer-progress verify
+      - name: Require PostgreSQL and MariaDB compatibility tests
+        run: python3 scripts/verify_database_compatibility_report.py
       - name: Upload rule-analysis quality report
         if: always()
         uses: actions/upload-artifact@v6
@@ -310,6 +312,7 @@ jobs:
             scripts/verify-container-pinning.py \
             scripts/verify-operational-catalog.py \
             scripts/verify-supply-chain-workflows.py \
+            scripts/verify_database_compatibility_report.py \
             scripts/daemonset_operational_check.py \
             scripts/operational_scenario_validation.py \
             scripts/llm_prometheus_rule_test.py \
