@@ -148,9 +148,11 @@ def main() -> int:
             exists("scripts/llm-burn-in-report.py")
             and contains(
                 "scripts/llm-burn-in-report.py",
-                "llm-burn-in/v1",
+                "llm-burn-in/v2",
                 "minimum-samples",
                 "minimum-scenarios",
+                "minimum-time-buckets",
+                "scenario_statistics",
                 "retain_current_threshold",
                 "unsafe_llm_action_count",
             )
@@ -167,6 +169,8 @@ def main() -> int:
                 "skip-connectivity-test",
                 "validate_history_inputs",
                 "build_plan",
+                "target-time-buckets",
+                "waiting_for_time_bucket",
             )
             and contains("docs/llm-analyzer.md", "Quota-Aware Campaign", "llm-burn-in-campaign.py"),
             "LLM burn-in campaigns are quota-bounded, history-aware, and fail-fast.",

@@ -186,5 +186,5 @@ Node diagnostics mode:
 - Gitleaks, Trivy, Syft SBOM, Grype scan 통과
 - 검증 중 발견된 누락은 테스트로 고정
 
-LLM SLO 값을 변경하는 릴리즈는 `scripts/llm-burn-in-report.py` 결과가 `ready`여야 합니다. 기본 조건은 성공 표본 20개 이상, 장애 시나리오 5개 이상, unsafe LLM action 0건입니다.
+LLM SLO 값을 변경하는 릴리즈는 `scripts/llm-burn-in-report.py` 결과가 `ready`여야 합니다. 기본 조건은 성공 표본 20개 이상, 장애 시나리오 5개 이상, 8시간 구간 3개 이상, unsafe LLM action 0건입니다.
 반복 실측은 `scripts/llm-burn-in-campaign.py`의 명시적인 provider 호출 예산과 dry-run 계획을 사용하고, 실패한 smoke 이후에는 추가 호출하지 않습니다.

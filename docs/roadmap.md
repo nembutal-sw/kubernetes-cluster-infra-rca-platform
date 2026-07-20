@@ -103,6 +103,7 @@
 - 실제 Provider 연결과 usage/cost 한도를 검증하는 staging smoke 보강
 - 여러 smoke 결과의 latency/token/cost/action safety를 집계하는 burn-in report와 SLO 변경 gate 추가
 - 호출 예산, history 검증, least-sampled-first 계획과 실패 즉시 중단을 적용한 burn-in campaign runner 추가
+- 8시간 구간 3개 시간 분산 gate와 시나리오별 latency/token/reliability 통계 추가
 
 ### Agent Fleet Operations UX
 
@@ -221,7 +222,7 @@
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. Gemini burn-in을 남은 15개 표본까지 시간대를 나눠 확장
+1. Gemini burn-in을 남은 15개 표본과 최소 1개 추가 시간 구간으로 확장
 2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
 
@@ -253,7 +254,7 @@ MemoryPressure 표본을 quota-aware campaign으로 1회 추가했습니다. 커
 node memory 사용률을 높은 신뢰도의 원인으로 연결했고, 지연은 2.695초, token은
 2,285개였습니다. 전체 집계는 5개 표본과 5개 시나리오, p95 3.064초, 총 11,419
 token이며 LLM-origin action 12개 중 unsafe action은 0개입니다. 장애 유형 기준은
-충족했지만 표본 수가 `5/20`이므로 60초 SLO를 유지합니다.
+충족했지만 표본 수는 `5/20`, 8시간 구간은 `2/3`이므로 60초 SLO를 유지합니다.
 
 LLM `PrometheusRule`은 Helm 렌더 결과를 대상으로 한 `promtool` 회귀 테스트에서
 정상/latency/error/usage/circuit/cost 시나리오의 firing 여부까지 검증합니다.

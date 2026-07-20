@@ -53,6 +53,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-samples", type=int, default=20)
     parser.add_argument("--target-scenarios", type=int, default=5)
+    parser.add_argument("--target-time-buckets", type=int, default=3)
+    parser.add_argument("--time-bucket-hours", type=int, default=8)
     parser.add_argument("--current-p95-ms", type=int, default=60000)
     parser.add_argument("--max-llm-latency-ms", type=int, default=60000)
     parser.add_argument("--task-timeout-seconds", type=int, default=240)
@@ -106,14 +108,55 @@ def load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def time_bucket(value: Any, bucket_hours: int) -> str | None:
+    parsed = value if isinstance(value, datetime) else parse_timestamp(value)
+    if parsed is None:
+        return None
+    parsed = parsed.astimezone(timezone.utc)
+    bucket_seconds = bucket_hours * 60 * 60
+    bucket_epoch = int(parsed.timestamp()) // bucket_seconds * bucket_seconds
+    bucket_start = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
+    return bucket_start.isoformat().replace("+00:00", "Z")
+
+
+def is_successful_result(result: dict[str, Any]) -> bool:
+    return (
+        result.get("status") == "passed"
+        and not result.get("errors")
+        and parse_timestamp(result.get("started_at")) is not None
+    )
+
+
 def successful_scenario_counts(result_paths: list[Path]) -> Counter[str]:
     counts: Counter[str] = Counter()
     for path in result_paths:
         result = load_json(path)
         scenario = str(result.get("scenario") or "").strip()
-        if result.get("status") == "passed" and scenario and not result.get("errors"):
+        if is_successful_result(result) and scenario:
             counts[scenario] += 1
     return counts
+
+
+def successful_time_buckets(result_paths: list[Path], bucket_hours: int) -> set[str]:
+    buckets: set[str] = set()
+    for path in result_paths:
+        result = load_json(path)
+        bucket = time_bucket(result.get("started_at"), bucket_hours)
+        if is_successful_result(result) and bucket is not None:
+            buckets.add(bucket)
+    return buckets
 
 
 def build_plan(
@@ -123,6 +166,7 @@ def build_plan(
     provider_call_budget: int,
     target_samples: int,
     target_scenarios: int,
+    temporal_sample_needed: bool = False,
 ) -> list[str]:
     simulated = Counter(existing_counts)
     total_samples = sum(simulated.values())
@@ -139,6 +183,8 @@ def build_plan(
         simulated[scenario] += 1
         total_samples += 1
         covered.add(scenario)
+    if not plan and temporal_sample_needed and provider_call_budget > 0:
+        plan.append(min(scenarios, key=lambda item: (simulated[item], order[item])))
     return plan
 
 
@@ -184,6 +230,8 @@ def aggregate_command(
     output_path: Path,
     target_samples: int,
     target_scenarios: int,
+    target_time_buckets: int,
+    time_bucket_hours: int,
     current_p95_ms: int,
 ) -> list[str]:
     aggregate_script = Path(__file__).resolve().with_name("llm-burn-in-report.py")
@@ -197,6 +245,10 @@ def aggregate_command(
         str(target_samples),
         "--minimum-scenarios",
         str(target_scenarios),
+        "--minimum-time-buckets",
+        str(target_time_buckets),
+        "--time-bucket-hours",
+        str(time_bucket_hours),
         "--current-p95-ms",
         str(current_p95_ms),
     ]
@@ -213,12 +265,12 @@ def validate_args(args: argparse.Namespace, scenarios: list[str]) -> list[str]:
         errors.append(
             f"--provider-call-budget must be between 0 and {MAX_PROVIDER_CALL_BUDGET}"
         )
-    if args.target_samples < 1 or args.target_scenarios < 1:
-        errors.append("target sample and scenario counts must be positive")
+    if args.target_samples < 1 or args.target_scenarios < 1 or args.target_time_buckets < 1:
+        errors.append("target sample, scenario, and time bucket counts must be positive")
     if args.target_scenarios > len(scenarios):
         errors.append("--target-scenarios cannot exceed the number of configured scenarios")
-    if args.current_p95_ms < 1 or args.max_llm_latency_ms < 1:
-        errors.append("latency thresholds must be positive")
+    if args.current_p95_ms < 1 or args.max_llm_latency_ms < 1 or args.time_bucket_hours < 1:
+        errors.append("latency thresholds and time bucket hours must be positive")
     return errors
 
 
@@ -237,12 +289,19 @@ def main() -> int:
 
     history_results = discover_results(args.history)
     counts = successful_scenario_counts(history_results)
+    existing_time_buckets = successful_time_buckets(history_results, args.time_bucket_hours)
+    current_time_bucket = time_bucket(datetime.now(timezone.utc), args.time_bucket_hours)
+    temporal_sample_needed = (
+        len(existing_time_buckets) < args.target_time_buckets
+        and current_time_bucket not in existing_time_buckets
+    )
     plan = build_plan(
         scenarios,
         counts,
         provider_call_budget=args.provider_call_budget,
         target_samples=args.target_samples,
         target_scenarios=args.target_scenarios,
+        temporal_sample_needed=temporal_sample_needed,
     )
     if plan and not args.dry_run and not (
         os.getenv("RCA_ADMIN_PASSWORD") or os.getenv("RCA_PASSWORD")
@@ -286,6 +345,8 @@ def main() -> int:
                 output_path=aggregate_report,
                 target_samples=args.target_samples,
                 target_scenarios=args.target_scenarios,
+                target_time_buckets=args.target_time_buckets,
+                time_bucket_hours=args.time_bucket_hours,
                 current_p95_ms=args.current_p95_ms,
             ),
             check=False,
@@ -296,12 +357,14 @@ def main() -> int:
         if args.dry_run
         else "failed"
         if failed or aggregate_status not in {None, 0}
+        else "waiting_for_time_bucket"
+        if not plan and len(existing_time_buckets) < args.target_time_buckets
         else "no_calls_needed"
         if not plan
         else "passed"
     )
     summary = {
-        "schema_version": "llm-burn-in-campaign/v1",
+        "schema_version": "llm-burn-in-campaign/v2",
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
@@ -310,8 +373,12 @@ def main() -> int:
         "provider_call_upper_bound_used": len(attempted),
         "target_samples": args.target_samples,
         "target_scenarios": args.target_scenarios,
+        "target_time_buckets": args.target_time_buckets,
+        "time_bucket_hours": args.time_bucket_hours,
         "existing_successful_samples": sum(counts.values()),
         "existing_scenario_counts": dict(sorted(counts.items())),
+        "existing_time_buckets": sorted(existing_time_buckets),
+        "current_time_bucket": current_time_bucket,
         "planned_scenarios": plan,
         "attempted_scenarios": attempted,
         "succeeded_scenarios": succeeded,

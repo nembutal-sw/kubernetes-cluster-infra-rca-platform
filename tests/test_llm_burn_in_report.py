@@ -21,17 +21,20 @@ def write_sample(
     scenario: str,
     latency_ms: int,
     unsafe: bool = False,
+    sample_id: str | None = None,
+    started_at: str = "2026-07-21T00:00:00Z",
 ) -> Path:
-    directory = root / scenario
+    identifier = sample_id or scenario
+    directory = root / identifier
     directory.mkdir(parents=True)
     result_path = directory / "llm-staging-smoke-result.json"
     result_path.write_text(
         json.dumps(
             {
                 "status": "passed",
-                "started_at": "2026-07-21T00:00:00Z",
+                "started_at": started_at,
                 "scenario": scenario,
-                "report_id": f"report-{scenario}",
+                "report_id": f"report-{identifier}",
                 "llm": {"provider": "gemini", "model": "gemini-3.1-flash-lite"},
                 "llm_analysis": {
                     "status": "completed",
@@ -49,7 +52,7 @@ def write_sample(
         ),
         encoding="utf-8",
     )
-    (directory / f"report-report-{scenario}.json").write_text(
+    (directory / f"report-report-{identifier}.json").write_text(
         json.dumps(
             {
                 "recommended_actions": [
@@ -77,6 +80,8 @@ def test_insufficient_samples_retain_current_threshold(tmp_path: Path) -> None:
         results,
         minimum_samples=20,
         minimum_scenarios=5,
+        minimum_time_buckets=3,
+        time_bucket_hours=8,
         current_p95_ms=60000,
     )
 
@@ -91,19 +96,53 @@ def test_ready_samples_support_existing_threshold(tmp_path: Path) -> None:
     burn_in = load_module()
     results = [
         write_sample(tmp_path, scenario="inode-exhaustion", latency_ms=2500),
-        write_sample(tmp_path, scenario="network-link-flap", latency_ms=3500),
+        write_sample(
+            tmp_path,
+            scenario="network-link-flap",
+            latency_ms=3500,
+            started_at="2026-07-21T08:00:00Z",
+        ),
     ]
 
     report = burn_in.aggregate(
         results,
         minimum_samples=2,
         minimum_scenarios=2,
+        minimum_time_buckets=2,
+        time_bucket_hours=8,
         current_p95_ms=60000,
     )
 
     assert report["readiness"] == "ready"
     assert report["recommendation"]["decision"] == "current_threshold_supported"
     assert report["usage"]["total_tokens"] == 250
+    assert report["temporal_coverage"]["bucket_count"] == 2
+    assert report["scenario_statistics"]["network-link-flap"]["latency_ms"]["p95"] == 3500
+
+
+def test_time_bucket_coverage_is_required_for_readiness(tmp_path: Path) -> None:
+    burn_in = load_module()
+    results = [
+        write_sample(tmp_path, scenario="disk-pressure", latency_ms=2500),
+        write_sample(tmp_path, scenario="memory-pressure", latency_ms=2700),
+    ]
+
+    report = burn_in.aggregate(
+        results,
+        minimum_samples=2,
+        minimum_scenarios=2,
+        minimum_time_buckets=2,
+        time_bucket_hours=8,
+        current_p95_ms=60000,
+    )
+
+    assert report["readiness"] == "insufficient_samples"
+    assert report["coverage"] == {
+        "sample_target_met": True,
+        "scenario_target_met": True,
+        "time_bucket_target_met": False,
+    }
+    assert report["recommendation"]["decision"] == "retain_current_threshold"
 
 
 def test_unsafe_llm_action_fails_burn_in(tmp_path: Path) -> None:
@@ -119,12 +158,36 @@ def test_unsafe_llm_action_fails_burn_in(tmp_path: Path) -> None:
         [result],
         minimum_samples=1,
         minimum_scenarios=1,
+        minimum_time_buckets=1,
+        time_bucket_hours=8,
         current_p95_ms=60000,
     )
 
     assert report["status"] == "failed"
     assert report["readiness"] == "failed"
     assert report["recommendation"]["decision"] == "investigate_failures"
+
+
+def test_passed_sample_requires_valid_timestamp(tmp_path: Path) -> None:
+    burn_in = load_module()
+    result = write_sample(
+        tmp_path,
+        scenario="memory-pressure",
+        latency_ms=2500,
+        started_at="not-a-timestamp",
+    )
+
+    report = burn_in.aggregate(
+        [result],
+        minimum_samples=1,
+        minimum_scenarios=1,
+        minimum_time_buckets=1,
+        time_bucket_hours=8,
+        current_p95_ms=60000,
+    )
+
+    assert report["status"] == "failed"
+    assert "valid started_at" in report["samples"][0]["errors"][0]
 
 
 def test_discover_results_deduplicates_files_and_directories(tmp_path: Path) -> None:

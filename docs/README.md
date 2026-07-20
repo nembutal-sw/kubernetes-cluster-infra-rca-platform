@@ -173,7 +173,9 @@ python3 scripts/llm-burn-in-campaign.py \
 
 python3 scripts/llm-burn-in-report.py \
   validation-results/llm-staging-smoke \
-  --output validation-results/llm-staging-smoke/burn-in-report.json
+  --output validation-results/llm-staging-smoke/burn-in-report.json \
+  --minimum-time-buckets 3 \
+  --time-bucket-hours 8
 
 python3 scripts/llm_prometheus_rule_test.py \
   --helm helm \

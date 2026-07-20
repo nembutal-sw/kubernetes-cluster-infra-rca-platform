@@ -288,7 +288,7 @@ python3 scripts/llm-burn-in-report.py \
   --output validation-results/llm-staging-smoke/burn-in-report.json
 ```
 
-기본 gate는 20개 표본, 5개 장애 시나리오, p95 60초입니다. 모든 smoke가 통과하고 LLM-origin action의 자동 실행 가능 건수가 0이어야 합니다.
+기본 gate는 20개 표본, 5개 장애 시나리오, 8시간 구간 3개, p95 60초입니다. 모든 smoke가 통과하고 LLM-origin action의 자동 실행 가능 건수가 0이어야 합니다. report의 `scenario_statistics`에서 장애 유형별 성공률, latency와 token 편차도 확인합니다.
 
 호출량이 제한된 환경에서는 campaign runner로 실행 횟수를 고정합니다.
 
@@ -297,6 +297,8 @@ RCA_ADMIN_PASSWORD='...' python3 scripts/llm-burn-in-campaign.py \
   --base-url https://rca.example.com \
   --history validation-results/llm-staging-smoke/approved-history \
   --provider-call-budget 1 \
+  --target-time-buckets 3 \
+  --time-bucket-hours 8 \
   --output-dir validation-results/llm-staging-smoke/campaign
 ```
 
