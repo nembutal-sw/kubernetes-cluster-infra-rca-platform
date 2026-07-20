@@ -262,3 +262,19 @@ python3 scripts/llm-burn-in-report.py \
 ```
 
 집계기는 실행 성공률, 장애 시나리오 수, p50/p95 latency, token, 예상 비용과 LLM-origin action 안전성을 함께 확인합니다. `automation_allowed=true`이거나 executable plan을 가진 LLM action이 하나라도 있으면 burn-in은 실패합니다. 표본 20개와 장애 유형 5개를 모두 충족하기 전에는 관측 p95가 낮더라도 `retain_current_threshold`로 판정하며 운영 임계값을 낮추지 않습니다.
+
+### Quota-Aware Campaign
+
+반복 검증은 성공 표본이 가장 적은 장애 유형부터 선택하는 캠페인 실행기로 제한합니다. 관리자 비밀번호는 명령 인자가 아닌 환경 변수로 전달합니다.
+
+```bash
+export RCA_ADMIN_PASSWORD='...'
+
+python3 scripts/llm-burn-in-campaign.py \
+  --base-url https://rca.example.com \
+  --history validation-results/llm-staging-smoke/approved-history \
+  --provider-call-budget 1 \
+  --output-dir validation-results/llm-staging-smoke/campaign
+```
+
+기본 provider 호출 예산은 `0`이며 한 번의 캠페인에서 최대 20회까지만 허용합니다. 각 smoke는 connectivity test를 생략하고 최악의 provider 호출 수를 1로 제한합니다. history 경로가 없거나 결과 파일을 포함하지 않으면 호출 전에 실패하고, smoke 한 건이 실패하면 남은 계획을 중단합니다. 먼저 `--dry-run`으로 선택될 시나리오를 확인합니다.

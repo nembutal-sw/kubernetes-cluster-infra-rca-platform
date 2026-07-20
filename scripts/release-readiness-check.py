@@ -158,6 +158,20 @@ def main() -> int:
             "LLM burn-in aggregation gates SLO changes on sample coverage and action safety.",
         ),
         check(
+            "llm-burn-in-campaign",
+            exists("scripts/llm-burn-in-campaign.py")
+            and contains(
+                "scripts/llm-burn-in-campaign.py",
+                "MAX_PROVIDER_CALL_BUDGET",
+                "provider-call-budget",
+                "skip-connectivity-test",
+                "validate_history_inputs",
+                "build_plan",
+            )
+            and contains("docs/llm-analyzer.md", "Quota-Aware Campaign", "llm-burn-in-campaign.py"),
+            "LLM burn-in campaigns are quota-bounded, history-aware, and fail-fast.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(
