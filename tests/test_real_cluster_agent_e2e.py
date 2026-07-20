@@ -15,6 +15,7 @@ def test_real_cluster_agent_e2e_keeps_mutations_explicit_and_owned() -> None:
         "statePersistence.enabled=false",
         "developmentSourceBundle.enabled=true",
         "verify_evidence_bundle.py",
+        '--json "${output_dir}/evidence-bundle.zip"',
         "RCA report completed without root cause candidates",
         "never restarts, reboots, cordons, or drains a node",
         'cleanup_state="pending"',

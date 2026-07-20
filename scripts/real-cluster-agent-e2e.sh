@@ -417,7 +417,7 @@ curl -fsS --connect-timeout 10 --max-time 60 \
   -H "Authorization: Bearer ${access_token}" \
   "${base_url}/api/rca/reports/${report_id}/bundle" \
   -o "${output_dir}/evidence-bundle.zip"
-python3 "${repo_root}/scripts/verify_evidence_bundle.py" "${output_dir}/evidence-bundle.zip" \
+python3 "${repo_root}/scripts/verify_evidence_bundle.py" --json "${output_dir}/evidence-bundle.zip" \
   >"${output_dir}/bundle-verification.json"
 
 api_get "/api/clusters/${cluster_id}/topology" >"${output_dir}/topology.json"

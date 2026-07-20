@@ -207,7 +207,7 @@
 현재 상태:
 
 - 플랫폼/runtime/CNI/architecture fingerprint와 외부 compatibility matrix 구현 완료
-- RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료
+- RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료, 2026-07-21 현재 `main` 재검증 통과
 - K3s openSUSE amd64/containerd/Flannel canary lifecycle 검증 완료
 - kubeadm, EKS, AKS, GKE, OpenShift 판별 fixture 회귀 테스트 완료
 - RKE2 amd64, kubeadm, 관리형 Kubernetes, OpenShift 실제 canary 검증 대기
