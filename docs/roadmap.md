@@ -222,7 +222,7 @@
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. Gemini burn-in을 남은 15개 표본과 최소 1개 추가 시간 구간으로 확장
+1. 수동 `LLM Burn-in` workflow로 Gemini burn-in을 남은 15개 표본과 최소 1개 추가 시간 구간으로 확장
 2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
 
@@ -266,6 +266,13 @@ file 인증, payload label을 검증했습니다. Helm chart에는 선택형
 runbook URL, 인증된 firing/resolved webhook 전달을 모두 확인했습니다. 운영 또는
 관리형 클러스터에서는 해당 환경의 selector와 보안 정책을 반영한 canary를 별도로
 실행해야 합니다.
+
+추가 표본은 GitHub Actions의 수동 `LLM Burn-in` workflow로 수집하도록 정리했습니다.
+workflow는 기본 dry-run, 실행당 최대 provider 3회 호출, 명시적 확인, change reference,
+`llm-burn-in` Environment 승인을 사용합니다. 이전 성공 run만 cumulative history로
+연결하며, 표본과 sibling report는 content hash로 중복 제거한 30일 artifact로 보관합니다.
+이 단계에서는 provider를 호출하지 않았으므로 기존 `5/20`, 시간 구간 `2/3` 상태는
+변하지 않았습니다.
 
 ## Positioning
 

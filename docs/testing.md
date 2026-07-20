@@ -304,6 +304,8 @@ RCA_ADMIN_PASSWORD='...' python3 scripts/llm-burn-in-campaign.py \
 
 실행 전에는 같은 인자에 `--dry-run`을 추가해 계획을 확인합니다. API key는 campaign 또는 smoke 명령에 전달하지 않습니다.
 
+GitHub Actions에서는 `LLM Burn-in` workflow를 사용합니다. 최초에는 `dry_run=true`로 실행하고, 실제 호출 시에만 `dry_run=false`, `confirm_live_calls=true`, 1~3 범위의 `provider_call_budget`, `change_reference`를 입력합니다. 이전 성공 실행의 누적 표본은 해당 Actions run ID를 `history_run_id`에 넣어 이어받습니다. 상세한 승인 조건과 artifact 취급 기준은 [llm-analyzer.md](llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
+
 ## Kind E2E
 
 개발용 Kubernetes smoke test:

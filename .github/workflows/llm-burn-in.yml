@@ -1,0 +1,306 @@
+name: LLM Burn-in
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Platform base URL. Defaults to repository variable RCA_SMOKE_BASE_URL."
+        required: false
+        type: string
+      username:
+        description: "Platform administrator username."
+        required: true
+        default: "admin"
+        type: string
+      scenarios:
+        description: "Comma-separated demo scenario keys."
+        required: true
+        default: "disk-pressure,node-not-ready,inode-exhaustion,network-link-flap,memory-pressure"
+        type: string
+      provider_call_budget:
+        description: "Maximum provider calls for this run. The workflow hard limit is 3."
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "0"
+          - "1"
+          - "2"
+          - "3"
+      dry_run:
+        description: "Plan and aggregate only. No provider call is made."
+        required: true
+        default: true
+        type: boolean
+      confirm_live_calls:
+        description: "Required confirmation when dry_run is disabled."
+        required: true
+        default: false
+        type: boolean
+      change_reference:
+        description: "Ticket or change reference required for live calls."
+        required: false
+        type: string
+      history_run_id:
+        description: "Previous successful LLM Burn-in run ID whose cumulative artifact should be reused."
+        required: false
+        type: string
+      target_samples:
+        description: "Minimum successful sample target."
+        required: true
+        default: "20"
+        type: string
+      target_scenarios:
+        description: "Minimum distinct scenario target."
+        required: true
+        default: "5"
+        type: string
+      target_time_buckets:
+        description: "Minimum distinct time bucket target."
+        required: true
+        default: "3"
+        type: string
+      time_bucket_hours:
+        description: "Time bucket size in hours."
+        required: true
+        default: "8"
+        type: string
+      task_timeout_seconds:
+        description: "Maximum seconds to wait for each RCA task."
+        required: true
+        default: "240"
+        type: string
+      use_tailscale:
+        description: "Connect the runner to Tailscale for live calls."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: llm-burn-in-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  burn-in:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: llm-burn-in
+    env:
+      BURN_IN_BASE_URL: ${{ inputs.base_url || vars.RCA_SMOKE_BASE_URL }}
+      BURN_IN_USERNAME: ${{ inputs.username }}
+      BURN_IN_SCENARIOS: ${{ inputs.scenarios }}
+      BURN_IN_CALL_BUDGET: ${{ inputs.provider_call_budget }}
+      BURN_IN_DRY_RUN: ${{ inputs.dry_run }}
+      BURN_IN_CONFIRM_LIVE_CALLS: ${{ inputs.confirm_live_calls }}
+      BURN_IN_CHANGE_REFERENCE: ${{ inputs.change_reference }}
+      BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id }}
+      BURN_IN_TARGET_SAMPLES: ${{ inputs.target_samples }}
+      BURN_IN_TARGET_SCENARIOS: ${{ inputs.target_scenarios }}
+      BURN_IN_TARGET_TIME_BUCKETS: ${{ inputs.target_time_buckets }}
+      BURN_IN_TIME_BUCKET_HOURS: ${{ inputs.time_bucket_hours }}
+      BURN_IN_TASK_TIMEOUT_SECONDS: ${{ inputs.task_timeout_seconds }}
+      BURN_IN_MAX_LLM_LATENCY_MS: ${{ vars.RCA_LLM_SMOKE_MAX_LATENCY_MS || '60000' }}
+      RCA_ADMIN_PASSWORD: ${{ secrets.RCA_SMOKE_PASSWORD }}
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate manual execution controls
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_positive_integer() {
+            local name="$1"
+            local value="$2"
+            if ! [[ "${value}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "${name} must be a positive integer." >&2
+              exit 2
+            fi
+          }
+
+          if ! [[ "${BURN_IN_CALL_BUDGET}" =~ ^[0-3]$ ]]; then
+            echo "provider_call_budget must be between 0 and 3." >&2
+            exit 2
+          fi
+          require_positive_integer "target_samples" "${BURN_IN_TARGET_SAMPLES}"
+          require_positive_integer "target_scenarios" "${BURN_IN_TARGET_SCENARIOS}"
+          require_positive_integer "target_time_buckets" "${BURN_IN_TARGET_TIME_BUCKETS}"
+          require_positive_integer "time_bucket_hours" "${BURN_IN_TIME_BUCKET_HOURS}"
+          require_positive_integer "task_timeout_seconds" "${BURN_IN_TASK_TIMEOUT_SECONDS}"
+
+          if [ -n "${BURN_IN_HISTORY_RUN_ID}" ] && ! [[ "${BURN_IN_HISTORY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "history_run_id must be a numeric GitHub Actions run ID." >&2
+            exit 2
+          fi
+
+          if [ "${BURN_IN_DRY_RUN}" = "false" ]; then
+            if [ "${BURN_IN_CONFIRM_LIVE_CALLS}" != "true" ]; then
+              echo "confirm_live_calls must be checked for a live campaign." >&2
+              exit 2
+            fi
+            if [ "${BURN_IN_CALL_BUDGET}" = "0" ]; then
+              echo "provider_call_budget must be greater than 0 for a live campaign." >&2
+              exit 2
+            fi
+            if [ -z "${BURN_IN_CHANGE_REFERENCE// }" ]; then
+              echo "change_reference is required for a live campaign." >&2
+              exit 2
+            fi
+            change_reference_pattern='^[A-Za-z0-9][A-Za-z0-9._:/#-]{2,127}$'
+            if ! [[ "${BURN_IN_CHANGE_REFERENCE}" =~ ${change_reference_pattern} ]]; then
+              echo "change_reference must be 3-128 safe identifier characters." >&2
+              exit 2
+            fi
+            if [ -z "${BURN_IN_BASE_URL}" ]; then
+              echo "Set base_url or repository variable RCA_SMOKE_BASE_URL." >&2
+              exit 2
+            fi
+            if [ -z "${RCA_ADMIN_PASSWORD}" ]; then
+              echo "RCA_SMOKE_PASSWORD secret is required for a live campaign." >&2
+              exit 2
+            fi
+          fi
+
+      - name: Verify and download previous cumulative history
+        if: ${{ inputs.history_run_id != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_path="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.path')"
+          run_event="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.event')"
+          run_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.conclusion')"
+
+          if [ "${run_path}" != ".github/workflows/llm-burn-in.yml" ]; then
+            echo "history_run_id must reference the LLM Burn-in workflow." >&2
+            exit 2
+          fi
+          if [ "${run_event}" != "workflow_dispatch" ] || [ "${run_conclusion}" != "success" ]; then
+            echo "history_run_id must reference a successful manual LLM Burn-in run." >&2
+            exit 2
+          fi
+
+          gh run download "${BURN_IN_HISTORY_RUN_ID}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --name llm-burn-in-results \
+            --dir validation-results/previous-burn-in
+
+      - name: Require Tailscale auth key
+        if: ${{ inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY == '' }}
+        run: |
+          echo "TAILSCALE_AUTHKEY secret is required for a live Tailscale campaign." >&2
+          exit 2
+
+      - name: Connect runner to Tailscale
+        if: ${{ inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY != '' }}
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ env.TAILSCALE_AUTHKEY }}
+
+      - name: Validate burn-in scripts
+        run: |
+          python -m py_compile \
+            scripts/llm-staging-smoke.py \
+            scripts/llm-burn-in-report.py \
+            scripts/llm-burn-in-campaign.py \
+            scripts/llm-burn-in-history.py
+
+      - name: Normalize downloaded cumulative history
+        if: ${{ inputs.history_run_id != '' }}
+        run: |
+          python scripts/llm-burn-in-history.py \
+            validation-results/previous-burn-in/portable-history \
+            --output-dir validation-results/validated-history
+
+      - name: Run quota-aware burn-in campaign
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --base-url "${BURN_IN_BASE_URL:-http://127.0.0.1:8080}"
+            --username "${BURN_IN_USERNAME}"
+            --scenarios "${BURN_IN_SCENARIOS}"
+            --provider-call-budget "${BURN_IN_CALL_BUDGET}"
+            --target-samples "${BURN_IN_TARGET_SAMPLES}"
+            --target-scenarios "${BURN_IN_TARGET_SCENARIOS}"
+            --target-time-buckets "${BURN_IN_TARGET_TIME_BUCKETS}"
+            --time-bucket-hours "${BURN_IN_TIME_BUCKET_HOURS}"
+            --current-p95-ms "${BURN_IN_MAX_LLM_LATENCY_MS}"
+            --max-llm-latency-ms "${BURN_IN_MAX_LLM_LATENCY_MS}"
+            --task-timeout-seconds "${BURN_IN_TASK_TIMEOUT_SECONDS}"
+            --output-dir validation-results/current-burn-in
+          )
+          if [ -d validation-results/validated-history ]; then
+            args+=(--history validation-results/validated-history)
+          fi
+          if [ "${BURN_IN_DRY_RUN}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+
+          python scripts/llm-burn-in-campaign.py "${args[@]}"
+
+      - name: Build cumulative portable history
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          inputs=()
+          if [ -d validation-results/validated-history ]; then
+            inputs+=(validation-results/validated-history)
+          fi
+          if [ -d validation-results/current-burn-in ]; then
+            inputs+=(validation-results/current-burn-in)
+          fi
+          python scripts/llm-burn-in-history.py \
+            "${inputs[@]}" \
+            --output-dir validation-results/portable-history \
+            --allow-empty
+
+      - name: Publish burn-in summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary_path = Path("validation-results/current-burn-in/campaign-summary.json")
+          history_path = Path("validation-results/portable-history/history-manifest.json")
+          lines = ["## LLM Burn-in", ""]
+          if summary_path.is_file():
+              summary = json.loads(summary_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Status: `{summary.get('status', 'unknown')}`",
+                      f"- Dry run: `{summary.get('dry_run', True)}`",
+                      f"- Provider calls used: `{summary.get('provider_call_upper_bound_used', 0)}`",
+                      f"- Planned scenarios: `{', '.join(summary.get('planned_scenarios') or []) or 'none'}`",
+                  ]
+              )
+          if history_path.is_file():
+              history = json.loads(history_path.read_text(encoding="utf-8"))
+              lines.append(f"- Cumulative samples: `{history.get('sample_count', 0)}`")
+          lines.append(f"- Change reference: `{__import__('os').environ.get('BURN_IN_CHANGE_REFERENCE') or 'dry-run'}`")
+          with Path(__import__('os').environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload cumulative burn-in results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-burn-in-results
+          path: |
+            validation-results/current-burn-in
+            validation-results/portable-history
+          if-no-files-found: error
+          retention-days: 30

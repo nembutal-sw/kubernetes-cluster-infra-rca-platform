@@ -177,6 +177,10 @@ python3 scripts/llm-burn-in-report.py \
   --minimum-time-buckets 3 \
   --time-bucket-hours 8
 
+python3 scripts/llm-burn-in-history.py \
+  validation-results/llm-staging-smoke \
+  --output-dir validation-results/llm-staging-smoke/portable-history
+
 python3 scripts/llm_prometheus_rule_test.py \
   --helm helm \
   --promtool promtool
@@ -186,6 +190,8 @@ python3 scripts/alertmanager_delivery_test.py \
   --prometheus prometheus \
   --alertmanager alertmanager
 ```
+
+반복 provider 검증은 GitHub Actions의 수동 `LLM Burn-in` workflow로도 실행할 수 있습니다. 기본 dry-run, 최대 3회 호출, 변경 참조값, Environment 승인, 이전 성공 run의 누적 artifact 연결을 지원합니다.
 
 명령별 요구 도구와 추가 option은 [testing.md](testing.md)에 정리되어 있습니다.
 

@@ -213,6 +213,8 @@ GEMINI_API_KEY=<api-key>
 
 Java 직접 실행 시 credential은 `SPRING_AI_OPENAI_SDK_API_KEY`, `SPRING_AI_ANTHROPIC_API_KEY`, `SPRING_AI_GOOGLE_GENAI_API_KEY`, `SPRING_AI_OLLAMA_BASE_URL`을 사용합니다. 상세 예시는 [web-console/README.md](web-console/README.md)에 있습니다.
 
+반복 LLM 검증은 GitHub Actions의 수동 `LLM Burn-in` workflow를 사용합니다. 기본값은 dry-run이고 실제 실행은 최대 3회 호출 예산, 명시적 확인, change reference를 요구합니다. 이전 성공 run의 artifact를 연결하면 표본 history를 누적할 수 있습니다. 세부 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
+
 ## Node Agent 설치
 
 Web Console이 생성한 설치 명령을 사용하는 방법이 가장 간단합니다. 수동 설치 시 Agent Secret을 먼저 만듭니다.

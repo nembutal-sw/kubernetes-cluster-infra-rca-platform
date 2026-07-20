@@ -176,6 +176,29 @@ def main() -> int:
             "LLM burn-in campaigns are quota-bounded, history-aware, and fail-fast.",
         ),
         check(
+            "llm-burn-in-workflow",
+            exists("scripts/llm-burn-in-history.py")
+            and exists(".github/workflows/llm-burn-in.yml")
+            and contains(
+                "scripts/llm-burn-in-history.py",
+                "llm-burn-in-history/v1",
+                "result_sha256",
+                "validation_errors",
+                "allow-empty",
+            )
+            and contains(
+                ".github/workflows/llm-burn-in.yml",
+                "workflow_dispatch",
+                "confirm_live_calls",
+                "change_reference",
+                "history_run_id",
+                "environment: llm-burn-in",
+                "llm-burn-in-results",
+            )
+            and contains("docs/llm-analyzer.md", "Manual Burn-in Workflow", "history_run_id"),
+            "Manual LLM burn-in is approval-gated, quota-bounded, and backed by portable cumulative history.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(
