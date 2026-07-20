@@ -39,3 +39,4 @@ def test_workflow_does_not_pass_credentials_as_cli_arguments() -> None:
     assert "RCA_ADMIN_PASSWORD: ${{ secrets.RCA_SMOKE_PASSWORD }}" in content
     assert "--password" not in content
     assert "--provider-call-budget" in content
+    assert "uses: actions/upload-artifact@v7" in content
