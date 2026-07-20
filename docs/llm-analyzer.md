@@ -278,10 +278,11 @@ python3 scripts/llm-burn-in-campaign.py \
   --provider-call-budget 1 \
   --target-time-buckets 3 \
   --time-bucket-hours 8 \
+  --require-new-time-bucket \
   --output-dir validation-results/llm-staging-smoke/campaign
 ```
 
-기본 provider 호출 예산은 `0`이며 한 번의 캠페인에서 최대 20회까지만 허용합니다. 각 smoke는 connectivity test를 생략하고 최악의 provider 호출 수를 1로 제한합니다. history 경로가 없거나 결과 파일을 포함하지 않으면 호출 전에 실패하고, smoke 한 건이 실패하면 남은 계획을 중단합니다. 표본·시나리오 목표를 채운 뒤 현재 시간 구간이 이미 수집됐다면 `waiting_for_time_bucket`으로 끝나며 불필요한 호출을 만들지 않습니다. 먼저 `--dry-run`으로 선택될 시나리오를 확인합니다.
+기본 provider 호출 예산은 `0`이며 한 번의 캠페인에서 최대 20회까지만 허용합니다. 각 smoke는 connectivity test를 생략하고 최악의 provider 호출 수를 1로 제한합니다. `--require-new-time-bucket`을 사용하면 요청 예산과 관계없이 실행당 최대 1회로 줄이고, 현재 8시간 구간에 성공 표본이 있으면 `waiting_for_time_bucket`으로 종료합니다. history 경로가 없거나 결과 파일을 포함하지 않으면 호출 전에 실패하고, smoke 한 건이 실패하면 남은 계획을 중단합니다. 먼저 `--dry-run`으로 선택될 시나리오를 확인합니다.
 
 ### Manual Burn-in Workflow
 
@@ -289,12 +290,12 @@ GitHub Actions의 `LLM Burn-in` workflow는 수동 실행만 허용하며 기본
 
 - `dry_run=false`
 - `confirm_live_calls=true`
-- `provider_call_budget=1~3`
+- `provider_call_budget=1`
 - `change_reference`에 승인 ticket 또는 change 번호 입력
 - `RCA_SMOKE_PASSWORD` repository secret 설정
 - 내부 endpoint를 사용할 경우 `TAILSCALE_AUTHKEY` repository secret 설정
 
-`llm-burn-in` GitHub Environment에는 required reviewer를 설정합니다. Environment 보호 규칙이 없는 저장소에서도 workflow 내부 확인 gate는 동작하지만, 별도 승인자를 강제하려면 Environment reviewer 설정이 필요합니다. 동시 실행은 하나로 제한하며 예약 실행은 제공하지 않습니다.
+`dry_run=true` 실행은 비보호 `llm-burn-in-preview` Environment를 사용합니다. 실제 호출만 `llm-burn-in` GitHub Environment로 라우팅하므로 이 Environment에는 required reviewer를 설정합니다. 실제 호출은 저장소 기본 branch에서만 가능하고, 같은 8시간 구간에 누적 성공 표본이 있으면 호출하지 않습니다. 동시 실행은 하나로 제한하며 예약 실행은 제공하지 않습니다.
 
 첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. 실제 성공 실행 뒤 생성된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나, 수동 실행이 아니거나, 실패한 run은 history로 받아들이지 않습니다.
 

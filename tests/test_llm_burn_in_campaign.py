@@ -159,6 +159,29 @@ def test_plan_adds_only_one_sample_for_a_new_time_bucket() -> None:
     assert plan == ["disk-pressure"]
 
 
+def test_plan_blocks_calls_when_current_time_bucket_is_already_sampled() -> None:
+    campaign = load_module()
+    scenarios = list(campaign.DEFAULT_SCENARIOS)
+
+    plan = campaign.build_plan(
+        scenarios,
+        Counter({"disk-pressure": 1}),
+        provider_call_budget=1,
+        target_samples=20,
+        target_scenarios=5,
+        calls_allowed=False,
+    )
+
+    assert plan == []
+
+
+def test_new_time_bucket_mode_caps_effective_budget_at_one() -> None:
+    campaign = load_module()
+
+    assert campaign.effective_provider_call_budget(10, True) == 1
+    assert campaign.effective_provider_call_budget(10, False) == 10
+
+
 def test_smoke_command_enforces_single_call_without_password() -> None:
     campaign = load_module()
 

@@ -164,12 +164,14 @@ def main() -> int:
             exists("scripts/llm-burn-in-campaign.py")
             and contains(
                 "scripts/llm-burn-in-campaign.py",
+                "llm-burn-in-campaign/v3",
                 "MAX_PROVIDER_CALL_BUDGET",
                 "provider-call-budget",
                 "skip-connectivity-test",
                 "validate_history_inputs",
                 "build_plan",
                 "target-time-buckets",
+                "require-new-time-bucket",
                 "waiting_for_time_bucket",
             )
             and contains("docs/llm-analyzer.md", "Quota-Aware Campaign", "llm-burn-in-campaign.py"),
@@ -192,7 +194,9 @@ def main() -> int:
                 "confirm_live_calls",
                 "change_reference",
                 "history_run_id",
-                "environment: llm-burn-in",
+                "llm-burn-in-preview",
+                "BURN_IN_DEFAULT_BRANCH",
+                "require-new-time-bucket",
                 "llm-burn-in-results",
             )
             and contains("docs/llm-analyzer.md", "Manual Burn-in Workflow", "history_run_id"),

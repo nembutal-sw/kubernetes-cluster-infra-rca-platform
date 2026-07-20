@@ -18,15 +18,13 @@ on:
         default: "disk-pressure,node-not-ready,inode-exhaustion,network-link-flap,memory-pressure"
         type: string
       provider_call_budget:
-        description: "Maximum provider calls for this run. The workflow hard limit is 3."
+        description: "Maximum provider calls for this run. The workflow hard limit is 1."
         required: true
         default: "1"
         type: choice
         options:
           - "0"
           - "1"
-          - "2"
-          - "3"
       dry_run:
         description: "Plan and aggregate only. No provider call is made."
         required: true
@@ -88,7 +86,7 @@ jobs:
   burn-in:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: llm-burn-in
+    environment: ${{ inputs.dry_run && 'llm-burn-in-preview' || 'llm-burn-in' }}
     env:
       BURN_IN_BASE_URL: ${{ inputs.base_url || vars.RCA_SMOKE_BASE_URL }}
       BURN_IN_USERNAME: ${{ inputs.username }}
@@ -104,6 +102,7 @@ jobs:
       BURN_IN_TIME_BUCKET_HOURS: ${{ inputs.time_bucket_hours }}
       BURN_IN_TASK_TIMEOUT_SECONDS: ${{ inputs.task_timeout_seconds }}
       BURN_IN_MAX_LLM_LATENCY_MS: ${{ vars.RCA_LLM_SMOKE_MAX_LATENCY_MS || '60000' }}
+      BURN_IN_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       RCA_ADMIN_PASSWORD: ${{ secrets.RCA_SMOKE_PASSWORD }}
       TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
       GH_TOKEN: ${{ github.token }}
@@ -128,8 +127,8 @@ jobs:
             fi
           }
 
-          if ! [[ "${BURN_IN_CALL_BUDGET}" =~ ^[0-3]$ ]]; then
-            echo "provider_call_budget must be between 0 and 3." >&2
+          if ! [[ "${BURN_IN_CALL_BUDGET}" =~ ^[0-1]$ ]]; then
+            echo "provider_call_budget must be 0 or 1." >&2
             exit 2
           fi
           require_positive_integer "target_samples" "${BURN_IN_TARGET_SAMPLES}"
@@ -144,6 +143,10 @@ jobs:
           fi
 
           if [ "${BURN_IN_DRY_RUN}" = "false" ]; then
+            if [ "${GITHUB_REF_NAME}" != "${BURN_IN_DEFAULT_BRANCH}" ]; then
+              echo "Live campaigns must run from the default branch ${BURN_IN_DEFAULT_BRANCH}." >&2
+              exit 2
+            fi
             if [ "${BURN_IN_CONFIRM_LIVE_CALLS}" != "true" ]; then
               echo "confirm_live_calls must be checked for a live campaign." >&2
               exit 2
@@ -234,6 +237,7 @@ jobs:
             --target-scenarios "${BURN_IN_TARGET_SCENARIOS}"
             --target-time-buckets "${BURN_IN_TARGET_TIME_BUCKETS}"
             --time-bucket-hours "${BURN_IN_TIME_BUCKET_HOURS}"
+            --require-new-time-bucket
             --current-p95-ms "${BURN_IN_MAX_LLM_LATENCY_MS}"
             --max-llm-latency-ms "${BURN_IN_MAX_LLM_LATENCY_MS}"
             --task-timeout-seconds "${BURN_IN_TASK_TIMEOUT_SECONDS}"

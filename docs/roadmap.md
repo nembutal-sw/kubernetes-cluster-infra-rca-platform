@@ -268,11 +268,19 @@ runbook URL, 인증된 firing/resolved webhook 전달을 모두 확인했습니�
 실행해야 합니다.
 
 추가 표본은 GitHub Actions의 수동 `LLM Burn-in` workflow로 수집하도록 정리했습니다.
-workflow는 기본 dry-run, 실행당 최대 provider 3회 호출, 명시적 확인, change reference,
-`llm-burn-in` Environment 승인을 사용합니다. 이전 성공 run만 cumulative history로
+workflow는 기본 dry-run, 실행당 최대 provider 1회 호출, 명시적 확인, change reference,
+`llm-burn-in` Environment 승인을 사용합니다. 실제 호출은 기본 branch로 제한하고,
+같은 8시간 구간에 성공 표본이 있으면 호출하지 않습니다. 이전 성공 run만 cumulative history로
 연결하며, 표본과 sibling report는 content hash로 중복 제거한 30일 artifact로 보관합니다.
 이 단계에서는 provider를 호출하지 않았으므로 기존 `5/20`, 시간 구간 `2/3` 상태는
 변하지 않았습니다.
+
+`llm-burn-in` GitHub Environment에는 required reviewer를 적용했습니다. 단독 관리자
+저장소이므로 self-review는 허용하지만 workflow의 명시적 확인, change reference,
+기본 branch 제한을 함께 통과해야 실제 호출 단계로 진행됩니다. Dry-run은 별도의
+`llm-burn-in-preview` Environment를 사용합니다. 2026-07-21 KST 04시 기준 기존 표본과
+같은 8시간 구간이어서 provider 호출은 수행하지 않았고, campaign v3의 시간 구간 gate가
+계획 0건과 호출 0건을 반환하는 것을 확인했습니다.
 
 ## Positioning
 

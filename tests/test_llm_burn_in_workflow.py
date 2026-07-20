@@ -14,9 +14,12 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "confirm_live_calls" in content
     assert "change_reference" in content
     assert "change_reference_pattern" in content
-    assert "provider_call_budget must be between 0 and 3" in content
+    assert "provider_call_budget must be 0 or 1" in content
     assert "RCA_SMOKE_PASSWORD secret is required" in content
     assert "cancel-in-progress: false" in content
+    assert "inputs.dry_run && 'llm-burn-in-preview' || 'llm-burn-in'" in content
+    assert "Live campaigns must run from the default branch" in content
+    assert "--require-new-time-bucket" in content
 
 
 def test_workflow_reuses_only_successful_manual_burn_in_history() -> None:

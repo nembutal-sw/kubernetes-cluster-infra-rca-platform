@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-scenarios", type=int, default=5)
     parser.add_argument("--target-time-buckets", type=int, default=3)
     parser.add_argument("--time-bucket-hours", type=int, default=8)
+    parser.add_argument(
+        "--require-new-time-bucket",
+        action="store_true",
+        help="Allow at most one provider call when the current time bucket has no successful sample.",
+    )
     parser.add_argument("--current-p95-ms", type=int, default=60000)
     parser.add_argument("--max-llm-latency-ms", type=int, default=60000)
     parser.add_argument("--task-timeout-seconds", type=int, default=240)
@@ -159,6 +164,10 @@ def successful_time_buckets(result_paths: list[Path], bucket_hours: int) -> set[
     return buckets
 
 
+def effective_provider_call_budget(requested: int, require_new_time_bucket: bool) -> int:
+    return min(requested, 1) if require_new_time_bucket else requested
+
+
 def build_plan(
     scenarios: list[str],
     existing_counts: Counter[str],
@@ -167,7 +176,10 @@ def build_plan(
     target_samples: int,
     target_scenarios: int,
     temporal_sample_needed: bool = False,
+    calls_allowed: bool = True,
 ) -> list[str]:
+    if not calls_allowed:
+        return []
     simulated = Counter(existing_counts)
     total_samples = sum(simulated.values())
     covered = {scenario for scenario, count in simulated.items() if count > 0}
@@ -291,17 +303,24 @@ def main() -> int:
     counts = successful_scenario_counts(history_results)
     existing_time_buckets = successful_time_buckets(history_results, args.time_bucket_hours)
     current_time_bucket = time_bucket(datetime.now(timezone.utc), args.time_bucket_hours)
+    current_time_bucket_sampled = current_time_bucket in existing_time_buckets
+    calls_allowed = not args.require_new_time_bucket or not current_time_bucket_sampled
+    effective_call_budget = effective_provider_call_budget(
+        args.provider_call_budget,
+        args.require_new_time_bucket,
+    )
     temporal_sample_needed = (
         len(existing_time_buckets) < args.target_time_buckets
-        and current_time_bucket not in existing_time_buckets
+        and not current_time_bucket_sampled
     )
     plan = build_plan(
         scenarios,
         counts,
-        provider_call_budget=args.provider_call_budget,
+        provider_call_budget=effective_call_budget,
         target_samples=args.target_samples,
         target_scenarios=args.target_scenarios,
         temporal_sample_needed=temporal_sample_needed,
+        calls_allowed=calls_allowed,
     )
     if plan and not args.dry_run and not (
         os.getenv("RCA_ADMIN_PASSWORD") or os.getenv("RCA_PASSWORD")
@@ -358,18 +377,23 @@ def main() -> int:
         else "failed"
         if failed or aggregate_status not in {None, 0}
         else "waiting_for_time_bucket"
-        if not plan and len(existing_time_buckets) < args.target_time_buckets
+        if not plan
+        and (
+            len(existing_time_buckets) < args.target_time_buckets
+            or (args.require_new_time_bucket and current_time_bucket_sampled)
+        )
         else "no_calls_needed"
         if not plan
         else "passed"
     )
     summary = {
-        "schema_version": "llm-burn-in-campaign/v2",
+        "schema_version": "llm-burn-in-campaign/v3",
         "started_at": started_at,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "status": status,
         "dry_run": args.dry_run,
         "provider_call_budget": args.provider_call_budget,
+        "effective_provider_call_budget": effective_call_budget,
         "provider_call_upper_bound_used": len(attempted),
         "target_samples": args.target_samples,
         "target_scenarios": args.target_scenarios,
@@ -379,6 +403,9 @@ def main() -> int:
         "existing_scenario_counts": dict(sorted(counts.items())),
         "existing_time_buckets": sorted(existing_time_buckets),
         "current_time_bucket": current_time_bucket,
+        "current_time_bucket_sampled": current_time_bucket_sampled,
+        "require_new_time_bucket": args.require_new_time_bucket,
+        "provider_calls_allowed": calls_allowed,
         "planned_scenarios": plan,
         "attempted_scenarios": attempted,
         "succeeded_scenarios": succeeded,
