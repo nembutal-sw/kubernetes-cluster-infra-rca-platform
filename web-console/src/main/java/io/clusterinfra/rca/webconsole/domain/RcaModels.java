@@ -516,6 +516,7 @@ public final class RcaModels {
         String baseUrlEnv,
         int timeoutSeconds,
         int maxAttempts,
+        int providerRetryMaxAttempts,
         int maxOutputTokens,
         int failureThreshold,
         int cooldownSeconds,

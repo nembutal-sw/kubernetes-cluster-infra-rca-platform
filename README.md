@@ -233,7 +233,14 @@ python3 scripts/daemonset_operational_check.py \
   --output validation-results/daemonset-check.json
 ```
 
-자세한 기준은 [docs/testing.md](docs/testing.md)와 [docs/daemonset-operations-checklist.md](docs/daemonset-operations-checklist.md)를 참고합니다.
+플랫폼 호환성 catalog 검증:
+
+```bash
+python3 scripts/cluster_compatibility.py --validate-catalog
+```
+
+자세한 기준은 [docs/testing.md](docs/testing.md), [docs/runtime-compatibility.md](docs/runtime-compatibility.md),
+[docs/daemonset-operations-checklist.md](docs/daemonset-operations-checklist.md)를 참고합니다.
 
 ## Security Position
 

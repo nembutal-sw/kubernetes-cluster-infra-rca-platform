@@ -119,6 +119,31 @@ class ProductionSecurityValidatorTests {
     }
 
     @Test
+    void enabledLlmRejectsExcessiveProviderRetryAttempts() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=true",
+                "rca.llm.provider=openai",
+                "rca.llm.model=gpt-test",
+                "spring.ai.model.chat=openai-sdk",
+                "spring.ai.retry.max-attempts=10",
+                "RCA_LLM_API_KEY=test-api-key"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_SPRING_AI_RETRY_MAX_ATTEMPTS must be between 1 and 3");
+            });
+    }
+
+    @Test
     void openAiCompatibleProviderRequiresBaseUrl() {
         contextRunner
             .withPropertyValues(

@@ -35,6 +35,8 @@ public final class SensitiveDataRedactor {
         Pattern.compile("(?i)bearer\\s+[a-z0-9._~+/-]+");
     private static final Pattern OPENAI_KEY =
         Pattern.compile("sk-[a-zA-Z0-9_-]{8,}");
+    private static final Pattern GOOGLE_API_KEY =
+        Pattern.compile("(?:AIza[a-zA-Z0-9_-]{30,}|AQ\\.[a-zA-Z0-9_-]{30,})");
     private static final Pattern GITHUB_TOKEN =
         Pattern.compile("gh[pousr]_[a-zA-Z0-9]{20,}");
     private static final Pattern SLACK_TOKEN =
@@ -66,6 +68,7 @@ public final class SensitiveDataRedactor {
         String redacted = ASSIGNMENT.matcher(value).replaceAll("$1$2" + REDACTED);
         redacted = BEARER.matcher(redacted).replaceAll("Bearer " + REDACTED);
         redacted = OPENAI_KEY.matcher(redacted).replaceAll("sk-" + REDACTED);
+        redacted = GOOGLE_API_KEY.matcher(redacted).replaceAll(REDACTED);
         redacted = GITHUB_TOKEN.matcher(redacted).replaceAll("gh_" + REDACTED);
         redacted = SLACK_TOKEN.matcher(redacted).replaceAll("xox-" + REDACTED);
         redacted = AWS_ACCESS_KEY.matcher(redacted).replaceAll(REDACTED);

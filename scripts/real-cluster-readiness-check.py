@@ -13,6 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cluster_compatibility import (
+    build_cluster_fingerprint,
+    evaluate_compatibility,
+    load_catalog,
+)
+
 
 DEFAULT_COLLECTORS = (
     "node,kubernetes,systemd,runtime,kubelet,kernel,network,conntrack,"
@@ -68,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         help="Output path for --agent-local evidence JSON.",
     )
     parser.add_argument("--collectors", default=DEFAULT_COLLECTORS, help="Comma-separated local collector list.")
+    parser.add_argument(
+        "--compatibility-catalog",
+        default="",
+        help="Compatibility catalog path. Defaults to config/platform-compatibility-matrix.json.",
+    )
     return parser.parse_args()
 
 
@@ -94,7 +105,7 @@ def main() -> int:
         return 1
 
     check_kubernetes_access(report, args)
-    check_cluster_state(report, args)
+    check_cluster_state(report, args, repo_root)
     check_events(report, args)
 
     if args.skip_helm:
@@ -146,7 +157,7 @@ def check_kubernetes_access(report: dict[str, Any], args: argparse.Namespace) ->
     add_check(report, "kubectl-access", "warning" if any(not item["ok"] for item in results) else "passed", "kubectl access probes completed.", {"probes": results})
 
 
-def check_cluster_state(report: dict[str, Any], args: argparse.Namespace) -> None:
+def check_cluster_state(report: dict[str, Any], args: argparse.Namespace, repo_root: Path) -> None:
     completed = run_kubectl(args, ["get", "nodes", "-o", "json"], check=False)
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
@@ -186,6 +197,7 @@ def check_cluster_state(report: dict[str, Any], args: argparse.Namespace) -> Non
     if pods.returncode != 0:
         report["warnings"].append("unable to read pods across namespaces")
         add_check(report, "cluster-pods", "warning", (pods.stderr or pods.stdout).strip())
+        check_cluster_compatibility(report, args, repo_root, nodes, [])
         return
     pod_payload = json.loads(pods.stdout)
     report["signals"]["pods"] = summarize_pods(pod_payload)
@@ -199,6 +211,68 @@ def check_cluster_state(report: dict[str, Any], args: argparse.Namespace) -> Non
     )
     if unhealthy:
         report["warnings"].append("one or more pods are not healthy")
+    check_cluster_compatibility(report, args, repo_root, nodes, pod_payload.get("items", []))
+
+
+def check_cluster_compatibility(
+    report: dict[str, Any],
+    args: argparse.Namespace,
+    repo_root: Path,
+    nodes: list[dict[str, Any]],
+    pods: list[dict[str, Any]],
+) -> None:
+    catalog_path = (
+        Path(args.compatibility_catalog).resolve()
+        if args.compatibility_catalog
+        else repo_root / "config" / "platform-compatibility-matrix.json"
+    )
+    try:
+        catalog = load_catalog(catalog_path)
+        fingerprint = build_cluster_fingerprint(nodes, pods)
+        compatibility = evaluate_compatibility(fingerprint, catalog)
+    except (OSError, json.JSONDecodeError) as exc:
+        add_check(report, "cluster-compatibility", "failed", f"Unable to load compatibility catalog: {exc}")
+        report["failures"].append("cluster compatibility catalog is unavailable or invalid")
+        return
+
+    signal = {
+        "fingerprint": fingerprint,
+        "assessment": compatibility,
+    }
+    report["signals"]["cluster_compatibility"] = signal
+    assessment_status = str(compatibility.get("status") or "unverified")
+    if assessment_status == "invalid_catalog":
+        errors = compatibility.get("catalog_errors", [])
+        add_check(
+            report,
+            "cluster-compatibility",
+            "failed",
+            "Compatibility catalog validation failed.",
+            {"catalog_errors": errors},
+        )
+        report["failures"].append("cluster compatibility catalog is invalid")
+        return
+    check_status = "passed" if assessment_status == "verified_real" else "warning"
+    family = fingerprint["platform"]["family"]
+    detail = f"Detected {family}; compatibility status is {assessment_status}."
+    if check_status == "warning":
+        gaps = compatibility.get("unverified_dimensions", [])
+        suffix = f" ({', '.join(gaps)})" if gaps else ""
+        report["warnings"].append(f"cluster compatibility is not fully verified{suffix}")
+    add_check(
+        report,
+        "cluster-compatibility",
+        check_status,
+        detail,
+        {
+            "platform": family,
+            "runtime_families": fingerprint.get("runtime_families", []),
+            "cni_families": fingerprint.get("cni", {}).get("families", []),
+            "architectures": fingerprint.get("architectures", []),
+            "assessment": assessment_status,
+            "unverified_dimensions": compatibility.get("unverified_dimensions", []),
+        },
+    )
 
 
 def check_events(report: dict[str, Any], args: argparse.Namespace) -> None:
@@ -404,7 +478,9 @@ def run_command(
 
 def summarize_node(node: dict[str, Any]) -> dict[str, Any]:
     metadata = node.get("metadata", {})
+    spec = node.get("spec", {})
     status = node.get("status", {})
+    node_info = status.get("nodeInfo", {})
     conditions = {
         condition: condition_summary(status.get("conditions", []), condition)
         for condition in NODE_CONDITIONS
@@ -412,12 +488,21 @@ def summarize_node(node: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": metadata.get("name"),
         "conditions": conditions,
-        "taints": metadata.get("taints", []),
-        "kubelet_version": status.get("nodeInfo", {}).get("kubeletVersion"),
-        "container_runtime": status.get("nodeInfo", {}).get("containerRuntimeVersion"),
-        "kernel_version": status.get("nodeInfo", {}).get("kernelVersion"),
-        "os_image": status.get("nodeInfo", {}).get("osImage"),
+        "taints": spec.get("taints", []),
+        "kubelet_version": node_info.get("kubeletVersion"),
+        "container_runtime": node_info.get("containerRuntimeVersion"),
+        "kernel_version": node_info.get("kernelVersion"),
+        "architecture": node_info.get("architecture"),
+        "operating_system": node_info.get("operatingSystem"),
+        "os_image": node_info.get("osImage"),
+        "provider_scheme": provider_scheme(str(spec.get("providerID") or "")),
     }
+
+
+def provider_scheme(provider_id: str) -> str | None:
+    if "://" not in provider_id:
+        return None
+    return provider_id.split("://", 1)[0].lower()
 
 
 def condition_summary(conditions: list[dict[str, Any]], condition_type: str) -> dict[str, Any]:

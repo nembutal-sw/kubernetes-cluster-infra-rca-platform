@@ -192,17 +192,42 @@
 
 현재 상태:
 
+- 플랫폼/runtime/CNI/architecture fingerprint와 외부 compatibility matrix 구현 완료
 - RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료
-- kubeadm, 관리형 Kubernetes, OpenShift 계열 검증 대기
+- K3s openSUSE amd64/containerd/Flannel canary lifecycle 검증 완료
+- kubeadm, EKS, AKS, GKE, OpenShift 판별 fixture 회귀 테스트 완료
+- RKE2 amd64, kubeadm, 관리형 Kubernetes, OpenShift 실제 canary 검증 대기
 
 ## Next Priority
 
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. kubeadm과 관리형 Kubernetes Agent compatibility 검증
-2. 실제 LLM Provider staging smoke와 SLO 임계값 burn-in
-3. Prometheus Operator 환경에서 LLM `PrometheusRule` firing/notification 검증
+1. RKE2 amd64와 kubeadm Agent real canary 검증
+2. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
+3. Kind CI에서 Prometheus Operator selector/reconciliation canary 첫 실행 확인
+4. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
+
+Gemini staging smoke는 2026-07-21에 `gemini-3.1-flash-lite`와 provider 호출 예산
+1로 성공했습니다. DiskPressure evidence 기반 report가 완료됐고 LLM root cause
+candidate 3개, action suggestion 2개, supporting Evidence ID 3개가 생성됐습니다.
+provider 호출은 1회였으며 지연 2.957초, input 2,281 token, output 555 token,
+total 2,836 token을 기록했습니다. 당시 설정한 유료 단가 기준 예상 비용은
+$0.00140275였고, LLM-origin action은 모두 `automation_allowed=false`,
+`executable=false`를 유지했습니다. 초기 provider 연동 검증은 완료했으며 다음
+단계는 여러 장애 유형과 시간대에서 표본을 축적해 latency/error/token/cost SLO
+임계값을 조정하는 것입니다.
+
+LLM `PrometheusRule`은 Helm 렌더 결과를 대상으로 한 `promtool` 회귀 테스트에서
+정상/latency/error/usage/circuit/cost 시나리오의 firing 여부까지 검증합니다.
+2026-07-21에는 실제 Prometheus `3.12.0`과 Alertmanager `0.33.1`을 사용해
+`ClusterRcaLlmCircuitBreakerOpen`의 firing/resolved webhook 전달, Bearer credentials
+file 인증, payload label을 검증했습니다. Helm chart에는 선택형
+`AlertmanagerConfig`와 필수 `clusterId` 주입을 추가했습니다. 남은 범위는 실제
+Kubernetes에서 Operator selector/reconciliation 상태와 runbook URL을 최종
+확인하는 작업입니다. 이를 위해 명시적 context 확인과 ownership 검사를 요구하는
+`prometheus-operator-delivery-e2e.sh` 및 Kind 기반 CI job을 추가했습니다. 첫 CI
+실행 결과를 확인한 뒤 검증 완료로 전환합니다.
 
 ## Positioning
 

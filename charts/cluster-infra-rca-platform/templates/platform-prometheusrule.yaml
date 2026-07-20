@@ -1,5 +1,9 @@
 {{- if .Values.platform.prometheusRule.enabled }}
 {{- $rule := .Values.platform.prometheusRule }}
+{{- $ruleLabels := deepCopy (default dict $rule.ruleLabels) }}
+{{- if .Values.platform.alertmanagerConfig.enabled }}
+{{- $_ := set $ruleLabels "cluster_id" (required "platform.alertmanagerConfig.clusterId is required when platform.alertmanagerConfig.enabled=true" .Values.platform.alertmanagerConfig.clusterId) }}
+{{- end }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -52,7 +56,7 @@ spec:
           for: {{ $rule.latency.for }}
           labels:
             severity: {{ $rule.latency.severity | quote }}
-            {{- with $rule.ruleLabels }}
+            {{- with $ruleLabels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
@@ -75,7 +79,7 @@ spec:
           for: {{ $rule.errorRate.for }}
           labels:
             severity: {{ $rule.errorRate.severity | quote }}
-            {{- with $rule.ruleLabels }}
+            {{- with $ruleLabels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
@@ -98,7 +102,7 @@ spec:
           for: {{ $rule.usageMetadata.for }}
           labels:
             severity: {{ $rule.usageMetadata.severity | quote }}
-            {{- with $rule.ruleLabels }}
+            {{- with $ruleLabels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
@@ -117,7 +121,7 @@ spec:
           for: {{ $rule.circuitBreaker.for }}
           labels:
             severity: {{ $rule.circuitBreaker.severity | quote }}
-            {{- with $rule.ruleLabels }}
+            {{- with $ruleLabels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
@@ -136,7 +140,7 @@ spec:
           for: {{ $rule.costBudget.for }}
           labels:
             severity: {{ $rule.costBudget.severity | quote }}
-            {{- with $rule.ruleLabels }}
+            {{- with $ruleLabels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:

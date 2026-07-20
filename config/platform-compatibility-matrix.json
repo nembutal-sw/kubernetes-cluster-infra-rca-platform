@@ -1,0 +1,107 @@
+{
+  "schema_version": "cluster-platform-compatibility/v1",
+  "collector_contract": {
+    "required": [
+      "node",
+      "kubernetes",
+      "systemd",
+      "runtime",
+      "kubelet",
+      "kernel",
+      "network",
+      "conntrack",
+      "disk",
+      "inode",
+      "memory",
+      "process",
+      "cni",
+      "dns"
+    ],
+    "optional": [
+      "ebpf"
+    ],
+    "journal_mode": "file",
+    "action_execution": "disabled"
+  },
+  "platforms": {
+    "rke2": {
+      "validation_level": "real_e2e",
+      "profiles": [
+        {
+          "architecture": "arm64",
+          "runtime": "containerd",
+          "cni": "cilium",
+          "result": "passed",
+          "validated_on": "2026-07-15"
+        }
+      ],
+      "notes": [
+        "RKE2-specific sockets are detected without making RKE2 a runtime requirement."
+      ]
+    },
+    "k3s": {
+      "validation_level": "real_e2e",
+      "profiles": [
+        {
+          "architecture": "amd64",
+          "runtime": "containerd",
+          "cni": "flannel",
+          "result": "passed",
+          "validated_on": "2026-07-15"
+        }
+      ],
+      "notes": [
+        "The real canary used file-based host evidence and direct action execution remained disabled."
+      ]
+    },
+    "kubeadm": {
+      "validation_level": "contract_fixture",
+      "profiles": [],
+      "notes": [
+        "Detection and manifest contracts are tested; real DaemonSet lifecycle validation is pending."
+      ]
+    },
+    "eks": {
+      "validation_level": "contract_fixture",
+      "profiles": [],
+      "notes": [
+        "Provider detection is tested; a real managed-node canary is pending."
+      ]
+    },
+    "aks": {
+      "validation_level": "contract_fixture",
+      "profiles": [],
+      "notes": [
+        "Provider detection is tested; a real managed-node canary is pending."
+      ]
+    },
+    "gke": {
+      "validation_level": "contract_fixture",
+      "profiles": [],
+      "notes": [
+        "Provider detection is tested; a real managed-node canary is pending."
+      ]
+    },
+    "openshift": {
+      "validation_level": "contract_fixture",
+      "profiles": [],
+      "notes": [
+        "CRI-O and OVN-Kubernetes detection are tested; SCC and real lifecycle validation are pending."
+      ]
+    },
+    "microk8s": {
+      "validation_level": "planned",
+      "profiles": [],
+      "notes": [
+        "Socket discovery exists, but cluster lifecycle validation has not been completed."
+      ]
+    },
+    "k0s": {
+      "validation_level": "planned",
+      "profiles": [],
+      "notes": [
+        "Socket discovery exists, but cluster lifecycle validation has not been completed."
+      ]
+    }
+  }
+}

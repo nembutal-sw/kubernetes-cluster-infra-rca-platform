@@ -109,6 +109,8 @@ spec:
               value: {{ .Values.platform.config.llmMaxOutputTokens | quote }}
             - name: RCA_LLM_MAX_ATTEMPTS
               value: {{ .Values.platform.config.llmMaxAttempts | quote }}
+            - name: RCA_SPRING_AI_RETRY_MAX_ATTEMPTS
+              value: {{ .Values.platform.config.springAiRetryMaxAttempts | quote }}
             - name: RCA_LLM_FAILURE_THRESHOLD
               value: {{ .Values.platform.config.llmFailureThreshold | quote }}
             - name: RCA_LLM_COOLDOWN_SECONDS

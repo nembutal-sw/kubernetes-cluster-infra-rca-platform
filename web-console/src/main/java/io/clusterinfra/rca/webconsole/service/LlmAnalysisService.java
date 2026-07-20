@@ -674,7 +674,14 @@ public class LlmAnalysisService {
     }
 
     private String safeMessage(Exception exception) {
-        String message = exception.getMessage();
+        String message = null;
+        Throwable current = exception;
+        for (int depth = 0; current != null && depth < 8; depth++) {
+            if (current.getMessage() != null && !current.getMessage().isBlank()) {
+                message = current.getMessage();
+            }
+            current = current.getCause();
+        }
         if (message == null || message.isBlank()) {
             return "analysis failed";
         }

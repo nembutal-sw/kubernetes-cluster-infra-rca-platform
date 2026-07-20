@@ -113,11 +113,33 @@ jobs:
   helm-validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PROMETHEUS_VERSION: 3.12.0
+      PROMETHEUS_LINUX_AMD64_SHA256: 20da47f8e5303f74aecb78edd7f7e39041dac08ac4939dba75efd7a900ae8867
+      ALERTMANAGER_VERSION: 0.33.1
+      ALERTMANAGER_LINUX_AMD64_SHA256: 93d802cba6a8d27239d747ce117df7648d326ab67394e32247540b030e9842ba
     steps:
       - uses: actions/checkout@v7
       - uses: azure/setup-helm@v5
         with:
           version: v3.17.3
+      - name: Install pinned Prometheus tools
+        run: |
+          set -euo pipefail
+          archive="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          curl -fsSLO "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${archive}"
+          echo "${PROMETHEUS_LINUX_AMD64_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "${archive}"
+          sudo install "prometheus-${PROMETHEUS_VERSION}.linux-amd64/prometheus" /usr/local/bin/prometheus
+          sudo install "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool" /usr/local/bin/promtool
+      - name: Install pinned Alertmanager
+        run: |
+          set -euo pipefail
+          archive="alertmanager-${ALERTMANAGER_VERSION}.linux-amd64.tar.gz"
+          curl -fsSLO "https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/${archive}"
+          echo "${ALERTMANAGER_LINUX_AMD64_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "${archive}"
+          sudo install "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/alertmanager" /usr/local/bin/alertmanager
       - name: Lint Helm charts
         run: |
           helm lint charts/cluster-infra-rca-platform
@@ -172,6 +194,20 @@ jobs:
           grep -q 'ClusterRcaLlmUsageMetadataMissing' <<< "$llm_rules"
           grep -q 'ClusterRcaLlmCircuitBreakerOpen' <<< "$llm_rules"
           grep -q 'ClusterRcaLlmEstimatedCostBudgetExceeded' <<< "$llm_rules"
+          alertmanager_delivery="$(helm template rca charts/cluster-infra-rca-platform \
+            --show-only templates/platform-alertmanagerconfig.yaml \
+            --set platform.alertmanagerConfig.enabled=true \
+            --set-string platform.alertmanagerConfig.clusterId=delivery-test \
+            --set-string platform.alertmanagerConfig.labels.release=monitoring \
+            --set-string platform.secret.webhookToken=delivery-test-token)"
+          grep -q 'kind: AlertmanagerConfig' <<< "$alertmanager_delivery"
+          grep -q '/api/webhooks/alertmanager' <<< "$alertmanager_delivery"
+          grep -q 'authorization:' <<< "$alertmanager_delivery"
+          grep -q 'RCA_WEBHOOK_TOKEN' <<< "$alertmanager_delivery"
+      - name: Evaluate rendered LLM alert rules
+        run: python3 scripts/llm_prometheus_rule_test.py --helm helm --promtool promtool
+      - name: Test Prometheus Alertmanager webhook delivery
+        run: python3 scripts/alertmanager_delivery_test.py --helm helm --prometheus prometheus --alertmanager alertmanager
       - name: Render Agent chart variants
         run: |
           helm template rca-agent charts/cluster-infra-rca-agent \
@@ -189,6 +225,74 @@ jobs:
             --set mode=ebpf \
             --set ebpf.enabled=true \
             --set secret.existingSecret.name=agent-auth > /dev/null
+
+  prometheus-operator-delivery-e2e:
+    needs: helm-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      KIND_VERSION: 0.32.0
+      KIND_LINUX_AMD64_SHA256: 50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
+      KIND_NODE_IMAGE: kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95
+      KUBECTL_VERSION: 1.35.5
+      KUBECTL_LINUX_AMD64_SHA256: 90f75ea6ecc9ea5633262e1c0b83a40560003b30fc94a04cb099404fcef0c224
+      KUBE_PROMETHEUS_STACK_VERSION: 87.17.0
+      KIND_CLUSTER_NAME: rca-monitoring
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: azure/setup-helm@v5
+        with:
+          version: v3.17.3
+      - name: Install pinned Kubernetes tools
+        run: |
+          set -euo pipefail
+          curl -fsSLo kind "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_LINUX_AMD64_SHA256}  kind" | sha256sum --check
+          sudo install kind /usr/local/bin/kind
+          curl -fsSLo kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_LINUX_AMD64_SHA256}  kubectl" | sha256sum --check
+          sudo install kubectl /usr/local/bin/kubectl
+      - name: Create monitoring cluster
+        run: kind create cluster --name "${KIND_CLUSTER_NAME}" --image "${KIND_NODE_IMAGE}" --wait 180s
+      - name: Install pinned Prometheus Operator stack
+        run: |
+          set -euo pipefail
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+            --version "${KUBE_PROMETHEUS_STACK_VERSION}" \
+            --namespace monitoring \
+            --create-namespace \
+            --set defaultRules.create=false \
+            --set grafana.enabled=false \
+            --set kubeStateMetrics.enabled=false \
+            --set nodeExporter.enabled=false \
+            --set prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false \
+            --set prometheus.prometheusSpec.evaluationInterval=1s \
+            --wait \
+            --timeout 10m
+      - name: Verify Operator Alertmanager delivery
+        run: |
+          context="$(kubectl config current-context)"
+          bash scripts/prometheus-operator-delivery-e2e.sh \
+            --apply \
+            --confirm-context "${context}" \
+            --selector-label release=monitoring \
+            --timeout 300
+      - name: Upload Operator delivery diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prometheus-operator-delivery-e2e
+          path: validation-results/prometheus-operator-delivery
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Delete monitoring cluster
+        if: always()
+        run: kind delete cluster --name "${KIND_CLUSTER_NAME}"
 
   release-readiness-gate:
     runs-on: ubuntu-latest
@@ -208,6 +312,7 @@ jobs:
             scripts/verify-supply-chain-workflows.py \
             scripts/daemonset_operational_check.py \
             scripts/operational_scenario_validation.py \
+            scripts/llm_prometheus_rule_test.py \
             scripts/llm-staging-smoke.py
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py

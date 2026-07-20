@@ -1,0 +1,144 @@
+rule_files:
+  - llm-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: healthy traffic keeps all LLM alerts inactive
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="1"}'
+        values: '0+1x40'
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="60"}'
+        values: '0+1x40'
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="+Inf"}'
+        values: '0+1x40'
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="completed"}'
+        values: '0+1x40'
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="failed"}'
+        values: '0+0x40'
+      - series: 'rca_llm_usage_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",result="available"}'
+        values: '0+1x40'
+      - series: 'rca_llm_usage_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",result="unavailable"}'
+        values: '0+0x40'
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="circuit_open"}'
+        values: '0+0x40'
+      - series: 'rca_llm_estimated_cost_usd_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite"}'
+        values: '0+0.1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ClusterRcaLlmHighLatency
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ClusterRcaLlmHighErrorRate
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ClusterRcaLlmUsageMetadataMissing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ClusterRcaLlmCircuitBreakerOpen
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: ClusterRcaLlmEstimatedCostBudgetExceeded
+        exp_alerts: []
+
+  - name: sustained latency breaches the p95 SLO
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="60"}'
+        values: '0+0x40'
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="120"}'
+        values: '0+1x40'
+      - series: 'rca_llm_request_duration_seconds_bucket{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",le="+Inf"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ClusterRcaLlmHighLatency
+        exp_alerts:
+          - exp_labels:
+              namespace: rca-system
+              service: rca
+              provider: gemini
+              model: gemini-3.1-flash-lite
+              severity: warning
+            exp_annotations:
+              summary: Cluster RCA LLM request latency exceeds the p95 SLO
+              description: LLM analysis p95 latency is 117 seconds for provider=gemini model=gemini-3.1-flash-lite.
+
+  - name: sustained provider failures breach the error SLO
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="completed"}'
+        values: '0+1x40'
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="failed"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ClusterRcaLlmHighErrorRate
+        exp_alerts:
+          - exp_labels:
+              namespace: rca-system
+              service: rca
+              provider: gemini
+              severity: critical
+            exp_annotations:
+              summary: Cluster RCA LLM analysis error ratio exceeds its SLO
+              description: LLM analysis error ratio is 50% for provider=gemini.
+
+  - name: missing provider usage metadata raises a warning
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_usage_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",result="available"}'
+        values: '0+0x45'
+      - series: 'rca_llm_usage_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite",result="unavailable"}'
+        values: '0+1x45'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: ClusterRcaLlmUsageMetadataMissing
+        exp_alerts:
+          - exp_labels:
+              namespace: rca-system
+              service: rca
+              provider: gemini
+              model: gemini-3.1-flash-lite
+              severity: warning
+            exp_annotations:
+              summary: Cluster RCA LLM provider omits token usage metadata
+              description: Usage metadata unavailable ratio is 100% for provider=gemini model=gemini-3.1-flash-lite.
+
+  - name: circuit breaker opening raises an immediate critical alert
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_analysis_total{namespace="rca-system",service="rca",provider="gemini",result="circuit_open"}'
+        values: '0+1x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ClusterRcaLlmCircuitBreakerOpen
+        exp_alerts:
+          - exp_labels:
+              namespace: rca-system
+              service: rca
+              provider: gemini
+              severity: critical
+            exp_annotations:
+              summary: Cluster RCA LLM circuit breaker opened
+              description: The LLM circuit breaker opened for provider=gemini. Rule-based RCA remains active.
+
+  - name: estimated cost growth breaches the configured budget
+    interval: 1m
+    input_series:
+      - series: 'rca_llm_estimated_cost_usd_total{operation="analysis",namespace="rca-system",service="rca",provider="gemini",model="gemini-3.1-flash-lite"}'
+        values: '0+2x45'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: ClusterRcaLlmEstimatedCostBudgetExceeded
+        exp_alerts:
+          - exp_labels:
+              namespace: rca-system
+              service: rca
+              provider: gemini
+              model: gemini-3.1-flash-lite
+              severity: warning
+            exp_annotations:
+              summary: Cluster RCA LLM estimated cost budget exceeded
+              description: Configured-price LLM cost is $70 for provider=gemini model=gemini-3.1-flash-lite over 24h.

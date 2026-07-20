@@ -34,6 +34,7 @@ Typed Evidence 계약과 정량 RCA 품질 게이트는 `evidence-schema-and-qua
 | `retention-policy.md` | 보존 기간과 FK-safe cleanup |
 | `daemonset-operations-checklist.md` | Agent DaemonSet 운영 배포 체크리스트 |
 | `daemonset-production-validation.md` | read-only canary rollout과 운영 검증 절차 |
+| `runtime-compatibility.md` | 배포판/runtime/CNI fingerprint와 실검증 compatibility matrix |
 | `release-readiness.md` | Helm, container, smoke, Agent, Kubernetes canary release gate |
 | `helm-platform-chart.md` | Platform Helm chart values와 production note |
 | `helm-agent-chart.md` | Agent Helm chart values와 배포 예시 |

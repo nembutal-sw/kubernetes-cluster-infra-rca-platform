@@ -145,6 +145,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         String provider = normalized(properties.getLlm().getProvider()).toLowerCase(Locale.ROOT);
         String model = normalized(properties.getLlm().getModel());
         String chatModel = normalized(environment.getProperty("spring.ai.model.chat", ""));
+        int providerRetryMaxAttempts = environment.getProperty("spring.ai.retry.max-attempts", Integer.class, 1);
         if (provider.isEmpty() || "none".equals(provider)) {
             violations.add("RCA_LLM_PROVIDER is required when RCA_LLM_ENABLED=true");
         }
@@ -153,6 +154,9 @@ public class ProductionSecurityValidator implements InitializingBean {
         }
         if (chatModel.isEmpty() || "none".equalsIgnoreCase(chatModel)) {
             violations.add("RCA_SPRING_AI_CHAT_MODEL is required when RCA_LLM_ENABLED=true");
+        }
+        if (providerRetryMaxAttempts < 1 || providerRetryMaxAttempts > 3) {
+            violations.add("RCA_SPRING_AI_RETRY_MAX_ATTEMPTS must be between 1 and 3");
         }
 
         String credentialProperty = switch (provider) {

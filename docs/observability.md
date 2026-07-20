@@ -171,6 +171,30 @@ platform:
 
 비용 alert는 `costBudget.enabled=true`일 때만 생성한다. `RCA_LLM_INPUT_COST_PER_MILLION_TOKENS`와 `RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS`를 실제 계약 단가로 설정하지 않았다면 비용 alert를 켜지 않는다.
 
+### AlertmanagerConfig
+
+Prometheus Operator가 관리하는 Alertmanager에서 Platform webhook으로 전달하려면
+`AlertmanagerConfig`를 함께 활성화한다.
+
+```yaml
+platform:
+  prometheusRule:
+    enabled: true
+  alertmanagerConfig:
+    enabled: true
+    clusterId: production-a
+    labels:
+      release: kube-prometheus-stack
+    sendResolved: true
+```
+
+`clusterId`는 Web Console에 이미 등록된 클러스터 ID여야 한다. 차트는 이 값을
+자체 LLM alert의 `cluster_id` label에 주입한다. `labels`는 운영 중인
+Alertmanager의 `alertmanagerConfigSelector`와 일치해야 한다. 기본 webhook URL은
+같은 namespace의 Platform Service이고, 다른 namespace나 외부 Platform을 사용할
+때는 `webhookUrl`을 명시한다. Bearer credential은 기본적으로 Platform Secret의
+`RCA_WEBHOOK_TOKEN`을 참조하며 token 원문을 `AlertmanagerConfig`에 기록하지 않는다.
+
 ## Notes
 
 - Metrics에는 raw evidence나 민감정보를 넣지 않는다.
@@ -180,3 +204,62 @@ platform:
 - gauge refresh는 incident processing과 분리한다.
 - retention metric은 cluster, node, resource ID를 tag로 사용하지 않는다.
 - `PrometheusRule`은 Prometheus Operator CRD가 설치된 환경에서만 활성화한다.
+
+### LLM Rule Regression Test
+
+Helm이 렌더링한 `PrometheusRule`의 `spec.groups`를 실제 Prometheus rule 파일로
+추출한 뒤 `promtool`로 문법과 평가 결과를 검증한다. 테스트에는 정상 트래픽과
+latency, error ratio, usage metadata, circuit breaker, cost budget 경보 시나리오가
+포함된다.
+
+```bash
+python3 scripts/llm_prometheus_rule_test.py \
+  --helm helm \
+  --promtool promtool
+```
+
+CI는 Prometheus `3.12.0`의 Linux amd64 archive를 SHA-256으로 확인한 뒤 같은
+테스트를 실행한다. 이 테스트는 Alertmanager delivery 자체가 아니라 Prometheus의
+recording/alert rule 평가와 firing label을 검증한다.
+
+### Alertmanager Delivery Integration Test
+
+아래 테스트는 Helm이 렌더링한 실제 rule을 Prometheus `3.12.0`에 로드하고,
+Alertmanager `0.33.1`이 Bearer credentials file을 사용해 webhook으로 전달하는지
+확인한다. circuit breaker alert의 `firing`과 `resolved`가 모두 수신되어야
+성공한다.
+
+```bash
+python3 scripts/alertmanager_delivery_test.py \
+  --helm helm \
+  --prometheus prometheus \
+  --alertmanager alertmanager
+```
+
+CI는 Prometheus와 Alertmanager archive를 각각 SHA-256으로 검증한 뒤 이 테스트를
+실행한다. 이 테스트는 Operator가 생성하는 런타임과 같은 Prometheus/Alertmanager
+notification 경로를 검증한다. 실제 클러스터에서는 추가로
+`AlertmanagerConfig` selector가 해당 리소스를 선택했는지 확인해야 한다.
+
+### Prometheus Operator Delivery E2E
+
+실제 Operator selector와 reconciliation은 별도의 Kubernetes canary로 검증한다.
+기본 실행은 cluster에 접근하지 않으며 `--apply`와 현재 context의 명시적 확인이
+모두 있어야 리소스를 생성한다.
+
+```bash
+context="$(kubectl config current-context)"
+scripts/prometheus-operator-delivery-e2e.sh \
+  --apply \
+  --confirm-context "${context}" \
+  --selector-label release=monitoring
+```
+
+canary는 기존에 존재하지 않는 고유 namespace에 digest-pinned webhook sink,
+`PrometheusRule`, `AlertmanagerConfig`만 생성한다. `firing`을 받은 뒤 rule을
+비활성화해 `resolved`까지 확인하며, namespace ownership label이 실행 ID와
+일치할 때만 정리한다. Webhook token은 Kubernetes Secret에만 저장하고 진단
+산출물에는 포함하지 않는다.
+
+CI는 Kind `0.32.0`, digest-pinned Kubernetes `1.35.5` node image,
+`kube-prometheus-stack` chart `87.17.0`을 사용해 동일한 canary를 실행한다.

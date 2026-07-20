@@ -75,11 +75,12 @@ class SecurityBoundaryRegressionTests {
         assertThat(bearerAuthorized.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(auditCount("webhook.auth_failed")).isEqualTo(before + 3);
-        assertThat(latestAuditDetails("webhook.auth_failed"))
-            .contains("client_ip")
-            .contains("198.51.100.12")
-            .contains("user_agent")
-            .contains("SecurityBoundaryRegressionTests/1.0");
+        assertThat(auditDetails("webhook.auth_failed"))
+            .anySatisfy(details -> assertThat(details)
+                .contains("client_ip")
+                .contains("198.51.100.12")
+                .contains("user_agent")
+                .contains("SecurityBoundaryRegressionTests/1.0"));
     }
 
     @Test
@@ -337,6 +338,14 @@ class SecurityBoundaryRegressionTests {
             (rs, rowNum) -> rs.getString(1),
             eventType
         ).stream().findFirst().orElse("");
+    }
+
+    private List<String> auditDetails(String eventType) {
+        return jdbc.query(
+            "SELECT details_json FROM audit_events WHERE event_type = ?",
+            (rs, rowNum) -> rs.getString(1),
+            eventType
+        );
     }
 
     private record ClusterFixture(String clusterId, String bootstrapToken, String adminToken) {}

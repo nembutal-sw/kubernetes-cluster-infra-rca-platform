@@ -25,6 +25,8 @@ from typing import Any
 
 SENSITIVE_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
+    re.compile(r"AIza[A-Za-z0-9_-]{30,}"),
+    re.compile(r"AQ\.[A-Za-z0-9_-]{30,}"),
     re.compile(
         r'(?i)["\']?(api[_-]?key|authorization|bearer|token|password)["\']?\s*[:=]\s*["\']?'
         r'(?!\[redacted\]|<redacted>|redacted(?:["\']|\s|,|}))[^,\s}"\']+'
@@ -122,6 +124,15 @@ def parse_args() -> argparse.Namespace:
         help="Skip POST /api/llm/test. The default performs a live provider call before RCA validation.",
     )
     parser.add_argument(
+        "--provider-call-budget",
+        type=int,
+        default=int(os.getenv("RCA_LLM_SMOKE_PROVIDER_CALL_BUDGET", "0")),
+        help=(
+            "Maximum worst-case provider calls, including configured analysis retries. "
+            "Set 0 to disable. Use 1 with --skip-connectivity-test for quota-limited validation."
+        ),
+    )
+    parser.add_argument(
         "--require-usage-metadata",
         action="store_true",
         default=os.getenv("RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA", "").lower() in {"1", "true", "yes"},
@@ -189,6 +200,58 @@ def validate_llm_configuration(platform_info: dict[str, Any], *, allow_disabled:
         env_name = llm.get("base_url_env") or llm.get("baseUrlEnv") or "provider base URL env"
         errors.append(f"LLM base URL is required but not configured: {env_name}")
     return errors
+
+
+def llm_call_plan(platform_info: dict[str, Any], *, skip_connectivity_test: bool) -> dict[str, int]:
+    llm = platform_info.get("llm")
+    if not isinstance(llm, dict) or not bool(llm.get("enabled")):
+        return {
+            "connectivity_test_calls": 0,
+            "analysis_max_attempts": 0,
+            "provider_retry_max_attempts": 0,
+            "analysis_worst_case_calls": 0,
+            "worst_case_provider_calls": 0,
+        }
+    raw_attempts = llm.get("max_attempts", llm.get("maxAttempts", 1))
+    try:
+        max_attempts = max(1, min(int(raw_attempts), 3))
+    except (TypeError, ValueError):
+        max_attempts = 1
+    raw_provider_retries = llm.get(
+        "provider_retry_max_attempts",
+        llm.get("providerRetryMaxAttempts", 1),
+    )
+    try:
+        provider_retry_max_attempts = max(1, min(int(raw_provider_retries), 10))
+    except (TypeError, ValueError):
+        provider_retry_max_attempts = 1
+    connectivity_calls = 0 if skip_connectivity_test else provider_retry_max_attempts
+    analysis_calls = max_attempts * provider_retry_max_attempts
+    return {
+        "connectivity_test_calls": connectivity_calls,
+        "analysis_max_attempts": max_attempts,
+        "provider_retry_max_attempts": provider_retry_max_attempts,
+        "analysis_worst_case_calls": analysis_calls,
+        "worst_case_provider_calls": connectivity_calls + analysis_calls,
+    }
+
+
+def validate_provider_call_budget(
+    platform_info: dict[str, Any],
+    *,
+    skip_connectivity_test: bool,
+    provider_call_budget: int,
+) -> list[str]:
+    if provider_call_budget <= 0:
+        return []
+    plan = llm_call_plan(platform_info, skip_connectivity_test=skip_connectivity_test)
+    planned = plan["worst_case_provider_calls"]
+    if planned > provider_call_budget:
+        return [
+            f"worst-case provider calls {planned} exceed call budget {provider_call_budget}; "
+            "reduce RCA_LLM_MAX_ATTEMPTS/RCA_SPRING_AI_RETRY_MAX_ATTEMPTS or use --skip-connectivity-test"
+        ]
+    return []
 
 
 def validate_llm_connectivity(
@@ -417,6 +480,9 @@ def main() -> int:
     if args.max_llm_latency_ms < 0:
         print("--max-llm-latency-ms must be zero or greater", file=sys.stderr)
         return 2
+    if args.provider_call_budget < 0:
+        print("--provider-call-budget must be zero or greater", file=sys.stderr)
+        return 2
     if not math.isfinite(args.max_estimated_cost_usd) or args.max_estimated_cost_usd < 0:
         print("--max-estimated-cost-usd must be a finite non-negative number", file=sys.stderr)
         return 2
@@ -433,9 +499,43 @@ def main() -> int:
     client.login(args.username, args.password)
     platform_info = client.request("GET", "/api/v1/platform/info")
     config_errors = validate_llm_configuration(platform_info, allow_disabled=args.allow_disabled)
+    call_plan = llm_call_plan(
+        platform_info,
+        skip_connectivity_test=args.skip_connectivity_test,
+    )
+    budget_errors = validate_provider_call_budget(
+        platform_info,
+        skip_connectivity_test=args.skip_connectivity_test,
+        provider_call_budget=args.provider_call_budget,
+    )
     connectivity_test: dict[str, Any] = {"outcome": "skipped", "reason": "disabled by smoke option"}
     connectivity_errors: list[str] = []
-    if not args.skip_connectivity_test and not config_errors:
+    if config_errors or budget_errors:
+        result = {
+            "status": "failed",
+            "started_at": run_started.isoformat(),
+            "base_url": args.base_url,
+            "scenario": args.scenario,
+            "cluster_id": args.cluster_id,
+            "node_name": args.node_name,
+            "task": {},
+            "report_id": None,
+            "llm": platform_info.get("llm", {}),
+            "connectivity_test": connectivity_test,
+            "llm_analysis": {},
+            "limits": {
+                "provider_call_budget": args.provider_call_budget,
+                "call_plan": call_plan,
+                "require_usage_metadata": args.require_usage_metadata,
+                "max_llm_latency_ms": args.max_llm_latency_ms,
+                "max_estimated_cost_usd": args.max_estimated_cost_usd,
+            },
+            "errors": config_errors + budget_errors,
+        }
+        write_json(output_dir / "llm-staging-smoke-result.json", result)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 1
+    if not args.skip_connectivity_test:
         connectivity_test = client.request("POST", "/api/llm/test", {"confirmed": True})
         connectivity_errors.extend(
             validate_llm_connectivity(
@@ -488,6 +588,8 @@ def main() -> int:
         "connectivity_test": connectivity_test,
         "llm_analysis": llm_analysis_section(report or {}),
         "limits": {
+            "provider_call_budget": args.provider_call_budget,
+            "call_plan": call_plan,
             "require_usage_metadata": args.require_usage_metadata,
             "max_llm_latency_ms": args.max_llm_latency_ms,
             "max_estimated_cost_usd": args.max_estimated_cost_usd,

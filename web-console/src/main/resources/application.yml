@@ -46,6 +46,8 @@ spring:
       embedding: ${RCA_SPRING_AI_EMBEDDING_MODEL:none}
       image: ${RCA_SPRING_AI_IMAGE_MODEL:none}
       moderation: ${RCA_SPRING_AI_MODERATION_MODEL:none}
+    retry:
+      max-attempts: ${RCA_SPRING_AI_RETRY_MAX_ATTEMPTS:1}
     openai-sdk:
       api-key: ${SPRING_AI_OPENAI_SDK_API_KEY:${RCA_LLM_API_KEY:}}
       base-url: ${SPRING_AI_OPENAI_SDK_BASE_URL:${RCA_LLM_BASE_URL:}}

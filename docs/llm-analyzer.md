@@ -36,6 +36,7 @@ LLM이 실패하거나 응답 형식이 틀려도 RCA report 생성은 중단되
 | `RCA_LLM_TIMEOUT_SECONDS` | provider 호출 timeout, 기본 `30` |
 | `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token, 기본 `1800`, 최소 `128` |
 | `RCA_LLM_MAX_ATTEMPTS` | 최대 재시도 횟수, 기본 `2`, 최대 `3` |
+| `RCA_SPRING_AI_RETRY_MAX_ATTEMPTS` | 각 LLM 시도 내부의 Spring AI 재시도, 기본 `1`, 최대 `3` |
 | `RCA_LLM_FAILURE_THRESHOLD` | circuit breaker 연속 실패 기준, 기본 `3` |
 | `RCA_LLM_COOLDOWN_SECONDS` | circuit breaker 대기 시간, 기본 `60` |
 | `RCA_LLM_INPUT_COST_PER_MILLION_TOKENS` | 입력 100만 token당 USD 단가, 기본 `0` |
@@ -70,10 +71,17 @@ Gemini:
 ```powershell
 $env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "gemini"
-$env:RCA_LLM_MODEL = "gemini-2.0-flash"
+$env:RCA_LLM_MODEL = "gemini-3.1-flash-lite"
 $env:RCA_SPRING_AI_CHAT_MODEL = "google-genai"
 $env:SPRING_AI_GOOGLE_GENAI_API_KEY = "..."
 ```
+
+Spring AI `1.1.8`의 기본 Google SDK보다 최신 authorization key 흐름을 반영하기
+위해 Google GenAI Java SDK `1.61.0`을 명시적으로 사용합니다. Spring AI를
+업그레이드할 때는 이 override가 계속 필요한지 공식 의존성과 함께 확인합니다.
+`AQ.` 형식 키에서 `401 ACCESS_TOKEN_TYPE_UNSUPPORTED`가 발생하면 호출을
+재시도하지 말고 AI Studio에서 키의 상태와 연결된 service account/IAM binding을
+확인한 뒤 새 키로 smoke를 다시 실행합니다.
 
 Ollama:
 
@@ -207,12 +215,18 @@ export RCA_ADMIN_PASSWORD='...'
 python3 scripts/llm-staging-smoke.py \
   --scenario disk-pressure \
   --expected-llm-status completed \
+  --skip-connectivity-test \
+  --provider-call-budget 1 \
   --require-usage-metadata \
   --max-llm-latency-ms 60000 \
   --max-estimated-cost-usd 0.01
 ```
 
-기본 실행은 report 생성 전에 `POST /api/llm/test`로 실제 provider 연결을 한 번 확인합니다. 연결 호출을 생략해야 하는 제한된 환경에서만 `--skip-connectivity-test`를 사용합니다. 비용 상한을 사용하려면 input/output token 단가가 설정되어 있어야 합니다.
+기본 실행은 report 생성 전에 `POST /api/llm/test`로 실제 provider 연결을 한 번 확인합니다. 무료 tier처럼 호출량이 제한된 환경에서는 Platform의 `RCA_LLM_MAX_ATTEMPTS=1`, `RCA_SPRING_AI_RETRY_MAX_ATTEMPTS=1`과 `--skip-connectivity-test --provider-call-budget 1`을 함께 사용합니다. smoke는 애플리케이션 재시도와 Spring AI 내부 재시도를 곱한 최악의 호출 수가 예산을 넘으면 provider를 호출하기 전에 중단합니다. 비용 상한을 사용하려면 input/output token 단가가 설정되어 있어야 합니다.
+
+Gemini 예시는 현재 안정 모델인 `gemini-3.1-flash-lite`를 사용합니다. 더 높은 품질이 필요하면 프로젝트에서 사용할 수 있는 `gemini-3.5-flash`를 선택할 수 있습니다. `gemini-2.5-flash-lite`는 신규 사용자에게 `404`와 함께 사용할 수 없는 모델로 응답할 수 있으므로 새 설정에 사용하지 않습니다. 실제 모델 제공 여부, 무료 tier, rate limit은 Google AI Studio의 해당 프로젝트 기준으로 확인합니다.
+
+Gemini 연결 오류는 HTTP 상태를 구분해서 확인합니다. `401`은 API key 원문과 인증 방식을, `404`는 모델 ID와 프로젝트 사용 가능 여부를 확인합니다. `429`는 quota/rate limit, `503`은 provider의 일시적 가용성 문제로 보고 제한된 backoff 후 Rule-based RCA fallback을 유지합니다. 이미지에서 API key를 OCR로 옮기지 말고 Secret 또는 환경 변수에 원문을 직접 주입합니다.
 
 GitHub `Operational Smoke` workflow에서는 기존 수동 실행 입력 수 제한을 유지하기 위해 아래 repository variable로 선택 기준을 설정합니다.
 
@@ -220,6 +234,7 @@ GitHub `Operational Smoke` workflow에서는 기존 수동 실행 입력 수 제
 RCA_LLM_SMOKE_REQUIRE_USAGE_METADATA=false
 RCA_LLM_SMOKE_MAX_LATENCY_MS=60000
 RCA_LLM_SMOKE_MAX_ESTIMATED_COST_USD=0
+RCA_LLM_SMOKE_PROVIDER_CALL_BUDGET=0
 ```
 
 확인 항목:

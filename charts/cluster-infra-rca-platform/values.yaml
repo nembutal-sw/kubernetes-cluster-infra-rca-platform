@@ -106,6 +106,26 @@ platform:
       maxUsd: 25
       for: 15m
       severity: warning
+  alertmanagerConfig:
+    enabled: false
+    labels: {}
+    clusterId: ""
+    receiverName: cluster-infra-rca
+    webhookUrl: ""
+    sendResolved: true
+    tokenSecretName: ""
+    tokenSecretKey: RCA_WEBHOOK_TOKEN
+    groupBy:
+      - alertname
+      - cluster_id
+      - node
+    groupWait: 5s
+    groupInterval: 5m
+    repeatInterval: 4h
+    matchers:
+      - name: alertname
+        matchType: =~
+        value: ClusterRcaLlm.*
   config:
     springProfiles: ""
     publicApiBaseUrl: ""
@@ -132,6 +152,7 @@ platform:
     llmTimeoutSeconds: 30
     llmMaxOutputTokens: 1800
     llmMaxAttempts: 2
+    springAiRetryMaxAttempts: 1
     llmFailureThreshold: 3
     llmCooldownSeconds: 60
     llmInputCostPerMillionTokens: 0

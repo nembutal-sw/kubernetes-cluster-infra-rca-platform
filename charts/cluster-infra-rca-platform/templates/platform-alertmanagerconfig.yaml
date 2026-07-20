@@ -1,0 +1,39 @@
+{{- if .Values.platform.alertmanagerConfig.enabled }}
+{{- $config := .Values.platform.alertmanagerConfig }}
+{{- $_ := required "platform.alertmanagerConfig.clusterId is required when platform.alertmanagerConfig.enabled=true" $config.clusterId }}
+{{- $secretName := default (include "cluster-infra-rca-platform.secretName" .) $config.tokenSecretName }}
+{{- $webhookUrl := default (printf "http://%s:%v/api/webhooks/alertmanager" (include "cluster-infra-rca-platform.platformName" .) .Values.platform.service.port) $config.webhookUrl }}
+{{- if and .Values.platform.secret.create (not .Values.platform.externalSecret.enabled) (not $config.tokenSecretName) }}
+{{- $_ := required "platform.secret.webhookToken is required when platform.alertmanagerConfig.enabled=true" .Values.platform.secret.webhookToken }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: {{ include "cluster-infra-rca-platform.fullname" . }}-webhook
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    {{- with $config.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  route:
+    receiver: {{ $config.receiverName | quote }}
+    groupBy:
+      {{- toYaml $config.groupBy | nindent 6 }}
+    groupWait: {{ $config.groupWait | quote }}
+    groupInterval: {{ $config.groupInterval | quote }}
+    repeatInterval: {{ $config.repeatInterval | quote }}
+    matchers:
+      {{- toYaml $config.matchers | nindent 6 }}
+  receivers:
+    - name: {{ $config.receiverName | quote }}
+      webhookConfigs:
+        - url: {{ $webhookUrl | quote }}
+          sendResolved: {{ $config.sendResolved }}
+          httpConfig:
+            authorization:
+              type: Bearer
+              credentials:
+                name: {{ $secretName | quote }}
+                key: {{ $config.tokenSecretKey | quote }}
+{{- end }}

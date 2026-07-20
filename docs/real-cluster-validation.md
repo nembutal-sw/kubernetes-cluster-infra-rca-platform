@@ -33,6 +33,29 @@ sudo -E python3 scripts/real-cluster-readiness-check.py \
 `kubernetes` collector는 DaemonSet 환경 밖에서는 in-cluster ServiceAccount가 없어서 `api_error`를 반환할 수 있습니다.
 이 경우에도 전체 agent local collect는 실패가 아니라 제한 신호로 취급합니다.
 
+## Prometheus Operator Delivery Canary
+
+Operator가 `PrometheusRule`과 `AlertmanagerConfig`를 실제로 선택하는지 확인하려면
+고유 namespace canary를 실행합니다. 기본 실행은 cluster를 변경하지 않습니다.
+
+```bash
+scripts/prometheus-operator-delivery-e2e.sh
+```
+
+실제 검증은 현재 context를 명시적으로 확인해야 합니다.
+
+```bash
+context="$(kubectl config current-context)"
+scripts/prometheus-operator-delivery-e2e.sh \
+  --apply \
+  --confirm-context "${context}" \
+  --selector-label release=monitoring
+```
+
+`--selector-label`은 대상 Prometheus와 Alertmanager의 resource selector에 맞춥니다.
+스크립트는 기존 namespace 사용을 거부하고, 자신이 생성한 ownership label이
+일치할 때만 namespace를 정리합니다. 운영 리소스를 수정하지 않습니다.
+
 ## Output
 
 스크립트는 JSON 리포트를 생성합니다.
@@ -42,6 +65,7 @@ sudo -E python3 scripts/real-cluster-readiness-check.py \
 - `status`: `passed`, `warning`, `failed`
 - `checks`: kubectl 접근, node/pod/event 상태, Helm lint, server dry-run, agent local collect 결과
 - `signals.nodes`: Ready/Pressure 조건, 런타임, 커널, OS 정보
+- `signals.cluster_compatibility`: 배포판, 런타임, CNI, 아키텍처 fingerprint와 검증 등급
 - `signals.events`: RCA와 관련 있는 최근 warning 이벤트
 - `signals.agent_local_collect`: disk/inode/conntrack/runtime/kernel/systemd 요약
 - `warnings`: 운영자가 판단해야 하는 제한 또는 이상 신호
@@ -56,6 +80,13 @@ sudo -E python3 scripts/real-cluster-readiness-check.py \
 - 특정 노드의 Cilium agent restart count 증가
 - Metrics API가 일부 노드에서 `<unknown>` 반환
 - 로컬 disk, inode, memory, conntrack는 샘플 시점에 정상
+
+2026-07-15 compatibility 검증 결과:
+
+- RKE2 5-node: containerd, Cilium, amd64/arm64 혼합 구성 탐지
+- RKE2 ARM64 Agent E2E 완료, amd64 profile은 추가 canary 필요
+- K3s 1-node: openSUSE, containerd, embedded Flannel, amd64 탐지 및 Agent E2E 완료
+- kubeadm, EKS, AKS, GKE, OpenShift는 fixture 탐지만 완료했으며 실제 지원 완료로 표시하지 않음
 
 이 관찰을 바탕으로 다음 collector와 rule이 보강되었습니다.
 

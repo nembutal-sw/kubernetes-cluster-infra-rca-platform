@@ -45,6 +45,58 @@ def test_llm_config_allows_disabled_only_when_explicit():
     assert allowed_errors == []
 
 
+def test_provider_call_budget_counts_connectivity_and_analysis_retries():
+    smoke = load_module()
+    platform_info = {"llm": {"enabled": True, "max_attempts": 2}}
+
+    assert smoke.llm_call_plan(
+        platform_info,
+        skip_connectivity_test=False,
+    )["worst_case_provider_calls"] == 3
+    errors = smoke.validate_provider_call_budget(
+        platform_info,
+        skip_connectivity_test=True,
+        provider_call_budget=1,
+    )
+
+    assert errors == [
+        "worst-case provider calls 2 exceed call budget 1; "
+        "reduce RCA_LLM_MAX_ATTEMPTS/RCA_SPRING_AI_RETRY_MAX_ATTEMPTS or use --skip-connectivity-test"
+    ]
+
+
+def test_single_call_budget_accepts_one_attempt_without_connectivity_probe():
+    smoke = load_module()
+    platform_info = {"llm": {"enabled": True, "max_attempts": 1}}
+
+    assert smoke.validate_provider_call_budget(
+        platform_info,
+        skip_connectivity_test=True,
+        provider_call_budget=1,
+    ) == []
+
+
+def test_provider_call_budget_includes_spring_ai_internal_retries():
+    smoke = load_module()
+    platform_info = {
+        "llm": {
+            "enabled": True,
+            "max_attempts": 2,
+            "provider_retry_max_attempts": 3,
+        }
+    }
+
+    plan = smoke.llm_call_plan(platform_info, skip_connectivity_test=False)
+
+    assert plan == {
+        "connectivity_test_calls": 3,
+        "analysis_max_attempts": 2,
+        "provider_retry_max_attempts": 3,
+        "analysis_worst_case_calls": 6,
+        "worst_case_provider_calls": 9,
+    }
+
+
 def test_llm_connectivity_enforces_outcome_latency_and_content():
     smoke = load_module()
 
@@ -90,6 +142,15 @@ def test_llm_connectivity_secret_check_allows_redaction_and_rejects_json_secrets
 
     assert redacted == []
     assert "LLM connectivity response appears to contain an unredacted secret-like value" in exposed
+
+
+def test_sensitive_text_detection_covers_google_api_key_formats():
+    smoke = load_module()
+    legacy_key = "AI" + "za" + "A" * 35
+    current_key = "AQ." + "B" * 40
+
+    assert smoke.contains_sensitive_text({"message": legacy_key})
+    assert smoke.contains_sensitive_text({"message": current_key})
 
 
 def test_llm_report_rejects_automated_llm_actions():

@@ -58,6 +58,7 @@ public class LlmConfigurationService {
             baseUrlEnv(provider),
             llm.getTimeoutSeconds(),
             llm.getMaxAttempts(),
+            providerRetryMaxAttempts(),
             llm.getMaxOutputTokens(),
             llm.getFailureThreshold(),
             llm.getCooldownSeconds(),
@@ -83,6 +84,7 @@ public class LlmConfigurationService {
         addProviderCheck(info, checks);
         addModelCheck(info, checks);
         addSpringAiChatModelCheck(info, checks);
+        addProviderRetryCheck(info, checks);
         addCredentialCheck(info, checks);
         addBaseUrlCheck(info, checks);
         boolean failed = checks.stream().anyMatch(check -> "fail".equals(check.status()));
@@ -127,8 +129,8 @@ public class LlmConfigurationService {
                     "",
                     true,
                     false,
-                    List.of("gemini-model-name"),
-                    "Provider aliases: gemini, google, google-genai."
+                    List.of("gemini-3.1-flash-lite", "gemini-3.5-flash"),
+                    "Provider aliases: gemini, google, google-genai. Prefer a stable model available in the active project tier."
                 ),
                 providerOption(
                     "ollama",
@@ -215,6 +217,19 @@ public class LlmConfigurationService {
         checks.add(check("spring_ai_chat_model", "pass", "Spring AI chat model is configured.", ""));
     }
 
+    private void addProviderRetryCheck(LlmConfigurationInfo info, List<LlmDiagnosticCheck> checks) {
+        if (info.providerRetryMaxAttempts() <= 1) {
+            checks.add(check("provider_retry", "pass", "Spring AI provider retry is single-attempt.", ""));
+            return;
+        }
+        checks.add(check(
+            "provider_retry",
+            "warn",
+            "Spring AI may retry each application-level LLM attempt " + info.providerRetryMaxAttempts() + " times.",
+            "Use RCA_SPRING_AI_RETRY_MAX_ATTEMPTS=1 for quota-limited providers."
+        ));
+    }
+
     private void addCredentialCheck(LlmConfigurationInfo info, List<LlmDiagnosticCheck> checks) {
         if (!info.credentialRequired()) {
             checks.add(check("credential", "pass", "Provider does not require a platform-managed API key.", ""));
@@ -255,6 +270,10 @@ public class LlmConfigurationService {
 
     private String springAiChatModel() {
         return normalize(environment.getProperty("spring.ai.model.chat", "none"));
+    }
+
+    private int providerRetryMaxAttempts() {
+        return environment.getProperty("spring.ai.retry.max-attempts", Integer.class, 1);
     }
 
     private boolean isBaseUrlRequired(String provider) {

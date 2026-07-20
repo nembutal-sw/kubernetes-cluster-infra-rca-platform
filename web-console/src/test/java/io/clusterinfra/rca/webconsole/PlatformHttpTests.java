@@ -1088,6 +1088,7 @@ class PlatformHttpTests {
         assertThat(setup.getBody())
             .contains("SPRING_AI_OPENAI_SDK_API_KEY")
             .contains("SPRING_AI_OLLAMA_BASE_URL")
+            .contains("gemini-3.1-flash-lite")
             .contains("self_hosted")
             .doesNotContain("sk-")
             .doesNotContain("platform-info-signing-secret");

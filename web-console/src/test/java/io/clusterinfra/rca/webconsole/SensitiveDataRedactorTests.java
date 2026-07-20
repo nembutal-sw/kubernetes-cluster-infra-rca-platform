@@ -57,4 +57,19 @@ class SensitiveDataRedactorTests {
         ));
         assertThat(kubeconfig.values()).containsOnly("[redacted]");
     }
+
+    @Test
+    void redactsGoogleApiKeyFormatsWithoutAFieldLabel() {
+        String legacyKey = "AI" + "za" + "A".repeat(35);
+        String currentKey = "AQ." + "B".repeat(40);
+
+        String redacted = SensitiveDataRedactor.redactText(
+            "legacy=" + legacyKey + " current=" + currentKey
+        );
+
+        assertThat(redacted)
+            .contains("[redacted]")
+            .doesNotContain(legacyKey)
+            .doesNotContain(currentKey);
+    }
 }

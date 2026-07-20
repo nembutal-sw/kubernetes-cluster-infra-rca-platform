@@ -286,6 +286,24 @@ class LlmAnalysisServiceTests {
         verify(model, times(2)).call(any(Prompt.class));
     }
 
+    @Test
+    void exposesRedactedProviderRootCauseThroughAsyncWrappers() {
+        ChatModel model = mock(ChatModel.class);
+        when(model.call(any(Prompt.class))).thenThrow(new RuntimeException(
+            "provider request failed",
+            new IllegalStateException("401 invalid authentication; authorization=secret-token")
+        ));
+        service = service(model, properties());
+
+        Map<String, Object> result = service.analyze(Map.of("schema_version", "1.0"));
+
+        assertThat(result.get("status")).isEqualTo("failed");
+        assertThat(String.valueOf(result.get("error")))
+            .contains("401 invalid authentication")
+            .contains("[redacted]")
+            .doesNotContain("secret-token");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"openai", "anthropic", "gemini", "ollama"})
     void providerOptionsShareTheSameValidatedContract(String providerName) {

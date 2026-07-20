@@ -193,6 +193,34 @@ platform:
 
 비용 rule은 configured token price를 기반으로 한 추정값을 사용합니다. provider 청구 금액과 일치하는지 별도로 확인해야 합니다.
 
+## Alertmanager Webhook Routing
+
+기존 Prometheus Operator의 Alertmanager에서 Platform webhook으로 경보를 보내려면
+다음 설정을 사용합니다.
+
+```yaml
+platform:
+  prometheusRule:
+    enabled: true
+  alertmanagerConfig:
+    enabled: true
+    clusterId: production-a
+    labels:
+      release: kube-prometheus-stack
+    sendResolved: true
+```
+
+`clusterId`는 Platform에 등록된 클러스터 ID와 같아야 합니다. 차트가 생성한
+`PrometheusRule` alert에는 이 값이 자동으로 추가됩니다. `labels`는 대상
+Alertmanager의 `alertmanagerConfigSelector`에 맞춥니다. Webhook token은
+Platform Secret의 `RCA_WEBHOOK_TOKEN` key를 참조하며, 다른 Secret을 사용하려면
+`tokenSecretName`과 `tokenSecretKey`를 지정합니다.
+
+`platform.alertmanagerConfig.enabled=true`인데 자체 생성 Secret을 사용하면서
+`platform.secret.webhookToken`이 비어 있거나 `clusterId`가 비어 있으면 Helm
+렌더가 실패합니다. 이는 인증되지 않은 전달과 `cluster_id` 누락으로 인한 ingest
+skip을 배포 전에 차단하기 위한 동작입니다.
+
 ## Agent Compatibility Configuration
 
 The platform exposes agent compatibility through environment variables:
@@ -221,4 +249,8 @@ The platform chart does not enable automatic operational change execution. Actio
 ```bash
 helm lint charts/cluster-infra-rca-platform
 helm template rca-platform charts/cluster-infra-rca-platform
+python3 scripts/alertmanager_delivery_test.py \
+  --helm helm \
+  --prometheus prometheus \
+  --alertmanager alertmanager
 ```

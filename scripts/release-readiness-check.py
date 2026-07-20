@@ -120,6 +120,7 @@ def main() -> int:
                 "validate_llm_connectivity",
                 "validate_llm_report",
                 "max_llm_latency_ms",
+                "provider_call_budget",
                 "automation_allowed",
             )
             and contains("docs/llm-analyzer.md", "LLM Staging Smoke", "llm-staging-smoke.py"),
@@ -146,6 +147,70 @@ def main() -> int:
             "Platform chart exposes opt-in LLM SLO recording and alert rules with configurable thresholds.",
         ),
         check(
+            "llm-slo-promtool-tests",
+            exists("scripts/llm_prometheus_rule_test.py")
+            and exists("tests/prometheus/llm-rules.test.yml")
+            and contains(
+                ".github/workflows/ci.yml",
+                "PROMETHEUS_VERSION",
+                "PROMETHEUS_LINUX_AMD64_SHA256",
+                "llm_prometheus_rule_test.py",
+            ),
+            "Rendered LLM Prometheus rules are evaluated against healthy and firing promtool scenarios.",
+        ),
+        check(
+            "alertmanager-webhook-delivery",
+            exists("charts/cluster-infra-rca-platform/templates/platform-alertmanagerconfig.yaml")
+            and exists("scripts/alertmanager_delivery_test.py")
+            and exists("tests/test_alertmanager_delivery_test.py")
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-alertmanagerconfig.yaml",
+                "kind: AlertmanagerConfig",
+                "/api/webhooks/alertmanager",
+                "platform.alertmanagerConfig.clusterId is required",
+                "authorization:",
+                "tokenSecretKey",
+                "sendResolved:",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/values.yaml",
+                "alertmanagerConfig:",
+                "tokenSecretKey: RCA_WEBHOOK_TOKEN",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "ALERTMANAGER_VERSION",
+                "ALERTMANAGER_LINUX_AMD64_SHA256",
+                "alertmanager_delivery_test.py",
+            ),
+            "Prometheus and Alertmanager deliver firing and resolved alerts to the authenticated platform webhook.",
+        ),
+        check(
+            "prometheus-operator-delivery-e2e",
+            exists("scripts/prometheus-operator-delivery-e2e.sh")
+            and exists("scripts/operator_webhook_sink.py")
+            and exists("tests/test_prometheus_operator_delivery_e2e.py")
+            and contains(
+                "scripts/prometheus-operator-delivery-e2e.sh",
+                "--confirm-context is required with --apply",
+                "namespace_owned_by_run",
+                "prometheusrules.monitoring.coreos.com",
+                "alertmanagerconfigs.monitoring.coreos.com",
+                "wait_for_status firing",
+                "wait_for_status resolved",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "prometheus-operator-delivery-e2e:",
+                "KIND_LINUX_AMD64_SHA256",
+                "KIND_NODE_IMAGE",
+                "KUBECTL_LINUX_AMD64_SHA256",
+                "KUBE_PROMETHEUS_STACK_VERSION",
+                "prometheus-operator-delivery-e2e.sh",
+            ),
+            "A Kind canary validates Prometheus Operator selection, reconciliation, and authenticated notification delivery.",
+        ),
+        check(
             "llm-helm-contract",
             contains(
                 "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
@@ -153,6 +218,7 @@ def main() -> int:
                 "RCA_LLM_PROVIDER",
                 "RCA_SPRING_AI_CHAT_MODEL",
                 "RCA_LLM_TIMEOUT_SECONDS",
+                "RCA_SPRING_AI_RETRY_MAX_ATTEMPTS",
                 "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
                 "RCA_LLM_OUTPUT_COST_PER_MILLION_TOKENS",
             )
@@ -168,6 +234,7 @@ def main() -> int:
                 "charts/cluster-infra-rca-platform/values.yaml",
                 "llmEnabled",
                 "llmProvider",
+                "springAiRetryMaxAttempts",
                 "openaiBaseUrl",
                 "ollamaBaseUrl",
             ),
@@ -178,6 +245,7 @@ def main() -> int:
             contains(
                 "docker-compose.yml",
                 "RCA_LLM_ENABLED",
+                "RCA_SPRING_AI_RETRY_MAX_ATTEMPTS",
                 "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
                 "SPRING_AI_OPENAI_SDK_API_KEY",
                 "SPRING_AI_OPENAI_SDK_BASE_URL",
@@ -188,6 +256,7 @@ def main() -> int:
             and contains(
                 ".env.example",
                 "OPENAI_API_KEY",
+                "RCA_SPRING_AI_RETRY_MAX_ATTEMPTS",
                 "RCA_LLM_INPUT_COST_PER_MILLION_TOKENS",
                 "OPENAI_BASE_URL",
                 "ANTHROPIC_API_KEY",
