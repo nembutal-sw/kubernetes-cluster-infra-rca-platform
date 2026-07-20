@@ -280,6 +280,16 @@ python3 scripts/llm-staging-smoke.py \
 검증 결과는 `validation-results/llm-staging-smoke/<run-id>/llm-staging-smoke-result.json`에 저장됩니다.
 LLM이 비활성화된 baseline 환경을 확인할 때만 `--allow-disabled --expected-llm-status skipped`를 사용합니다.
 
+여러 실행 결과를 합쳐 SLO 조정 가능 여부를 확인합니다. 이 명령은 provider를 호출하지 않습니다.
+
+```bash
+python3 scripts/llm-burn-in-report.py \
+  validation-results/llm-staging-smoke \
+  --output validation-results/llm-staging-smoke/burn-in-report.json
+```
+
+기본 gate는 20개 표본, 5개 장애 시나리오, p95 60초입니다. 모든 smoke가 통과하고 LLM-origin action의 자동 실행 가능 건수가 0이어야 합니다.
+
 ## Kind E2E
 
 개발용 Kubernetes smoke test:

@@ -101,6 +101,7 @@
 - RCA 상세 화면에 LLM 지연, token, 비용과 supporting Evidence ID 표시
 - Helm chart에 선택형 LLM SLO recording rule과 latency/error/usage/circuit/cost 경보 추가
 - 실제 Provider 연결과 usage/cost 한도를 검증하는 staging smoke 보강
+- 여러 smoke 결과의 latency/token/cost/action safety를 집계하는 burn-in report와 SLO 변경 gate 추가
 
 ### Agent Fleet Operations UX
 
@@ -219,7 +220,7 @@
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. Gemini staging smoke 반복 표본 수집과 SLO 임계값 burn-in
+1. Gemini burn-in을 최소 20개 표본과 5개 장애 시나리오까지 확장
 2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
 
@@ -239,6 +240,13 @@ action suggestion은 각각 2개였습니다. LLM-origin action은 모두
 `automation_allowed=false`를 유지했고, 159줄의 LLM Prometheus metric 표본을
 저장했습니다. 두 표본 모두 60초 latency 기준을 충족했지만 운영 SLO 임계값을
 확정하기에는 표본 수가 부족하므로 장애 유형과 시간대를 나눠 추가 burn-in합니다.
+
+추가 burn-in에서는 inode 고갈과 NIC link flap을 각각 provider 호출 1회로 검증했습니다.
+지연은 2.821초와 1.966초, token은 2,003개와 2,127개였습니다. 기존 DiskPressure,
+NodeNotReady를 포함한 4개 시나리오 집계 p95는 3.064초이고 총 token은 9,134개입니다.
+LLM-origin action 9개는 모두 `automation_allowed=false`, `executable=false`를 유지했습니다.
+다만 운영 기준인 20개 표본과 5개 시나리오에 미달하므로 LLM p95 SLO는 60초를
+유지합니다.
 
 LLM `PrometheusRule`은 Helm 렌더 결과를 대상으로 한 `promtool` 회귀 테스트에서
 정상/latency/error/usage/circuit/cost 시나리오의 firing 여부까지 검증합니다.

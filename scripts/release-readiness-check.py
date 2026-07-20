@@ -144,6 +144,20 @@ def main() -> int:
             "LLM staging smoke validates provider configuration, report output, and automation guardrails.",
         ),
         check(
+            "llm-burn-in-report",
+            exists("scripts/llm-burn-in-report.py")
+            and contains(
+                "scripts/llm-burn-in-report.py",
+                "llm-burn-in/v1",
+                "minimum-samples",
+                "minimum-scenarios",
+                "retain_current_threshold",
+                "unsafe_llm_action_count",
+            )
+            and contains("docs/llm-analyzer.md", "LLM Burn-in Aggregation", "llm-burn-in-report.py"),
+            "LLM burn-in aggregation gates SLO changes on sample coverage and action safety.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(

@@ -185,3 +185,5 @@ Node diagnostics mode:
 - canary evidence collection 완료
 - Gitleaks, Trivy, Syft SBOM, Grype scan 통과
 - 검증 중 발견된 누락은 테스트로 고정
+
+LLM SLO 값을 변경하는 릴리즈는 `scripts/llm-burn-in-report.py` 결과가 `ready`여야 합니다. 기본 조건은 성공 표본 20개 이상, 장애 시나리오 5개 이상, unsafe LLM action 0건입니다.

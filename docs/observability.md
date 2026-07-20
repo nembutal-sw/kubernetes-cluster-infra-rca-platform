@@ -117,6 +117,8 @@ Agent offline count = 0 for required nodes
 Retention maintenance failures = 0
 ```
 
+LLM p95 임계값은 단일 성공 실행으로 조정하지 않습니다. `scripts/llm-burn-in-report.py`로 최소 20개 표본과 5개 장애 시나리오를 모은 뒤 latency, 오류율, usage metadata와 LLM action 안전성을 함께 검토합니다. 기준을 채우지 못하면 60초 초기값을 유지합니다.
+
 ## Prometheus Operator
 
 Helm에서 ServiceMonitor를 켤 수 있다.

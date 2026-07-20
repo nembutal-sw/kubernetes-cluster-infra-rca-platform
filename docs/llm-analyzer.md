@@ -247,3 +247,18 @@ RCA_LLM_SMOKE_PROVIDER_CALL_BUDGET=0
 - LLM 결과가 비어 있지 않은지
 - LLM-origin action의 `automation_allowed=false`
 - 실패 메시지에 secret-like 문자열이 남지 않는지
+
+## LLM Burn-in Aggregation
+
+여러 smoke 실행 결과는 provider를 다시 호출하지 않고 하나의 burn-in report로 합칩니다.
+
+```bash
+python3 scripts/llm-burn-in-report.py \
+  validation-results/llm-staging-smoke \
+  --output validation-results/llm-staging-smoke/burn-in-report.json \
+  --minimum-samples 20 \
+  --minimum-scenarios 5 \
+  --current-p95-ms 60000
+```
+
+집계기는 실행 성공률, 장애 시나리오 수, p50/p95 latency, token, 예상 비용과 LLM-origin action 안전성을 함께 확인합니다. `automation_allowed=true`이거나 executable plan을 가진 LLM action이 하나라도 있으면 burn-in은 실패합니다. 표본 20개와 장애 유형 5개를 모두 충족하기 전에는 관측 p95가 낮더라도 `retain_current_threshold`로 판정하며 운영 임계값을 낮추지 않습니다.

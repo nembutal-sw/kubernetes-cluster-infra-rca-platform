@@ -165,6 +165,10 @@ python3 scripts/llm-staging-smoke.py \
   --scenario disk-pressure \
   --expected-llm-status completed
 
+python3 scripts/llm-burn-in-report.py \
+  validation-results/llm-staging-smoke \
+  --output validation-results/llm-staging-smoke/burn-in-report.json
+
 python3 scripts/llm_prometheus_rule_test.py \
   --helm helm \
   --promtool promtool
