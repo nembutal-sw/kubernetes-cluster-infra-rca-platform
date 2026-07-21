@@ -21,6 +21,9 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "Live campaigns must run from the default branch" in content
     assert "self-hosted-rca-demo" in content
     assert "inputs.runner == 'self-hosted-rca-demo'" in content
+    assert "if: ${{ inputs.runner == 'github-hosted' }}" in content
+    assert "Validate self-hosted Python runtime" in content
+    assert "python3 -c 'import sys; assert sys.version_info >= (3, 11)" in content
     assert "Self-hosted live campaigns are restricted to loopback HTTP endpoints" in content
     assert "use_tailscale must be disabled for a self-hosted live campaign" in content
     assert "inputs.runner == 'github-hosted' && inputs.use_tailscale" in content
@@ -50,3 +53,4 @@ def test_workflow_does_not_pass_credentials_as_cli_arguments() -> None:
     assert "--password" not in content
     assert "--provider-call-budget" in content
     assert "uses: actions/upload-artifact@v7" in content
+    assert "python scripts/llm-burn-in" not in content

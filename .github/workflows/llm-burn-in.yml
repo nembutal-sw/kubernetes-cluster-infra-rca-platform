@@ -120,8 +120,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
+        if: ${{ inputs.runner == 'github-hosted' }}
         with:
           python-version: "3.12"
+
+      - name: Validate self-hosted Python runtime
+        if: ${{ inputs.runner == 'self-hosted-rca-demo' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v python3
+          python3 -c 'import sys; assert sys.version_info >= (3, 11), sys.version'
 
       - name: Validate manual execution controls
         shell: bash
@@ -239,7 +248,7 @@ jobs:
 
       - name: Validate burn-in scripts
         run: |
-          python -m py_compile \
+          python3 -m py_compile \
             scripts/llm-staging-smoke.py \
             scripts/llm-burn-in-report.py \
             scripts/llm-burn-in-campaign.py \
@@ -249,7 +258,7 @@ jobs:
       - name: Normalize downloaded cumulative history
         if: ${{ inputs.history_run_id != '' }}
         run: |
-          python scripts/llm-burn-in-history.py \
+          python3 scripts/llm-burn-in-history.py \
             validation-results/previous-burn-in/portable-history \
             --output-dir validation-results/validated-history
 
@@ -280,7 +289,7 @@ jobs:
             args+=(--dry-run)
           fi
 
-          python scripts/llm-burn-in-campaign.py "${args[@]}"
+          python3 scripts/llm-burn-in-campaign.py "${args[@]}"
 
       - name: Build cumulative portable history
         if: always()
@@ -294,7 +303,7 @@ jobs:
           if [ -d validation-results/current-burn-in ]; then
             inputs+=(validation-results/current-burn-in)
           fi
-          python scripts/llm-burn-in-history.py \
+          python3 scripts/llm-burn-in-history.py \
             "${inputs[@]}" \
             --output-dir validation-results/portable-history \
             --allow-empty
@@ -303,7 +312,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import json
           from pathlib import Path
 

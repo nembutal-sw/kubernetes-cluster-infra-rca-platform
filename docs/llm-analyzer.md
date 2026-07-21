@@ -313,7 +313,7 @@ GitHub Actions의 `LLM Burn-in` workflow는 수동 실행만 허용하며 기본
 
 `dry_run=true` 실행은 비보호 `llm-burn-in-preview` Environment를 사용합니다. 실제 호출만 `llm-burn-in` GitHub Environment로 라우팅하므로 이 Environment에는 required reviewer를 설정합니다. 실제 호출은 저장소 기본 branch에서만 가능하고, 같은 8시간 구간에 누적 성공 표본이 있으면 호출하지 않습니다. 동시 실행은 하나로 제한하며 예약 실행은 제공하지 않습니다.
 
-기본 `runner=github-hosted`는 공개 Actions runner를 사용하며 내부 endpoint에 접근할 때 Tailscale을 연결합니다. 전용 데모 서버에서 실행할 때는 `runner=self-hosted-rca-demo`, `base_url=http://127.0.0.1:18081`, `use_tailscale=false`를 사용합니다. Self-hosted 실제 호출은 loopback HTTP endpoint만 허용하므로 runner가 다른 내부 시스템을 직접 호출하는 용도로 확장되지 않습니다.
+기본 `runner=github-hosted`는 공개 Actions runner를 사용하며 내부 endpoint에 접근할 때 Tailscale을 연결합니다. 전용 데모 서버에서 실행할 때는 Python 3.11 이상을 미리 설치하고 `runner=self-hosted-rca-demo`, `base_url=http://127.0.0.1:18081`, `use_tailscale=false`를 사용합니다. Self-hosted 실제 호출은 loopback HTTP endpoint만 허용하므로 runner가 다른 내부 시스템을 직접 호출하는 용도로 확장되지 않습니다. 배포판별 바이너리를 내려받는 `setup-python`은 GitHub-hosted runner에만 적용합니다.
 
 첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. repository의 planning baseline은 이 단계부터 적용됩니다. 실제 성공 실행 뒤 생성된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나, 수동 실행이 아니거나, 실패한 run은 history로 받아들이지 않습니다.
 
