@@ -129,6 +129,25 @@ validation-results/operational-burn-in/
 
 Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM history artifact는 상태 계산에만 사용하고 self-hosted runner 임시 경로에서 job 종료 시 삭제합니다. Actions artifact에는 원본 반복 evidence를 포함하지 않습니다.
 
+## Long-Running Fleet Workflow
+
+`Agent Fleet Burn-in` workflow는 일반 push CI와 분리된 3노드 Kind 장시간 gate입니다. 일반 CI는 계속 `smoke`만 실행하므로 개발 피드백 시간이 늘어나지 않습니다.
+
+| Profile | 반복 | 예상 시간 | 확인 문자열 | Environment | Artifact 보존 |
+| --- | ---: | ---: | --- | --- | ---: |
+| `standard` | 60 | 약 1시간 | `RUN-STANDARD-FLEET` | `agent-fleet-standard` | 30일 |
+| `extended` | 300 | 약 5시간 | `RUN-EXTENDED-FLEET` | `agent-fleet-extended` | 90일 |
+
+실행 시 `change_reference`를 함께 입력합니다. 두 GitHub Environment에는 required reviewer와 profile 값이 일치하는 `RCA_AGENT_FLEET_PROFILE` Environment variable을 설정합니다. Marker가 없거나 값이 다르면 workflow가 즉시 실패합니다. `extended`는 standard artifact 검토 후 승인합니다. Workflow는 1 control-plane과 2 worker를 만들고 Agent 3개가 모두 등록될 때까지 기다린 다음 다음 항목을 검사합니다.
+
+- 모든 target의 수집 성공률, evidence 품질, process identity
+- Pod별 RSS/CPU/FD/thread 증가량
+- RSS peak, p95 CPU, FD peak, thread peak의 Pod 간 편차
+- spool, quarantine, runtime 관측 오류
+- Platform health, evidence 요청, incident, RCA report 생성
+
+결과 artifact 이름은 `agent-fleet-<profile>-<run_id>`입니다. 원본 Pod 이름은 저장하지 않고 run별 salt가 적용된 target ID만 기록합니다. 일반 CI의 smoke 실패, standard 실패, extended 실패는 서로 별개로 숨기지 않고 해당 profile artifact에서 확인합니다.
+
 ## Acceptance
 
 - 요청한 collector가 모든 반복에서 `collector-evidence/v1` schema를 반환

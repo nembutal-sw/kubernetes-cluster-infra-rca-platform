@@ -261,6 +261,61 @@ def main() -> int:
             "Manual self-hosted burn-in combines Agent quality, cluster readiness, platform coverage, and provider-free LLM status.",
         ),
         check(
+            "agent-fleet-long-burn-in",
+            exists(".github/workflows/agent-fleet-burn-in.yml")
+            and contains(
+                ".github/workflows/agent-fleet-burn-in.yml",
+                "workflow_dispatch:",
+                "RUN-STANDARD-FLEET",
+                "RUN-EXTENDED-FLEET",
+                "agent-fleet-standard",
+                "agent-fleet-extended",
+                "RCA_AGENT_FLEET_PROFILE",
+                "config/kind-multi-node.yaml",
+                "RCA_AGENT_SOAK_MINIMUM_PODS",
+                "persist-credentials: false",
+            )
+            and contains(
+                "scripts/kind-smoke.sh",
+                "RCA_AGENT_SOAK_PROFILE",
+                "RCA_AGENT_SOAK_MINIMUM_PODS",
+                "--discover-agent-pods",
+            ),
+            "Approval-gated standard and extended campaigns reuse the three-node Agent Fleet gate.",
+        ),
+        check(
+            "managed-cluster-canary",
+            exists(".github/workflows/managed-cluster-canary.yml")
+            and exists("scripts/managed-canary-attestation.py")
+            and contains(
+                ".github/workflows/managed-cluster-canary.yml",
+                "workflow_dispatch:",
+                "managed-canary-${{ inputs.platform }}",
+                "RCA_MANAGED_CANARY_KUBECONFIG",
+                "RCA_MANAGED_CANARY_ENVIRONMENT",
+                "APPROVED_ACTIONS_ENABLED: \"false\"",
+                "--readiness-only",
+                "Remove private canary material",
+                "validation-results/managed-canary/attestation.json",
+            )
+            and contains(
+                "scripts/managed-canary-attestation.py",
+                "managed-cluster-canary/v1",
+                "automatic_matrix_update",
+                "action execution disabled",
+                "lifecycle cleanup state must be",
+                "applied canary evidence bundle verification failed",
+            )
+            and contains(
+                "scripts/real-cluster-agent-e2e.sh",
+                "helm_cleanup_state",
+                "namespace_cleanup_state",
+                "platform_cluster_cleanup_state",
+                "exit_code=1",
+            ),
+            "Managed platform canaries are environment-approved, platform-bound, cleanup-gated, and redacted.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(

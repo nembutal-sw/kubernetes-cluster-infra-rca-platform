@@ -4,9 +4,19 @@ set -euo pipefail
 cluster_name="${KIND_CLUSTER_NAME:-rca-smoke}"
 port="${RCA_SMOKE_PORT:-18080}"
 admin_password="${RCA_SMOKE_ADMIN_PASSWORD:-integration-password}"
+agent_soak_profile="${RCA_AGENT_SOAK_PROFILE:-smoke}"
+agent_soak_minimum_pods="${RCA_AGENT_SOAK_MINIMUM_PODS:-3}"
+agent_soak_output_dir="${RCA_AGENT_SOAK_OUTPUT_DIR:-validation-results/kind-agent-runtime}"
 port_forward_pid=""
 test_succeeded="false"
 curl_command=(curl -fsS --retry 5 --retry-delay 1 --retry-connrefused --retry-all-errors)
+
+case "${agent_soak_profile}" in
+  smoke|standard|extended) ;;
+  *) echo "RCA_AGENT_SOAK_PROFILE must be smoke, standard, or extended" >&2; exit 2 ;;
+esac
+[[ "${agent_soak_minimum_pods}" =~ ^[2-9][0-9]*$ ]] \
+  || { echo "RCA_AGENT_SOAK_MINIMUM_PODS must be an integer of at least two" >&2; exit 2; }
 
 cleanup() {
   if [[ "${test_succeeded}" != "true" ]]; then
@@ -77,7 +87,7 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
 kubectl -n rca-system rollout status daemonset/rca-agent-cluster-infra-rca-agent --timeout=240s
 
 expected_agent_count="$(kubectl get nodes -o name | wc -l | tr -d '[:space:]')"
-test "${expected_agent_count}" -ge 2
+test "${expected_agent_count}" -ge "${agent_soak_minimum_pods}"
 agent_count=0
 for _ in $(seq 1 60); do
   agent_count="$("${curl_command[@]}" \
@@ -118,13 +128,13 @@ test "$("${curl_command[@]}" \
   "http://127.0.0.1:${port}/api/rca/incidents" | jq length)" -gt 0
 
 python3 scripts/agent-soak-validation.py \
-  --profile smoke \
+  --profile "${agent_soak_profile}" \
   --collectors node,disk,inode,memory,process \
   --discover-agent-pods \
-  --minimum-agent-pods "${expected_agent_count}" \
+  --minimum-agent-pods "${agent_soak_minimum_pods}" \
   --require-runtime-observation \
   --health-url "http://127.0.0.1:${port}/health/ready" \
-  --output-dir validation-results/kind-agent-runtime
+  --output-dir "${agent_soak_output_dir}"
 
 test_succeeded="true"
-echo "Kind multi-node platform, DaemonSet Agent fleet runtime, evidence, incident, and RCA report smoke test passed."
+echo "Kind multi-node platform, DaemonSet Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."

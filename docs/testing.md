@@ -337,6 +337,19 @@ python3 scripts/agent-soak-validation.py \
   --output-dir validation-results/operational-burn-in/agent-fleet
 ```
 
+장시간 3노드 검증은 GitHub Actions의 `Agent Fleet Burn-in` workflow를 사용합니다. `standard`는 `RUN-STANDARD-FLEET`, `extended`는 `RUN-EXTENDED-FLEET` 확인 문자열과 change reference가 필요합니다. push CI에는 장시간 profile을 넣지 않습니다.
+
+Managed Kubernetes 검증은 `Managed Cluster Canary` workflow에서 먼저 `apply=false` preflight를 실행합니다. 실제 lifecycle은 플랫폼별 Environment 승인, 전용 runner label, environment-scoped kubeconfig, change reference와 `RUN-<PLATFORM>-CANARY` 확인 문자열이 모두 있어야 합니다. 결과 artifact는 비식별 attestation만 포함하며 compatibility matrix는 자동 수정하지 않습니다.
+
+관련 로컬 회귀 테스트:
+
+```bash
+python3 -m pytest \
+  tests/test_managed_canary_attestation.py \
+  tests/test_canary_workflows.py
+python3 scripts/release-readiness-check.py
+```
+
 ## Kind E2E
 
 개발용 Kubernetes smoke test는 1 control-plane과 2 worker로 구성된 Kind cluster에서 실행합니다.

@@ -90,6 +90,9 @@ cluster_created=false
 test_succeeded=false
 cleanup_state="not_applicable"
 cleanup_warning=""
+namespace_cleanup_state="not_applicable"
+platform_cluster_cleanup_state="not_applicable"
+helm_cleanup_state="not_applicable"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 log() {
@@ -158,21 +161,27 @@ cleanup() {
   if [[ "${apply}" == "true" && "${keep_resources}" != "true" ]]; then
     cleanup_state="completed"
     if helm status "${release_name}" -n "${namespace}" >/dev/null 2>&1; then
-      helm uninstall "${release_name}" -n "${namespace}" \
-        >"${output_dir}/helm-uninstall.txt" 2>&1 || true
+      helm_cleanup_state="failed"
+      if helm uninstall "${release_name}" -n "${namespace}" \
+        >"${output_dir}/helm-uninstall.txt" 2>&1; then
+        helm_cleanup_state="completed"
+      else
+        cleanup_warning="Helm canary release uninstall failed."
+        printf '%s\n' "${cleanup_warning}" >"${output_dir}/cleanup-warning.txt"
+      fi
     fi
     if [[ "${namespace_created}" == "true" ]] && namespace_owned_by_run; then
+      namespace_cleanup_state="pending"
       kubectl delete namespace "${namespace}" --wait=false \
         >"${output_dir}/namespace-delete.txt" 2>&1 || true
-      cleanup_state="pending"
       for _ in $(seq 1 30); do
         if ! kubectl get namespace "${namespace}" >/dev/null 2>&1; then
-          cleanup_state="completed"
+          namespace_cleanup_state="completed"
           break
         fi
         sleep 2
       done
-      if [[ "${cleanup_state}" == "pending" ]]; then
+      if [[ "${namespace_cleanup_state}" == "pending" ]]; then
         cleanup_warning="Namespace deletion is still pending; inspect namespace conditions before manual finalization."
         printf '%s\n' "${cleanup_warning}" >"${output_dir}/cleanup-warning.txt"
         kubectl get namespace "${namespace}" -o json \
@@ -180,15 +189,28 @@ cleanup() {
       fi
     fi
     if [[ "${cluster_created}" == "true" && -n "${access_token}" && -n "${cluster_id}" ]]; then
-      curl -fsS --connect-timeout 10 --max-time 45 -X DELETE \
+      platform_cluster_cleanup_state="failed"
+      if curl -fsS --connect-timeout 10 --max-time 45 -X DELETE \
         -H "Authorization: Bearer ${access_token}" \
         -H "Origin: ${base_url}" \
         --get --data-urlencode "confirm_name=${cluster_name}" \
         "${base_url}/api/clusters/${cluster_id}" \
-      >"${output_dir}/cluster-delete.json" 2>"${output_dir}/cluster-delete.err" || true
+        >"${output_dir}/cluster-delete.json" 2>"${output_dir}/cluster-delete.err"; then
+        platform_cluster_cleanup_state="completed"
+      else
+        cleanup_warning="${cleanup_warning:+${cleanup_warning} }Platform test cluster deletion failed."
+        printf '%s\n' "${cleanup_warning}" >"${output_dir}/cleanup-warning.txt"
+      fi
+    fi
+    if [[ "${helm_cleanup_state}" == "failed" || "${namespace_cleanup_state}" == "pending" || "${platform_cluster_cleanup_state}" == "failed" ]]; then
+      cleanup_state="failed"
+      exit_code=1
     fi
   elif [[ "${keep_resources}" == "true" ]]; then
     cleanup_state="kept"
+    namespace_cleanup_state="kept"
+    platform_cluster_cleanup_state="kept"
+    helm_cleanup_state="kept"
   fi
 
   jq -n \
@@ -201,9 +223,12 @@ cleanup() {
     --arg release "${release_name}" \
     --arg cluster_id "${cluster_id}" \
     --arg cleanup_state "${cleanup_state}" \
+    --arg namespace_cleanup_state "${namespace_cleanup_state}" \
+    --arg platform_cluster_cleanup_state "${platform_cluster_cleanup_state}" \
+    --arg helm_cleanup_state "${helm_cleanup_state}" \
     --arg cleanup_warning "${cleanup_warning}" \
     --argjson kept "${keep_resources}" \
-    '{run_id:$run_id,status:$status,started_at:$started_at,completed_at:$completed_at,node:$node,namespace:$namespace,release:$release,cluster_id:$cluster_id,resources_kept:$kept,cleanup:{state:$cleanup_state,warning:(if $cleanup_warning == "" then null else $cleanup_warning end)}}' \
+    '{run_id:$run_id,status:$status,started_at:$started_at,completed_at:$completed_at,node:$node,namespace:$namespace,release:$release,cluster_id:$cluster_id,resources_kept:$kept,cleanup:{state:$cleanup_state,helm_state:$helm_cleanup_state,namespace_state:$namespace_cleanup_state,platform_cluster_state:$platform_cluster_cleanup_state,warning:(if $cleanup_warning == "" then null else $cleanup_warning end)}}' \
     >"${output_dir}/summary.json" 2>/dev/null || true
   exit "${exit_code}"
 }

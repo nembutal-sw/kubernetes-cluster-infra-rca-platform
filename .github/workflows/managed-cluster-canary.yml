@@ -1,0 +1,301 @@
+name: Managed Cluster Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Managed Kubernetes family."
+        required: true
+        type: choice
+        options:
+          - "eks"
+          - "aks"
+          - "gke"
+          - "openshift"
+      kubectl_context:
+        description: "Exact context in the environment-scoped kubeconfig."
+        required: true
+        type: string
+      apply:
+        description: "Run the isolated single-node Agent lifecycle after preflight."
+        required: true
+        default: false
+        type: boolean
+      mode:
+        description: "Agent collection mode."
+        required: true
+        default: "node-diagnostics"
+        type: choice
+        options:
+          - "safe"
+          - "node-diagnostics"
+      confirmation:
+        description: "Enter PREFLIGHT-<PLATFORM> or RUN-<PLATFORM>-CANARY."
+        required: true
+        type: string
+      change_reference:
+        description: "Ticket or change reference. Required for an applied canary."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-canary-${{ inputs.platform }}-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on:
+      - self-hosted
+      - linux
+      - managed-canary
+      - ${{ inputs.platform }}
+    timeout-minutes: 45
+    environment: managed-canary-${{ inputs.platform }}
+    env:
+      CANARY_PLATFORM: ${{ inputs.platform }}
+      CANARY_CONTEXT: ${{ inputs.kubectl_context }}
+      CANARY_APPLY: ${{ inputs.apply }}
+      CANARY_MODE: ${{ inputs.mode }}
+      CANARY_CONFIRMATION: ${{ inputs.confirmation }}
+      CANARY_CHANGE_REFERENCE: ${{ inputs.change_reference }}
+      CANARY_ENVIRONMENT_PLATFORM: ${{ vars.RCA_MANAGED_CANARY_ENVIRONMENT }}
+      CANARY_BASE_URL: ${{ vars.RCA_MANAGED_CANARY_BASE_URL }}
+      CANARY_USERNAME: ${{ vars.RCA_MANAGED_CANARY_USERNAME || 'admin' }}
+      CANARY_IMAGE_REPOSITORY: ${{ vars.RCA_MANAGED_CANARY_IMAGE_REPOSITORY || 'python' }}
+      CANARY_IMAGE_TAG: ${{ vars.RCA_MANAGED_CANARY_IMAGE_TAG || '3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf' }}
+      CANARY_KUBECONFIG_BASE64: ${{ secrets.RCA_MANAGED_CANARY_KUBECONFIG }}
+      RCA_E2E_PASSWORD: ${{ secrets.RCA_MANAGED_CANARY_PASSWORD }}
+      APPROVED_ACTIONS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate approval and safety inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          platform_upper="$(printf '%s' "${CANARY_PLATFORM}" | tr '[:lower:]' '[:upper:]')"
+          if [ "${CANARY_ENVIRONMENT_PLATFORM}" != "${CANARY_PLATFORM}" ]; then
+            echo "the selected Environment is missing its RCA_MANAGED_CANARY_ENVIRONMENT marker" >&2
+            exit 2
+          fi
+          expected="PREFLIGHT-${platform_upper}"
+          if [ "${CANARY_APPLY}" = "true" ]; then
+            expected="RUN-${platform_upper}-CANARY"
+            if ! [[ "${CANARY_CHANGE_REFERENCE}" =~ ^[A-Za-z0-9._:/#-]{3,100}$ ]]; then
+              echo "an applied canary requires a valid change_reference" >&2
+              exit 2
+            fi
+            [ -n "${RCA_E2E_PASSWORD}" ] || { echo "managed canary password is missing" >&2; exit 2; }
+          fi
+          [ "${CANARY_CONFIRMATION}" = "${expected}" ] \
+            || { echo "confirmation must be ${expected}" >&2; exit 2; }
+          [[ "${CANARY_CONTEXT}" =~ ^[A-Za-z0-9._:@/-]{1,253}$ ]] \
+            || { echo "kubectl_context contains unsupported characters" >&2; exit 2; }
+          [ "${APPROVED_ACTIONS_ENABLED}" = "false" ]
+          BASE_URL="${CANARY_BASE_URL}" python3 - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          value = os.environ["BASE_URL"]
+          parsed = urlsplit(value)
+          if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+              raise SystemExit("RCA_MANAGED_CANARY_BASE_URL must be an HTTPS URL without userinfo")
+          PY
+          for command in python3 kubectl helm curl jq tar; do
+            command -v "${command}" >/dev/null
+          done
+          python3 -m py_compile \
+            scripts/managed-canary-attestation.py \
+            scripts/real-cluster-readiness-check.py
+
+      - name: Prepare environment-scoped kubeconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          private_dir="${RUNNER_TEMP}/rca-managed-canary-${GITHUB_RUN_ID}"
+          mkdir -p "${private_dir}"
+          PRIVATE_DIR="${private_dir}" python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          encoded = os.environ.get("CANARY_KUBECONFIG_BASE64", "")
+          if not encoded:
+              raise SystemExit("RCA_MANAGED_CANARY_KUBECONFIG is missing")
+          try:
+              payload = base64.b64decode(encoded, validate=True)
+          except ValueError as exc:
+              raise SystemExit("RCA_MANAGED_CANARY_KUBECONFIG is not valid base64") from exc
+          if not payload or len(payload) > 1024 * 1024:
+              raise SystemExit("decoded kubeconfig must be between 1 byte and 1 MiB")
+          path = Path(os.environ["PRIVATE_DIR"]) / "kubeconfig"
+          path.write_bytes(payload)
+          path.chmod(0o600)
+          PY
+          printf 'CANARY_PRIVATE_DIR=%s\nKUBECONFIG=%s/kubeconfig\n' \
+            "${private_dir}" "${private_dir}" >> "${GITHUB_ENV}"
+          KUBECONFIG="${private_dir}/kubeconfig" kubectl config use-context "${CANARY_CONTEXT}" >/dev/null
+          test "$(KUBECONFIG="${private_dir}/kubeconfig" kubectl config current-context)" = "${CANARY_CONTEXT}"
+
+      - name: Run read-only cluster readiness
+        id: readiness
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/real-cluster-readiness-check.py \
+            --context "${CANARY_CONTEXT}" \
+            --backend-url "${CANARY_BASE_URL}" \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --output "${CANARY_PRIVATE_DIR}/readiness.json"
+
+      - name: Enforce expected managed platform
+        id: readiness_gate
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANARY_PRIVATE_DIR="${CANARY_PRIVATE_DIR:-${RUNNER_TEMP}/rca-managed-canary-${GITHUB_RUN_ID}}"
+          mkdir -p "${CANARY_PRIVATE_DIR}"
+          python3 scripts/managed-canary-attestation.py \
+            --expected-platform "${CANARY_PLATFORM}" \
+            --readiness "${CANARY_PRIVATE_DIR}/readiness.json" \
+            --platform-matrix config/platform-compatibility-matrix.json \
+            --readiness-only \
+            --output "${CANARY_PRIVATE_DIR}/readiness-gate.json"
+
+      - name: Run isolated Agent lifecycle
+        id: lifecycle
+        if: ${{ steps.readiness_gate.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --base-url "${CANARY_BASE_URL}"
+            --username "${CANARY_USERNAME}"
+            --mode "${CANARY_MODE}"
+            --image-repository "${CANARY_IMAGE_REPOSITORY}"
+            --image-tag "${CANARY_IMAGE_TAG}"
+            --output-dir "${CANARY_PRIVATE_DIR}/lifecycle"
+            --repo-root "${GITHUB_WORKSPACE}"
+          )
+          if [ "${CANARY_APPLY}" = "true" ]; then
+            args+=(--apply)
+          fi
+          bash scripts/real-cluster-agent-e2e.sh "${args[@]}"
+
+      - name: Build redacted canary attestation
+        id: attestation
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANARY_PRIVATE_DIR="${CANARY_PRIVATE_DIR:-${RUNNER_TEMP}/rca-managed-canary-${GITHUB_RUN_ID}}"
+          mkdir -p validation-results/managed-canary
+          mkdir -p "${CANARY_PRIVATE_DIR}"
+          if [ ! -f "${CANARY_PRIVATE_DIR}/lifecycle/summary.json" ]; then
+            printf '%s\n' '{"status":"failed","resources_kept":false,"cleanup":{"state":"missing","warning":null}}' \
+              > "${CANARY_PRIVATE_DIR}/lifecycle-summary-missing.json"
+            lifecycle="${CANARY_PRIVATE_DIR}/lifecycle-summary-missing.json"
+          else
+            lifecycle="${CANARY_PRIVATE_DIR}/lifecycle/summary.json"
+          fi
+          if [ ! -f "${CANARY_PRIVATE_DIR}/lifecycle/plan.json" ]; then
+            printf '%s\n' '{"apply":null,"mode":"missing","mutations":[]}' \
+              > "${CANARY_PRIVATE_DIR}/lifecycle-plan-missing.json"
+            plan="${CANARY_PRIVATE_DIR}/lifecycle-plan-missing.json"
+          else
+            plan="${CANARY_PRIVATE_DIR}/lifecycle/plan.json"
+          fi
+          args=(
+            --expected-platform "${CANARY_PLATFORM}"
+            --readiness "${CANARY_PRIVATE_DIR}/readiness.json"
+            --lifecycle "${lifecycle}"
+            --plan "${plan}"
+            --platform-matrix config/platform-compatibility-matrix.json
+            --output validation-results/managed-canary/attestation.json
+          )
+          if [ "${CANARY_APPLY}" = "true" ]; then
+            args+=(--applied)
+            if [ -f "${CANARY_PRIVATE_DIR}/lifecycle/bundle-verification.json" ]; then
+              args+=(--bundle-verification "${CANARY_PRIVATE_DIR}/lifecycle/bundle-verification.json")
+            fi
+          fi
+          python3 scripts/managed-canary-attestation.py "${args[@]}"
+
+      - name: Publish managed canary status
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("validation-results/managed-canary/attestation.json")
+          output = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          if not path.exists():
+              output.write_text("## Managed Cluster Canary\n\nAttestation was not produced.\n", encoding="utf-8")
+              raise SystemExit(0)
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          dimensions = payload.get("dimensions", {})
+          lines = [
+              "## Managed Cluster Canary",
+              "",
+              f"- Status: `{payload.get('status', 'unknown')}`",
+              f"- Platform: `{payload.get('detected_platform', 'unknown')}`",
+              f"- Mode: `{payload.get('mode', 'unknown')}`",
+              f"- Nodes: `{dimensions.get('node_count', 0)}`",
+              f"- Runtime: `{', '.join(dimensions.get('runtime_families', [])) or 'unknown'}`",
+              f"- CNI: `{', '.join(dimensions.get('cni_families', [])) or 'unknown'}`",
+              f"- Manual promotion eligible: `{payload.get('promotion', {}).get('eligible_for_manual_review', False)}`",
+              f"- Failures: `{len(payload.get('failures') or [])}`",
+          ]
+          output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload redacted canary attestation
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-canary-${{ inputs.platform }}-${{ github.run_id }}
+          path: validation-results/managed-canary/attestation.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove private canary material
+        if: always()
+        shell: bash
+        run: |
+          PRIVATE_DIR="${CANARY_PRIVATE_DIR:-${RUNNER_TEMP}/rca-managed-canary-${GITHUB_RUN_ID}}" python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          value = os.environ.get("PRIVATE_DIR", "")
+          if not value:
+              raise SystemExit(0)
+          private_dir = Path(value).resolve()
+          expected_parent = Path(os.environ["RUNNER_TEMP"]).resolve()
+          if private_dir.parent != expected_parent or not private_dir.name.startswith("rca-managed-canary-"):
+              raise SystemExit("refusing to remove an unexpected private directory")
+          shutil.rmtree(private_dir, ignore_errors=True)
+          PY
+
+      - name: Enforce canary result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "${{ steps.readiness.outcome }}" = "success" ]
+          [ "${{ steps.readiness_gate.outcome }}" = "success" ]
+          [ "${{ steps.lifecycle.outcome }}" = "success" ]
+          [ "${{ steps.attestation.outcome }}" = "success" ]

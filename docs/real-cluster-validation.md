@@ -61,6 +61,47 @@ scripts/prometheus-operator-delivery-e2e.sh \
 Bearer 인증과 firing/resolved webhook 전달을 검증했습니다. 이 결과는 CI 기준선이며,
 운영 클러스터에서는 실제 selector와 보안 정책으로 canary를 다시 실행해야 합니다.
 
+## Managed Cluster Canary Workflow
+
+EKS, AKS, GKE, OpenShift 검증은 수동 `Managed Cluster Canary` workflow를 사용합니다. Workflow는 선택한 플랫폼과 실제 fingerprint가 일치하지 않으면 Agent lifecycle 전에 실패합니다.
+
+플랫폼별 GitHub Environment:
+
+- `managed-canary-eks`
+- `managed-canary-aks`
+- `managed-canary-gke`
+- `managed-canary-openshift`
+
+각 Environment에는 required reviewer와 다음 값을 설정합니다.
+
+| 종류 | 이름 | 용도 |
+| --- | --- | --- |
+| Variable | `RCA_MANAGED_CANARY_ENVIRONMENT` | Environment가 담당하는 플랫폼명, 예: `eks` |
+| Secret | `RCA_MANAGED_CANARY_KUBECONFIG` | 전용 kubeconfig의 base64 값 |
+| Secret | `RCA_MANAGED_CANARY_PASSWORD` | Platform 관리자 비밀번호, applied canary에서만 필요 |
+| Variable | `RCA_MANAGED_CANARY_BASE_URL` | Agent 노드에서 접근 가능한 HTTPS Platform URL |
+| Variable | `RCA_MANAGED_CANARY_USERNAME` | Platform 관리자 ID, 기본값 `admin` |
+| Variable | `RCA_MANAGED_CANARY_IMAGE_REPOSITORY` | Python canary image 또는 승인된 내부 mirror |
+| Variable | `RCA_MANAGED_CANARY_IMAGE_TAG` | digest가 포함된 image tag |
+
+Kubeconfig secret은 다음과 같이 준비합니다. 명령 출력은 terminal history나 문서에 남기지 않습니다.
+
+```bash
+base64 -w 0 managed-canary.kubeconfig
+```
+
+Runner에는 `self-hosted`, `linux`, `managed-canary`, 플랫폼명(`eks`, `aks`, `gke`, `openshift`) label을 지정합니다. Environment marker가 선택 플랫폼과 다르거나 비어 있으면 workflow가 시작 단계에서 실패합니다. Kubeconfig와 Platform은 runner에서 접근 가능해야 하며, 적용형 canary에 필요한 RBAC는 사전에 최소 권한으로 부여합니다. Workflow 자체는 cloud IAM이나 SCC를 추가하지 않습니다.
+
+실행 순서:
+
+1. `apply=false`, confirmation=`PREFLIGHT-<PLATFORM>`으로 fingerprint, readiness, Helm server dry-run을 확인합니다.
+2. preflight artifact와 warning을 검토합니다.
+3. change reference를 등록하고 `apply=true`, confirmation=`RUN-<PLATFORM>-CANARY`로 승인 요청합니다.
+4. 단일 Ready node에 격리 namespace Agent를 배포하고 등록, evidence, RCA, incident, bundle 검증을 수행합니다.
+5. Helm release, namespace, Platform test cluster가 정리된 경우에만 성공합니다.
+
+업로드 artifact에는 `managed-cluster-canary/v1` attestation만 포함합니다. Node 이름, namespace, cluster ID, Platform URL, kubeconfig, evidence 원문은 업로드하지 않습니다. Attestation의 `promotion.eligible_for_manual_review=true`는 matrix 자동 변경 허가가 아닙니다. Platform owner와 security owner가 artifact를 검토한 뒤 별도 PR로 `config/platform-compatibility-matrix.json`을 수정해야 합니다.
+
 ## Output
 
 스크립트는 JSON 리포트를 생성합니다.

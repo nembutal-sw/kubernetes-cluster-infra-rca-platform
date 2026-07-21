@@ -18,7 +18,11 @@ def test_real_cluster_agent_e2e_keeps_mutations_explicit_and_owned() -> None:
         '--json "${output_dir}/evidence-bundle.zip"',
         "RCA report completed without root cause candidates",
         "never restarts, reboots, cordons, or drains a node",
-        'cleanup_state="pending"',
+        'cleanup_state="failed"',
+        'namespace_cleanup_state="pending"',
+        'helm_cleanup_state="completed"',
+        'platform_cluster_cleanup_state="completed"',
+        'exit_code=1',
         "namespace-pending.json",
     )
     for marker in required:

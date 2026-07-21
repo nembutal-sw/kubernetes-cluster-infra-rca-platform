@@ -1,0 +1,126 @@
+name: Agent Fleet Burn-in
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Long-running three-node Fleet profile."
+        required: true
+        default: "standard"
+        type: choice
+        options:
+          - "standard"
+          - "extended"
+      confirmation:
+        description: "Enter RUN-STANDARD-FLEET or RUN-EXTENDED-FLEET."
+        required: true
+        type: string
+      change_reference:
+        description: "Ticket or change reference for the runner budget."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-fleet-burn-in-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  fleet-burn-in:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    environment: ${{ inputs.profile == 'extended' && 'agent-fleet-extended' || 'agent-fleet-standard' }}
+    env:
+      FLEET_PROFILE: ${{ inputs.profile }}
+      FLEET_CONFIRMATION: ${{ inputs.confirmation }}
+      FLEET_CHANGE_REFERENCE: ${{ inputs.change_reference }}
+      FLEET_ENVIRONMENT_PROFILE: ${{ vars.RCA_AGENT_FLEET_PROFILE }}
+      KIND_CLUSTER_NAME: rca-fleet-${{ github.run_id }}
+      RCA_AGENT_SOAK_PROFILE: ${{ inputs.profile }}
+      RCA_AGENT_SOAK_MINIMUM_PODS: "3"
+      RCA_AGENT_SOAK_OUTPUT_DIR: validation-results/agent-fleet-burn-in
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate approved campaign inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${FLEET_PROFILE}" in
+            standard|extended) ;;
+            *) echo "profile must be standard or extended" >&2; exit 2 ;;
+          esac
+          if [ "${FLEET_ENVIRONMENT_PROFILE}" != "${FLEET_PROFILE}" ]; then
+            echo "the selected Environment is missing its RCA_AGENT_FLEET_PROFILE marker" >&2
+            exit 2
+          fi
+          expected="RUN-$(printf '%s' "${FLEET_PROFILE}" | tr '[:lower:]' '[:upper:]')-FLEET"
+          if [ "${FLEET_CONFIRMATION}" != "${expected}" ]; then
+            echo "confirmation must be ${expected}" >&2
+            exit 2
+          fi
+          if ! [[ "${FLEET_CHANGE_REFERENCE}" =~ ^[A-Za-z0-9._:/#-]{3,100}$ ]]; then
+            echo "change_reference contains unsupported characters" >&2
+            exit 2
+          fi
+          python3 -m py_compile scripts/agent-soak-validation.py
+          python3 scripts/release-readiness-check.py >/dev/null
+
+      - uses: helm/kind-action@v1.14.0
+        with:
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          config: config/kind-multi-node.yaml
+
+      - uses: azure/setup-helm@v5
+        with:
+          version: v3.17.3
+
+      - name: Run long-running three-node Agent Fleet validation
+        shell: bash
+        run: bash scripts/kind-smoke.sh
+
+      - name: Publish Fleet result
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("validation-results/agent-fleet-burn-in/agent-soak-summary.json")
+          output = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          if not path.exists():
+              output.write_text("## Agent Fleet Burn-in\n\nSummary was not produced.\n", encoding="utf-8")
+              raise SystemExit(0)
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          fleet = payload.get("metrics", {}).get("fleet", {})
+          variation = fleet.get("variation", {})
+          rss_spread = variation.get("rss_peak_bytes", {}).get("spread")
+          rss_mib = rss_spread / 1024 / 1024 if isinstance(rss_spread, (int, float)) else None
+          lines = [
+              "## Agent Fleet Burn-in",
+              "",
+              f"- Status: `{payload.get('status', 'unknown')}`",
+              f"- Profile: `{payload.get('profile', 'unknown')}`",
+              f"- Targets passed: `{fleet.get('passed_target_count', 0)}/{fleet.get('target_count', 0)}`",
+              f"- Iterations: `{payload.get('metrics', {}).get('iterations_completed', 0)}`",
+              f"- RSS peak spread: `{rss_mib:.2f} MiB`" if rss_mib is not None else "- RSS peak spread: `unavailable`",
+              f"- Runtime errors: `{payload.get('metrics', {}).get('runtime_observation_errors', 0)}`",
+              f"- Failures: `{len(payload.get('failures') or [])}`",
+          ]
+          output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload Fleet burn-in result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-fleet-${{ inputs.profile }}-${{ github.run_id }}
+          path: validation-results/agent-fleet-burn-in
+          if-no-files-found: warn
+          retention-days: ${{ inputs.profile == 'extended' && 90 || 30 }}

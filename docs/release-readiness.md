@@ -121,6 +121,8 @@
 - 실제 클러스터를 요구한 run에서 readiness 실패 없음
 - managed-platform canary와 LLM 표본 부족 상태가 summary에 명시됨
 - `scripts/release-readiness-check.py`의 `operational-burn-in` 검사 성공
+- 장시간 자원 기준 변경 시 승인된 `Agent Fleet Burn-in` standard 이상 통과
+- managed 지원 등급 변경 시 해당 플랫폼 applied canary attestation과 수동 검토 PR 존재
 
 LLM readiness가 `pending`인 것은 기존 SLO를 유지하는 조건에서는 경고입니다. LLM SLO 값을 변경하려면 별도 LLM burn-in gate의 표본, 시나리오, 시간 구간 조건을 모두 충족해야 합니다.
 
@@ -198,6 +200,8 @@ Node diagnostics mode:
 - node diagnostics local collect 성공
 - Kubernetes canary DaemonSet rollout 성공
 - canary evidence collection 완료
+- managed canary cleanup 완료 및 evidence bundle 검증 통과
+- managed compatibility matrix 자동 승격 없음
 - Gitleaks, Trivy, Syft SBOM, Grype scan 통과
 - 검증 중 발견된 누락은 테스트로 고정
 

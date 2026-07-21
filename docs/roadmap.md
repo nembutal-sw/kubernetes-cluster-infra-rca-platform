@@ -376,6 +376,27 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 
 남은 표본은 다중 노드 standard/extended, 24시간 production, EKS/AKS/GKE/OpenShift real canary입니다.
 
+## Phase 20. Long-Running Fleet and Managed Canary Pipeline
+
+구현 완료:
+
+- push CI의 3노드 smoke와 분리된 승인형 standard/extended Fleet workflow
+- profile별 확인 문자열, change reference, Environment 승인, artifact 보존 정책
+- EKS/AKS/GKE/OpenShift별 Environment와 runner label을 사용하는 managed canary workflow
+- environment-scoped 임시 kubeconfig와 job 종료 시 private material 정리
+- 예상 플랫폼과 실제 fingerprint 불일치 차단
+- applied canary의 namespace/Helm/Platform test cluster cleanup gate
+- evidence bundle 검증과 `managed-cluster-canary/v1` 비식별 attestation
+- compatibility matrix 자동 승격 금지와 owner 수동 검토 계약
+- release-readiness 정적 gate와 회귀 테스트
+
+실표본 순서:
+
+1. 3노드 Kind standard 1시간 campaign
+2. standard 검토 후 extended 5시간 campaign
+3. EKS, AKS, GKE, OpenShift 순으로 preflight와 applied canary
+4. 플랫폼별 승인 PR로 compatibility matrix profile 추가
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.
