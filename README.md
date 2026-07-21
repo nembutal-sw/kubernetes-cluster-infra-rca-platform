@@ -62,7 +62,7 @@ Ubuntu 24.04 amd64, Kubernetes 1.33.13, containerd, Flannel 조합에서 검증�
 
 실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)을 참고합니다.
 
-현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했습니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
+현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했고 K3s에서는 Agent Pod runtime을 포함한 1시간 standard burn-in을 통과했습니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
 
 ## Quick Start
 

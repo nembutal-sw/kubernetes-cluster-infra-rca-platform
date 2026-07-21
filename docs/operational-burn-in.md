@@ -118,3 +118,17 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 ## Last Verified Smoke
 
 2026-07-21 workflow run `29803718643`에서 14개 collector의 3회 수집, evidence 품질 100%, K3s readiness를 확인했습니다. 당시 runner 권한 경계 때문에 Agent 런타임 추세는 측정하지 못했으며, 현재 workflow는 이 항목을 Pod 내부 read-only 관측으로 필수 검증합니다.
+
+## Last Verified Standard
+
+2026-07-21 workflow run `29806950288`에서 openSUSE K3s 단일 노드 Agent의 1시간 `standard` profile을 통과했습니다.
+
+- 60/60회 수집 성공, evidence 품질 100%, degraded collector 0%
+- 수집 p95 0.645초, 최대 payload 98,849 bytes
+- RSS 44.38 MiB에서 50.62 MiB, 최대 증가 6.24 MiB
+- CPU p95 0.34%, FD 증가 1, thread 증가 0
+- process identity 안정, runtime 관측 오류 0
+- spool은 60회 중 한 번만 1개/70.24 KiB였고 다음 표본에서 0으로 회복
+- quarantine 파일 0
+
+이 결과는 K3s 단일 노드 기준선입니다. 플랫폼과 노드 수가 다른 환경의 표본 없이 공통 threshold를 낮추지 않습니다.

@@ -343,11 +343,23 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 - 수동 host PID 입력을 제거한 Operational Burn-in CI/CD 경로
 - 다중 Agent Pod 환경에서 임의 선택을 금지하는 안전 gate
 
-다음 운영 표본:
+운영 표본 진행 상황:
 
-1. K3s 단일 노드에서 Pod runtime smoke 통과
-2. 대상 Pod를 지정한 1시간 standard profile 통과
-3. 다중 노드별 standard 결과를 모아 fleet 기준선 확정
+1. 완료: K3s 단일 노드 Pod runtime smoke
+2. 완료: K3s 단일 노드 1시간 standard profile
+3. 대기: 다중 노드별 standard 결과를 모은 fleet 기준선
+
+## Phase 18. One-Hour Agent Standard Baseline
+
+구현 및 검증 완료:
+
+- self-hosted `rca-demo` runner에서 `standard` profile 60회 완료
+- 수집 성공률과 evidence 품질 100%, degraded collector 0%
+- Agent RSS 증가 6.24 MiB, CPU p95 0.34%, FD 증가 1, thread 증가 0
+- process identity 안정, runtime 관측 오류와 quarantine 0
+- 일시 spool 1건이 다음 표본에서 해소되는 것 확인
+
+Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 threshold 조정은 다중 노드와 추가 플랫폼 표본을 확보한 뒤 진행합니다.
 
 ## Positioning
 
