@@ -319,6 +319,8 @@ GitHub Actions에서는 `LLM Burn-in` workflow를 사용합니다. 최초에는 
 ```bash
 python3 scripts/agent-soak-validation.py \
   --profile smoke \
+  --discover-agent-pod \
+  --require-runtime-observation \
   --output-dir validation-results/operational-burn-in/agent-soak
 ```
 

@@ -115,8 +115,8 @@
 
 - `scripts/agent-soak-validation.py` 결과 `passed`
 - collector schema와 evidence quality threshold 충족
-- Agent PID를 지정한 경우 RSS, p95 CPU, FD, thread 증가량 충족
-- state directory를 지정한 경우 spool, quarantine threshold 충족
+- Agent Pod의 RSS, p95 CPU, FD, thread 증가량과 프로세스 identity 안정성 충족
+- Agent Pod state directory의 spool, quarantine threshold 충족
 - 실제 클러스터를 요구한 run에서 readiness 실패 없음
 - managed-platform canary와 LLM 표본 부족 상태가 summary에 명시됨
 - `scripts/release-readiness-check.py`의 `operational-burn-in` 검사 성공

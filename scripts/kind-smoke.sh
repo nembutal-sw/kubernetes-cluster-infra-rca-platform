@@ -115,5 +115,13 @@ test "$("${curl_command[@]}" \
   -H "Authorization: Bearer ${access_token}" \
   "http://127.0.0.1:${port}/api/rca/incidents" | jq length)" -gt 0
 
+python3 scripts/agent-soak-validation.py \
+  --profile smoke \
+  --collectors node,disk,inode,memory,process \
+  --discover-agent-pod \
+  --require-runtime-observation \
+  --health-url "http://127.0.0.1:${port}/health/ready" \
+  --output-dir validation-results/kind-agent-runtime
+
 test_succeeded="true"
-echo "Kind platform, DaemonSet Agent, evidence, incident, and RCA report smoke test passed."
+echo "Kind platform, DaemonSet Agent runtime, evidence, incident, and RCA report smoke test passed."

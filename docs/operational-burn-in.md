@@ -1,91 +1,76 @@
 # Operational Burn-in
 
-운영 규모 검증은 한 번의 성공 여부보다 반복 수집의 안정성, evidence 품질, 자원 증가 추세를 함께 봐야 합니다. 이 검증 묶음은 다음 결과를 하나의 summary로 합칩니다.
-
-- Node Agent 반복 로컬 수집
-- collector 누락, schema 오류, degraded 비율
-- 수집 성공률, p50/p95 지연, 최대 payload 크기
-- 선택한 Agent PID의 RSS, file descriptor, thread 증가량과 p95 CPU 사용률
-- 선택한 Agent state directory의 spool, quarantine 증가량
-- 실제 Kubernetes 클러스터의 read-only readiness와 compatibility fingerprint
-- 플랫폼별 real E2E coverage와 managed canary 공백
-- provider를 호출하지 않는 LLM burn-in readiness 상태
-
-모든 기본 경로는 read-only입니다. Agent 조치 실행, `kubectl apply/delete`, node restart, LLM provider 호출을 수행하지 않습니다. 원본 evidence는 기본적으로 임시 디렉터리에서 삭제하고, checkpoint에는 상태와 수치만 기록합니다.
+운영 환경에서 Agent 수집 품질과 장시간 안정성을 반복 검증하는 절차입니다. Kubernetes readiness, 플랫폼 호환성, LLM readiness를 하나의 결과물로 묶되 클러스터 리소스를 변경하거나 LLM provider를 호출하지 않습니다.
 
 ## Profiles
 
-| Profile | 반복 | 시작 간격 | 용도 |
+| Profile | 반복 | 간격 | 용도 |
 | --- | ---: | ---: | --- |
 | `smoke` | 3 | 1초 | 설치와 계약 확인 |
 | `standard` | 60 | 60초 | 1시간 운영 표본 |
-| `extended` | 300 | 60초 | 5시간 Actions 상한 내 표본 |
-| `production` | 1,440 | 60초 | 24시간 로컬 운영 검증 |
+| `extended` | 300 | 60초 | 5시간 Actions 표본 |
+| `production` | 1,440 | 60초 | 24시간 별도 운영 검증 |
 
-임계값은 [agent-soak-thresholds.json](../config/agent-soak-thresholds.json)에서 관리합니다. CLI의 `--iterations`, `--interval-seconds`는 짧은 재현과 테스트에만 사용하고, 승인된 운영 기준은 config 변경과 코드 리뷰로 남깁니다.
+임계값은 [agent-soak-thresholds.json](../config/agent-soak-thresholds.json)에서 관리합니다. 운영 기준 변경은 CLI override보다 config 변경과 코드 리뷰를 사용합니다.
 
-## Quick Smoke
+## Kubernetes Agent Observation
 
-Linux 노드의 저장소 루트에서 실행합니다.
+권장 방식은 Ready 상태의 DaemonSet Pod 안에서 Agent 프로세스와 spool 수치만 읽는 것입니다.
 
 ```bash
 python3 scripts/agent-soak-validation.py \
   --profile smoke \
+  --discover-agent-pod \
+  --require-runtime-observation \
+  --health-url http://127.0.0.1:18081/health/ready \
   --output-dir validation-results/operational-burn-in/agent-soak
 ```
 
-결과:
+자동 탐색은 고정된 `app.kubernetes.io/part-of=cluster-infra-rca` label과 `agent` 컨테이너의 Ready 상태를 함께 확인합니다. Ready Agent Pod가 둘 이상이면 임의로 선택하지 않으므로 대상을 지정해야 합니다.
 
-```text
-validation-results/operational-burn-in/agent-soak/
-  agent-soak-checkpoints.jsonl
-  agent-soak-summary.json
+```bash
+python3 scripts/agent-soak-validation.py \
+  --profile standard \
+  --agent-pod rca-system/cluster-rca-agent-abc12 \
+  --agent-container agent \
+  --kubectl-context operations \
+  --require-runtime-observation \
+  --output-dir validation-results/operational-burn-in/agent-soak
 ```
 
-`agent-soak-checkpoints.jsonl`은 매 반복 후 flush와 `fsync`를 수행하므로 중간 종료 시점까지의 기록을 유지합니다.
+관측 항목:
 
-## Long-Running Agent Observation
+- Agent RSS, CPU, file descriptor, thread 추세
+- 프로세스 시작 tick을 이용한 재시작 감지
+- spool 파일 수와 크기, quarantine 파일 수
+- 반복 수집 성공률, evidence schema 품질, degraded collector 비율
+- 수집 p50/p95 지연과 최대 payload 크기
 
-DaemonSet Agent 프로세스의 host PID와 state directory를 알고 있을 때 자원과 spool 추세를 같이 측정합니다.
+`kubectl exec`는 저장소에 고정된 Python 관측 코드만 실행합니다. 사용자 입력 명령, shell, spool 본문, 환경변수 값은 실행하거나 결과에 기록하지 않습니다. 실행 계정에는 대상 Pod의 `get/list`와 `pods/exec` 권한이 필요합니다.
+
+## Local Process Fallback
+
+Kubernetes 밖에서 Agent를 직접 실행한 경우에만 PID와 state directory를 지정합니다.
 
 ```bash
 python3 scripts/agent-soak-validation.py \
   --profile standard \
   --agent-pid 12345 \
   --state-dir /var/lib/cluster-infra-rca-agent \
-  --health-url http://127.0.0.1:8080/health/ready \
+  --require-runtime-observation \
   --output-dir validation-results/operational-burn-in/agent-soak
 ```
 
-- `--agent-pid`를 생략하면 수집 품질과 지연은 판정하지만 RSS/CPU/FD/thread는 `not measured` 경고로 남습니다.
-- `--state-dir`를 생략하면 spool/quarantine은 `not measured` 경고로 남습니다.
-- health URL에는 credential, query string, fragment를 넣을 수 없습니다.
-- `--retain-evidence`는 host 정보가 포함된 원본을 보존하므로 제한된 검증 디렉터리에서만 사용합니다.
+Pod 관측 옵션과 로컬 PID/state 옵션은 함께 사용할 수 없습니다.
 
-24시간 profile은 GitHub Actions job 시간 제한 밖이므로 승인된 Linux 노드의 `tmux` 같은 운영 세션에서 실행합니다.
-
-```bash
-python3 scripts/agent-soak-validation.py \
-  --profile production \
-  --agent-pid 12345 \
-  --state-dir /var/lib/cluster-infra-rca-agent \
-  --output-dir validation-results/operational-burn-in/production-24h
-```
-
-## Integrated Local Summary
-
-실제 클러스터 readiness는 Kubernetes 리소스를 생성하거나 변경하지 않습니다. Helm server dry-run도 영구 리소스를 남기지 않습니다.
+## Integrated Summary
 
 ```bash
 python3 scripts/real-cluster-readiness-check.py \
   --agent-local \
   --agent-output validation-results/operational-burn-in/real-cluster-agent-evidence.json \
   --output validation-results/operational-burn-in/real-cluster-readiness.json
-```
 
-LLM 상태는 기존 cumulative history만 읽고 provider를 호출하지 않는 `--provider-call-budget 0 --dry-run` 결과를 사용합니다. 이후 통합 summary를 생성합니다.
-
-```bash
 python3 scripts/operational-burn-in-summary.py \
   --agent-soak validation-results/operational-burn-in/agent-soak/agent-soak-summary.json \
   --real-cluster validation-results/operational-burn-in/real-cluster-readiness.json \
@@ -95,43 +80,41 @@ python3 scripts/operational-burn-in-summary.py \
   --markdown-output validation-results/operational-burn-in/operational-burn-in-summary.md
 ```
 
-LLM 표본 부족과 managed-platform canary 미완료는 숨기지 않고 `warning`과 `next_actions`로 남깁니다. Agent soak 또는 필수 real-cluster 검증 실패는 전체 결과를 `failed`로 만듭니다.
+결과 경로:
+
+```text
+validation-results/operational-burn-in/
+  agent-soak/agent-soak-checkpoints.jsonl
+  agent-soak/agent-soak-summary.json
+  real-cluster-readiness.json
+  llm-status/campaign-summary.json
+  operational-burn-in-summary.json
+  operational-burn-in-summary.md
+```
+
+원본 evidence는 기본적으로 임시 디렉터리에서 삭제합니다. `--retain-evidence`는 제한된 검증 디렉터리에서만 사용해야 합니다.
 
 ## GitHub Actions
 
-수동 `Operational Burn-in` workflow는 전용 `rca-demo` self-hosted runner에서 실행합니다.
+수동 `Operational Burn-in` workflow는 `rca-demo` self-hosted runner에서 실행합니다.
 
-1. 첫 실행은 `profile=smoke`를 선택합니다.
-2. `include_real_cluster=true`로 현재 kubeconfig의 read-only readiness를 포함합니다.
-3. 필요하면 `agent_pid`, `agent_state_dir`, `platform_base_url`을 지정합니다.
-4. smoke 통과 후 `standard`, 이후 `extended` 순서로 확장합니다.
-5. 결과 artifact의 JSON summary와 checkpoint를 검토합니다.
+1. `profile=smoke`, `include_real_cluster=true`로 시작합니다. Agent Pod runtime 관측은 항상 필수입니다.
+2. Agent Pod가 하나면 자동 탐색하고, 여러 노드라면 `agent_pod=namespace/name`을 지정합니다.
+3. smoke 통과 후 `standard`, `extended` 순서로 확장합니다.
+4. 24시간 `production` profile은 Actions 시간 제한 밖의 승인된 Linux 세션에서 실행합니다.
 
-Workflow는 `RCA_LLM_BURN_IN_HISTORY_RUN_ID`의 canonical artifact를 읽어 LLM readiness를 표시하지만 provider 호출 예산은 항상 0입니다. 실제 LLM 표본 수집은 별도 승인형 `LLM Burn-in` workflow에서만 수행합니다.
-
-Artifact에는 원본 반복 evidence와 LLM history를 넣지 않습니다. 다만 readiness report에는 redacted node 이름, cluster 구조, runtime/CNI 정보가 포함될 수 있으므로 repository와 Actions artifact 접근 권한을 운영 로그 수준으로 제한합니다. 다운로드한 LLM history는 runner 임시 경로에서 사용한 뒤 job 종료 시 삭제합니다.
-
-## Last Verified Smoke
-
-2026-07-21 수동 workflow run `29803718643`에서 openSUSE K3s self-hosted 환경을 검증했습니다.
-
-- Agent collector 14종, 3/3회 수집 성공
-- evidence quality 100%, degraded collector 0%
-- 수집 p95 0.630초, 최대 payload 91,130 bytes
-- platform readiness probe 3/3회 성공
-- K3s amd64, containerd, Flannel 조합 `verified_real`
-- node 1개와 pod 4개 정상, unhealthy pod 0개
-- LLM provider 호출 0회, readiness `1/20` samples, `1/5` scenarios, `1/3` time buckets
-
-해당 runner에는 Helm이 설치되어 있지 않아 smoke에서 Helm 검사는 명시적으로 생략했습니다. Agent 프로세스는 root/container 경계 밖의 runner 계정에서 관찰할 수 없어 RSS/CPU/FD/thread와 state spool 추세는 다음 `standard` 검증의 남은 항목입니다.
+Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM history artifact는 상태 계산에만 사용하고 self-hosted runner 임시 경로에서 job 종료 시 삭제합니다. Actions artifact에는 원본 반복 evidence를 포함하지 않습니다.
 
 ## Acceptance
 
-- 모든 반복에서 요청 collector와 `collector-evidence/v1` schema가 존재
-- profile별 collection/evidence/health 성공률 충족
-- degraded collector 비율과 p95 지연이 임계값 이하
-- payload가 Agent 8 MiB 기본 한도 이하
-- 관찰 대상 Agent의 RSS, FD, thread 증가량과 p95 CPU 사용률이 임계값 이하
-- spool과 quarantine 증가량이 임계값 이하
+- 요청한 collector가 모든 반복에서 `collector-evidence/v1` schema를 반환
+- collection, evidence, health 성공률이 profile 기준 이상
+- degraded 비율, p95 지연, payload가 임계값 이하
+- Agent 프로세스 재시작 없음
+- RSS, CPU, FD, thread 증가가 임계값 이하
+- spool과 quarantine 증가가 임계값 이하
 - 실제 클러스터 readiness 실패 없음
-- LLM readiness와 managed canary 미완료 상태가 summary에 명시됨
+
+## Last Verified Smoke
+
+2026-07-21 workflow run `29803718643`에서 14개 collector의 3회 수집, evidence 품질 100%, K3s readiness를 확인했습니다. 당시 runner 권한 경계 때문에 Agent 런타임 추세는 측정하지 못했으며, 현재 workflow는 이 항목을 Pod 내부 read-only 관측으로 필수 검증합니다.

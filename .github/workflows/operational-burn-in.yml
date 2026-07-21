@@ -30,13 +30,14 @@ on:
         description: "Optional platform URL for /health/ready probes. Defaults to RCA_SMOKE_BASE_URL."
         required: false
         type: string
-      agent_pid:
-        description: "Optional long-running Node Agent PID for RSS, FD, and thread trend checks."
+      agent_pod:
+        description: "Optional namespace/name target. Automatic discovery requires exactly one Ready Agent Pod."
         required: false
         type: string
-      agent_state_dir:
-        description: "Optional Node Agent state directory for spool trend checks."
-        required: false
+      agent_container:
+        description: "Agent container name."
+        required: true
+        default: "agent"
         type: string
       history_run_id:
         description: "Canonical LLM burn-in run ID. Defaults to RCA_LLM_BURN_IN_HISTORY_RUN_ID."
@@ -61,8 +62,8 @@ jobs:
       BURN_IN_INCLUDE_REAL_CLUSTER: ${{ inputs.include_real_cluster }}
       BURN_IN_SKIP_HELM: ${{ inputs.skip_helm }}
       BURN_IN_PLATFORM_BASE_URL: ${{ inputs.platform_base_url || vars.RCA_SMOKE_BASE_URL }}
-      BURN_IN_AGENT_PID: ${{ inputs.agent_pid }}
-      BURN_IN_AGENT_STATE_DIR: ${{ inputs.agent_state_dir }}
+      BURN_IN_AGENT_POD: ${{ inputs.agent_pod }}
+      BURN_IN_AGENT_CONTAINER: ${{ inputs.agent_container }}
       BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id || vars.RCA_LLM_BURN_IN_HISTORY_RUN_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -82,10 +83,6 @@ jobs:
             smoke|standard|extended) ;;
             *) echo "profile must be smoke, standard, or extended" >&2; exit 2 ;;
           esac
-          if [ -n "${BURN_IN_AGENT_PID}" ] && ! [[ "${BURN_IN_AGENT_PID}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "agent_pid must be a positive integer" >&2
-            exit 2
-          fi
           if [ -n "${BURN_IN_HISTORY_RUN_ID}" ] && ! [[ "${BURN_IN_HISTORY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
             echo "history_run_id must be a numeric GitHub Actions run ID" >&2
             exit 2
@@ -137,12 +134,16 @@ jobs:
           args=(
             --profile "${BURN_IN_PROFILE}"
             --output-dir validation-results/operational-burn-in/agent-soak
+            --agent-container "${BURN_IN_AGENT_CONTAINER}"
+            --require-runtime-observation
           )
-          if [ -n "${BURN_IN_AGENT_PID}" ]; then
-            args+=(--agent-pid "${BURN_IN_AGENT_PID}")
+          if [ -n "${BURN_IN_KUBECTL_CONTEXT}" ]; then
+            args+=(--kubectl-context "${BURN_IN_KUBECTL_CONTEXT}")
           fi
-          if [ -n "${BURN_IN_AGENT_STATE_DIR}" ]; then
-            args+=(--state-dir "${BURN_IN_AGENT_STATE_DIR}")
+          if [ -n "${BURN_IN_AGENT_POD}" ]; then
+            args+=(--agent-pod "${BURN_IN_AGENT_POD}")
+          else
+            args+=(--discover-agent-pod)
           fi
           if [ -n "${BURN_IN_PLATFORM_BASE_URL}" ]; then
             args+=(--health-url "${BURN_IN_PLATFORM_BASE_URL%/}/health/ready")

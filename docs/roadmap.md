@@ -318,19 +318,36 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 
 - Agent 반복 로컬 수집 checkpoint와 atomic summary
 - collector 누락/schema/degraded 비율과 p50/p95/payload threshold
-- 선택형 Agent PID RSS/p95 CPU/FD/thread와 state spool/quarantine 추세
+- Agent Pod RSS/p95 CPU/FD/thread, process identity와 state spool/quarantine 추세
 - real-cluster readiness, platform matrix, LLM readiness 통합 summary
 - provider 호출 예산 0인 수동 self-hosted `Operational Burn-in` workflow
 - smoke/1시간/5시간/24시간 profile과 release static gate
 
 실환경 표본 대기:
 
-1. Agent PID와 state directory를 포함한 1시간 standard profile 통과
+1. Agent Pod runtime 관측을 포함한 1시간 standard profile 통과
 2. 5시간 extended와 별도 24시간 production profile 표본 확보
 3. EKS, AKS, GKE, OpenShift real Agent canary 수행
 4. 승인된 새 시간 구간에서 canonical LLM readiness 표본 확장
 
 2026-07-21 `rca-demo` workflow run `29803718643`에서 smoke profile을 통과했습니다. 14개 collector를 3회 수집해 성공률과 evidence quality가 100%였고 degraded collector는 없었습니다. 수집 p95는 0.630초, 최대 payload는 91,130 bytes였습니다. openSUSE K3s amd64/containerd/Flannel cluster는 `verified_real`, node 1개와 pod 4개는 모두 정상으로 확인했습니다. LLM은 provider 호출 없이 canonical readiness `1/20`, `1/5`, `1/3`을 유지했습니다. Runner 권한 경계로 Agent PID와 state directory를 관찰하지 못했으므로 장시간 자원과 spool 추세는 완료로 표시하지 않습니다.
+
+## Phase 17. DaemonSet Agent Runtime Observation
+
+구현 완료:
+
+- Ready Agent Pod 단일 자동 탐색과 명시적 `namespace/name` 대상 지정
+- 고정된 read-only `kubectl exec` 관측 코드
+- Agent RSS, CPU, FD, thread, 프로세스 재시작 추세 검증
+- spool 파일 수/크기와 quarantine 증가 검증
+- 수동 host PID 입력을 제거한 Operational Burn-in CI/CD 경로
+- 다중 Agent Pod 환경에서 임의 선택을 금지하는 안전 gate
+
+다음 운영 표본:
+
+1. K3s 단일 노드에서 Pod runtime smoke 통과
+2. 대상 Pod를 지정한 1시간 standard profile 통과
+3. 다중 노드별 standard 결과를 모아 fleet 기준선 확정
 
 ## Positioning
 

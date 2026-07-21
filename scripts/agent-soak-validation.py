@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,77 @@ EVIDENCE_SCHEMA_VERSION = "collector-evidence/v1"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "config" / "agent-soak-thresholds.json"
 DEGRADED_STATUSES = {"disabled", "error", "failed", "unsupported"}
+AGENT_POD_SELECTOR = "app.kubernetes.io/part-of=cluster-infra-rca"
+KUBERNETES_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
+KUBERNETES_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$")
+POD_RUNTIME_SCRIPT = r"""
+import json
+import os
+import time
+from pathlib import Path
+
+
+def agent_pid():
+    matches = []
+    current_cgroup = Path("/proc/self/cgroup").read_text(encoding="utf-8", errors="replace")
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            arguments = [part for part in (entry / "cmdline").read_bytes().split(b"\0") if part]
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        try:
+            process_cgroup = (entry / "cgroup").read_text(encoding="utf-8", errors="replace")
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if process_cgroup != current_cgroup:
+            continue
+        if any(
+            arguments[index] == b"-m" and arguments[index + 1] == b"node_agent.main"
+            for index in range(len(arguments) - 1)
+        ):
+            matches.append(int(entry.name))
+    if len(matches) != 1:
+        raise SystemExit("expected exactly one Node Agent process")
+    return matches[0]
+
+
+pid = agent_pid()
+proc = Path("/proc") / str(pid)
+status = {}
+for line in (proc / "status").read_text(encoding="utf-8", errors="replace").splitlines():
+    if ":" in line:
+        key, value = line.split(":", 1)
+        status[key] = value.strip()
+stat_text = (proc / "stat").read_text(encoding="utf-8", errors="replace")
+stat_fields = stat_text[stat_text.rfind(")") + 2 :].split()
+rss_kb = int((status.get("VmRSS") or "0 kB").split()[0])
+clock_ticks = os.sysconf("SC_CLK_TCK")
+
+state_dir = Path(os.environ.get("AGENT_STATE_DIR", "/var/lib/cluster-infra-rca-agent"))
+if not state_dir.is_dir():
+    raise SystemExit("Agent state directory is unavailable")
+spool_dir = state_dir / "spool"
+pending = list(spool_dir.glob("*.json")) if spool_dir.is_dir() else []
+quarantine = list(spool_dir.glob("*.invalid")) if spool_dir.is_dir() else []
+
+print(json.dumps({
+    "process": {
+        "rss_bytes": rss_kb * 1024,
+        "fd_count": sum(1 for _ in (proc / "fd").iterdir()),
+        "thread_count": sum(1 for _ in (proc / "task").iterdir()),
+        "cpu_seconds": (int(stat_fields[11]) + int(stat_fields[12])) / clock_ticks,
+        "sampled_at_monotonic": time.monotonic(),
+        "process_start_ticks": int(stat_fields[19]),
+    },
+    "spool": {
+        "pending_files": len(pending),
+        "pending_bytes": sum(path.stat().st_size for path in pending),
+        "quarantine_files": len(quarantine),
+    },
+}, separators=(",", ":")))
+""".strip()
 REQUIRED_PROFILE_KEYS = {
     "iterations",
     "interval_seconds",
@@ -64,6 +136,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-seconds", type=float, help="Interval override between iteration start times.")
     parser.add_argument("--agent-pid", type=int, help="Optional long-running Agent PID observed through /proc.")
     parser.add_argument("--state-dir", type=Path, help="Optional Agent state directory used for spool checks.")
+    parser.add_argument(
+        "--agent-pod",
+        default="",
+        help="Optional Agent Pod target in namespace/name form for read-only process and spool observation.",
+    )
+    parser.add_argument(
+        "--discover-agent-pod",
+        action="store_true",
+        help="Discover exactly one Ready Agent Pod using the chart's stable application label.",
+    )
+    parser.add_argument("--agent-container", default="agent", help="Agent container name used by kubectl exec.")
+    parser.add_argument("--kubectl-context", default="", help="Optional kubectl context for Agent Pod observation.")
+    parser.add_argument(
+        "--require-runtime-observation",
+        action="store_true",
+        help="Fail when process or spool observations are unavailable.",
+    )
     parser.add_argument("--health-url", default="", help="Optional unauthenticated HTTP(S) health endpoint.")
     parser.add_argument(
         "--retain-evidence",
@@ -147,6 +236,191 @@ def validate_health_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def validate_kubernetes_label(value: str, field: str) -> str:
+    if not value or len(value) > 63 or not KUBERNETES_LABEL_RE.fullmatch(value):
+        raise ValueError(f"{field} must be a valid Kubernetes DNS label")
+    return value
+
+
+def parse_agent_pod(value: str) -> tuple[str, str]:
+    parts = value.split("/")
+    if len(parts) != 2:
+        raise ValueError("agent Pod must use namespace/name form")
+    namespace, name = parts
+    validate_kubernetes_label(namespace, "agent Pod namespace")
+    labels = name.split(".")
+    if (
+        not name
+        or len(name) > 253
+        or not KUBERNETES_SUBDOMAIN_RE.fullmatch(name)
+        or any(len(label) > 63 or not KUBERNETES_LABEL_RE.fullmatch(label) for label in labels)
+    ):
+        raise ValueError("agent Pod name must be a valid Kubernetes DNS subdomain")
+    return namespace, name
+
+
+def validate_kubectl_context(value: str) -> str:
+    if len(value) > 253 or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("kubectl context contains unsupported characters")
+    return value
+
+
+def kubectl_prefix(context: str) -> list[str]:
+    command = ["kubectl", "--request-timeout=10s"]
+    if context:
+        command.extend(["--context", context])
+    return command
+
+
+def discover_agent_pod(context: str, container: str, timeout_seconds: float) -> tuple[str | None, str | None]:
+    command = kubectl_prefix(context) + [
+        "get",
+        "pods",
+        "--all-namespaces",
+        "--selector",
+        AGENT_POD_SELECTOR,
+        "--output",
+        "json",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=min(max(timeout_seconds, 1.0), 15.0),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "Agent Pod discovery timed out"
+    except (FileNotFoundError, OSError):
+        return None, "kubectl is unavailable for Agent Pod discovery"
+    if completed.returncode != 0:
+        return None, f"Agent Pod discovery exited with status {completed.returncode}"
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None, "Agent Pod discovery returned invalid JSON"
+    candidates = []
+    for item in payload.get("items", []) if isinstance(payload, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata") or {}
+        status = item.get("status") or {}
+        if not isinstance(metadata, dict) or not isinstance(status, dict):
+            continue
+        namespace = metadata.get("namespace")
+        name = metadata.get("name")
+        conditions = status.get("conditions") or []
+        container_statuses = status.get("containerStatuses") or []
+        if not isinstance(conditions, list) or not isinstance(container_statuses, list):
+            continue
+        pod_ready = any(
+            condition.get("type") == "Ready" and condition.get("status") == "True"
+            for condition in conditions
+            if isinstance(condition, dict)
+        )
+        container_ready = any(
+            entry.get("name") == container and entry.get("ready") is True
+            for entry in container_statuses
+            if isinstance(entry, dict)
+        )
+        if status.get("phase") == "Running" and pod_ready and container_ready:
+            try:
+                parse_agent_pod(f"{namespace}/{name}")
+            except ValueError:
+                continue
+            candidates.append(f"{namespace}/{name}")
+    candidates = sorted(set(candidates))
+    if not candidates:
+        return None, "no Ready Agent Pod was discovered"
+    if len(candidates) > 1:
+        return None, "multiple Ready Agent Pods were discovered; specify --agent-pod"
+    return candidates[0], None
+
+
+def _non_negative_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
+
+
+def validate_runtime_snapshot(payload: Any) -> tuple[dict[str, int | float], dict[str, int]] | None:
+    if not isinstance(payload, dict):
+        return None
+    process = payload.get("process")
+    spool = payload.get("spool")
+    process_keys = {
+        "rss_bytes",
+        "fd_count",
+        "thread_count",
+        "cpu_seconds",
+        "sampled_at_monotonic",
+        "process_start_ticks",
+    }
+    spool_keys = {"pending_files", "pending_bytes", "quarantine_files"}
+    if not isinstance(process, dict) or not isinstance(spool, dict):
+        return None
+    if any(not _non_negative_number(process.get(key)) for key in process_keys):
+        return None
+    if any(
+        not isinstance(spool.get(key), int) or isinstance(spool.get(key), bool) or spool[key] < 0
+        for key in spool_keys
+    ):
+        return None
+    normalized_process = {key: process[key] for key in process_keys}
+    normalized_spool = {key: spool[key] for key in spool_keys}
+    return normalized_process, normalized_spool
+
+
+def pod_runtime_snapshot(
+    agent_pod: str,
+    container: str,
+    context: str,
+    timeout_seconds: float,
+) -> tuple[dict[str, int | float] | None, dict[str, int] | None, str | None]:
+    namespace, pod_name = parse_agent_pod(agent_pod)
+    command = kubectl_prefix(context) + [
+        "exec",
+        "--namespace",
+        namespace,
+        pod_name,
+        "--container",
+        container,
+        "--",
+        "python",
+        "-c",
+        POD_RUNTIME_SCRIPT,
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=min(max(timeout_seconds, 1.0), 15.0),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, None, "Agent Pod runtime snapshot timed out"
+    except (FileNotFoundError, OSError):
+        return None, None, "kubectl is unavailable for Agent Pod runtime observation"
+    if completed.returncode != 0:
+        return None, None, f"Agent Pod runtime snapshot exited with status {completed.returncode}"
+    try:
+        validated = validate_runtime_snapshot(json.loads(completed.stdout))
+    except json.JSONDecodeError:
+        validated = None
+    if validated is None:
+        return None, None, "Agent Pod runtime snapshot returned invalid JSON"
+    return validated[0], validated[1], None
+
+
 def process_snapshot(pid: int | None) -> dict[str, int | float] | None:
     if pid is None or os.name != "posix":
         return None
@@ -167,6 +441,7 @@ def process_snapshot(pid: int | None) -> dict[str, int | float] | None:
             "thread_count": sum(1 for _ in (proc / "task").iterdir()),
             "cpu_seconds": (int(stat_fields[11]) + int(stat_fields[12])) / clock_ticks,
             "sampled_at_monotonic": time.monotonic(),
+            "process_start_ticks": int(stat_fields[19]),
         }
     except (FileNotFoundError, PermissionError, OSError, ValueError, IndexError):
         return None
@@ -342,6 +617,8 @@ def build_summary(
     process_configured: bool,
     spool_configured: bool,
     interrupted: bool,
+    runtime_observation_required: bool = False,
+    runtime_observation_source: str = "none",
 ) -> dict[str, Any]:
     total = len(checkpoints)
     successes = sum(bool(item.get("success")) for item in checkpoints)
@@ -356,6 +633,12 @@ def build_summary(
     fds = resource_trend(checkpoints, "fd_count")
     threads = resource_trend(checkpoints, "thread_count")
     cpu = cpu_usage_metrics(checkpoints)
+    process_start_ticks = [
+        int(item["process"]["process_start_ticks"])
+        for item in checkpoints
+        if isinstance(item.get("process"), dict) and "process_start_ticks" in item["process"]
+    ]
+    runtime_observation_errors = sum(bool(item.get("runtime_observation_error")) for item in checkpoints)
     metrics = {
         "iterations_completed": total,
         "iterations_target": int(profile["iterations"]),
@@ -372,12 +655,22 @@ def build_summary(
         "health_probe_success_rate": (
             sum(bool(value) for value in health_values) / len(health_values) if health_values else None
         ),
-        "process": {"rss_bytes": rss, "fd_count": fds, "thread_count": threads, "cpu_percent": cpu},
+        "process": {
+            "rss_bytes": rss,
+            "fd_count": fds,
+            "thread_count": threads,
+            "cpu_percent": cpu,
+            "identity": {
+                "sample_count": len(process_start_ticks),
+                "stable": len(process_start_ticks) == total and len(set(process_start_ticks)) == 1,
+            },
+        },
         "spool": {
             "maximum_pending_files": max((item["pending_files"] for item in spool_values), default=None),
             "maximum_pending_bytes": max((item["pending_bytes"] for item in spool_values), default=None),
             "maximum_quarantine_files": max((item["quarantine_files"] for item in spool_values), default=None),
         },
+        "runtime_observation_errors": runtime_observation_errors,
     }
     failures = []
     warnings = []
@@ -410,10 +703,13 @@ def build_summary(
             or threads["sample_count"] != total
             or cpu is None
             or cpu["sample_count"] != total - 1
+            or len(process_start_ticks) != total
             or total < 2
         ):
-            failures.append("configured Agent PID could not be observed for every iteration")
+            failures.append("configured Agent process could not be observed for every iteration")
         else:
+            if len(set(process_start_ticks)) != 1:
+                failures.append("Agent process restarted during validation")
             if rss["growth"] > float(profile["maximum_rss_growth_mb"]) * 1024 * 1024:
                 failures.append("Agent RSS growth exceeds threshold")
             if cpu["p95"] > float(profile["maximum_p95_cpu_percent"]):
@@ -423,7 +719,8 @@ def build_summary(
             if threads["growth"] > int(profile["maximum_thread_growth"]):
                 failures.append("Agent thread growth exceeds threshold")
     else:
-        warnings.append("Agent PID was not provided; long-running process RSS, CPU, FD, and thread trends were not measured")
+        message = "Agent process observation was not configured; RSS, CPU, FD, and thread trends were not measured"
+        (failures if runtime_observation_required else warnings).append(message)
     if spool_configured:
         spool = metrics["spool"]
         if spool["maximum_pending_files"] is None:
@@ -436,7 +733,10 @@ def build_summary(
             if spool["maximum_quarantine_files"] > int(profile["maximum_quarantine_files"]):
                 failures.append("Agent quarantine file count exceeds threshold")
     else:
-        warnings.append("Agent state directory was not provided; spool growth was not measured")
+        message = "Agent spool observation was not configured; spool growth was not measured"
+        (failures if runtime_observation_required else warnings).append(message)
+    if runtime_observation_required and runtime_observation_errors:
+        failures.append("Agent runtime observation failed during one or more iterations")
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "failed" if failures else "passed",
@@ -449,6 +749,8 @@ def build_summary(
             "health_probe_configured": health_configured,
             "agent_process_configured": process_configured,
             "state_dir_configured": spool_configured,
+            "runtime_observation_required": runtime_observation_required,
+            "runtime_observation_source": runtime_observation_source,
         },
         "thresholds": profile,
         "metrics": metrics,
@@ -482,6 +784,8 @@ def append_checkpoint(path: Path, payload: dict[str, Any]) -> None:
 
 def main() -> int:
     args = parse_args()
+    agent_pod = ""
+    discovery_error = None
     try:
         collectors, profile = load_configuration(args.config, args.profile)
         collectors = parse_collectors(args.collectors, collectors)
@@ -496,6 +800,23 @@ def main() -> int:
             profile["interval_seconds"] = args.interval_seconds
         if args.agent_pid is not None and args.agent_pid < 1:
             raise ValueError("agent PID must be a positive integer")
+        validate_kubernetes_label(args.agent_container, "agent container")
+        validate_kubectl_context(args.kubectl_context)
+        if args.agent_pod and args.discover_agent_pod:
+            raise ValueError("agent Pod and automatic Agent Pod discovery are mutually exclusive")
+        if args.agent_pod and (args.agent_pid is not None or args.state_dir is not None):
+            raise ValueError("Agent Pod observation cannot be combined with local PID or state directory observation")
+        if args.discover_agent_pod and (args.agent_pid is not None or args.state_dir is not None):
+            raise ValueError("Agent Pod discovery cannot be combined with local PID or state directory observation")
+        if args.kubectl_context and not (args.agent_pod or args.discover_agent_pod):
+            raise ValueError("kubectl context requires Agent Pod observation")
+        if args.require_runtime_observation and not (
+            args.agent_pod or args.discover_agent_pod or args.agent_pid is not None or args.state_dir is not None
+        ):
+            raise ValueError("required runtime observation needs an Agent Pod or local process/state target")
+        if args.agent_pod:
+            parse_agent_pod(args.agent_pod)
+            agent_pod = args.agent_pod
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -513,6 +834,13 @@ def main() -> int:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     if checkpoint_path.exists():
         checkpoint_path.unlink()
+
+    if args.discover_agent_pod:
+        agent_pod, discovery_error = discover_agent_pod(
+            args.kubectl_context,
+            args.agent_container,
+            float(profile["command_timeout_seconds"]),
+        )
 
     started_at = utc_now()
     schedule_started = time.monotonic()
@@ -533,6 +861,17 @@ def main() -> int:
                 timeout_seconds=float(profile["command_timeout_seconds"]),
             )
             evaluated = evaluate_evidence(evidence, collectors)
+            if agent_pod:
+                process, spool, runtime_error = pod_runtime_snapshot(
+                    agent_pod,
+                    args.agent_container,
+                    args.kubectl_context,
+                    float(profile["command_timeout_seconds"]),
+                )
+            else:
+                process = process_snapshot(args.agent_pid)
+                spool = spool_snapshot(args.state_dir)
+                runtime_error = discovery_error
             checkpoint = {
                 "schema_version": SCHEMA_VERSION,
                 "iteration": index + 1,
@@ -547,8 +886,9 @@ def main() -> int:
                 "degraded_collectors": evaluated["degraded"],
                 "payload_bytes": payload_bytes,
                 "health_probe_ok": health_probe(health_url),
-                "process": process_snapshot(args.agent_pid),
-                "spool": spool_snapshot(args.state_dir),
+                "process": process,
+                "spool": spool,
+                "runtime_observation_error": runtime_error,
                 "error": error,
             }
             checkpoints.append(checkpoint)
@@ -571,9 +911,17 @@ def main() -> int:
         checkpoints=checkpoints,
         started_at=started_at,
         health_configured=bool(health_url),
-        process_configured=args.agent_pid is not None,
-        spool_configured=args.state_dir is not None,
+        process_configured=bool(agent_pod or args.discover_agent_pod or args.agent_pid is not None),
+        spool_configured=bool(agent_pod or args.discover_agent_pod or args.state_dir is not None),
         interrupted=interrupted,
+        runtime_observation_required=args.require_runtime_observation,
+        runtime_observation_source=(
+            "pod"
+            if args.agent_pod or args.discover_agent_pod
+            else "local"
+            if args.agent_pid is not None or args.state_dir is not None
+            else "none"
+        ),
     )
     atomic_write_json(summary_path, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
