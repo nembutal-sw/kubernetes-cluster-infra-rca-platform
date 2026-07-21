@@ -57,19 +57,45 @@ public class GitLabGitOpsProvider implements GitOpsProvider {
         String body
     ) {
         requireConfigured(change);
+        return createPullRequestResources(change, content, title, body);
+    }
+
+    @Override
+    public PullRequestResult reconcilePullRequest(
+        GitOpsChange change,
+        String content,
+        String title,
+        String body
+    ) {
+        requireConfigured(change);
+        PullRequestResult existing = findMergeRequest(change);
+        return existing != null ? existing : createPullRequestResources(change, content, title, body);
+    }
+
+    private PullRequestResult createPullRequestResources(
+        GitOpsChange change,
+        String content,
+        String title,
+        String body
+    ) {
         String projectPath = "/projects/" + encode(change.repository());
-        request(
-            "POST",
-            projectPath + "/repository/branches?branch=" + encode(change.branch())
-                + "&ref=" + encode(change.baseBranch()),
-            null,
-            201
+        JsonNode branch = requestAllowNotFound(
+            "GET", projectPath + "/repository/branches/" + encode(change.branch()), null
         );
+        if (branch == null) {
+            request(
+                "POST",
+                projectPath + "/repository/branches?branch=" + encode(change.branch())
+                    + "&ref=" + encode(change.baseBranch()),
+                null,
+                201
+            );
+        }
 
         String filePath = projectPath + "/repository/files/" + encode(change.filePath());
         boolean exists = requestAllowNotFound(
             "GET",
-            filePath + "?ref=" + encode(change.baseBranch()),
+            filePath + "?ref=" + encode(branch == null ? change.baseBranch() : change.branch()),
             null
         ) != null;
         Map<String, Object> filePayload = new LinkedHashMap<>();
@@ -103,6 +129,37 @@ public class GitLabGitOpsProvider implements GitOpsProvider {
             mergeRequest.path("state").asText("opened"),
             mergeRequest.path("sha").asText(headSha)
         );
+    }
+
+    private PullRequestResult findMergeRequest(GitOpsChange change) {
+        JsonNode matches = request(
+            "GET",
+            "/projects/" + encode(change.repository()) + "/merge_requests?scope=all&state=all"
+                + "&source_branch=" + encode(change.branch())
+                + "&target_branch=" + encode(change.baseBranch()) + "&per_page=10",
+            null,
+            200
+        );
+        if (!matches.isArray() || matches.isEmpty()) {
+            return null;
+        }
+        PullRequestResult merged = null;
+        for (JsonNode mergeRequest : matches) {
+            String state = mergeRequest.path("state").asText("opened");
+            PullRequestResult result = new PullRequestResult(
+                mergeRequest.path("iid").asLong(),
+                requiredText(mergeRequest, "/web_url", "merge request URL"),
+                state,
+                requiredText(mergeRequest, "/sha", "head SHA")
+            );
+            if ("opened".equalsIgnoreCase(state) || "open".equalsIgnoreCase(state)) {
+                return result;
+            }
+            if ("merged".equalsIgnoreCase(state) && merged == null) {
+                merged = result;
+            }
+        }
+        return merged;
     }
 
     private void requireConfigured(GitOpsChange change) {

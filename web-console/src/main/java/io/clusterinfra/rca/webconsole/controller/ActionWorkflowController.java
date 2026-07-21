@@ -35,9 +35,10 @@ public class ActionWorkflowController {
     @GetMapping("/api/rca/action-requests")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER')")
     public List<ActionRequest> actionRequests(
-        @RequestParam(name = "report_id", required = false) String reportId
+        @RequestParam(name = "report_id", required = false) String reportId,
+        @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        return actionWorkflow.listRequests(reportId);
+        return actionWorkflow.listRequests(reportId, limit);
     }
 
     @GetMapping("/api/rca/action-executions")

@@ -121,14 +121,45 @@ public class ActionRepository {
     }
 
     public List<ActionRequest> listRequests(String reportId) {
+        return listRequests(reportId, null);
+    }
+
+    public List<ActionRequest> listRequests(String reportId, Integer limit) {
+        Integer safeLimit = limit == null ? null : Math.max(1, Math.min(limit, 200));
         if (reportId == null || reportId.isBlank()) {
+            if (safeLimit != null) {
+                return jdbc.query(
+                    "SELECT * FROM action_requests ORDER BY created_at DESC LIMIT ?",
+                    this::mapActionRequest,
+                    safeLimit
+                );
+            }
             return jdbc.query("SELECT * FROM action_requests ORDER BY created_at DESC", this::mapActionRequest);
+        }
+        if (safeLimit != null) {
+            return jdbc.query(
+                "SELECT * FROM action_requests WHERE report_id = ? ORDER BY created_at DESC LIMIT ?",
+                this::mapActionRequest,
+                reportId,
+                safeLimit
+            );
         }
         return jdbc.query(
             "SELECT * FROM action_requests WHERE report_id = ? ORDER BY created_at DESC",
             this::mapActionRequest,
             reportId
         );
+    }
+
+    public long count(ActionRequestStatus status) {
+        Long count = status == null
+            ? jdbc.queryForObject("SELECT COUNT(*) FROM action_requests", Long.class)
+            : jdbc.queryForObject(
+                "SELECT COUNT(*) FROM action_requests WHERE status = ?",
+                Long.class,
+                status.name()
+            );
+        return count == null ? 0 : count;
     }
 
     @Transactional

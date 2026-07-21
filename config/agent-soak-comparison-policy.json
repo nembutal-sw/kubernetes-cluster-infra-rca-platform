@@ -1,0 +1,36 @@
+{
+  "schema_version": "agent-soak-comparison-policy/v1",
+  "require_equal_target_count": true,
+  "compatible_profile_pairs": [
+    {"baseline": "smoke", "candidate": "smoke"},
+    {"baseline": "standard", "candidate": "standard"},
+    {"baseline": "extended", "candidate": "extended"},
+    {"baseline": "production", "candidate": "production"},
+    {"baseline": "standard", "candidate": "extended"},
+    {"baseline": "extended", "candidate": "production"}
+  ],
+  "absolute_limits": {
+    "minimum_candidate_target_count": 3,
+    "required_collector_execution_source": "platform_evidence_request",
+    "minimum_collection_success_rate": 0.99,
+    "minimum_evidence_quality_rate": 0.99,
+    "maximum_degraded_collector_rate": 0.05,
+    "maximum_runtime_observation_errors": 0
+  },
+  "regression_limits": {
+    "increase": {
+      "p95_collection_seconds": {"maximum_ratio": 1.2, "maximum_absolute_increase": 0.5},
+      "maximum_payload_bytes": {"maximum_ratio": 1.25, "maximum_absolute_increase": 262144},
+      "maximum_rss_growth_mib": {"maximum_absolute_increase": 8.0},
+      "worst_steady_rss_slope_mib_per_hour": {"maximum_absolute_increase": 1.0},
+      "worst_steady_rss_range_mib": {"maximum_absolute_increase": 8.0},
+      "fleet_rss_peak_spread_mib": {"maximum_absolute_increase": 16.0},
+      "p95_cpu_percent": {"maximum_absolute_increase": 2.0},
+      "runtime_observation_errors": {"maximum_absolute_increase": 0}
+    },
+    "rate_drop": {
+      "collection_success_rate": {"maximum_absolute_drop": 0.0},
+      "evidence_quality_rate": {"maximum_absolute_drop": 0.0}
+    }
+  }
+}

@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_systemd
+from node_agent.collectors.builtin_collectors import collect_systemd
 
 __all__ = ["collect_systemd"]

@@ -10,6 +10,7 @@ import hmac
 import json
 import math
 import os
+import platform
 import secrets
 import re
 import subprocess
@@ -25,9 +26,17 @@ from typing import Any
 
 
 SCHEMA_VERSION = "agent-soak-validation/v1"
+COMPARISON_METADATA_SCHEMA_VERSION = "agent-soak-comparison-metadata/v1"
 THRESHOLD_SCHEMA_VERSION = "agent-soak-thresholds/v1"
 EVIDENCE_SCHEMA_VERSION = "collector-evidence/v1"
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent_soak.platform_evidence import PlatformEvidenceClient, PlatformEvidenceError
+from agent_soak.statistics import cpu_usage_metrics, percentile, resource_trend, rss_steady_state_metrics
+
+
 DEFAULT_CONFIG = ROOT / "config" / "agent-soak-thresholds.json"
 DEGRADED_STATUSES = {"disabled", "error", "failed", "unsupported"}
 AGENT_POD_SELECTOR = "app.kubernetes.io/part-of=cluster-infra-rca"
@@ -139,6 +148,45 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def canonical_sha256(value: Any) -> str:
+    rendered = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def threshold_config_sha256(path: Path) -> str:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unable to fingerprint threshold config: {exc}") from exc
+    return canonical_sha256(payload)
+
+
+def build_comparison_metadata(
+    *,
+    config_path: Path,
+    requested_collectors: list[str],
+    collector_execution_source: str,
+    inherited: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    inherited = inherited if isinstance(inherited, dict) else {}
+    return {
+        "schema_version": COMPARISON_METADATA_SCHEMA_VERSION,
+        "platform_family": inherited.get("platform_family")
+        or os.environ.get("RCA_AGENT_SOAK_PLATFORM_FAMILY")
+        or "unknown",
+        "architecture": inherited.get("architecture")
+        or os.environ.get("RCA_AGENT_SOAK_ARCHITECTURE")
+        or platform.machine().lower()
+        or "unknown",
+        "agent_version": inherited.get("agent_version")
+        or os.environ.get("RCA_AGENT_SOAK_AGENT_VERSION")
+        or "unknown",
+        "collector_execution_source": collector_execution_source,
+        "requested_collectors_sha256": canonical_sha256(sorted(requested_collectors)),
+        "threshold_config_sha256": threshold_config_sha256(config_path),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -168,6 +216,14 @@ def parse_args() -> argparse.Namespace:
         "--discover-agent-pods",
         action="store_true",
         help="Discover and observe every Ready Agent Pod as a redacted fleet.",
+    )
+    parser.add_argument(
+        "--platform-evidence-fleet",
+        action="store_true",
+        help=(
+            "Collect fleet evidence through Platform requests handled by the long-running Agents. "
+            "Credentials are read only from RCA_AGENT_SOAK_PLATFORM_* environment variables."
+        ),
     )
     parser.add_argument(
         "--minimum-agent-pods",
@@ -319,8 +375,8 @@ def kubectl_prefix(context: str) -> list[str]:
     return command
 
 
-def redacted_target_id(agent_pod: str, redaction_salt: bytes) -> str:
-    return hmac.new(redaction_salt, agent_pod.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
+def redacted_target_id(target: str, redaction_salt: bytes) -> str:
+    return hmac.new(redaction_salt, target.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
 
 
 def ready_agent_pod_targets(payload: Any, container: str, redaction_salt: bytes) -> list[dict[str, str]]:
@@ -329,11 +385,13 @@ def ready_agent_pod_targets(payload: Any, container: str, redaction_salt: bytes)
         if not isinstance(item, dict):
             continue
         metadata = item.get("metadata") or {}
+        spec = item.get("spec") or {}
         status = item.get("status") or {}
-        if not isinstance(metadata, dict) or not isinstance(status, dict):
+        if not isinstance(metadata, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
             continue
         namespace = metadata.get("namespace")
         name = metadata.get("name")
+        node_name = spec.get("nodeName")
         conditions = status.get("conditions") or []
         container_statuses = status.get("containerStatuses") or []
         if not isinstance(conditions, list) or not isinstance(container_statuses, list):
@@ -353,12 +411,25 @@ def ready_agent_pod_targets(payload: Any, container: str, redaction_salt: bytes)
             continue
         try:
             parse_agent_pod(agent_pod)
+            if (
+                not isinstance(node_name, str)
+                or len(node_name) > 253
+                or not KUBERNETES_SUBDOMAIN_RE.fullmatch(node_name)
+            ):
+                continue
         except ValueError:
             continue
         candidates.append(
-            {"agent_pod": agent_pod, "target_id": redacted_target_id(agent_pod, redaction_salt)}
+            {
+                "agent_pod": agent_pod,
+                "node_name": node_name,
+                "target_id": redacted_target_id(node_name, redaction_salt),
+            }
         )
-    return sorted(candidates, key=lambda item: item["agent_pod"])
+    candidates = sorted(candidates, key=lambda item: item["agent_pod"])
+    if len({item["node_name"] for item in candidates}) != len(candidates):
+        return []
+    return candidates
 
 
 def discover_agent_pods(
@@ -518,6 +589,111 @@ def fleet_runtime_snapshots(
     return sorted(observations, key=lambda item: item["target_id"])
 
 
+def fleet_evidence_observations(
+    client: PlatformEvidenceClient,
+    targets: list[dict[str, str]],
+    collectors: list[str],
+    *,
+    iteration: int,
+    timeout_seconds: float,
+) -> list[dict[str, Any]]:
+    raw_results = client.collect_fleet(
+        targets,
+        collectors,
+        iteration=iteration,
+        completion_timeout_seconds=timeout_seconds,
+    )
+    observations = []
+    for result in raw_results:
+        evaluated = evaluate_evidence({"collectors": result.get("collectors")}, collectors)
+        success = bool(result.get("success"))
+        observations.append(
+            {
+                "target_id": result["target_id"],
+                "success": success,
+                "evidence_quality": bool(success and evaluated["quality"]),
+                "collector_count": evaluated["collector_count"],
+                "missing_collectors": evaluated["missing"],
+                "invalid_schema_collectors": evaluated.get("invalid_schema", []),
+                "degraded_collectors": evaluated["degraded"],
+                "duration_seconds": result.get("duration_seconds"),
+                "payload_bytes": int(result.get("payload_bytes") or 0),
+                "error": result.get("error"),
+            }
+        )
+    return sorted(observations, key=lambda item: item["target_id"])
+
+
+def failed_fleet_evidence_observations(
+    targets: list[dict[str, str]],
+    collectors: list[str],
+    error: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "target_id": target["target_id"],
+            "success": False,
+            "evidence_quality": False,
+            "collector_count": 0,
+            "missing_collectors": list(collectors),
+            "invalid_schema_collectors": list(collectors),
+            "degraded_collectors": list(collectors),
+            "duration_seconds": None,
+            "payload_bytes": 0,
+            "error": error,
+        }
+        for target in sorted(targets, key=lambda item: item["target_id"])
+    ]
+
+
+def combine_fleet_observations(
+    runtime: list[dict[str, Any]],
+    collection: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    runtime_by_target = {item.get("target_id"): item for item in runtime}
+    collection_by_target = {item.get("target_id"): item for item in collection}
+    target_ids = sorted(set(runtime_by_target) | set(collection_by_target))
+    return [
+        {
+            "target_id": target_id,
+            "process": (runtime_by_target.get(target_id) or {}).get("process"),
+            "spool": (runtime_by_target.get(target_id) or {}).get("spool"),
+            "runtime_observation_error": (runtime_by_target.get(target_id) or {}).get(
+                "runtime_observation_error"
+            ),
+            "collection": collection_by_target.get(target_id),
+        }
+        for target_id in target_ids
+    ]
+
+
+def aggregate_fleet_collection(collection: list[dict[str, Any]]) -> dict[str, Any]:
+    durations = [
+        float(item["duration_seconds"])
+        for item in collection
+        if isinstance(item.get("duration_seconds"), (int, float))
+    ]
+    failed_count = sum(not bool(item.get("success")) for item in collection)
+    quality = all(bool(item.get("evidence_quality")) for item in collection) if collection else False
+    return {
+        "success": bool(collection) and failed_count == 0,
+        "evidence_quality": quality,
+        "collector_count": min((int(item.get("collector_count") or 0) for item in collection), default=0),
+        "missing_collectors": sorted(
+            {name for item in collection for name in item.get("missing_collectors", [])}
+        ),
+        "invalid_schema_collectors": sorted(
+            {name for item in collection for name in item.get("invalid_schema_collectors", [])}
+        ),
+        "degraded_collectors": sorted(
+            {name for item in collection for name in item.get("degraded_collectors", [])}
+        ),
+        "duration_seconds": max(durations, default=0.0),
+        "payload_bytes": max((int(item.get("payload_bytes") or 0) for item in collection), default=0),
+        "error": f"{failed_count} Agent fleet evidence requests failed" if failed_count else None,
+    }
+
+
 def process_snapshot(pid: int | None) -> dict[str, int | float] | None:
     if pid is None or os.name != "posix":
         return None
@@ -651,148 +827,6 @@ def collect_once(
         return False, None, "agent local collection produced invalid evidence JSON", duration, 0
 
 
-def percentile(values: list[float], percentile_value: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    rank = (len(ordered) - 1) * percentile_value
-    lower = math.floor(rank)
-    upper = math.ceil(rank)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * (rank - lower)
-
-
-def resource_trend(checkpoints: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
-    values = [item["process"][key] for item in checkpoints if isinstance(item.get("process"), dict) and key in item["process"]]
-    if not values:
-        return None
-    return {
-        "sample_count": len(values),
-        "initial": values[0],
-        "final": values[-1],
-        "minimum": min(values),
-        "maximum": max(values),
-        "growth": max(values) - values[0],
-        "final_delta": values[-1] - values[0],
-    }
-
-
-def linear_slope_per_hour(samples: list[tuple[float, float]]) -> float | None:
-    if len(samples) < 2:
-        return None
-    origin = samples[0][0]
-    hours = [(timestamp - origin) / 3600 for timestamp, _ in samples]
-    if any(current <= previous for previous, current in zip(hours, hours[1:])):
-        return None
-    mean_hour = sum(hours) / len(hours)
-    mean_value = sum(value for _, value in samples) / len(samples)
-    denominator = sum((hour - mean_hour) ** 2 for hour in hours)
-    if denominator <= 0:
-        return None
-    return sum(
-        (hour - mean_hour) * (value - mean_value)
-        for hour, (_, value) in zip(hours, samples)
-    ) / denominator
-
-
-def consecutive_increase_count(values: list[float]) -> int:
-    longest = 0
-    current = 0
-    for previous, value in zip(values, values[1:]):
-        if value > previous:
-            current += 1
-            longest = max(longest, current)
-        else:
-            current = 0
-    return longest
-
-
-def rss_window_metrics(samples: list[tuple[float, float]]) -> dict[str, Any] | None:
-    if not samples:
-        return None
-    values = [value for _, value in samples]
-    return {
-        "sample_count": len(samples),
-        "initial": values[0],
-        "final": values[-1],
-        "minimum": min(values),
-        "maximum": max(values),
-        "range": max(values) - min(values),
-        "final_delta": values[-1] - values[0],
-        "slope_bytes_per_hour": linear_slope_per_hour(samples),
-        "maximum_consecutive_increases": consecutive_increase_count(values),
-    }
-
-
-def rss_steady_state_metrics(
-    checkpoints: list[dict[str, Any]],
-    *,
-    warmup_fraction: float,
-    minimum_samples: int,
-    interval_seconds: float,
-) -> dict[str, Any] | None:
-    raw_samples = []
-    for index, item in enumerate(checkpoints):
-        process = item.get("process")
-        if not isinstance(process, dict) or "rss_bytes" not in process:
-            continue
-        sampled_at = process.get("sampled_at_monotonic")
-        fallback_time = index * interval_seconds
-        timestamp = float(sampled_at) if isinstance(sampled_at, (int, float)) else fallback_time
-        raw_samples.append((timestamp, float(process["rss_bytes"])))
-    if not raw_samples:
-        return None
-    if any(current[0] <= previous[0] for previous, current in zip(raw_samples, raw_samples[1:])):
-        raw_samples = [(index * max(interval_seconds, 1.0), value) for index, (_, value) in enumerate(raw_samples)]
-    warmup_samples = min(
-        math.floor(len(raw_samples) * warmup_fraction),
-        max(0, len(raw_samples) - minimum_samples),
-    )
-    steady_samples = raw_samples[warmup_samples:]
-    result = rss_window_metrics(steady_samples)
-    if result is None:
-        return None
-    result.update(
-        {
-            "warmup_fraction": warmup_fraction,
-            "warmup_samples_excluded": warmup_samples,
-            "minimum_samples_required": minimum_samples,
-            "sufficient_samples": len(steady_samples) >= minimum_samples,
-            "recent_windows": {
-                "last_10": rss_window_metrics(raw_samples[-10:]),
-                "last_30": rss_window_metrics(raw_samples[-30:]),
-            },
-        }
-    )
-    return result
-
-
-def cpu_usage_metrics(checkpoints: list[dict[str, Any]]) -> dict[str, Any] | None:
-    samples = []
-    for item in checkpoints:
-        process = item.get("process")
-        if isinstance(process, dict) and "cpu_seconds" in process and "sampled_at_monotonic" in process:
-            samples.append((float(process["sampled_at_monotonic"]), float(process["cpu_seconds"])))
-    if len(samples) < 2:
-        return None
-    percentages = []
-    for previous, current in zip(samples, samples[1:]):
-        wall_delta = current[0] - previous[0]
-        cpu_delta = current[1] - previous[1]
-        if wall_delta <= 0 or cpu_delta < 0:
-            continue
-        percentages.append(cpu_delta / wall_delta * 100)
-    if not percentages:
-        return None
-    return {
-        "sample_count": len(percentages),
-        "p50": percentile(percentages, 0.5),
-        "p95": percentile(percentages, 0.95),
-        "maximum": max(percentages),
-    }
-
-
 def build_summary(
     *,
     profile_name: str,
@@ -806,6 +840,7 @@ def build_summary(
     interrupted: bool,
     runtime_observation_required: bool = False,
     runtime_observation_source: str = "none",
+    comparison_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     total = len(checkpoints)
     successes = sum(bool(item.get("success")) for item in checkpoints)
@@ -947,7 +982,7 @@ def build_summary(
         (failures if runtime_observation_required else warnings).append(message)
     if runtime_observation_required and runtime_observation_errors:
         failures.append("Agent runtime observation failed during one or more iterations")
-    return {
+    summary = {
         "schema_version": SCHEMA_VERSION,
         "status": "failed" if failures else "passed",
         "profile": profile_name,
@@ -967,6 +1002,9 @@ def build_summary(
         "failures": failures,
         "warnings": warnings,
     }
+    if comparison_metadata is not None:
+        summary["comparison_metadata"] = comparison_metadata
+    return summary
 
 
 def numeric_spread(values: list[float | int]) -> dict[str, float | int | None]:
@@ -990,6 +1028,8 @@ def build_fleet_summary(
     started_at: str,
     health_configured: bool,
     interrupted: bool,
+    collector_execution_source: str = "runner_local",
+    comparison_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     summary = build_summary(
         profile_name=profile_name,
@@ -1003,6 +1043,7 @@ def build_fleet_summary(
         interrupted=interrupted,
         runtime_observation_required=False,
         runtime_observation_source="fleet",
+        comparison_metadata=comparison_metadata,
     )
     summary["warnings"] = [
         item
@@ -1012,7 +1053,8 @@ def build_fleet_summary(
     fleet_targets = []
     process_metrics = []
     spool_metrics = []
-    runtime_failures = []
+    target_failures = []
+    collection_metrics = []
     for target_id in sorted(target_ids):
         target_points = []
         for checkpoint in checkpoints:
@@ -1028,6 +1070,21 @@ def build_fleet_summary(
             target_point["process"] = observation.get("process")
             target_point["spool"] = observation.get("spool")
             target_point["runtime_observation_error"] = observation.get("runtime_observation_error")
+            collection = observation.get("collection")
+            if isinstance(collection, dict):
+                target_point.update(
+                    {
+                        "success": bool(collection.get("success")),
+                        "evidence_quality": bool(collection.get("evidence_quality")),
+                        "collector_count": int(collection.get("collector_count") or 0),
+                        "missing_collectors": collection.get("missing_collectors") or [],
+                        "invalid_schema_collectors": collection.get("invalid_schema_collectors") or [],
+                        "degraded_collectors": collection.get("degraded_collectors") or [],
+                        "duration_seconds": float(collection.get("duration_seconds") or 0),
+                        "payload_bytes": int(collection.get("payload_bytes") or 0),
+                        "error": collection.get("error"),
+                    }
+                )
             target_points.append(target_point)
         target_summary = build_summary(
             profile_name=profile_name,
@@ -1042,16 +1099,30 @@ def build_fleet_summary(
             runtime_observation_required=True,
             runtime_observation_source="pod",
         )
-        target_runtime_failures = [
-            item
-            for item in target_summary["failures"]
-            if item.startswith("Agent") or item.startswith("configured Agent")
-        ]
+        target_gate_failures = (
+            list(target_summary["failures"])
+            if collector_execution_source == "platform_evidence_request"
+            else [
+                item
+                for item in target_summary["failures"]
+                if item.startswith("Agent") or item.startswith("configured Agent")
+            ]
+        )
         process = target_summary["metrics"]["process"]
         spool = target_summary["metrics"]["spool"]
+        collection_metric = {
+            "iterations_completed": target_summary["metrics"]["iterations_completed"],
+            "successful_iterations": target_summary["metrics"]["successful_iterations"],
+            "collection_success_rate": target_summary["metrics"]["collection_success_rate"],
+            "evidence_quality_rate": target_summary["metrics"]["evidence_quality_rate"],
+            "degraded_collector_rate": target_summary["metrics"]["degraded_collector_rate"],
+            "collection_duration_seconds": target_summary["metrics"]["collection_duration_seconds"],
+            "maximum_payload_bytes": target_summary["metrics"]["maximum_payload_bytes"],
+        }
         process_metrics.append(process)
         spool_metrics.append(spool)
-        target_status = "failed" if target_runtime_failures else "passed"
+        collection_metrics.append(collection_metric)
+        target_status = "failed" if target_gate_failures else "passed"
         fleet_targets.append(
             {
                 "target_id": target_id,
@@ -1079,11 +1150,16 @@ def build_fleet_summary(
                 "maximum_spool_bytes": spool.get("maximum_pending_bytes"),
                 "maximum_quarantine_files": spool.get("maximum_quarantine_files"),
                 "runtime_observation_errors": target_summary["metrics"].get("runtime_observation_errors", 0),
-                "failures": target_runtime_failures,
+                "collection_success_rate": collection_metric["collection_success_rate"],
+                "evidence_quality_rate": collection_metric["evidence_quality_rate"],
+                "degraded_collector_rate": collection_metric["degraded_collector_rate"],
+                "p95_collection_seconds": collection_metric["collection_duration_seconds"]["p95"],
+                "maximum_payload_bytes": collection_metric["maximum_payload_bytes"],
+                "failures": target_gate_failures,
             }
         )
-        if target_runtime_failures:
-            runtime_failures.append(f"fleet target {target_id} failed runtime thresholds")
+        if target_gate_failures:
+            target_failures.append(f"fleet target {target_id} failed one or more thresholds")
 
     rss_trends = [item.get("rss_bytes") for item in process_metrics if isinstance(item.get("rss_bytes"), dict)]
     fd_trends = [item.get("fd_count") for item in process_metrics if isinstance(item.get("fd_count"), dict)]
@@ -1126,7 +1202,7 @@ def build_fleet_summary(
     failures = list(summary["failures"])
     if len(target_ids) < minimum_target_count:
         failures.append(f"discovered {len(target_ids)} of {minimum_target_count} required Agent Pods")
-    failures.extend(runtime_failures)
+    failures.extend(target_failures)
     if any(checkpoint.get("runtime_observation_error") for checkpoint in checkpoints):
         failures.append("Agent fleet discovery or runtime observation failed")
     rss_spread = variation["rss_peak_bytes"]["spread"]
@@ -1150,6 +1226,7 @@ def build_fleet_summary(
             "state_dir_configured": True,
             "runtime_observation_required": True,
             "runtime_observation_source": "fleet",
+            "collector_execution_source": collector_execution_source,
             "fleet_target_count": len(target_ids),
             "minimum_fleet_target_count": minimum_target_count,
         }
@@ -1185,6 +1262,76 @@ def build_fleet_summary(
     summary["metrics"]["runtime_observation_errors"] = sum(
         item["runtime_observation_errors"] for item in fleet_targets
     )
+    if collector_execution_source == "platform_evidence_request":
+        total_collection_observations = sum(item["iterations_completed"] for item in collection_metrics)
+        successful_collection_observations = sum(item["successful_iterations"] for item in collection_metrics)
+        quality_observations = sum(
+            round(item["evidence_quality_rate"] * item["iterations_completed"])
+            for item in collection_metrics
+        )
+        degraded_observations = sum(
+            item["degraded_collector_rate"] * item["iterations_completed"] * len(requested_collectors)
+            for item in collection_metrics
+        )
+        collection_durations = [
+            float((target.get("collection") or {}).get("duration_seconds"))
+            for checkpoint in checkpoints
+            for target in checkpoint.get("targets", [])
+            if isinstance(target, dict)
+            and isinstance(target.get("collection"), dict)
+            and isinstance(target["collection"].get("duration_seconds"), (int, float))
+            and target["collection"].get("success")
+        ]
+        collector_execution = {
+            "source": collector_execution_source,
+            "target_count": len(target_ids),
+            "observation_count": total_collection_observations,
+            "successful_observations": successful_collection_observations,
+            "collection_success_rate": (
+                successful_collection_observations / total_collection_observations
+                if total_collection_observations
+                else 0.0
+            ),
+            "evidence_quality_rate": (
+                quality_observations / total_collection_observations if total_collection_observations else 0.0
+            ),
+            "degraded_collector_rate": (
+                degraded_observations / (total_collection_observations * len(requested_collectors))
+                if total_collection_observations and requested_collectors
+                else 0.0
+            ),
+            "collection_duration_seconds": {
+                "p50": percentile(collection_durations, 0.5),
+                "p95": percentile(collection_durations, 0.95),
+                "maximum": max(collection_durations) if collection_durations else None,
+            },
+            "maximum_payload_bytes": max(
+                (item["maximum_payload_bytes"] for item in collection_metrics),
+                default=0,
+            ),
+        }
+    else:
+        collector_execution = {
+            "source": collector_execution_source,
+            "target_count": 0,
+            "observation_count": summary["metrics"]["iterations_completed"],
+            "successful_observations": summary["metrics"]["successful_iterations"],
+            "collection_success_rate": summary["metrics"]["collection_success_rate"],
+            "evidence_quality_rate": summary["metrics"]["evidence_quality_rate"],
+            "degraded_collector_rate": summary["metrics"]["degraded_collector_rate"],
+            "collection_duration_seconds": summary["metrics"]["collection_duration_seconds"],
+            "maximum_payload_bytes": summary["metrics"]["maximum_payload_bytes"],
+        }
+    summary["metrics"]["collector_execution"] = collector_execution
+    summary["metrics"]["fleet_runtime"] = {
+        "source": "kubernetes_pod",
+        "target_count": len(target_ids),
+        "process_identity_stable": identity_stable,
+        "runtime_observation_errors": summary["metrics"]["runtime_observation_errors"],
+        "maximum_pending_files": summary["metrics"]["spool"]["maximum_pending_files"],
+        "maximum_pending_bytes": summary["metrics"]["spool"]["maximum_pending_bytes"],
+        "maximum_quarantine_files": summary["metrics"]["spool"]["maximum_quarantine_files"],
+    }
     summary["metrics"]["fleet"] = {
         "target_count": len(target_ids),
         "minimum_target_count": minimum_target_count,
@@ -1249,6 +1396,7 @@ def main() -> int:
     agent_pod = ""
     agent_targets: list[dict[str, str]] = []
     discovery_error = None
+    platform_client = None
     try:
         collectors, profile = load_configuration(args.config, args.profile)
         collectors = parse_collectors(args.collectors, collectors)
@@ -1280,6 +1428,16 @@ def main() -> int:
             raise ValueError("required runtime observation needs an Agent Pod or local process/state target")
         if args.discover_agent_pods and args.minimum_agent_pods < 2:
             raise ValueError("fleet discovery requires at least two Agent Pods")
+        if args.platform_evidence_fleet and not args.discover_agent_pods:
+            raise ValueError("Platform fleet evidence requires --discover-agent-pods")
+        if args.platform_evidence_fleet:
+            platform_client = PlatformEvidenceClient(
+                os.environ.get("RCA_AGENT_SOAK_PLATFORM_URL", ""),
+                os.environ.get("RCA_AGENT_SOAK_PLATFORM_CLUSTER_ID", ""),
+                os.environ.get("RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN", ""),
+                request_timeout_seconds=min(float(profile["command_timeout_seconds"]), 15.0),
+                ca_bundle=os.environ.get("RCA_AGENT_SOAK_PLATFORM_CA_BUNDLE") or None,
+            )
         if args.agent_pod:
             parse_agent_pod(args.agent_pod)
             agent_pod = args.agent_pod
@@ -1327,37 +1485,78 @@ def main() -> int:
                     time.sleep(delay)
             iteration_started = utc_now()
             evidence_path = evidence_dir / f"evidence-{index + 1:05d}.json"
-            success, evidence, error, duration, payload_bytes = collect_once(
-                output_path=evidence_path,
-                collectors=collectors,
-                timeout_seconds=float(profile["command_timeout_seconds"]),
-            )
-            evaluated = evaluate_evidence(evidence, collectors)
             target_observations = []
             if args.discover_agent_pods:
-                target_observations = fleet_runtime_snapshots(
+                if platform_client is not None:
+                    try:
+                        fleet_collection = fleet_evidence_observations(
+                            platform_client,
+                            agent_targets,
+                            collectors,
+                            iteration=index + 1,
+                            timeout_seconds=float(profile["command_timeout_seconds"]),
+                        )
+                    except PlatformEvidenceError as exc:
+                        fleet_collection = failed_fleet_evidence_observations(
+                            agent_targets,
+                            collectors,
+                            str(exc),
+                        )
+                    aggregate = aggregate_fleet_collection(fleet_collection)
+                    success = aggregate["success"]
+                    error = aggregate["error"]
+                    duration = aggregate["duration_seconds"]
+                    payload_bytes = aggregate["payload_bytes"]
+                    evaluated = {
+                        "quality": aggregate["evidence_quality"],
+                        "collector_count": aggregate["collector_count"],
+                        "missing": aggregate["missing_collectors"],
+                        "invalid_schema": aggregate["invalid_schema_collectors"],
+                        "degraded": aggregate["degraded_collectors"],
+                    }
+                else:
+                    success, evidence, error, duration, payload_bytes = collect_once(
+                        output_path=evidence_path,
+                        collectors=collectors,
+                        timeout_seconds=float(profile["command_timeout_seconds"]),
+                    )
+                    evaluated = evaluate_evidence(evidence, collectors)
+                    fleet_collection = []
+                runtime_observations = fleet_runtime_snapshots(
                     agent_targets,
                     args.agent_container,
                     args.kubectl_context,
                     float(profile["command_timeout_seconds"]),
                 )
-                failed_observations = sum(bool(item.get("runtime_observation_error")) for item in target_observations)
+                target_observations = (
+                    combine_fleet_observations(runtime_observations, fleet_collection)
+                    if platform_client is not None
+                    else runtime_observations
+                )
+                failed_observations = sum(bool(item.get("runtime_observation_error")) for item in runtime_observations)
                 process = None
                 spool = None
                 runtime_error = discovery_error or (
                     f"{failed_observations} Agent Pod runtime snapshots failed" if failed_observations else None
                 )
-            elif agent_pod:
-                process, spool, runtime_error = pod_runtime_snapshot(
-                    agent_pod,
-                    args.agent_container,
-                    args.kubectl_context,
-                    float(profile["command_timeout_seconds"]),
-                )
             else:
-                process = process_snapshot(args.agent_pid)
-                spool = spool_snapshot(args.state_dir)
-                runtime_error = discovery_error
+                success, evidence, error, duration, payload_bytes = collect_once(
+                    output_path=evidence_path,
+                    collectors=collectors,
+                    timeout_seconds=float(profile["command_timeout_seconds"]),
+                )
+                evaluated = evaluate_evidence(evidence, collectors)
+                if agent_pod:
+                    process, spool, runtime_error = pod_runtime_snapshot(
+                        agent_pod,
+                        args.agent_container,
+                        args.kubectl_context,
+                        float(profile["command_timeout_seconds"]),
+                    )
+                else:
+                    process = process_snapshot(args.agent_pid)
+                    spool = spool_snapshot(args.state_dir)
+                    runtime_error = discovery_error
             checkpoint = {
                 "schema_version": SCHEMA_VERSION,
                 "iteration": index + 1,
@@ -1392,6 +1591,7 @@ def main() -> int:
             temporary_directory.cleanup()
 
     if args.discover_agent_pods:
+        collector_execution_source = "platform_evidence_request" if platform_client is not None else "runner_local"
         summary = build_fleet_summary(
             profile_name=args.profile,
             profile=profile,
@@ -1402,8 +1602,21 @@ def main() -> int:
             started_at=started_at,
             health_configured=bool(health_url),
             interrupted=interrupted,
+            collector_execution_source=collector_execution_source,
+            comparison_metadata=build_comparison_metadata(
+                config_path=args.config,
+                requested_collectors=collectors,
+                collector_execution_source=collector_execution_source,
+            ),
         )
     else:
+        runtime_observation_source = (
+            "pod"
+            if args.agent_pod or args.discover_agent_pod
+            else "local"
+            if args.agent_pid is not None or args.state_dir is not None
+            else "none"
+        )
         summary = build_summary(
             profile_name=args.profile,
             profile=profile,
@@ -1415,12 +1628,11 @@ def main() -> int:
             spool_configured=bool(agent_pod or args.discover_agent_pod or args.state_dir is not None),
             interrupted=interrupted,
             runtime_observation_required=args.require_runtime_observation,
-            runtime_observation_source=(
-                "pod"
-                if args.agent_pod or args.discover_agent_pod
-                else "local"
-                if args.agent_pid is not None or args.state_dir is not None
-                else "none"
+            runtime_observation_source=runtime_observation_source,
+            comparison_metadata=build_comparison_metadata(
+                config_path=args.config,
+                requested_collectors=collectors,
+                collector_execution_source="runner_local",
             ),
         )
     atomic_write_json(summary_path, summary)

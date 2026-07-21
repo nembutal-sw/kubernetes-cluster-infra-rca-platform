@@ -145,6 +145,15 @@ jobs:
       - name: Lint Helm charts
         run: |
           helm lint charts/cluster-infra-rca-platform
+          helm lint charts/cluster-infra-rca-platform \
+            --values charts/cluster-infra-rca-platform/values-production.yaml \
+            --set-string platform.image.repository=ghcr.io/example/cluster-infra-rca-web-console \
+            --set-string platform.image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          if helm template rca charts/cluster-infra-rca-platform \
+            --values charts/cluster-infra-rca-platform/values-production.yaml >/dev/null 2>&1; then
+            echo "production values must reject an unpinned platform image" >&2
+            exit 1
+          fi
           helm lint charts/cluster-infra-rca-agent \
             --set backendUrl=https://rca.example.com \
             --set secret.create=true \
@@ -154,6 +163,14 @@ jobs:
         run: |
           set -euo pipefail
           helm template rca charts/cluster-infra-rca-platform > /dev/null
+          production="$(helm template rca charts/cluster-infra-rca-platform \
+            --values charts/cluster-infra-rca-platform/values-production.yaml \
+            --set-string platform.image.repository=ghcr.io/example/cluster-infra-rca-web-console \
+            --set-string platform.image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
+          grep -q 'replicas: 2' <<< "${production}"
+          grep -q 'readOnlyRootFilesystem: true' <<< "${production}"
+          grep -q 'kind: NetworkPolicy' <<< "${production}"
+          grep -q 'image: "ghcr.io/example/cluster-infra-rca-web-console@sha256:' <<< "${production}"
           helm template rca charts/cluster-infra-rca-platform \
             --set database.type=mariadb > /dev/null
           helm template rca charts/cluster-infra-rca-platform \
@@ -316,7 +333,10 @@ jobs:
             scripts/daemonset_operational_check.py \
             scripts/operational_scenario_validation.py \
             scripts/llm_prometheus_rule_test.py \
-            scripts/llm-staging-smoke.py
+            scripts/llm-staging-smoke.py \
+            scripts/agent-soak-validation.py \
+            scripts/agent-soak-revalidate.py \
+            scripts/agent-soak-comparison.py
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py
       - name: Validate container pinning

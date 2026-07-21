@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_node
+from node_agent.collectors.builtin_collectors import collect_node
 
 __all__ = ["collect_node"]

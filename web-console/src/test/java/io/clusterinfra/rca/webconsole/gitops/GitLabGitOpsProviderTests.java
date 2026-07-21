@@ -53,6 +53,7 @@ class GitLabGitOpsProviderTests {
         assertThat(result.url()).isEqualTo("https://gitlab.test/acme/platform/rca-config/-/merge_requests/73");
         assertThat(result.headSha()).isEqualTo("commit-sha");
         assertThat(requests).containsExactly(
+            "GET /projects/acme%2Fplatform%2Frca-config/repository/branches/rca%2Fcatalog-draft-1",
             "POST /projects/acme%2Fplatform%2Frca-config/repository/branches?branch=rca%2Fcatalog-draft-1&ref=main",
             "GET /projects/acme%2Fplatform%2Frca-config/repository/files/ops%2Fcatalog%2Foverride.json?ref=main",
             "POST /projects/acme%2Fplatform%2Frca-config/repository/files/ops%2Fcatalog%2Foverride.json",
@@ -74,7 +75,12 @@ class GitLabGitOpsProviderTests {
         String path = exchange.getRequestURI().getRawPath();
         int status;
         String response;
-        if (path.endsWith("/repository/branches")) {
+        long branchReads = requests.stream().filter(item -> item.contains("/repository/branches/rca%2Fcatalog-draft-1")).count();
+        if ("GET".equals(exchange.getRequestMethod())
+            && path.contains("/repository/branches/") && branchReads == 1) {
+            status = 404;
+            response = "{\"message\":\"404 Branch Not Found\"}";
+        } else if (path.endsWith("/repository/branches")) {
             status = 201;
             response = "{\"name\":\"rca/catalog-draft-1\"}";
         } else if ("GET".equals(exchange.getRequestMethod()) && path.contains("/repository/files/")) {

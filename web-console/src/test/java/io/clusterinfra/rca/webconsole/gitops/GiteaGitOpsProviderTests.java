@@ -53,12 +53,13 @@ class GiteaGitOpsProviderTests {
         assertThat(result.url()).isEqualTo("https://gitea.test/acme/rca-config/pulls/19");
         assertThat(result.headSha()).isEqualTo("commit-sha");
         assertThat(requests).containsExactly(
+            "GET /api/v1/repos/acme/rca-config/branches/rca%2Fcatalog-draft-1",
             "POST /api/v1/repos/acme/rca-config/branches",
             "GET /api/v1/repos/acme/rca-config/contents/ops/catalog/override.json?ref=main",
             "PUT /api/v1/repos/acme/rca-config/contents/ops/catalog/override.json",
             "POST /api/v1/repos/acme/rca-config/pulls"
         );
-        assertThat(bodies.get(2)).contains("\"sha\":\"blob-sha\"").contains("eyJ2ZXJzaW9uIjoxfQ==");
+        assertThat(bodies.get(3)).contains("\"sha\":\"blob-sha\"").contains("eyJ2ZXJzaW9uIjoxfQ==");
         assertThat(bodies.getLast()).contains("\"title\":\"WIP: Catalog update\"");
     }
 
@@ -73,7 +74,10 @@ class GiteaGitOpsProviderTests {
         String path = exchange.getRequestURI().getPath();
         int status;
         String response;
-        if (path.endsWith("/branches")) {
+        if ("GET".equals(exchange.getRequestMethod()) && path.contains("/branches/rca/")) {
+            status = 404;
+            response = "{\"message\":\"branch not found\"}";
+        } else if (path.endsWith("/branches")) {
             status = 201;
             response = "{\"name\":\"rca/catalog-draft-1\"}";
         } else if ("GET".equals(exchange.getRequestMethod()) && path.contains("/contents/")) {

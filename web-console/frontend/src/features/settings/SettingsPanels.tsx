@@ -91,6 +91,7 @@ interface CatalogSectionProps {
   onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
   onCreateCatalogGitOpsChange: (draft: CatalogOverrideDraft) => Promise<GitOpsChange>;
   onLoadCatalogGitOpsChanges: (draft: CatalogOverrideDraft) => Promise<GitOpsChange[]>;
+  onRetryGitOpsChange: (change: GitOpsChange, note: string) => Promise<GitOpsChange>;
   onUpdateGitOpsOutcome: (
     change: GitOpsChange,
     state: GitOpsDeploymentState,
@@ -343,6 +344,7 @@ export function CatalogSection({
   onLoadCatalogOverrideHandoff,
   onCreateCatalogGitOpsChange,
   onLoadCatalogGitOpsChanges,
+  onRetryGitOpsChange,
   onUpdateGitOpsOutcome,
   t,
 }: CatalogSectionProps) {
@@ -445,6 +447,23 @@ export function CatalogSection({
     setDraftBusyId(`${change.change_id}:outcome`);
     try {
       const updated = await onUpdateGitOpsOutcome(change, state, verification, rollback);
+      setGitOpsChanges((current) => ({
+        ...current,
+        [change.source_id || ""]: (current[change.source_id || ""] || []).map((item) =>
+          item.change_id === updated.change_id ? updated : item),
+      }));
+    } finally {
+      setDraftBusyId("");
+    }
+  }
+  async function retryGitOpsChange(change: GitOpsChange) {
+    if (!window.confirm(t("Retry and reconcile this failed GitOps change?"))) {
+      return;
+    }
+    const note = window.prompt(t("Retry note"), "") || "";
+    setDraftBusyId(`${change.change_id}:retry`);
+    try {
+      const updated = await onRetryGitOpsChange(change, note);
       setGitOpsChanges((current) => ({
         ...current,
         [change.source_id || ""]: (current[change.source_id || ""] || []).map((item) =>
@@ -607,6 +626,7 @@ export function CatalogSection({
             onDecide={decideDraft}
             onShowHandoff={showHandoff}
             onCreateGitOps={createGitOpsChange}
+            onRetryGitOps={retryGitOpsChange}
             onUpdateGitOpsOutcome={updateGitOpsOutcome}
             t={t}
           />
@@ -686,6 +706,7 @@ function CatalogOverrideDraftsPanel({
   onDecide,
   onShowHandoff,
   onCreateGitOps,
+  onRetryGitOps,
   onUpdateGitOpsOutcome,
   t,
 }: {
@@ -698,6 +719,7 @@ function CatalogOverrideDraftsPanel({
   onDecide: (draft: CatalogOverrideDraft, decision: "approve" | "reject" | "discard") => void | Promise<void>;
   onShowHandoff: (draft: CatalogOverrideDraft) => void | Promise<void>;
   onCreateGitOps: (draft: CatalogOverrideDraft) => void | Promise<void>;
+  onRetryGitOps: (change: GitOpsChange) => void | Promise<void>;
   onUpdateGitOpsOutcome: (change: GitOpsChange, state: GitOpsDeploymentState) => void | Promise<void>;
   t: TFunction;
 }) {
@@ -762,8 +784,9 @@ function CatalogOverrideDraftsPanel({
               <GitOpsChangePanel
                 key={change.change_id}
                 change={change}
-                busy={draftBusyId === `${change.change_id}:outcome`}
+                busy={draftBusyId.startsWith(`${change.change_id}:`)}
                 canUpdate={canDiscard}
+                onRetry={onRetryGitOps}
                 onUpdate={onUpdateGitOpsOutcome}
                 t={t}
               />
@@ -779,12 +802,14 @@ function GitOpsChangePanel({
   change,
   busy,
   canUpdate,
+  onRetry,
   onUpdate,
   t,
 }: {
   change: GitOpsChange;
   busy: boolean;
   canUpdate: boolean;
+  onRetry: (change: GitOpsChange) => void | Promise<void>;
   onUpdate: (change: GitOpsChange, state: GitOpsDeploymentState) => void | Promise<void>;
   t: TFunction;
 }) {
@@ -801,9 +826,21 @@ function GitOpsChangePanel({
       </div>
       {change.pull_request_url && <a href={change.pull_request_url} target="_blank" rel="noreferrer">{t("Open change request")}</a>}
       <code>{change.branch || "-"}</code>
+      <div className="catalog-draft-meta">
+        <span>{t("Retry count")}: {change.retry_count || 0}</span>
+        <span>{t("Last attempt")}: {formatDate(change.last_attempt_at)}</span>
+      </div>
       {change.error_message && <div className="alert alert-danger mb-0">{change.error_message}</div>}
       {change.verification_result && <p>{change.verification_result}</p>}
       {change.rollback_reference && <p>{t("Rollback reference")}: {change.rollback_reference}</p>}
+      {canUpdate && change.pull_request_state === "failed" && (
+        <div className="catalog-draft-actions">
+          <button className="btn btn-sm btn-outline-danger icon-button" disabled={busy} onClick={() => onRetry(change)}>
+            <Icon name={busy ? "arrow-repeat" : "arrow-clockwise"} />
+            <span>{t("Retry GitOps change")}</span>
+          </button>
+        </div>
+      )}
       {canUpdate && nextStates.length > 0 && (
         <div className="catalog-draft-actions">
           {nextStates.map((state) => (

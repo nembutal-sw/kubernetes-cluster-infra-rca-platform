@@ -53,6 +53,7 @@ interface SettingsViewProps {
   onLoadCatalogOverrideHandoff: (draft: CatalogOverrideDraft) => Promise<CatalogOverrideHandoff>;
   onCreateCatalogGitOpsChange: (draft: CatalogOverrideDraft) => Promise<GitOpsChange>;
   onLoadCatalogGitOpsChanges: (draft: CatalogOverrideDraft) => Promise<GitOpsChange[]>;
+  onRetryGitOpsChange: (change: GitOpsChange, note: string) => Promise<GitOpsChange>;
   onUpdateGitOpsOutcome: (
     change: GitOpsChange,
     state: GitOpsDeploymentState,
@@ -82,6 +83,7 @@ export function SettingsView({
   onLoadCatalogOverrideHandoff,
   onCreateCatalogGitOpsChange,
   onLoadCatalogGitOpsChanges,
+  onRetryGitOpsChange,
   onUpdateGitOpsOutcome,
   t,
 }: SettingsViewProps) {
@@ -125,6 +127,7 @@ export function SettingsView({
         onLoadCatalogOverrideHandoff={onLoadCatalogOverrideHandoff}
         onCreateCatalogGitOpsChange={onCreateCatalogGitOpsChange}
         onLoadCatalogGitOpsChanges={onLoadCatalogGitOpsChanges}
+        onRetryGitOpsChange={onRetryGitOpsChange}
         onUpdateGitOpsOutcome={onUpdateGitOpsOutcome}
         t={t}
       />

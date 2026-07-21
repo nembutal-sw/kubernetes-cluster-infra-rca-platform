@@ -12,6 +12,15 @@ public interface GitOpsProvider {
         String body
     );
 
+    default PullRequestResult reconcilePullRequest(
+        GitOpsChange change,
+        String content,
+        String title,
+        String body
+    ) {
+        return createPullRequest(change, content, title, body);
+    }
+
     record PullRequestResult(
         long number,
         String url,

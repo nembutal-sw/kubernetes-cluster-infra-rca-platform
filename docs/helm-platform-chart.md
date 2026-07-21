@@ -6,7 +6,7 @@
 
 현재 차트는 Platform Deployment, Service, optional Ingress, optional PostgreSQL/MariaDB, Secret, Config, 그리고 optional ServiceMonitor를 생성합니다. Node Agent가 직접 운영 환경을 변경하는 기능은 제공하지 않으며, 운영 조치는 manual approval workflow로 처리합니다.
 
-운영 환경에서는 기본값 그대로 배포하지 않아야 합니다. `prod` profile에서는 약한 기본 설정, demo mode, insecure public URL 등이 fail-fast 대상입니다.
+개발은 `values-dev.yaml`, 운영은 `values-production.yaml` overlay를 사용합니다. 운영 profile은 외부 DB/Secret, digest image, 2개 이상 replica, NetworkPolicy, topology spread, read-only root filesystem이 없으면 Helm render 단계에서 실패합니다.
 
 ---
 
@@ -106,7 +106,20 @@ platform:
 
 ## Production Notes
 
-For production-like deployments:
+운영 배포 예시:
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --namespace rca-system \
+  --create-namespace \
+  --values charts/cluster-infra-rca-platform/values-production.yaml \
+  --set-string platform.image.repository=ghcr.io/<org>/cluster-infra-rca-web-console \
+  --set-string platform.image.digest=sha256:<64-hex-digest>
+```
+
+`cluster-infra-rca-platform` Secret은 배포 전에 생성해야 합니다. 외부 DB 접속 정보와 초기 관리자, webhook, encryption 값을 source control 밖에서 관리합니다. `platform.image.digest`는 `sha256:` 뒤에 64자리 소문자 16진수가 와야 합니다.
+
+운영 기준:
 
 - enable the `prod` or `production` Spring profile
 - use an absolute HTTPS public API URL
@@ -117,7 +130,7 @@ For production-like deployments:
 - review retention periods before connecting production data
 - validate rendered manifests before applying
 
-The application performs production fail-fast validation. Unsafe production settings should stop startup instead of creating a weak deployment.
+애플리케이션의 production fail-fast와 Helm render-time 검증을 함께 적용합니다. 조건이 약한 배포는 Pod 기동 전 단계에서 차단합니다.
 
 ## LLM Configuration
 

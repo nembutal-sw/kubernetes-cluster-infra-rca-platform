@@ -70,6 +70,26 @@ class GitOpsChangeRepositoryTests {
     }
 
     @Test
+    void failedChangeCanBeClaimedForOneReconciliationAttempt() {
+        var pending = repository.createPending(
+            "catalog_override_draft", "draft-retry", "github", "acme/rca-config",
+            "rca/catalog-draft-retry", "main", "ops/catalog/override.json", "operator@example.com"
+        ).change();
+        var failed = repository.markFailed(pending.changeId(), "temporary provider failure");
+        assertThat(failed.pullRequestState()).isEqualTo(GitOpsChangeState.failed);
+        assertThat(failed.lastFailureAt()).isNotNull();
+
+        var first = repository.claimRetry(pending.changeId());
+        var duplicate = repository.claimRetry(pending.changeId());
+
+        assertThat(first.claimed()).isTrue();
+        assertThat(first.change().pullRequestState()).isEqualTo(GitOpsChangeState.reconciling);
+        assertThat(first.change().retryCount()).isEqualTo(1);
+        assertThat(duplicate.claimed()).isFalse();
+        assertThat(duplicate.change().retryCount()).isEqualTo(1);
+    }
+
+    @Test
     void concurrentSourceClaimsProduceOneOwnerAndOneChange() throws Exception {
         try (var executor = Executors.newFixedThreadPool(8)) {
             Callable<GitOpsChangeRepository.PendingClaim> task = () -> repository.createPending(

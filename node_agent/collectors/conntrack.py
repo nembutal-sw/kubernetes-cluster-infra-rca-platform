@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_conntrack
+from node_agent.collectors.builtin_collectors import collect_conntrack
 
 __all__ = ["collect_conntrack"]

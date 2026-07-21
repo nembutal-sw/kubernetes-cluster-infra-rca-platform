@@ -17,6 +17,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChange;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChangeCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChangeState;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsDeploymentState;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsRetryRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
@@ -103,6 +104,29 @@ class GitOpsChangeServiceTests {
         )).isInstanceOf(ResponseStatusException.class)
             .hasMessageContaining("must be approved");
         verify(provider, never()).createPullRequest(any(), any(), any(), any());
+    }
+
+    @Test
+    void failedChangeIsReconciledThroughAnAtomicRetryClaim() {
+        GitOpsChange failed = change(GitOpsChangeState.failed, null);
+        GitOpsChange reconciling = change(GitOpsChangeState.reconciling, null);
+        GitOpsChange opened = change(GitOpsChangeState.open, 42L);
+        when(changes.find("gitops-1")).thenReturn(java.util.Optional.of(failed));
+        when(catalogWorkflow.get("draft-1")).thenReturn(draft(CatalogOverrideStatus.approved));
+        when(catalogWorkflow.handoff("draft-1")).thenReturn(handoff());
+        when(changes.claimRetry("gitops-1"))
+            .thenReturn(new GitOpsChangeRepository.RetryClaim(reconciling, true));
+        when(provider.reconcilePullRequest(any(), any(), any(), any()))
+            .thenReturn(new GitOpsProvider.PullRequestResult(42, "https://github.test/pr/42", "open", "sha"));
+        when(changes.markOpened(any(), anyLong(), any(), any(), any())).thenReturn(opened);
+
+        GitOpsChange result = service.retry(
+            "gitops-1", new GitOpsRetryRequest(true, "retry after provider recovery"),
+            user, mock(HttpServletRequest.class)
+        );
+
+        assertThat(result.pullRequestState()).isEqualTo(GitOpsChangeState.open);
+        verify(provider).reconcilePullRequest(reconciling, "{}", "Catalog update", "Reviewed body");
     }
 
     private CatalogOverrideDraft draft(CatalogOverrideStatus status) {

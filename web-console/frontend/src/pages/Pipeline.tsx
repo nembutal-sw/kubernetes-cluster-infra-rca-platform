@@ -3,14 +3,14 @@ import { useEffect, useState } from "react";
 import { EmptyState, Icon, MetricTile, PageHeader, StatusBadge, Surface } from "../components/common";
 import { CursorPager } from "../components/CursorPager";
 import { useCursorPage, useDebouncedValue } from "../hooks/useCursorPage";
-import { requestTone, summarizeAgentFleet, summarizePipeline, taskTone } from "../lib/consoleUtils";
+import { requestTone, taskTone } from "../lib/consoleUtils";
 import type {
   ActionRequestView,
-  AgentHealthView,
   AnalysisTaskView,
   ApiCall,
   ClusterView,
   DemoScenarioView,
+  OverviewSummary,
   TFunction,
 } from "../types";
 
@@ -19,11 +19,10 @@ type MaybePromise<T = void> = T | Promise<T>;
 interface PipelineViewProps {
   callApi: ApiCall;
   refreshToken?: string;
-  tasks: AnalysisTaskView[];
+  summary: OverviewSummary;
   actionRequests: ActionRequestView[];
   demoScenarios: DemoScenarioView[];
   clusters: ClusterView[];
-  agentHealth: AgentHealthView[];
   onRetry: (task: AnalysisTaskView) => MaybePromise;
   onRunDemo: (scenario: DemoScenarioView, clusterId: string, nodeName: string) => MaybePromise;
   t: TFunction;
@@ -47,11 +46,7 @@ interface DemoScenariosProps {
   t: TFunction;
 }
 
-export function PipelineView({ callApi, refreshToken, tasks, actionRequests, demoScenarios, clusters, agentHealth, onRetry, onRunDemo, t }: PipelineViewProps) {
-  const pipeline = summarizePipeline(tasks);
-  const fleet = summarizeAgentFleet(agentHealth, clusters);
-  const pendingApprovals = actionRequests.filter((item) => item.status === "pending_approval").length;
-  const blockedRequests = actionRequests.filter((item) => ["blocked", "rejected"].includes(item.status || "")).length;
+export function PipelineView({ callApi, refreshToken, summary, actionRequests, demoScenarios, clusters, onRetry, onRunDemo, t }: PipelineViewProps) {
   const [query, setQuery] = useState("");
   const [clusterId, setClusterId] = useState("");
   const [status, setStatus] = useState("");
@@ -66,11 +61,11 @@ export function PipelineView({ callApi, refreshToken, tasks, actionRequests, dem
     <div className="page-stack">
       <PageHeader title={t("Pipeline")} subtitle={t("Analysis worker, approval queue, and built-in RCA scenario generator.")} />
       <section className="pipeline-stats">
-        <MetricTile label={t("Active tasks")} value={pipeline.backlog} tone={pipeline.backlog ? "amber" : "green"} icon="cpu" />
-        <MetricTile label={t("Dead letter")} value={pipeline.deadLetter} tone={pipeline.deadLetter ? "red" : "green"} icon="exclamation-octagon" />
-        <MetricTile label={t("Pending approvals")} value={pendingApprovals} tone={pendingApprovals ? "amber" : "green"} icon="person-check" />
-        <MetricTile label={t("Blocked requests")} value={blockedRequests} tone={blockedRequests ? "red" : "green"} icon="shield-lock" />
-        <MetricTile label={t("Healthy agents")} value={fleet.total ? `${fleet.healthy}/${fleet.total}` : "n/a"} tone={fleet.unhealthy ? "amber" : "green"} icon="hdd-network" />
+        <MetricTile label={t("Active tasks")} value={summary.analysis_backlog_count} tone={summary.analysis_backlog_count ? "amber" : "green"} icon="cpu" />
+        <MetricTile label={t("Dead letter")} value={summary.analysis_dead_letter_count} tone={summary.analysis_dead_letter_count ? "red" : "green"} icon="exclamation-octagon" />
+        <MetricTile label={t("Pending approvals")} value={summary.pending_approval_count} tone={summary.pending_approval_count ? "amber" : "green"} icon="person-check" />
+        <MetricTile label={t("Blocked requests")} value={summary.blocked_action_count} tone={summary.blocked_action_count ? "red" : "green"} icon="shield-lock" />
+        <MetricTile label={t("Healthy agents")} value={summary.agent_count ? `${summary.healthy_agent_count}/${summary.agent_count}` : "n/a"} tone={summary.agent_count > summary.healthy_agent_count ? "amber" : "green"} icon="hdd-network" />
       </section>
       <div className="split-grid">
         <Surface title={t("Analysis tasks")} subtitle={`${taskResult.page.total} ${t("tasks")}`}>

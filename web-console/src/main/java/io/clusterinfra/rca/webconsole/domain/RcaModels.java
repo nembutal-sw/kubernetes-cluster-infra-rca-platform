@@ -74,7 +74,7 @@ public final class RcaModels {
     }
 
     public enum GitOpsChangeState {
-        creating, open, merged, closed, failed
+        creating, reconciling, open, merged, closed, failed
     }
 
     public enum GitOpsDeploymentState {
@@ -90,6 +90,36 @@ public final class RcaModels {
     ) {
         public CursorPage {
             items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    public record OverviewSummary(
+        long clusterCount,
+        long reportCount,
+        long openIncidentCount,
+        long reportsLast24Hours,
+        long analysisBacklogCount,
+        long analysisQueuedCount,
+        long analysisProcessingCount,
+        long analysisRetryCount,
+        long analysisDeadLetterCount,
+        long actionRequestCount,
+        long pendingApprovalCount,
+        long manualActionCount,
+        long blockedActionCount,
+        long agentCount,
+        long healthyAgentCount,
+        long staleAgentCount,
+        long degradedAgentCount,
+        long offlineAgentCount,
+        List<ClusterView> recentClusters,
+        List<RcaReport> recentReports,
+        List<Incident> recentIncidents
+    ) {
+        public OverviewSummary {
+            recentClusters = recentClusters == null ? List.of() : List.copyOf(recentClusters);
+            recentReports = recentReports == null ? List.of() : List.copyOf(recentReports);
+            recentIncidents = recentIncidents == null ? List.of() : List.copyOf(recentIncidents);
         }
     }
 
@@ -233,6 +263,12 @@ public final class RcaModels {
     ) {
     }
 
+    public record GitOpsRetryRequest(
+        boolean confirmed,
+        @Size(max = 1000) String note
+    ) {
+    }
+
     public record GitOpsOutcomeUpdateRequest(
         boolean confirmed,
         GitOpsDeploymentState deploymentState,
@@ -258,12 +294,46 @@ public final class RcaModels {
         String verificationResult,
         String rollbackReference,
         String errorMessage,
+        int retryCount,
+        Instant lastAttemptAt,
+        Instant lastFailureAt,
+        Instant lastReconciledAt,
         String requestedBy,
         Instant createdAt,
         Instant updatedAt,
         Instant deploymentStartedAt,
         Instant deploymentCompletedAt
     ) {
+        public GitOpsChange(
+            String changeId,
+            String sourceType,
+            String sourceId,
+            String provider,
+            String repository,
+            String branch,
+            String baseBranch,
+            String filePath,
+            Long pullRequestNumber,
+            String pullRequestUrl,
+            GitOpsChangeState pullRequestState,
+            String headSha,
+            GitOpsDeploymentState deploymentState,
+            String verificationResult,
+            String rollbackReference,
+            String errorMessage,
+            String requestedBy,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant deploymentStartedAt,
+            Instant deploymentCompletedAt
+        ) {
+            this(
+                changeId, sourceType, sourceId, provider, repository, branch, baseBranch, filePath,
+                pullRequestNumber, pullRequestUrl, pullRequestState, headSha, deploymentState,
+                verificationResult, rollbackReference, errorMessage, 0, createdAt, null, null,
+                requestedBy, createdAt, updatedAt, deploymentStartedAt, deploymentCompletedAt
+            );
+        }
     }
 
     public record GitOpsWebhookResult(

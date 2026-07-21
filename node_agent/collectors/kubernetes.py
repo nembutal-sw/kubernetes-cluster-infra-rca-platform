@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_kubernetes
+from node_agent.collectors.builtin_collectors import collect_kubernetes
 
 __all__ = ["collect_kubernetes"]

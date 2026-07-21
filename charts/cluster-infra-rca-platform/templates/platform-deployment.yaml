@@ -7,6 +7,17 @@
 {{- fail "platform.config.gitopsApiBaseUrl is required for gitea" }}
 {{- end }}
 {{- end }}
+{{- $production := or (contains "prod" (lower .Values.platform.config.springProfiles)) (contains "production" (lower .Values.platform.config.springProfiles)) }}
+{{- if $production }}
+{{- if lt (int .Values.platform.replicaCount) 2 }}{{ fail "production requires platform.replicaCount >= 2" }}{{- end }}
+{{- if .Values.database.enabled }}{{ fail "production requires database.enabled=false and an external database" }}{{- end }}
+{{- if .Values.platform.secret.create }}{{ fail "production requires platform.secret.create=false and an existing Secret" }}{{- end }}
+{{- if empty .Values.platform.image.digest }}{{ fail "production requires platform.image.digest" }}{{- end }}
+{{- if not .Values.platform.securityContext.readOnlyRootFilesystem }}{{ fail "production requires readOnlyRootFilesystem=true" }}{{- end }}
+{{- if not .Values.platform.networkPolicy.enabled }}{{ fail "production requires platform.networkPolicy.enabled=true" }}{{- end }}
+{{- if not .Values.platform.podDisruptionBudget.enabled }}{{ fail "production requires platform.podDisruptionBudget.enabled=true" }}{{- end }}
+{{- if empty .Values.platform.topologySpreadConstraints }}{{ fail "production requires topologySpreadConstraints" }}{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -50,7 +61,7 @@ spec:
       {{- end }}
       containers:
         - name: platform
-          image: "{{ .Values.platform.image.repository }}:{{ .Values.platform.image.tag }}"
+          image: {{ include "cluster-infra-rca-platform.platformImage" . | quote }}
           imagePullPolicy: {{ .Values.platform.image.pullPolicy }}
           ports:
             - name: http
@@ -272,6 +283,17 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.platform.tmpDir.enabled }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if .Values.platform.tmpDir.enabled }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.platform.tmpDir.sizeLimit }}
+      {{- end }}
       {{- with .Values.platform.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

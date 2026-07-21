@@ -221,6 +221,15 @@ export function useSettingsOperations(options: SettingsOperationsOptions) {
     return updated;
   }, [callApi, notify, t]);
 
+  const retryGitOpsChange = useCallback(async (change: GitOpsChange, note: string): Promise<GitOpsChange> => {
+    const updated = await callApi<GitOpsChange>(
+      `/api/v1/gitops/changes/${encodeURIComponent(change.change_id)}/retry`,
+      { method: "POST", body: { confirmed: true, note } },
+    );
+    notify(t("GitOps change reconciled."));
+    return updated;
+  }, [callApi, notify, t]);
+
   return {
     changePassword,
     changeLoginId,
@@ -233,6 +242,7 @@ export function useSettingsOperations(options: SettingsOperationsOptions) {
     loadCatalogOverrideHandoff,
     createCatalogGitOpsChange,
     loadCatalogGitOpsChanges,
+    retryGitOpsChange,
     updateGitOpsOutcome,
   };
 }

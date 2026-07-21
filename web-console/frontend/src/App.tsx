@@ -63,10 +63,9 @@ function ConsoleApp() {
     lastUpdatedAt,
     lastCompleteRefreshAt,
     loadStates,
+    activeLoadStates,
+    overviewSummary,
     clusters,
-    reports,
-    incidents,
-    analysisTasks,
     actionRequests,
     agentHealth,
     auditEvents,
@@ -83,7 +82,7 @@ function ConsoleApp() {
     setLlmDiagnostics,
     setLlmSetupGuide,
     loadConsoleData,
-  } = useConsoleData(callApi, currentUser);
+  } = useConsoleData(callApi, currentUser, activeView);
   const {
     selectedCluster,
     setSelectedCluster,
@@ -157,13 +156,11 @@ function ConsoleApp() {
       if (selectedReportId !== route.reportId) setSelectedReportId(route.reportId);
       return;
     }
-    if (reports.length) {
-      navigate(reportPath(reports[0].report_id), { replace: true });
-    } else if (loadStates.reports.loadedAt) {
+    if (selectedReportId) {
       setSelectedReportId(null);
       setReportDetail(null);
     }
-  }, [activeView, currentUser, loadStates.reports.loadedAt, navigate, reports, route.reportId, selectedReportId, setReportDetail, setSelectedReportId]);
+  }, [activeView, currentUser, route.reportId, selectedReportId, setReportDetail, setSelectedReportId]);
 
   useEffect(() => {
     if (!currentUser || activeView !== "clusters") return;
@@ -305,6 +302,7 @@ function ConsoleApp() {
     loadCatalogOverrideHandoff,
     createCatalogGitOpsChange,
     loadCatalogGitOpsChanges,
+    retryGitOpsChange,
     updateGitOpsOutcome,
   } = useSettingsOperations({
     callApi,
@@ -332,11 +330,7 @@ function ConsoleApp() {
   const routeResourceMissing =
     activeView === "clusters" && route.clusterId && loadStates.clusters.loadedAt && !loadStates.clusters.error
       ? !clusters.some((item) => item.cluster_id === route.clusterId)
-      : activeView === "reports" && route.reportId && loadStates.reports.loadedAt && !loadStates.reports.error
-        ? !reports.some((item) => item.report_id === route.reportId)
-        : activeView === "incidents" && route.incidentId && loadStates.incidents.loadedAt && !loadStates.incidents.error
-          ? !incidents.some((item) => item.incident_id === route.incidentId)
-          : false;
+      : false;
   const routeResourceId = route.clusterId || route.reportId || route.incidentId || "";
 
   return (
@@ -350,13 +344,13 @@ function ConsoleApp() {
           onRefresh={() => loadConsoleData(false)}
           onLogout={logout}
           loading={loadingData}
-          degraded={Object.values(loadStates).some((state) => Boolean(state.error))}
+          degraded={Object.values(activeLoadStates).some((state) => Boolean(state.error))}
           lastUpdatedAt={lastUpdatedAt}
           t={t}
         />
         <main className="console-content" data-testid={`view-${activeView}`}>
           <DataStatusBanner
-            states={loadStates}
+            states={activeLoadStates}
             lastCompleteRefreshAt={lastCompleteRefreshAt}
             onRetry={() => loadConsoleData(false)}
             t={t}
@@ -370,12 +364,7 @@ function ConsoleApp() {
           )}
           {activeView === "overview" && (
             <OverviewView
-              clusters={clusters}
-              reports={reports}
-              incidents={incidents}
-              analysisTasks={analysisTasks}
-              actionRequests={actionRequests}
-              agentHealth={agentHealth}
+              summary={overviewSummary}
               onNavigate={navigateToView}
               onOpenReport={openReport}
               onOpenCluster={openClusterDetail}
@@ -440,11 +429,10 @@ function ConsoleApp() {
             <PipelineView
               callApi={callApi}
               refreshToken={lastUpdatedAt}
-              tasks={analysisTasks}
+              summary={overviewSummary}
               actionRequests={actionRequests}
               demoScenarios={demoScenarios}
               clusters={clusters}
-              agentHealth={agentHealth}
               onRetry={retryAnalysisTask}
               onRunDemo={runDemoScenario}
               t={t}
@@ -482,6 +470,7 @@ function ConsoleApp() {
               onLoadCatalogOverrideHandoff={loadCatalogOverrideHandoff}
               onCreateCatalogGitOpsChange={createCatalogGitOpsChange}
               onLoadCatalogGitOpsChanges={loadCatalogGitOpsChanges}
+              onRetryGitOpsChange={retryGitOpsChange}
               onUpdateGitOpsOutcome={updateGitOpsOutcome}
               t={t}
             />

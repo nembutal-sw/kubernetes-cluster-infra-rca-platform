@@ -85,6 +85,15 @@ public class ReportRepository {
         return jdbc.query("SELECT * FROM rca_reports ORDER BY created_at DESC", this::mapReport);
     }
 
+    public long countSince(Instant since) {
+        Long count = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM rca_reports WHERE created_at >= ?",
+            Long.class,
+            timestamp(since)
+        );
+        return count == null ? 0 : count;
+    }
+
     public CursorPage<RcaReport> pageReports(
         String clusterId,
         RcaJobStatus status,

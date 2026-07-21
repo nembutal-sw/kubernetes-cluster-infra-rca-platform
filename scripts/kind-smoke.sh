@@ -127,14 +127,22 @@ test "$("${curl_command[@]}" \
   -H "Authorization: Bearer ${access_token}" \
   "http://127.0.0.1:${port}/api/rca/incidents" | jq length)" -gt 0
 
+export RCA_AGENT_SOAK_PLATFORM_URL="http://127.0.0.1:${port}"
+export RCA_AGENT_SOAK_PLATFORM_CLUSTER_ID="${cluster_id}"
+export RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN="${access_token}"
+export RCA_AGENT_SOAK_PLATFORM_FAMILY="${RCA_AGENT_SOAK_PLATFORM_FAMILY:-kind}"
+export RCA_AGENT_SOAK_ARCHITECTURE="${RCA_AGENT_SOAK_ARCHITECTURE:-$(uname -m)}"
+export RCA_AGENT_SOAK_AGENT_VERSION="${RCA_AGENT_SOAK_AGENT_VERSION:-smoke}"
 python3 scripts/agent-soak-validation.py \
   --profile "${agent_soak_profile}" \
   --collectors node,disk,inode,memory,process \
   --discover-agent-pods \
+  --platform-evidence-fleet \
   --minimum-agent-pods "${agent_soak_minimum_pods}" \
   --require-runtime-observation \
   --health-url "http://127.0.0.1:${port}/health/ready" \
   --output-dir "${agent_soak_output_dir}"
+unset RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN
 
 test_succeeded="true"
 echo "Kind multi-node platform, DaemonSet Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."

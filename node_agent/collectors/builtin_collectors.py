@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-# Internal implementation module. Public collector APIs and metadata live in
-# the sibling modules and registry.
+# Built-in collector implementations. Public APIs and metadata live in the
+# subsystem wrappers and registry.
 
 import os
 import copy

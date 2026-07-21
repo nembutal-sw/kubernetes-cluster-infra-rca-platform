@@ -58,25 +58,51 @@ public class GiteaGitOpsProvider implements GitOpsProvider {
         String body
     ) {
         requireConfigured(change);
+        return createPullRequestResources(change, content, title, body);
+    }
+
+    @Override
+    public PullRequestResult reconcilePullRequest(
+        GitOpsChange change,
+        String content,
+        String title,
+        String body
+    ) {
+        requireConfigured(change);
+        PullRequestResult existing = findPullRequest(change);
+        return existing != null ? existing : createPullRequestResources(change, content, title, body);
+    }
+
+    private PullRequestResult createPullRequestResources(
+        GitOpsChange change,
+        String content,
+        String title,
+        String body
+    ) {
         String[] repository = change.repository().split("/", -1);
         if (repository.length != 2) {
             throw new GitOpsProviderException("Gitea repository must use owner/repository format");
         }
         String repoPath = "/repos/" + encode(repository[0]) + "/" + encode(repository[1]);
-        request(
-            "POST",
-            repoPath + "/branches",
-            Map.of(
-                "new_branch_name", change.branch(),
-                "old_branch_name", change.baseBranch()
-            ),
-            201
+        JsonNode branch = requestAllowNotFound(
+            "GET", repoPath + "/branches/" + encode(change.branch()), null
         );
+        if (branch == null) {
+            request(
+                "POST",
+                repoPath + "/branches",
+                Map.of(
+                    "new_branch_name", change.branch(),
+                    "old_branch_name", change.baseBranch()
+                ),
+                201
+            );
+        }
 
         String contentPath = repoPath + "/contents/" + encodePath(change.filePath());
         JsonNode existing = requestAllowNotFound(
             "GET",
-            contentPath + "?ref=" + encode(change.baseBranch()),
+            contentPath + "?ref=" + encode(branch == null ? change.baseBranch() : change.branch()),
             null
         );
         Map<String, Object> filePayload = new LinkedHashMap<>();
@@ -110,6 +136,42 @@ public class GiteaGitOpsProvider implements GitOpsProvider {
             pullRequest.path("state").asText("open"),
             pullRequest.at("/head/sha").asText(headSha)
         );
+    }
+
+    private PullRequestResult findPullRequest(GitOpsChange change) {
+        String[] repository = change.repository().split("/", -1);
+        if (repository.length != 2) {
+            throw new GitOpsProviderException("Gitea repository must use owner/repository format");
+        }
+        JsonNode matches = request(
+            "GET",
+            "/repos/" + encode(repository[0]) + "/" + encode(repository[1])
+                + "/pulls?state=all&head=" + encode(repository[0] + ":" + change.branch())
+                + "&base=" + encode(change.baseBranch()) + "&limit=10",
+            null,
+            200
+        );
+        if (!matches.isArray() || matches.isEmpty()) {
+            return null;
+        }
+        PullRequestResult merged = null;
+        for (JsonNode pullRequest : matches) {
+            boolean isMerged = pullRequest.path("merged").asBoolean(false);
+            String state = isMerged ? "merged" : pullRequest.path("state").asText("open");
+            PullRequestResult result = new PullRequestResult(
+                pullRequest.path("number").asLong(),
+                requiredText(pullRequest, "/html_url", "pull request URL"),
+                state,
+                requiredText(pullRequest, "/head/sha", "head SHA")
+            );
+            if ("open".equalsIgnoreCase(state)) {
+                return result;
+            }
+            if (isMerged && merged == null) {
+                merged = result;
+            }
+        }
+        return merged;
     }
 
     private void requireConfigured(GitOpsChange change) {

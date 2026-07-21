@@ -40,7 +40,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
 | Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
 | Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
 | Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway, 19 migrations | 신규 및 기존 schema 관리 |
+| Migration | Flyway, 20 migrations | 신규 및 기존 schema 관리 |
 
 Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
 
@@ -50,19 +50,19 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence, Rule-based RCA 품질 gate, LLM provider 추상화
 - incident correlation, 장애 전파 timeline, 영향 범위
-- manual-only action workflow와 Catalog GitOps 변경 추적
+- manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
 - PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
 - 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
 
-남은 실환경 검증은 EKS/AKS/GKE와 OpenShift canary입니다. kubeadm은
+남은 실환경 검증은 실제 DaemonSet Evidence 방식의 5시간 Extended Fleet 재실행과 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은
 Ubuntu 24.04 amd64, Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
 
 ## 운영 검증 상태
 
 실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 3노드 장시간 검증은 승인형 `Agent Fleet Burn-in`, EKS/AKS/GKE/OpenShift는 플랫폼별 `Managed Cluster Canary` workflow를 사용합니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)과 [Real Cluster Validation](docs/real-cluster-validation.md)을 참고합니다.
 
-현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했고 K3s 단일 노드 1시간 standard와 Kind 3노드 5시간 extended burn-in을 통과했습니다. Extended run은 300개 checkpoint와 900개 Pod runtime snapshot에서 수집·evidence·health 100%, runtime/spool/quarantine 오류 0건을 기록했고 후반 150분 RSS 기울기는 세 Agent 모두 음수였습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
+현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했고 K3s 단일 노드 1시간 standard와 Kind 3노드 5시간 extended burn-in을 통과했습니다. 기존 Extended run은 Runner local collector 300회와 3개 Agent Pod runtime snapshot 900회를 함께 검증했고 runtime/spool/quarantine 오류는 0건, 후반 150분 RSS 기울기는 세 Agent 모두 음수였습니다. 현재 Fleet gate는 각 DaemonSet Agent에 Platform Evidence Request를 보내 노드별 품질과 지연까지 측정하도록 수정했으며, 이 방식의 5시간 재실행은 아직 남아 있습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
 
 ## Quick Start
 
@@ -262,6 +262,7 @@ Mode별 추가 옵션:
 helm upgrade --install rca charts/cluster-infra-rca-platform \
   --namespace rca-system \
   --create-namespace \
+  --values charts/cluster-infra-rca-platform/values-dev.yaml \
   --set-string platform.secret.defaultAdminUsername=admin \
   --set-string platform.secret.defaultAdminPassword='<strong-password>' \
   --set-string platform.secret.webhookToken='<webhook-token>'
@@ -279,6 +280,19 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
 | Demo | `--set platform.config.demoEnabled=true` |
 
 기본 image repository는 예시 값입니다. 실제 registry로 `platform.image.repository`, `platform.image.tag`, Agent의 `image.repository`, `image.tag`를 지정해야 합니다. 운영 secret은 CLI `--set`보다 기존 Secret 또는 External Secrets를 권장합니다.
+
+운영 배포는 `values-production.yaml`을 사용합니다. 이 overlay는 외부 DB와 기존 Secret, Platform 2 replicas, NetworkPolicy, topology spread, read-only root filesystem을 강제합니다. 이미지 digest를 생략하면 Helm render 단계에서 실패합니다.
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --namespace rca-system \
+  --create-namespace \
+  --values charts/cluster-infra-rca-platform/values-production.yaml \
+  --set-string platform.image.repository=ghcr.io/<org>/cluster-infra-rca-web-console \
+  --set-string platform.image.digest=sha256:<64-hex-digest>
+```
+
+기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`을 준비합니다.
 
 ## 검증 명령
 

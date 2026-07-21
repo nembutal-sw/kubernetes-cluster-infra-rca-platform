@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_disk
+from node_agent.collectors.builtin_collectors import collect_disk
 
 __all__ = ["collect_disk"]

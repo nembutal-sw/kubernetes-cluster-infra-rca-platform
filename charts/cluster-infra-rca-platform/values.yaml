@@ -60,6 +60,7 @@ platform:
   image:
     repository: ghcr.io/example/cluster-infra-rca-web-console
     tag: latest
+    digest: ""
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -253,6 +254,9 @@ platform:
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: false
+  tmpDir:
+    enabled: true
+    sizeLimit: 256Mi
   resources:
     requests:
       cpu: 100m

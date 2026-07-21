@@ -6,24 +6,47 @@ import { sortByTime } from "../lib/consoleUtils";
 import type {
   ActionRequestView,
   AgentHealthView,
-  AnalysisTaskView,
   ApiCall,
   AuditEventView,
   CatalogOverrideDraft,
   ClusterView,
+  ConsoleDataSource,
   ConsoleLoadStates,
   DemoScenarioView,
-  IncidentView,
   LlmDiagnosticResponse,
   LlmSetupGuideResponse,
   LoadState,
   OperationalCatalogDetail,
+  OverviewSummary,
   PlatformInfo,
-  RcaReport,
   UserAccount,
 } from "../types";
 
 type SourceSetter<T> = Dispatch<SetStateAction<LoadState<T>>>;
+
+const EMPTY_OVERVIEW: OverviewSummary = {
+  cluster_count: 0,
+  report_count: 0,
+  open_incident_count: 0,
+  reports_last_24_hours: 0,
+  analysis_backlog_count: 0,
+  analysis_queued_count: 0,
+  analysis_processing_count: 0,
+  analysis_retry_count: 0,
+  analysis_dead_letter_count: 0,
+  action_request_count: 0,
+  pending_approval_count: 0,
+  manual_action_count: 0,
+  blocked_action_count: 0,
+  agent_count: 0,
+  healthy_agent_count: 0,
+  stale_agent_count: 0,
+  degraded_agent_count: 0,
+  offline_agent_count: 0,
+  recent_clusters: [],
+  recent_reports: [],
+  recent_incidents: [],
+};
 
 function hasAuditAccess(role?: string): boolean {
   return role === "admin" || role === "auditor";
@@ -67,12 +90,7 @@ async function loadSource<T>(
   setter((previous) => ({ ...previous, loading: true }));
   try {
     const data = transform(await request);
-    setter({
-      data,
-      loading: false,
-      loadedAt: new Date().toISOString(),
-      stale: false,
-    });
+    setter({ data, loading: false, loadedAt: new Date().toISOString(), stale: false });
     return true;
   } catch (error) {
     setter((previous) => ({
@@ -85,15 +103,47 @@ async function loadSource<T>(
   }
 }
 
-export function useConsoleData(callApi: ApiCall, currentUser: UserAccount | null) {
+function sourcesForView(view: string, role?: string): ConsoleDataSource[] {
+  switch (view) {
+    case "overview":
+      return ["overviewSummary"];
+    case "clusters":
+      return ["clusters", "agentHealth"];
+    case "reports":
+      return ["clusters", "platformInfo"];
+    case "incidents":
+      return ["clusters"];
+    case "pipeline":
+      return ["overviewSummary", "clusters", "actionRequests", "demoScenarios"];
+    case "audit":
+      return hasAuditAccess(role) ? ["auditEvents"] : [];
+    case "settings": {
+      const sources: ConsoleDataSource[] = [
+        "platformInfo",
+        "catalogDetail",
+        "llmDiagnostics",
+        "llmSetupGuide",
+      ];
+      if (hasCatalogOverrideDraftAccess(role)) sources.push("catalogOverrideDrafts");
+      if (hasAuditAccess(role)) sources.push("notificationHistory");
+      return sources;
+    }
+    default:
+      return [];
+  }
+}
+
+export function useConsoleData(
+  callApi: ApiCall,
+  currentUser: UserAccount | null,
+  activeView: string,
+) {
   const inFlight = useRef(false);
   const [loadingData, setLoadingData] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>();
   const [lastCompleteRefreshAt, setLastCompleteRefreshAt] = useState<string>();
+  const [overviewSummaryState, setOverviewSummaryState] = useState(() => initialState(EMPTY_OVERVIEW));
   const [clustersState, setClustersState] = useState(() => initialState<ClusterView[]>([]));
-  const [reportsState, setReportsState] = useState(() => initialState<RcaReport[]>([]));
-  const [incidentsState, setIncidentsState] = useState(() => initialState<IncidentView[]>([]));
-  const [analysisTasksState, setAnalysisTasksState] = useState(() => initialState<AnalysisTaskView[]>([]));
   const [actionRequestsState, setActionRequestsState] = useState(() => initialState<ActionRequestView[]>([]));
   const [agentHealthState, setAgentHealthState] = useState(() => initialState<AgentHealthView[]>([]));
   const [auditEventsState, setAuditEventsState] = useState(() => initialState<AuditEventView[]>([]));
@@ -111,63 +161,102 @@ export function useConsoleData(callApi: ApiCall, currentUser: UserAccount | null
     if (!silent) setLoadingData(true);
 
     try {
-      const loaders: Promise<boolean>[] = [
-        loadSource(setClustersState, callApi<ClusterView[]>("/api/clusters"), (value) => expectArray<ClusterView>(value, "Clusters")),
-        loadSource(setReportsState, callApi<RcaReport[]>("/api/rca/reports"), (value) => sortByTime(expectArray<RcaReport>(value, "Reports"), "created_at")),
-        loadSource(setIncidentsState, callApi<IncidentView[]>("/api/rca/incidents"), (value) => sortByTime(expectArray<IncidentView>(value, "Incidents"), "last_seen_at")),
-        loadSource(setAnalysisTasksState, callApi<AnalysisTaskView[]>("/api/rca/analysis-tasks?limit=300"), (value) => sortByTime(expectArray<AnalysisTaskView>(value, "Analysis tasks"), "created_at")),
-        loadSource(setActionRequestsState, callApi<ActionRequestView[]>("/api/rca/action-requests"), (value) => sortByTime(expectArray<ActionRequestView>(value, "Action requests"), "created_at")),
-        loadSource(setAgentHealthState, callApi<AgentHealthView[]>("/api/v1/agent-health"), (value) => expectArray<AgentHealthView>(value, "Agent health")),
-        loadSource(setDemoScenariosState, callApi("/api/demo/scenarios"), expectDemoScenarios),
-        loadSource<PlatformInfo | null>(setPlatformInfoState, callApi<PlatformInfo>("/api/v1/platform/info"), (value) => expectObject<PlatformInfo>(value, "Platform info")),
-        loadSource<OperationalCatalogDetail | null>(setCatalogDetailState, callApi<OperationalCatalogDetail>("/api/v1/catalog"), (value) => expectObject<OperationalCatalogDetail>(value, "Catalog")),
-        loadSource<LlmDiagnosticResponse | null>(setLlmDiagnosticsState, callApi<LlmDiagnosticResponse>("/api/llm/diagnostics"), (value) => expectObject<LlmDiagnosticResponse>(value, "LLM diagnostics")),
-        loadSource<LlmSetupGuideResponse | null>(setLlmSetupGuideState, callApi<LlmSetupGuideResponse>("/api/llm/setup"), (value) => expectObject<LlmSetupGuideResponse>(value, "LLM setup")),
-      ];
-
-      if (hasCatalogOverrideDraftAccess(currentUser?.role)) {
+      const sources = new Set(sourcesForView(activeView, currentUser?.role));
+      const loaders: Promise<boolean>[] = [];
+      if (sources.has("overviewSummary")) {
+        loaders.push(loadSource<OverviewSummary>(
+          setOverviewSummaryState,
+          callApi<OverviewSummary>("/api/v1/overview/summary"),
+          (value) => expectObject<OverviewSummary>(value, "Overview summary"),
+        ));
+      }
+      if (sources.has("clusters")) {
         loaders.push(loadSource(
+          setClustersState,
+          callApi<ClusterView[]>("/api/clusters"),
+          (value) => expectArray<ClusterView>(value, "Clusters"),
+        ));
+      }
+      if (sources.has("actionRequests")) {
+        loaders.push(loadSource(
+          setActionRequestsState,
+          callApi<ActionRequestView[]>("/api/rca/action-requests?limit=50"),
+          (value) => sortByTime(expectArray<ActionRequestView>(value, "Action requests"), "created_at"),
+        ));
+      }
+      if (sources.has("agentHealth")) {
+        loaders.push(loadSource(
+          setAgentHealthState,
+          callApi<AgentHealthView[]>("/api/v1/agent-health"),
+          (value) => expectArray<AgentHealthView>(value, "Agent health"),
+        ));
+      }
+      if (sources.has("demoScenarios")) {
+        loaders.push(loadSource(setDemoScenariosState, callApi("/api/demo/scenarios"), expectDemoScenarios));
+      }
+      if (sources.has("platformInfo")) {
+        loaders.push(loadSource<PlatformInfo | null>(
+          setPlatformInfoState,
+          callApi<PlatformInfo>("/api/v1/platform/info"),
+          (value) => expectObject<PlatformInfo>(value, "Platform info"),
+        ));
+      }
+      if (sources.has("catalogDetail")) {
+        loaders.push(loadSource<OperationalCatalogDetail | null>(
+          setCatalogDetailState,
+          callApi<OperationalCatalogDetail>("/api/v1/catalog"),
+          (value) => expectObject<OperationalCatalogDetail>(value, "Catalog"),
+        ));
+      }
+      if (sources.has("catalogOverrideDrafts")) {
+        loaders.push(loadSource<CatalogOverrideDraft[]>(
           setCatalogOverrideDraftsState,
           callApi<CatalogOverrideDraft[]>("/api/v1/catalog/overrides/drafts?limit=50"),
           (value) => sortByTime(expectArray<CatalogOverrideDraft>(value, "Catalog override drafts"), "created_at"),
         ));
-      } else {
-        setCatalogOverrideDraftsState(initialState([]));
       }
-
-      if (hasAuditAccess(currentUser?.role)) {
-        loaders.push(
-          loadSource(
-            setAuditEventsState,
-            callApi<AuditEventView[]>("/api/audit/events?limit=200"),
-            (value) => sortByTime(expectArray<AuditEventView>(value, "Audit events"), "created_at"),
-          ),
-          loadSource(
-            setNotificationHistoryState,
-            callApi<AuditEventView[]>("/api/notifications/history?limit=50"),
-            (value) => sortByTime(expectArray<AuditEventView>(value, "Notification history"), "created_at"),
-          ),
-        );
-      } else {
-        setAuditEventsState(initialState([]));
-        setNotificationHistoryState(initialState([]));
+      if (sources.has("llmDiagnostics")) {
+        loaders.push(loadSource<LlmDiagnosticResponse | null>(
+          setLlmDiagnosticsState,
+          callApi<LlmDiagnosticResponse>("/api/llm/diagnostics"),
+          (value) => expectObject<LlmDiagnosticResponse>(value, "LLM diagnostics"),
+        ));
+      }
+      if (sources.has("llmSetupGuide")) {
+        loaders.push(loadSource<LlmSetupGuideResponse | null>(
+          setLlmSetupGuideState,
+          callApi<LlmSetupGuideResponse>("/api/llm/setup"),
+          (value) => expectObject<LlmSetupGuideResponse>(value, "LLM setup"),
+        ));
+      }
+      if (sources.has("auditEvents")) {
+        loaders.push(loadSource(
+          setAuditEventsState,
+          callApi<AuditEventView[]>("/api/audit/events?limit=200"),
+          (value) => sortByTime(expectArray<AuditEventView>(value, "Audit events"), "created_at"),
+        ));
+      }
+      if (sources.has("notificationHistory")) {
+        loaders.push(loadSource(
+          setNotificationHistoryState,
+          callApi<AuditEventView[]>("/api/notifications/history?limit=50"),
+          (value) => sortByTime(expectArray<AuditEventView>(value, "Notification history"), "created_at"),
+        ));
       }
 
       const outcomes = await Promise.all(loaders);
       const refreshedAt = new Date().toISOString();
-      if (outcomes.some(Boolean)) setLastUpdatedAt(refreshedAt);
+      if (!outcomes.length || outcomes.some(Boolean)) setLastUpdatedAt(refreshedAt);
       if (outcomes.every(Boolean)) setLastCompleteRefreshAt(refreshedAt);
     } finally {
       inFlight.current = false;
       setLoadingData(false);
     }
-  }, [callApi, currentUser?.role]);
+  }, [activeView, callApi, currentUser?.role]);
 
   const loadStates: ConsoleLoadStates = {
+    overviewSummary: overviewSummaryState,
     clusters: clustersState,
-    reports: reportsState,
-    incidents: incidentsState,
-    analysisTasks: analysisTasksState,
     actionRequests: actionRequestsState,
     agentHealth: agentHealthState,
     demoScenarios: demoScenariosState,
@@ -179,16 +268,18 @@ export function useConsoleData(callApi: ApiCall, currentUser: UserAccount | null
     llmDiagnostics: llmDiagnosticsState,
     llmSetupGuide: llmSetupGuideState,
   };
+  const activeLoadStates = Object.fromEntries(
+    sourcesForView(activeView, currentUser?.role).map((source) => [source, loadStates[source]]),
+  ) as ConsoleLoadStates;
 
   return {
     loadingData,
     lastUpdatedAt,
     lastCompleteRefreshAt,
     loadStates,
+    activeLoadStates,
+    overviewSummary: overviewSummaryState.data,
     clusters: clustersState.data,
-    reports: reportsState.data,
-    incidents: incidentsState.data,
-    analysisTasks: analysisTasksState.data,
     actionRequests: actionRequestsState.data,
     agentHealth: agentHealthState.data,
     auditEvents: auditEventsState.data,

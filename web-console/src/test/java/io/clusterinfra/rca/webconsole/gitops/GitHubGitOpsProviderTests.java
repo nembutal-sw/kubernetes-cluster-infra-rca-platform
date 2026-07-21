@@ -52,6 +52,7 @@ class GitHubGitOpsProviderTests {
         assertThat(result.headSha()).isEqualTo("commit-sha");
         assertThat(requests).containsExactly(
             "GET /repos/acme/rca-config/git/ref/heads/main",
+            "GET /repos/acme/rca-config/git/ref/heads/rca%2Fcatalog-draft-1",
             "POST /repos/acme/rca-config/git/refs",
             "GET /repos/acme/rca-config/contents/ops/catalog/override.json?ref=main",
             "PUT /repos/acme/rca-config/contents/ops/catalog/override.json",
@@ -68,6 +69,9 @@ class GitHubGitOpsProviderTests {
         String body;
         if (path.endsWith("/git/ref/heads/main")) {
             body = "{\"object\":{\"sha\":\"base-sha\"}}";
+        } else if ("GET".equals(exchange.getRequestMethod()) && path.contains("/git/ref/heads/rca/")) {
+            status = 404;
+            body = "{\"message\":\"Not Found\"}";
         } else if (path.endsWith("/git/refs")) {
             status = 201;
             body = "{}";
@@ -86,6 +90,38 @@ class GitHubGitOpsProviderTests {
         exchange.sendResponseHeaders(status, encoded.length);
         exchange.getResponseBody().write(encoded);
         exchange.close();
+    }
+
+    @Test
+    void reconciliationReturnsAnExistingPullRequestWithoutCreatingResources() throws Exception {
+        List<String> requests = new ArrayList<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            requests.add(exchange.getRequestMethod() + " " + exchange.getRequestURI());
+            String body = "[{\"number\":41,\"html_url\":\"https://github.test/acme/rca-config/pull/41\","
+                + "\"state\":\"closed\",\"merged_at\":null,\"head\":{\"sha\":\"closed-sha\"}},"
+                + "{\"number\":42,\"html_url\":\"https://github.test/acme/rca-config/pull/42\","
+                + "\"state\":\"open\",\"merged_at\":null,\"head\":{\"sha\":\"existing-sha\"}}]";
+            byte[] encoded = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, encoded.length);
+            exchange.getResponseBody().write(encoded);
+            exchange.close();
+        });
+        server.start();
+        RcaConsoleProperties properties = new RcaConsoleProperties();
+        properties.getGitOps().setEnabled(true);
+        properties.getGitOps().setRepository("acme/rca-config");
+        properties.getGitOps().setToken("github-token-secret");
+        properties.getGitOps().setApiBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        GitHubGitOpsProvider provider = new GitHubGitOpsProvider(
+            properties, new ObjectMapper(), HttpClient.newHttpClient()
+        );
+
+        var result = provider.reconcilePullRequest(change(), "{}", "Catalog update", "Reviewed change");
+
+        assertThat(result.number()).isEqualTo(42);
+        assertThat(result.headSha()).isEqualTo("existing-sha");
+        assertThat(requests).singleElement().asString().contains("GET /repos/acme/rca-config/pulls?");
     }
 
     private GitOpsChange change() {

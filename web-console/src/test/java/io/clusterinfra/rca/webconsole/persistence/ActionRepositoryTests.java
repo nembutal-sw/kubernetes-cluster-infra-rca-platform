@@ -132,6 +132,27 @@ class ActionRepositoryTests {
             .contains("execution-1");
     }
 
+    @Test
+    void limitsTheCrossReportOperationalQueue() {
+        for (int index = 0; index < 3; index++) {
+            actions.createRequest(
+                "report-1",
+                index,
+                "collect_node_diagnostics",
+                PolicyLevel.MANUAL_INVESTIGATION,
+                "rule_based",
+                ActionRequestStatus.pending_approval,
+                "admin",
+                null,
+                null
+            );
+        }
+
+        assertThat(actions.listRequests(null, 2)).hasSize(2);
+        assertThat(actions.count(null)).isEqualTo(3);
+        assertThat(actions.count(ActionRequestStatus.pending_approval)).isEqualTo(3);
+    }
+
     private void seedReport(String reportId, String clusterId, Instant createdAt) {
         jdbc.update(
             """

@@ -58,6 +58,10 @@ public class ActionWorkflowService {
         return actions.listRequests(reportId);
     }
 
+    public List<ActionRequest> listRequests(String reportId, Integer limit) {
+        return actions.listRequests(reportId, limit);
+    }
+
     public List<ActionExecution> listExecutions(String reportId) {
         return actions.listExecutions(reportId);
     }

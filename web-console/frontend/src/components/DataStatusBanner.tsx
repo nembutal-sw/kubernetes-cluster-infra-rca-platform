@@ -9,10 +9,8 @@ interface DataStatusBannerProps {
 }
 
 const SOURCE_LABELS: Record<ConsoleDataSource, string> = {
+  overviewSummary: "Overview summary",
   clusters: "Clusters",
-  reports: "RCA Reports",
-  incidents: "Incidents",
-  analysisTasks: "Analysis tasks",
   actionRequests: "Action requests",
   agentHealth: "Agent health",
   demoScenarios: "Demo scenarios",
@@ -58,8 +56,8 @@ export function DataStatusBanner({ states, lastCompleteRefreshAt, onRetry, t }: 
               </div>
               <p>{error.detail}</p>
               <small>
-                {error.status > 0 ? `HTTP ${error.status} · ` : ""}{error.code}
-                {error.trace_id ? ` · trace ${error.trace_id}` : ""}
+                {error.status > 0 ? `HTTP ${error.status} / ` : ""}{error.code}
+                {error.trace_id ? ` / trace ${error.trace_id}` : ""}
               </small>
             </article>
           );

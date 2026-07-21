@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.controller;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChange;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChangeCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsOutcomeUpdateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsRetryRequest;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.GitOpsChangeService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,6 +55,19 @@ public class GitOpsController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER','APPROVER','AUDITOR')")
     public GitOpsChange get(@PathVariable String changeId) {
         return service.get(changeId);
+    }
+
+    @PostMapping({"/api/gitops/changes/{changeId}/retry", "/api/v1/gitops/changes/{changeId}/retry"})
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+    public GitOpsChange retry(
+        @PathVariable String changeId,
+        @Valid @RequestBody GitOpsRetryRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        return service.retry(
+            changeId, request, access.currentUser(authentication), servletRequest
+        );
     }
 
     @PostMapping({"/api/gitops/changes/{changeId}/outcome", "/api/v1/gitops/changes/{changeId}/outcome"})

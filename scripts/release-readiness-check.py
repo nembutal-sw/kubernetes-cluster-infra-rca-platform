@@ -38,6 +38,32 @@ def main() -> int:
             "Platform Helm chart includes deployment and secret templates.",
         ),
         check(
+            "platform-production-values",
+            exists("charts/cluster-infra-rca-platform/values-dev.yaml")
+            and exists("charts/cluster-infra-rca-platform/values-production.yaml")
+            and contains(
+                "charts/cluster-infra-rca-platform/values-production.yaml",
+                "replicaCount: 2",
+                "enabled: false",
+                "readOnlyRootFilesystem: true",
+                "topologySpreadConstraints:",
+                "networkPolicy:",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
+                "production requires platform.image.digest",
+                "production requires database.enabled=false",
+                "production requires platform.replicaCount >= 2",
+                "cluster-infra-rca-platform.platformImage",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "values-production.yaml",
+                "production values must reject an unpinned platform image",
+            ),
+            "Production Helm values require HA replicas, external DB/Secret, digest images, and hardened pod controls.",
+        ),
+        check(
             "agent-chart",
             exists("charts/cluster-infra-rca-agent/Chart.yaml")
             and exists("charts/cluster-infra-rca-agent/templates/daemonset.yaml")
@@ -268,6 +294,7 @@ def main() -> int:
             exists(".github/workflows/agent-fleet-burn-in.yml")
             and exists("scripts/agent-soak-revalidate.py")
             and exists("scripts/agent-soak-comparison.py")
+            and exists("config/agent-soak-comparison-policy.json")
             and contains(
                 ".github/workflows/agent-fleet-burn-in.yml",
                 "workflow_dispatch:",
@@ -276,6 +303,8 @@ def main() -> int:
                 "agent-fleet-standard",
                 "agent-fleet-extended",
                 "RCA_AGENT_FLEET_PROFILE",
+                "baseline_run_id",
+                "agent-soak-comparison.py",
                 "config/kind-multi-node.yaml",
                 "RCA_AGENT_SOAK_MINIMUM_PODS",
                 "persist-credentials: false",
@@ -286,6 +315,15 @@ def main() -> int:
                 "RCA_AGENT_SOAK_PROFILE",
                 "RCA_AGENT_SOAK_MINIMUM_PODS",
                 "--discover-agent-pods",
+                "--platform-evidence-fleet",
+                "RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN",
+            )
+            and exists("agent_soak/platform_evidence.py")
+            and contains(
+                "agent_soak/platform_evidence.py",
+                "/collection-runs",
+                "agent_fleet_burn_in",
+                "Platform did not create one evidence request for every fleet target",
             )
             and contains(
                 "scripts/agent-soak-revalidate.py",
@@ -294,7 +332,9 @@ def main() -> int:
             )
             and contains(
                 "scripts/agent-soak-comparison.py",
-                "agent-soak-comparison/v1",
+                "agent-soak-comparison/v2",
+                "compatibility_gate",
+                "regression_gate",
                 "candidate_minus_baseline",
             ),
             "Approval-gated standard and extended campaigns reuse the three-node Agent Fleet gate.",

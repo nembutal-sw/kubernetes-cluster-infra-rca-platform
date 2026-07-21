@@ -335,9 +335,10 @@ def test_agent_pod_discovery_rejects_ambiguous_ready_daemonset(monkeypatch) -> N
     items = []
     for name in ("agent-a", "agent-b"):
         items.append(
-            {
-                "metadata": {"namespace": "rca-system", "name": name},
-                "status": {
+                {
+                    "metadata": {"namespace": "rca-system", "name": name},
+                    "spec": {"nodeName": f"worker-{name[-1]}"},
+                    "status": {
                     "phase": "Running",
                     "conditions": [{"type": "Ready", "status": "True"}],
                     "containerStatuses": [{"name": "agent", "ready": True}],
@@ -412,9 +413,10 @@ def test_ready_agent_pod_targets_are_deterministic_and_redacted() -> None:
     soak = load_module()
     payload = {
         "items": [
-            {
-                "metadata": {"namespace": "rca-system", "name": name},
-                "status": {
+                {
+                    "metadata": {"namespace": "rca-system", "name": name},
+                    "spec": {"nodeName": f"worker-{name[-1]}"},
+                    "status": {
                     "phase": "Running",
                     "conditions": [{"type": "Ready", "status": "True"}],
                     "containerStatuses": [{"name": "agent", "ready": True}],
@@ -428,6 +430,7 @@ def test_ready_agent_pod_targets_are_deterministic_and_redacted() -> None:
     other_run_targets = soak.ready_agent_pod_targets(payload, "agent", b"another-run-salt")
 
     assert [item["agent_pod"] for item in targets] == ["rca-system/agent-a", "rca-system/agent-b"]
+    assert [item["node_name"] for item in targets] == ["worker-a", "worker-b"]
     assert all(len(item["target_id"]) == 16 for item in targets)
     assert all("agent" not in item["target_id"] for item in targets)
     assert [item["target_id"] for item in targets] != [item["target_id"] for item in other_run_targets]
@@ -484,3 +487,82 @@ def test_fleet_summary_fails_minimum_count_and_rss_variation() -> None:
     assert summary["status"] == "failed"
     assert "discovered 2 of 3 required Agent Pods" in summary["failures"]
     assert "Agent fleet RSS peak spread exceeds threshold" in summary["failures"]
+
+
+def test_platform_fleet_summary_uses_per_agent_collection_observations() -> None:
+    soak = load_module()
+    collectors, profile = soak.load_configuration(ROOT / "config" / "agent-soak-thresholds.json", "smoke")
+    target_ids = ["1111111111111111", "2222222222222222", "3333333333333333"]
+    points = fleet_checkpoints(target_ids)
+    for point in points:
+        for target in point["targets"]:
+            target["collection"] = {
+                "success": True,
+                "evidence_quality": True,
+                "collector_count": len(collectors),
+                "missing_collectors": [],
+                "invalid_schema_collectors": [],
+                "degraded_collectors": [],
+                "duration_seconds": 0.5 + point["iteration"] * 0.1,
+                "payload_bytes": 2048,
+                "error": None,
+            }
+
+    summary = soak.build_fleet_summary(
+        profile_name="smoke",
+        profile=profile,
+        requested_collectors=collectors,
+        checkpoints=points,
+        target_ids=target_ids,
+        minimum_target_count=3,
+        started_at="2026-07-21T00:00:00+00:00",
+        health_configured=True,
+        interrupted=False,
+        collector_execution_source="platform_evidence_request",
+    )
+
+    collector = summary["metrics"]["collector_execution"]
+    runtime = summary["metrics"]["fleet_runtime"]
+    assert summary["status"] == "passed"
+    assert collector["source"] == "platform_evidence_request"
+    assert collector["target_count"] == 3
+    assert collector["observation_count"] == 9
+    assert collector["successful_observations"] == 9
+    assert collector["evidence_quality_rate"] == 1.0
+    assert collector["collection_duration_seconds"]["p95"] == pytest.approx(0.8)
+    assert runtime["source"] == "kubernetes_pod"
+    assert runtime["target_count"] == 3
+
+
+def test_fleet_evidence_observations_discard_raw_collector_payload() -> None:
+    soak = load_module()
+
+    class FakeClient:
+        def collect_fleet(self, targets, collectors, **kwargs):
+            return [
+                {
+                    "target_id": target["target_id"],
+                    "success": True,
+                    "duration_seconds": 0.4,
+                    "payload_bytes": 512,
+                    "collectors": {
+                        name: {"_schema_version": "collector-evidence/v1", "status": "ok", "secret": "raw"}
+                        for name in collectors
+                    },
+                    "error": None,
+                }
+                for target in targets
+            ]
+
+    result = soak.fleet_evidence_observations(
+        FakeClient(),
+        [{"node_name": "worker-a", "target_id": "1111111111111111"}],
+        ["node", "disk"],
+        iteration=1,
+        timeout_seconds=10,
+    )
+
+    assert result[0]["evidence_quality"] is True
+    assert result[0]["collector_count"] == 2
+    assert "collectors" not in result[0]
+    assert "raw" not in json.dumps(result)

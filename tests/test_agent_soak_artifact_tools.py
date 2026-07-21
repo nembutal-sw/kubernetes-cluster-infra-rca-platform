@@ -32,6 +32,16 @@ def checkpoint(iteration: int) -> dict:
                     "process_start_ticks": 1000 + index,
                 },
                 "spool": {"pending_files": 0, "pending_bytes": 0, "quarantine_files": 0},
+                "collection": {
+                    "success": True,
+                    "evidence_quality": True,
+                    "duration_seconds": 0.1,
+                    "payload_bytes": 1024,
+                    "collector_count": 1,
+                    "missing_collectors": [],
+                    "invalid_schema_collectors": [],
+                    "degraded_collectors": [],
+                },
                 "runtime_observation_error": None,
             }
         )
@@ -65,7 +75,14 @@ def original_summary() -> dict:
             "state_dir_configured": True,
             "runtime_observation_required": True,
             "runtime_observation_source": "fleet",
+            "collector_execution_source": "platform_evidence_request",
             "minimum_fleet_target_count": 3,
+        },
+        "comparison_metadata": {
+            "schema_version": "agent-soak-comparison-metadata/v1",
+            "platform_family": "kind",
+            "architecture": "amd64",
+            "agent_version": "test-version",
         },
     }
 
@@ -104,8 +121,7 @@ def test_comparison_contains_only_aggregate_metrics() -> None:
         ROOT / "config" / "agent-soak-thresholds.json",
     )
     candidate = json.loads(json.dumps(baseline))
-    candidate["profile"] = "extended"
-    candidate["metrics"]["collection_duration_seconds"]["p95"] = 0.2
+    candidate["metrics"]["collector_execution"]["collection_duration_seconds"]["p95"] = 0.2
 
     result = comparison.compare(baseline, candidate)
 
@@ -114,3 +130,40 @@ def test_comparison_contains_only_aggregate_metrics() -> None:
     rendered = json.dumps(result)
     assert "target_id" not in rendered
     assert "1111111111111111" not in rendered
+
+
+def test_comparison_rejects_incompatible_runtime_metadata() -> None:
+    comparison = load_script("agent-soak-comparison.py")
+    revalidator = load_script("agent-soak-revalidate.py")
+    baseline = revalidator.revalidate(
+        original_summary(),
+        [checkpoint(1), checkpoint(2), checkpoint(3)],
+        ROOT / "config" / "agent-soak-thresholds.json",
+    )
+    candidate = json.loads(json.dumps(baseline))
+    candidate["comparison_metadata"]["architecture"] = "arm64"
+
+    result = comparison.compare(baseline, candidate)
+
+    assert result["status"] == "failed"
+    assert result["compatibility"]["comparable"] is False
+    assert "comparison metadata differs: architecture" in result["compatibility"]["reasons"]
+    assert result["regression_gate"]["status"] == "not_evaluated"
+
+
+def test_comparison_blocks_collection_latency_regression() -> None:
+    comparison = load_script("agent-soak-comparison.py")
+    revalidator = load_script("agent-soak-revalidate.py")
+    baseline = revalidator.revalidate(
+        original_summary(),
+        [checkpoint(1), checkpoint(2), checkpoint(3)],
+        ROOT / "config" / "agent-soak-thresholds.json",
+    )
+    candidate = json.loads(json.dumps(baseline))
+    candidate["metrics"]["collector_execution"]["collection_duration_seconds"]["p95"] = 1.0
+
+    result = comparison.compare(baseline, candidate)
+
+    assert result["status"] == "failed"
+    assert result["compatibility"]["status"] == "passed"
+    assert "p95_collection_seconds" in result["regression_gate"]["violations"]

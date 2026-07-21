@@ -1,0 +1,20 @@
+# Local development and demo overlay. Do not use for production workloads.
+database:
+  enabled: true
+  auth:
+    password: change-me
+    rootPassword: change-me-root
+
+platform:
+  replicaCount: 1
+  image:
+    tag: latest
+    digest: ""
+  secret:
+    create: true
+    existingSecret: ""
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+  networkPolicy:
+    enabled: false

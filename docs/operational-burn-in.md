@@ -171,8 +171,11 @@ python3 scripts/agent-soak-revalidate.py \
 python3 scripts/agent-soak-comparison.py \
   --baseline validation-results/standard/agent-soak-summary-revalidated.json \
   --candidate validation-results/extended/agent-soak-summary.json \
+  --policy config/agent-soak-comparison-policy.json \
   --output validation-results/agent-soak-comparison.json
 ```
+
+비교기는 `compatibility`, `absolute_gate`, `regression_gate`를 각각 판정합니다. Platform family, architecture, Agent version, collector/threshold 지문, target 수가 맞지 않으면 회귀 계산을 수행하지 않습니다. Extended workflow는 같은 commit의 성공한 Standard Fleet `baseline_run_id`가 필요하며, 지연·payload·RSS·CPU·오류율 중 하나라도 정책 한도를 넘으면 job을 실패시킵니다.
 
 ## Acceptance
 
@@ -207,8 +210,10 @@ python3 scripts/agent-soak-comparison.py \
 
 2026-07-21 CI run `29813187277`에서 1 control-plane과 2 worker로 구성된 Kind 클러스터의 DaemonSet Agent 3개를 `smoke` fleet profile로 검증했습니다.
 
-- Agent target 3/3 통과, 수집 성공률과 evidence quality 100%, degraded collector 0%
-- 수집 p95 0.158초, 최대 payload 20,647 bytes, health probe 성공률 100%
+아래 세 과거 Fleet 결과는 현재의 `platform_evidence_request` 방식 도입 전 기록입니다. 수집 성공률, evidence 품질, 수집 지연은 GitHub Runner의 local Agent 실행값이고, RSS/CPU/FD/thread/spool은 DaemonSet Pod 관측값입니다. 따라서 3개 DaemonSet Agent 각각의 Evidence 품질 검증으로 해석하지 않습니다.
+
+- Runtime target 3/3 통과, Runner local 수집 성공률과 evidence quality 100%, degraded collector 0%
+- Runner local 수집 p95 0.158초, 최대 payload 20,647 bytes, health probe 성공률 100%
 - Pod별 RSS peak 32.52~33.46 MiB, fleet spread 0.95 MiB
 - p95 CPU, FD peak, thread peak의 fleet spread 0
 - 모든 target의 process identity 안정, runtime 관측 오류 0
@@ -222,9 +227,9 @@ python3 scripts/agent-soak-comparison.py \
 2026-07-21 workflow run `29816133829`에서 3노드 Kind DaemonSet Agent의 1시간 `standard` profile을 통과했습니다. Environment 승인부터 cluster 정리까지 전체 소요 시간은 1시간 3분 23초였습니다.
 
 - checkpoint 60/60, Pod runtime snapshot 180/180, Agent target 3/3 통과
-- 수집 성공률과 evidence quality 100%, degraded collector 0%, health probe 100%
-- 수집 p50 0.108초, p95 0.122초, 최대 0.153초
-- 최대 payload 20,662 bytes
+- Runner local 수집 성공률과 evidence quality 100%, degraded collector 0%, health probe 100%
+- Runner local 수집 p50 0.108초, p95 0.122초, 최대 0.153초
+- Runner local 최대 payload 20,662 bytes
 - Pod별 RSS peak 54.40~54.82 MiB, fleet spread 0.42 MiB
 - Pod별 RSS 증가 21.32~22.17 MiB, 마지막 10회 변동 폭 0.80~0.81 MiB
 - Pod별 p95 CPU 0.1834~0.1850%, fleet spread 0.0016%p
@@ -242,9 +247,9 @@ RSS는 전반부에 증가한 뒤 후반부에 둔화됐습니다. 누수로 단
 2026-07-22 KST workflow run `29821832228`에서 3노드 Kind DaemonSet Agent의 5시간 `extended` profile을 통과했습니다. Environment 승인부터 cluster 정리까지 전체 소요 시간은 5시간 3분 20초였습니다.
 
 - checkpoint 300/300, Pod runtime snapshot 900/900, Agent target 3/3 통과
-- 수집 성공률, evidence quality, health probe 100%, degraded collector 0%
-- 수집 p50 0.107초, p95 0.114초, 최대 0.152초
-- 최대 payload 20,674 bytes
+- Runner local 수집 성공률, evidence quality, health probe 100%, degraded collector 0%
+- Runner local 수집 p50 0.107초, p95 0.114초, 최대 0.152초
+- Runner local 최대 payload 20,674 bytes
 - Pod별 RSS peak 60.21~60.39 MiB, fleet spread 0.18 MiB
 - Pod별 전체 RSS peak 증가 26.88~27.71 MiB
 - 앞 150개 표본 제외 후 RSS 기울기 `-0.238~-0.231 MiB/hour`, 범위 `2.512~2.516 MiB`
@@ -254,4 +259,4 @@ RSS는 전반부에 증가한 뒤 후반부에 둔화됐습니다. 누수로 단
 - runtime/collection 오류 0, spool 파일/bytes 0, quarantine 0
 - checkpoint, summary, comparison report의 인프라 식별정보 노출 0건
 
-동일 계산식으로 재평가한 standard와 비교하면 p95 수집 시간은 0.122초에서 0.114초, RSS peak spread는 0.42 MiB에서 0.18 MiB로 줄었습니다. 최악 steady-state RSS 기울기도 `+0.942 MiB/hour`에서 `-0.231 MiB/hour`로 안정화됐습니다. 다만 동일 Kind 환경의 단일 extended 표본이므로 공통 threshold는 유지하고, 24시간 production과 managed Kubernetes canary를 다음 검증 근거로 사용합니다.
+동일 계산식으로 재평가한 standard와 비교하면 Runner local p95 수집 시간은 0.122초에서 0.114초, Pod RSS peak spread는 0.42 MiB에서 0.18 MiB로 줄었습니다. 최악 steady-state RSS 기울기도 `+0.942 MiB/hour`에서 `-0.231 MiB/hour`로 안정화됐습니다. 서로 다른 측정 대상을 합친 과거 artifact이므로 현재 v2 regression release gate의 기준선으로 사용하지 않습니다. 실제 Agent별 Evidence Request를 사용하는 standard와 5시간 extended를 같은 commit에서 다시 실행한 뒤 24시간 production 및 managed Kubernetes canary로 확장합니다.

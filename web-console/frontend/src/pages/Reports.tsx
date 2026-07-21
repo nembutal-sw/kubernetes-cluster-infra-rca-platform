@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EmptyState, Icon, PageHeader } from "../components/common";
 import { CursorPager } from "../components/CursorPager";
@@ -48,6 +48,11 @@ export function ReportsView({ callApi, clusters, refreshToken, selectedReportId,
     status,
   }, refreshToken);
   const reports = result.page.items;
+  useEffect(() => {
+    if (!selectedReportId && !result.loading && reports.length) {
+      setSelectedReportId(reports[0].report_id);
+    }
+  }, [reports, result.loading, selectedReportId, setSelectedReportId]);
   return (
     <div className="page-stack">
       <PageHeader

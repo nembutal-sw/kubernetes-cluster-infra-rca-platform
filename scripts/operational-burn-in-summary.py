@@ -57,7 +57,17 @@ def load_optional(path: Path | None, label: str) -> tuple[dict[str, Any] | None,
 
 def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
-    duration = metrics.get("collection_duration_seconds") if isinstance(metrics.get("collection_duration_seconds"), dict) else {}
+    collector_execution = (
+        metrics.get("collector_execution") if isinstance(metrics.get("collector_execution"), dict) else {}
+    )
+    duration_source = collector_execution.get("collection_duration_seconds")
+    duration = (
+        duration_source
+        if isinstance(duration_source, dict)
+        else metrics.get("collection_duration_seconds")
+        if isinstance(metrics.get("collection_duration_seconds"), dict)
+        else {}
+    )
     process = metrics.get("process") if isinstance(metrics.get("process"), dict) else {}
     rss = process.get("rss_bytes") if isinstance(process.get("rss_bytes"), dict) else {}
     rss_steady = rss.get("steady_state") if isinstance(rss.get("steady_state"), dict) else {}
@@ -85,11 +95,23 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
         "profile": payload.get("profile"),
         "iterations_completed": metrics.get("iterations_completed", 0),
         "iterations_target": metrics.get("iterations_target", 0),
-        "collection_success_rate": metrics.get("collection_success_rate"),
-        "evidence_quality_rate": metrics.get("evidence_quality_rate"),
-        "degraded_collector_rate": metrics.get("degraded_collector_rate"),
+        "collector_execution_source": collector_execution.get("source", "legacy_unspecified"),
+        "collector_observation_count": collector_execution.get(
+            "observation_count", metrics.get("iterations_completed", 0)
+        ),
+        "collection_success_rate": collector_execution.get(
+            "collection_success_rate", metrics.get("collection_success_rate")
+        ),
+        "evidence_quality_rate": collector_execution.get(
+            "evidence_quality_rate", metrics.get("evidence_quality_rate")
+        ),
+        "degraded_collector_rate": collector_execution.get(
+            "degraded_collector_rate", metrics.get("degraded_collector_rate")
+        ),
         "p95_collection_seconds": duration.get("p95"),
-        "maximum_payload_bytes": metrics.get("maximum_payload_bytes"),
+        "maximum_payload_bytes": collector_execution.get(
+            "maximum_payload_bytes", metrics.get("maximum_payload_bytes")
+        ),
         "rss_growth_mb": (rss.get("growth") / 1024 / 1024) if isinstance(rss.get("growth"), (int, float)) else None,
         "rss_steady_state_slope_mb_per_hour": (
             (steady_slope / 1024 / 1024)
@@ -270,6 +292,10 @@ def markdown(summary: dict[str, Any]) -> str:
         f"- Overall: `{summary['status']}`",
         f"- Agent soak: `{agent['status']}` ({agent['iterations_completed']}/{agent['iterations_target']} iterations)",
         f"- Evidence quality: `{agent.get('evidence_quality_rate')}`",
+        (
+            f"- Collector execution: `{agent.get('collector_execution_source')}` "
+            f"({agent.get('collector_observation_count', 0)} observations)"
+        ),
         f"- Agent p95 CPU: `{agent.get('p95_cpu_percent') if agent.get('p95_cpu_percent') is not None else 'not measured'}`",
         (
             f"- Agent steady RSS slope: `{agent['rss_steady_state_slope_mb_per_hour']:.3f} MiB/hour`"

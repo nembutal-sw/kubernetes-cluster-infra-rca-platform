@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from node_agent.collectors import _legacy
+from node_agent.collectors import builtin_collectors as _builtin
 from node_agent.collectors.cni import collect_cni
 from node_agent.collectors.common import AgentPaths, CommandRunner
 from node_agent.collectors.conntrack import collect_conntrack
@@ -29,10 +29,10 @@ from node_agent.collectors.registry import (
 from node_agent.collectors.runtime import collect_runtime
 from node_agent.collectors.systemd import collect_systemd
 
-DEFAULT_COLLECTORS = list(_legacy.DEFAULT_COLLECTORS)
+DEFAULT_COLLECTORS = list(_builtin.DEFAULT_COLLECTORS)
 EVIDENCE_SCHEMA_VERSION = "collector-evidence/v1"
-stat = _legacy.stat
-_probe_unix_socket = _legacy._probe_unix_socket
+stat = _builtin.stat
+_probe_unix_socket = _builtin._probe_unix_socket
 
 
 def collect_evidence(
@@ -46,7 +46,7 @@ def collect_evidence(
     available = registry or build_registry(paths, runner)
     selected = requested_collectors or DEFAULT_COLLECTORS
     evidence: dict[str, Any] = {}
-    for collector_name in _legacy._dedupe(selected):
+    for collector_name in _builtin._dedupe(selected):
         collector = available.get(collector_name)
         if collector is None:
             known = collector_name in build_registry(paths, runner, "node-diagnostics")
@@ -62,7 +62,7 @@ def collect_evidence(
             continue
         evidence[collector_name] = {
             "_schema_version": EVIDENCE_SCHEMA_VERSION,
-            **_legacy._safe_collect(collector),
+            **_builtin._safe_collect(collector),
         }
     return evidence
 

@@ -127,6 +127,13 @@ class RbacHttpAuthorizationTests {
         assertStatus(approver, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.OK);
         assertStatus(auditor, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.OK);
         assertStatus(null, HttpMethod.GET, "/api/v1/gitops/changes", null, HttpStatus.UNAUTHORIZED);
+        assertStatus(operator, HttpMethod.POST, "/api/v1/gitops/changes/change-missing/retry", Map.of(
+            "confirmed", true,
+            "note", "operator retry"
+        ), HttpStatus.NOT_FOUND);
+        assertStatus(viewer, HttpMethod.POST, "/api/v1/gitops/changes/change-missing/retry", Map.of(
+            "confirmed", true
+        ), HttpStatus.FORBIDDEN);
         assertStatus(operator, HttpMethod.POST, "/api/v1/gitops/changes/change-missing/outcome", Map.of(
             "confirmed", true,
             "deployment_state", "in_progress"
@@ -142,6 +149,12 @@ class RbacHttpAuthorizationTests {
         assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/analysis-tasks?limit=10", null, HttpStatus.OK);
         assertStatus(approver, HttpMethod.GET, "/api/v1/rca/analysis-tasks?limit=10", null, HttpStatus.FORBIDDEN);
         assertStatus(null, HttpMethod.GET, "/api/v1/rca/reports?limit=10", null, HttpStatus.UNAUTHORIZED);
+        assertStatus(admin, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
+        assertStatus(operator, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
+        assertStatus(auditor, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
+        assertStatus(approver, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
+        assertStatus(null, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.UNAUTHORIZED);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/reports?cursor=invalid", null, HttpStatus.UNPROCESSABLE_ENTITY);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/incidents?status=invalid", null, HttpStatus.BAD_REQUEST);
 

@@ -131,3 +131,17 @@
 
 - kubeadm Agent canary
 - EKS, AKS, GKE, OpenShift 보안 정책 및 collector 호환성 확인
+
+## Phase 7. Re-review Hardening
+
+상태: 코드 및 로컬 회귀 검증 완료
+
+- Fleet Evidence 품질과 지연을 실제 DaemonSet Agent의 Platform Evidence Request로 측정
+- Overview 요약 API와 route별 frontend polling으로 전체 데이터 반복 조회 제거
+- GitOps failed change의 명시적 retry/reconciliation 및 provider 기존 PR 탐색 추가
+- Soak artifact에 플랫폼, 아키텍처, Agent/collector/threshold 지문 추가
+- Compatibility, absolute, regression 3단계 비교 gate와 Extended workflow baseline 연결
+- collector 구현 파일을 `builtin_collectors.py`로 명확화하고 soak 통계 모듈 분리
+- 개발/운영 Helm values 분리와 production render-time 안전 조건 추가
+
+남은 외부 검증은 5시간 Extended Fleet 재실행과 managed Kubernetes 실제 canary입니다.

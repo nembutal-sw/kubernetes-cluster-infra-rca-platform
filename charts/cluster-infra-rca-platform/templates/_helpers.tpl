@@ -79,6 +79,17 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "cluster-infra-rca-platform.platformImage" -}}
+{{- if .Values.platform.image.digest -}}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.platform.image.digest) -}}
+{{- fail "platform.image.digest must be a sha256 digest" -}}
+{{- end -}}
+{{- printf "%s@%s" .Values.platform.image.repository .Values.platform.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.platform.image.repository .Values.platform.image.tag -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "cluster-infra-rca-platform.serviceAccountName" -}}
 {{- if .Values.platform.serviceAccount.create -}}
 {{- default (include "cluster-infra-rca-platform.platformName" .) .Values.platform.serviceAccount.name -}}

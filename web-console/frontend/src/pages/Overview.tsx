@@ -6,26 +6,17 @@ import {
   RecentReport,
   SignalStream,
 } from "../features/overview/OverviewPanels";
-import { buildSignalDigest, summarizeAgentFleet } from "../lib/consoleUtils";
+import { buildSignalDigest } from "../lib/consoleUtils";
 import type {
-  ActionRequestView,
-  AgentHealthView,
-  AnalysisTaskView,
   ClusterView,
-  IncidentView,
-  RcaReport,
+  OverviewSummary,
   TFunction,
 } from "../types";
 
 type MaybePromise<T = void> = T | Promise<T>;
 
 interface OverviewViewProps {
-  clusters: ClusterView[];
-  reports: RcaReport[];
-  incidents: IncidentView[];
-  analysisTasks: AnalysisTaskView[];
-  actionRequests: ActionRequestView[];
-  agentHealth: AgentHealthView[];
+  summary: OverviewSummary;
   onNavigate: (view: string) => void;
   onOpenReport: (reportId: string) => void;
   onOpenCluster: (cluster: ClusterView) => MaybePromise;
@@ -34,26 +25,19 @@ interface OverviewViewProps {
 }
 
 export function OverviewView({
-  clusters,
-  reports,
-  incidents,
-  analysisTasks,
-  actionRequests,
-  agentHealth,
+  summary,
   onNavigate,
   onOpenReport,
   onOpenCluster,
   webhookEndpoint,
   t,
 }: OverviewViewProps) {
-  const openIncidents = incidents.filter((item) => item.status === "open");
-  const fleet = summarizeAgentFleet(agentHealth, clusters);
-  const agents = fleet.total || clusters.reduce((acc, cluster) => acc + Number(cluster.agent_count || 0), 0);
-  const blockedActions = reports
-    .flatMap((report) => report.recommended_actions || [])
-    .filter((action) => action.automation_allowed !== true).length;
-  const pipelineBacklog = analysisTasks.filter((task) => ["queued", "processing", "retry_wait"].includes(task.status || "")).length;
-  const pendingApprovals = actionRequests.filter((request) => request.status === "pending_approval").length;
+  const clusters = summary.recent_clusters;
+  const reports = summary.recent_reports;
+  const incidents = summary.recent_incidents;
+  const pipelineBacklog = summary.analysis_backlog_count;
+  const pendingApprovals = summary.pending_approval_count;
+  const blockedActions = summary.blocked_action_count;
   const signalDigest = buildSignalDigest(reports, incidents);
   const latestReport = reports[0];
 
@@ -78,9 +62,9 @@ export function OverviewView({
           </div>
         </div>
         <div className="hero-ops-board" aria-label={t("Operations readiness")}>
-          <div className={openIncidents.length ? "hero-ops-row danger" : "hero-ops-row ok"}>
+          <div className={summary.open_incident_count ? "hero-ops-row danger" : "hero-ops-row ok"}>
             <span>{t("Open incidents")}</span>
-            <strong>{openIncidents.length}</strong>
+            <strong>{summary.open_incident_count}</strong>
           </div>
           <div className={pipelineBacklog ? "hero-ops-row warn" : "hero-ops-row ok"}>
             <span>{t("Analysis pipeline")}</span>
@@ -94,20 +78,14 @@ export function OverviewView({
       </section>
 
       <section className="metric-grid">
-        <MetricTile label={t("Open incidents")} value={openIncidents.length} tone={openIncidents.length ? "red" : "green"} icon="exclamation-diamond" />
-        <MetricTile label={t("RCA reports")} value={reports.length} tone="blue" icon="clipboard2-pulse" />
-        <MetricTile label={t("Registered clusters")} value={clusters.length} tone="teal" icon="hdd-network" />
-        <MetricTile label={t("Healthy agents")} value={fleet.total ? `${fleet.healthy}/${fleet.total}` : "n/a"} tone={fleet.unhealthy ? "amber" : "green"} icon="hdd-network" />
+        <MetricTile label={t("Open incidents")} value={summary.open_incident_count} tone={summary.open_incident_count ? "red" : "green"} icon="exclamation-diamond" />
+        <MetricTile label={t("RCA reports")} value={summary.report_count} tone="blue" icon="clipboard2-pulse" />
+        <MetricTile label={t("Registered clusters")} value={summary.cluster_count} tone="teal" icon="hdd-network" />
+        <MetricTile label={t("Healthy agents")} value={summary.agent_count ? `${summary.healthy_agent_count}/${summary.agent_count}` : "n/a"} tone={summary.agent_count > summary.healthy_agent_count ? "amber" : "green"} icon="hdd-network" />
       </section>
 
       <OperationsReadinessPanel
-        clusters={clusters}
-        reports={reports}
-        incidents={incidents}
-        analysisTasks={analysisTasks}
-        actionRequests={actionRequests}
-        agentHealth={agentHealth}
-        blockedActions={blockedActions}
+        summary={summary}
         t={t}
       />
 
@@ -145,11 +123,11 @@ export function OverviewView({
         </div>
         <div>
           <span>{t("Action requests")}</span>
-          <strong>{actionRequests.length}</strong>
+          <strong>{summary.action_request_count}</strong>
         </div>
         <div>
           <span>{t("Healthy agents")}</span>
-          <strong>{agents || "n/a"}</strong>
+          <strong>{summary.agent_count || "n/a"}</strong>
         </div>
       </section>
     </div>

@@ -38,7 +38,7 @@ public class GitOpsChangeRepository {
         GitOpsChange change = new GitOpsChange(
             id(), sourceType, sourceId, provider, repository, branch, baseBranch, filePath,
             null, null, GitOpsChangeState.creating, null, GitOpsDeploymentState.pending,
-            null, null, null, blankToNull(requestedBy), now, now, null, null
+            null, null, null, 0, now, null, null, blankToNull(requestedBy), now, now, null, null
         );
         try {
             jdbc.update(
@@ -47,12 +47,14 @@ public class GitOpsChangeRepository {
                         (change_id, source_type, source_id, provider, repository, branch_name, base_branch,
                          file_path, pull_request_number, pull_request_url, pull_request_state, head_sha,
                          deployment_state, verification_result, rollback_reference, error_message,
+                         retry_count, last_attempt_at, last_failure_at, last_reconciled_at,
                          requested_by, created_at, updated_at, deployment_started_at, deployment_completed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 change.changeId(), change.sourceType(), change.sourceId(), change.provider(), change.repository(),
                 change.branch(), change.baseBranch(), change.filePath(), null, null,
                 change.pullRequestState().name(), null, change.deploymentState().name(), null, null, null,
+                0, timestamp(now), null, null,
                 change.requestedBy(), timestamp(now), timestamp(now), null, null
             );
             return new PendingClaim(change, true);
@@ -108,21 +110,42 @@ public class GitOpsChangeRepository {
             """
                 UPDATE gitops_changes
                    SET pull_request_number = ?, pull_request_url = ?, pull_request_state = ?, head_sha = ?,
-                       error_message = NULL, updated_at = ?
-                 WHERE change_id = ? AND pull_request_state = ?
+                       error_message = NULL, last_reconciled_at = ?, updated_at = ?
+                 WHERE change_id = ? AND pull_request_state IN (?, ?)
                 """,
             pullRequestNumber, blankToNull(pullRequestUrl), normalized.name(), blankToNull(headSha),
-            timestamp(now()), changeId, GitOpsChangeState.creating.name()
+            timestamp(now()), timestamp(now()), changeId,
+            GitOpsChangeState.creating.name(), GitOpsChangeState.reconciling.name()
         );
         return find(changeId).orElseThrow();
     }
 
     public GitOpsChange markFailed(String changeId, String message) {
         jdbc.update(
-            "UPDATE gitops_changes SET pull_request_state = ?, error_message = ?, updated_at = ? WHERE change_id = ?",
-            GitOpsChangeState.failed.name(), truncate(message, 4000), timestamp(now()), changeId
+            """
+                UPDATE gitops_changes
+                   SET pull_request_state = ?, error_message = ?, last_failure_at = ?, updated_at = ?
+                 WHERE change_id = ? AND pull_request_state IN (?, ?)
+                """,
+            GitOpsChangeState.failed.name(), truncate(message, 4000), timestamp(now()), timestamp(now()), changeId,
+            GitOpsChangeState.creating.name(), GitOpsChangeState.reconciling.name()
         );
         return find(changeId).orElseThrow();
+    }
+
+    public RetryClaim claimRetry(String changeId) {
+        Instant current = now();
+        int updated = jdbc.update(
+            """
+                UPDATE gitops_changes
+                   SET pull_request_state = ?, retry_count = retry_count + 1,
+                       last_attempt_at = ?, error_message = NULL, updated_at = ?
+                 WHERE change_id = ? AND pull_request_state = ?
+                """,
+            GitOpsChangeState.reconciling.name(), timestamp(current), timestamp(current),
+            changeId, GitOpsChangeState.failed.name()
+        );
+        return new RetryClaim(find(changeId).orElseThrow(), updated == 1);
     }
 
     public Optional<GitOpsChange> syncPullRequest(
@@ -212,6 +235,10 @@ public class GitOpsChangeRepository {
             resultSet.getString("verification_result"),
             resultSet.getString("rollback_reference"),
             resultSet.getString("error_message"),
+            resultSet.getInt("retry_count"),
+            instant(resultSet, "last_attempt_at"),
+            instant(resultSet, "last_failure_at"),
+            instant(resultSet, "last_reconciled_at"),
             resultSet.getString("requested_by"),
             instant(resultSet, "created_at"),
             instant(resultSet, "updated_at"),
@@ -221,7 +248,7 @@ public class GitOpsChangeRepository {
     }
 
     private GitOpsChangeState normalizePullRequestState(String state, boolean merged) {
-        if (merged) {
+        if (merged || "merged".equalsIgnoreCase(state)) {
             return GitOpsChangeState.merged;
         }
         return "closed".equalsIgnoreCase(state) ? GitOpsChangeState.closed : GitOpsChangeState.open;
@@ -257,5 +284,8 @@ public class GitOpsChangeRepository {
     }
 
     public record PendingClaim(GitOpsChange change, boolean claimed) {
+    }
+
+    public record RetryClaim(GitOpsChange change, boolean claimed) {
     }
 }

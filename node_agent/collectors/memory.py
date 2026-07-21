@@ -1,3 +1,3 @@
-from node_agent.collectors._legacy import collect_memory
+from node_agent.collectors.builtin_collectors import collect_memory
 
 __all__ = ["collect_memory"]

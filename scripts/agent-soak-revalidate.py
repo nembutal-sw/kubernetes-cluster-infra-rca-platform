@@ -100,6 +100,9 @@ def revalidate(
     if not isinstance(started_at, str) or not started_at:
         raise ValueError("Agent soak summary start timestamp is missing")
     interrupted = len(checkpoints) < int(profile["iterations"])
+    original_metadata = (
+        original.get("comparison_metadata") if isinstance(original.get("comparison_metadata"), dict) else None
+    )
     if observability.get("runtime_observation_source") == "fleet":
         target_ids = sorted(
             {
@@ -111,6 +114,9 @@ def revalidate(
         )
         if not target_ids:
             raise ValueError("fleet checkpoints do not contain target IDs")
+        collector_execution_source = str(
+            observability.get("collector_execution_source") or "runner_local"
+        )
         return module.build_fleet_summary(
             profile_name=profile_name,
             profile=profile,
@@ -121,7 +127,15 @@ def revalidate(
             started_at=started_at,
             health_configured=bool(observability.get("health_probe_configured")),
             interrupted=interrupted,
+            collector_execution_source=collector_execution_source,
+            comparison_metadata=module.build_comparison_metadata(
+                config_path=config,
+                requested_collectors=requested_collectors,
+                collector_execution_source=collector_execution_source,
+                inherited=original_metadata,
+            ),
         )
+    collector_execution_source = "runner_local"
     return module.build_summary(
         profile_name=profile_name,
         profile=profile,
@@ -134,6 +148,12 @@ def revalidate(
         interrupted=interrupted,
         runtime_observation_required=bool(observability.get("runtime_observation_required")),
         runtime_observation_source=str(observability.get("runtime_observation_source") or "none"),
+        comparison_metadata=module.build_comparison_metadata(
+            config_path=config,
+            requested_collectors=requested_collectors,
+            collector_execution_source=collector_execution_source,
+            inherited=original_metadata,
+        ),
     )
 
 

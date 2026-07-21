@@ -14,7 +14,7 @@ import node_agent.capabilities as capabilities
 import node_agent.collectors as collectors
 from node_agent.collectors import AgentPaths, collect_evidence
 from node_agent.collectors import collector_metadata
-from node_agent.collectors._legacy import _KubernetesApiClient, _topology_collector_node
+from node_agent.collectors.builtin_collectors import _KubernetesApiClient, _topology_collector_node
 import node_agent.main as agent_main
 from node_agent.state import AgentStateStore
 from node_agent.payload import bounded_collectors_payload
@@ -342,8 +342,8 @@ def test_kubernetes_topology_inventory_requires_services_and_endpointslices(
             }
 
     monkeypatch.setenv("NODE_NAME", "control-a")
-    monkeypatch.setattr(collectors._legacy, "_KubernetesApiClient", FakeKubernetesClient)
-    monkeypatch.setattr(collectors._legacy, "_probe_control_plane_peers", lambda **_: [])
+    monkeypatch.setattr(collectors._builtin, "_KubernetesApiClient", FakeKubernetesClient)
+    monkeypatch.setattr(collectors._builtin, "_probe_control_plane_peers", lambda **_: [])
 
     evidence = collectors.collect_kubernetes()
 
@@ -661,7 +661,7 @@ def test_kubernetes_api_client_reuses_successful_response_within_ttl(
         calls += 1
         return FakeResponse()
 
-    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(collectors._builtin.urllib.request, "urlopen", fake_urlopen)
     client = _KubernetesApiClient(timeout_seconds=1)
 
     first = client.get_json("/api/v1/nodes")
@@ -684,7 +684,7 @@ def test_kubernetes_api_client_retries_transport_failure(
     monkeypatch.setenv("KUBERNETES_SERVICEACCOUNT_CA", str(tmp_path / "missing-ca.crt"))
     monkeypatch.setenv("KUBERNETES_API_MAX_ATTEMPTS", "2")
     monkeypatch.setenv("KUBERNETES_API_CACHE_TTL_SECONDS", "0")
-    monkeypatch.setattr(collectors._legacy.time, "sleep", lambda _: None)
+    monkeypatch.setattr(collectors._builtin.time, "sleep", lambda _: None)
     calls = 0
 
     class FakeResponse:
@@ -703,10 +703,10 @@ def test_kubernetes_api_client_retries_transport_failure(
         nonlocal calls
         calls += 1
         if calls == 1:
-            raise collectors._legacy.urllib.error.URLError("timed out")
+            raise collectors._builtin.urllib.error.URLError("timed out")
         return FakeResponse()
 
-    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(collectors._builtin.urllib.request, "urlopen", flaky_urlopen)
     client = _KubernetesApiClient(timeout_seconds=1)
 
     response = client.get_json("/api/v1/nodes/worker-a")
@@ -741,7 +741,7 @@ def test_kubernetes_api_client_parses_response_larger_than_legacy_text_limit(
         def read(self, _: int) -> bytes:
             return payload
 
-    monkeypatch.setattr(collectors._legacy.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
+    monkeypatch.setattr(collectors._builtin.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse())
 
     response = _KubernetesApiClient(timeout_seconds=1).get_json("/api/v1/pods")
 
@@ -773,7 +773,7 @@ def test_kubernetes_pod_view_omits_environment_and_commands() -> None:
         },
     }
 
-    view = collectors._legacy._kubernetes_response_view(response, collectors._legacy._sanitize_pod)
+    view = collectors._builtin._kubernetes_response_view(response, collectors._builtin._sanitize_pod)
     encoded = json.dumps(view)
 
     assert "secret-value" not in encoded
@@ -784,7 +784,7 @@ def test_kubernetes_pod_view_omits_environment_and_commands() -> None:
 def test_api_request_summary_excludes_failed_request_latency() -> None:
     summary: dict[str, Any] = {}
 
-    collectors._legacy._summarize_api_requests(summary, [
+    collectors._builtin._summarize_api_requests(summary, [
         ("node", {"ok": False, "latency_ms": 5_002.0, "timeout": True, "error": "timed out"}),
         ("readyz", {"ok": True, "latency_ms": 42.0, "status_code": 200}),
     ])
@@ -825,7 +825,7 @@ def test_runtime_collector_uses_generic_cri_socket_fields(
     monkeypatch.setenv("CONTAINER_RUNTIME_SOCKET_PATHS", "crio=/run/crio/crio.sock")
     monkeypatch.setattr(collectors.stat, "S_ISSOCK", lambda mode: True)
     monkeypatch.setattr(
-        collectors._legacy,
+        collectors._builtin,
         "_probe_unix_socket",
         lambda path: {"ok": True, "latency_ms": 1.5},
     )

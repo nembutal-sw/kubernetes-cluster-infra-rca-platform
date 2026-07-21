@@ -15,6 +15,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChangeCreateRequest
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsChangeState;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsDeploymentState;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsOutcomeUpdateRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.GitOpsRetryRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.gitops.GitOpsProvider;
 import io.clusterinfra.rca.webconsole.persistence.GitOpsChangeRepository;
@@ -130,6 +131,71 @@ public class GitOpsChangeService {
     public GitOpsChange get(String changeId) {
         return changes.find(changeId)
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "GitOps change not found"));
+    }
+
+    public GitOpsChange retry(
+        String changeId,
+        GitOpsRetryRequest request,
+        UserAccount user,
+        HttpServletRequest servletRequest
+    ) {
+        if (request == null || !request.confirmed()) {
+            throw new ResponseStatusException(BAD_REQUEST, "GitOps retry confirmation is required");
+        }
+        GitOpsChange existing = get(changeId);
+        validateConfiguration(properties.getGitOps());
+        if (existing.pullRequestState() != GitOpsChangeState.failed) {
+            throw new ResponseStatusException(CONFLICT, "only a failed GitOps change can be retried");
+        }
+        if (!CATALOG_SOURCE.equals(existing.sourceType())) {
+            throw new ResponseStatusException(CONFLICT, "GitOps change source cannot be reconciled");
+        }
+        CatalogOverrideDraft draft = catalogWorkflow.get(existing.sourceId());
+        if (draft.status() != CatalogOverrideStatus.approved) {
+            throw new ResponseStatusException(CONFLICT, "catalog override draft must remain approved for retry");
+        }
+        CatalogOverrideHandoff handoff = catalogWorkflow.handoff(existing.sourceId());
+        GitOpsChangeRepository.RetryClaim claim = changes.claimRetry(changeId);
+        if (!claim.claimed()) {
+            throw new ResponseStatusException(CONFLICT, "GitOps change is already being reconciled");
+        }
+
+        GitOpsChange reconciling = claim.change();
+        try {
+            GitOpsProvider.PullRequestResult result = provider(reconciling.provider()).reconcilePullRequest(
+                reconciling,
+                draft.overrideJson(),
+                handoff.pullRequestTitle(),
+                handoff.pullRequestBody()
+            );
+            GitOpsChange opened = changes.markOpened(
+                reconciling.changeId(), result.number(), result.url(), result.headSha(), result.state()
+            );
+            audit.user(
+                user, "gitops.change.retry", "gitops_change", opened.changeId(), "reconciled",
+                Map.of(
+                    "provider", opened.provider(),
+                    "repository", opened.repository(),
+                    "retry_count", opened.retryCount(),
+                    "note_recorded", request.note() != null && !request.note().isBlank()
+                ),
+                servletRequest
+            );
+            return opened;
+        } catch (RuntimeException exception) {
+            GitOpsChange failed = changes.markFailed(reconciling.changeId(), exception.getMessage());
+            audit.user(
+                user, "gitops.change.retry", "gitops_change", failed.changeId(), "failed",
+                Map.of(
+                    "provider", failed.provider(),
+                    "repository", failed.repository(),
+                    "retry_count", failed.retryCount(),
+                    "error_type", exception.getClass().getSimpleName()
+                ),
+                servletRequest
+            );
+            throw new ResponseStatusException(BAD_GATEWAY, "GitOps provider reconciliation failed");
+        }
     }
 
     public GitOpsChange updateOutcome(

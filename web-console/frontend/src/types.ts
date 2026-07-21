@@ -42,10 +42,8 @@ export interface CursorPageResponse<T> {
 }
 
 export type ConsoleDataSource =
+  | "overviewSummary"
   | "clusters"
-  | "reports"
-  | "incidents"
-  | "analysisTasks"
   | "actionRequests"
   | "agentHealth"
   | "demoScenarios"
@@ -175,6 +173,30 @@ export interface RootCauseCandidate {
   supporting_evidence?: string[];
   score_reason?: string;
   [key: string]: unknown;
+}
+
+export interface OverviewSummary {
+  cluster_count: number;
+  report_count: number;
+  open_incident_count: number;
+  reports_last_24_hours: number;
+  analysis_backlog_count: number;
+  analysis_queued_count: number;
+  analysis_processing_count: number;
+  analysis_retry_count: number;
+  analysis_dead_letter_count: number;
+  action_request_count: number;
+  pending_approval_count: number;
+  manual_action_count: number;
+  blocked_action_count: number;
+  agent_count: number;
+  healthy_agent_count: number;
+  stale_agent_count: number;
+  degraded_agent_count: number;
+  offline_agent_count: number;
+  recent_clusters: ClusterView[];
+  recent_reports: RcaReport[];
+  recent_incidents: IncidentView[];
 }
 
 export interface InstallCommandView {
@@ -329,6 +351,10 @@ export interface GitOpsChange {
   verification_result?: string;
   rollback_reference?: string;
   error_message?: string;
+  retry_count?: number;
+  last_attempt_at?: string;
+  last_failure_at?: string;
+  last_reconciled_at?: string;
   requested_by?: string;
   created_at?: string;
   updated_at?: string;

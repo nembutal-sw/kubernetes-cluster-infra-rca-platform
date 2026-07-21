@@ -1,0 +1,50 @@
+# Production overlay. Supply platform.image.repository and platform.image.digest at deploy time.
+database:
+  enabled: false
+
+platform:
+  replicaCount: 2
+  image:
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  config:
+    springProfiles: production
+    demoEnabled: false
+  secret:
+    create: false
+    existingSecret: cluster-infra-rca-platform
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  tmpDir:
+    enabled: true
+    sizeLimit: 256Mi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: platform
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    maxUnavailable: null
+  networkPolicy:
+    enabled: true
+    ingressFrom: []

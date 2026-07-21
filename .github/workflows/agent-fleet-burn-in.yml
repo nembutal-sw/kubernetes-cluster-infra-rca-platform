@@ -19,8 +19,14 @@ on:
         description: "Ticket or change reference for the runner budget."
         required: true
         type: string
+      baseline_run_id:
+        description: "Successful Standard Fleet run ID required by the Extended regression gate."
+        required: false
+        default: ""
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -41,6 +47,10 @@ jobs:
       RCA_AGENT_SOAK_PROFILE: ${{ inputs.profile }}
       RCA_AGENT_SOAK_MINIMUM_PODS: "3"
       RCA_AGENT_SOAK_OUTPUT_DIR: validation-results/agent-fleet-burn-in
+      RCA_AGENT_SOAK_PLATFORM_FAMILY: kind
+      RCA_AGENT_SOAK_ARCHITECTURE: amd64
+      RCA_AGENT_SOAK_AGENT_VERSION: ${{ github.sha }}
+      FLEET_BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -67,8 +77,22 @@ jobs:
             echo "change_reference contains unsupported characters" >&2
             exit 2
           fi
-          python3 -m py_compile scripts/agent-soak-validation.py
+          if [ "${FLEET_PROFILE}" = "extended" ] && ! [[ "${FLEET_BASELINE_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "extended profile requires a successful Standard Fleet baseline_run_id" >&2
+            exit 2
+          fi
+          python3 -m py_compile scripts/agent-soak-validation.py scripts/agent-soak-comparison.py
           python3 scripts/release-readiness-check.py >/dev/null
+
+      - name: Download approved Standard Fleet baseline
+        if: ${{ inputs.profile == 'extended' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: agent-fleet-standard-${{ inputs.baseline_run_id }}
+          path: validation-results/agent-fleet-baseline
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.baseline_run_id }}
 
       - uses: helm/kind-action@v1.14.0
         with:
@@ -82,6 +106,25 @@ jobs:
       - name: Run long-running three-node Agent Fleet validation
         shell: bash
         run: bash scripts/kind-smoke.sh
+
+      - name: Gate Extended Fleet against Standard baseline
+        if: ${{ inputs.profile == 'extended' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_dir="validation-results/agent-fleet-baseline"
+          candidate_dir="${RCA_AGENT_SOAK_OUTPUT_DIR}"
+          temporary_dir="${RUNNER_TEMP}/rca-agent-fleet-baseline-${GITHUB_RUN_ID}"
+          mkdir -p "${temporary_dir}"
+          python3 scripts/agent-soak-revalidate.py \
+            --summary "${baseline_dir}/agent-soak-summary.json" \
+            --checkpoints "${baseline_dir}/agent-soak-checkpoints.jsonl" \
+            --output "${temporary_dir}/agent-soak-summary.json"
+          python3 scripts/agent-soak-comparison.py \
+            --baseline "${temporary_dir}/agent-soak-summary.json" \
+            --candidate "${candidate_dir}/agent-soak-summary.json" \
+            --policy config/agent-soak-comparison-policy.json \
+            --output "${candidate_dir}/agent-soak-comparison.json"
 
       - name: Publish Fleet result
         if: always()
@@ -98,7 +141,10 @@ jobs:
               output.write_text("## Agent Fleet Burn-in\n\nSummary was not produced.\n", encoding="utf-8")
               raise SystemExit(0)
           payload = json.loads(path.read_text(encoding="utf-8"))
+          comparison_path = path.parent / "agent-soak-comparison.json"
+          comparison = json.loads(comparison_path.read_text(encoding="utf-8")) if comparison_path.exists() else None
           fleet = payload.get("metrics", {}).get("fleet", {})
+          collector_execution = payload.get("metrics", {}).get("collector_execution", {})
           variation = fleet.get("variation", {})
           rss_spread = variation.get("rss_peak_bytes", {}).get("spread")
           rss_mib = rss_spread / 1024 / 1024 if isinstance(rss_spread, (int, float)) else None
@@ -118,6 +164,8 @@ jobs:
               f"- Profile: `{payload.get('profile', 'unknown')}`",
               f"- Targets passed: `{fleet.get('passed_target_count', 0)}/{fleet.get('target_count', 0)}`",
               f"- Iterations: `{payload.get('metrics', {}).get('iterations_completed', 0)}`",
+              f"- Collector source: `{collector_execution.get('source', 'unknown')}`",
+              f"- Agent evidence observations: `{collector_execution.get('successful_observations', 0)}/{collector_execution.get('observation_count', 0)}`",
               f"- RSS peak spread: `{rss_mib:.2f} MiB`" if rss_mib is not None else "- RSS peak spread: `unavailable`",
               (
                   f"- Worst steady RSS slope: `{steady_slope_mib:.3f} MiB/hour`"
@@ -130,6 +178,15 @@ jobs:
               f"- Runtime errors: `{payload.get('metrics', {}).get('runtime_observation_errors', 0)}`",
               f"- Failures: `{len(payload.get('failures') or [])}`",
           ]
+          if comparison is not None:
+              lines.extend(
+                  [
+                      f"- Baseline comparison: `{comparison.get('status', 'unknown')}`",
+                      f"- Compatibility gate: `{comparison.get('compatibility', {}).get('status', 'unknown')}`",
+                      f"- Absolute gate: `{comparison.get('absolute_gate', {}).get('status', 'unknown')}`",
+                      f"- Regression gate: `{comparison.get('regression_gate', {}).get('status', 'unknown')}`",
+                  ]
+              )
           output.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
 
