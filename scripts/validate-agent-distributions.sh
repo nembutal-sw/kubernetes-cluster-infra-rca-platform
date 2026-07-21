@@ -43,5 +43,7 @@ run_case "Rocky Linux 9" "rockylinux:9-minimal" \
   "microdnf install -y python3 && microdnf clean all" \
   "python3"
 run_case "openSUSE Leap 15.6" "opensuse/leap:15.6" \
-  "zypper --non-interactive install -y python311" \
+  "zypper --non-interactive modifyrepo --disable --all && \
+   zypper --non-interactive modifyrepo --enable repo-oss && \
+   zypper --non-interactive install --no-recommends -y python311" \
   "python3.11"
