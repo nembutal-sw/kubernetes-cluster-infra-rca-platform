@@ -72,6 +72,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
+    private static final int FLYWAY_MIGRATION_COUNT = 20;
+    private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
@@ -143,7 +145,7 @@ class DatabaseCompatibilityTests {
     private void verifyFreshSchema(DataSource dataSource) {
         reset(dataSource);
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(19);
+        assertThat(migration.migrationsExecuted).isEqualTo(FLYWAY_MIGRATION_COUNT);
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         UserRepository users = userRepository(dataSource);
@@ -557,7 +559,7 @@ class DatabaseCompatibilityTests {
         );
 
         MigrateResult migration = flyway(dataSource).migrate();
-        assertThat(migration.migrationsExecuted).isEqualTo(18);
+        assertThat(migration.migrationsExecuted).isEqualTo(ALEMBIC_BASELINE_MIGRATION_COUNT);
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND type = 'BASELINE'",
             Integer.class

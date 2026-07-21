@@ -75,7 +75,25 @@ export function ReportsView({ callApi, clusters, refreshToken, selectedReportId,
           <option value="failed">{t("failed")}</option>
         </select>
       </div>
-      {result.error && <div className="alert alert-warning py-2 mb-0">{result.error.detail}</div>}
+      {result.error && (
+        <section className="alert alert-warning py-2 mb-0" data-testid="data-status-failure-reports" role="status">
+          <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+              <strong>{result.error.title}</strong>
+              {result.stale && <span className="stale-label ms-2">{t("Showing last successful data")}</span>}
+              <div>{result.error.detail}</div>
+              <small>
+                {result.error.status > 0 ? `HTTP ${result.error.status} / ` : ""}{result.error.code}
+                {result.error.trace_id ? ` / trace ${result.error.trace_id}` : ""}
+              </small>
+            </div>
+            <button className="btn btn-sm btn-outline-danger icon-button" data-testid="data-status-retry" onClick={result.refresh}>
+              <Icon name="arrow-clockwise" />
+              <span>{t("Retry failed data")}</span>
+            </button>
+          </div>
+        </section>
+      )}
       <div className="report-layout">
         <aside className="report-list">
           <div className="report-list-head">

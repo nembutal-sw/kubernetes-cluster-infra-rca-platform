@@ -38,6 +38,7 @@ export function useCursorPage<T>(
   const [page, setPage] = useState<CursorPageResponse<T>>(EMPTY_PAGE as CursorPageResponse<T>);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorDetails>();
+  const [loadedAt, setLoadedAt] = useState<string>();
   const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
@@ -58,6 +59,7 @@ export function useCursorPage<T>(
       }
       setPage(response);
       setError(undefined);
+      setLoadedAt(new Date().toISOString());
     } catch (requestError) {
       if (requestId !== requestSequence.current) return;
       setError(apiErrorDetails(requestError, "Failed to load page."));
@@ -104,6 +106,8 @@ export function useCursorPage<T>(
     page,
     loading,
     error,
+    loadedAt,
+    stale: Boolean(error && loadedAt),
     pageNumber: navigation.history.length + 1,
     canPrevious: navigation.history.length > 0,
     canNext: page.has_more && Boolean(page.next_cursor),

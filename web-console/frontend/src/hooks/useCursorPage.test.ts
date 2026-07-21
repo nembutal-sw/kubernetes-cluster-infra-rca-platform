@@ -47,4 +47,18 @@ describe("useCursorPage", () => {
     expect(filteredPath).not.toContain("cursor=");
     expect(result.current.pageNumber).toBe(1);
   });
+
+  it("keeps the last successful page and marks it stale after a refresh failure", async () => {
+    const callApi = vi.fn()
+      .mockResolvedValueOnce({ items: [{ id: "stable" }], has_more: false, total: 1, limit: 20 })
+      .mockRejectedValueOnce(new Error("temporary failure")) as unknown as ApiCall;
+    const { result } = renderHook(() => useCursorPage<Item>(callApi, "/api/v1/items", {}, undefined, 20));
+
+    await waitFor(() => expect(result.current.page.items[0]?.id).toBe("stable"));
+    await act(async () => result.current.refresh());
+
+    expect(result.current.page.items[0]?.id).toBe("stable");
+    expect(result.current.stale).toBe(true);
+    expect(result.current.error?.detail).toBe("temporary failure");
+  });
 });

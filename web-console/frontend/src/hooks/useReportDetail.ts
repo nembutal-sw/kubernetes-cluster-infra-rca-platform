@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { apiErrorDetails } from "../api/client";
 import type {
   ActionExecutionView,
   ActionRequestView,
@@ -41,8 +42,10 @@ export function useReportDetail(
 ) {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [reportDetail, setReportDetail] = useState<ReportDetailState | null>(null);
+  const [reportMissing, setReportMissing] = useState(false);
 
   const loadReportDetail = useCallback(async (reportId: string) => {
+    setReportMissing(false);
     try {
       const report = await callApi<RcaReport>(`/api/rca/reports/${encodeURIComponent(reportId)}`);
       const incidentId = report.incident_id;
@@ -65,7 +68,10 @@ export function useReportDetail(
         bundleManifest: settledValue<EvidenceBundleManifest>(bundleManifest),
       });
     } catch (error) {
-      notify(errorMessage(error, t("Failed to load report.")), "danger");
+      const details = apiErrorDetails(error, t("Failed to load report."));
+      setReportDetail(null);
+      setReportMissing(details.status === 404);
+      if (details.status !== 404) notify(errorMessage(error, t("Failed to load report.")), "danger");
     }
   }, [callApi, currentUser?.role, notify, t]);
 
@@ -74,6 +80,7 @@ export function useReportDetail(
       void loadReportDetail(selectedReportId);
     } else {
       setReportDetail(null);
+      setReportMissing(false);
     }
   }, [loadReportDetail, selectedReportId]);
 
@@ -81,6 +88,7 @@ export function useReportDetail(
     selectedReportId,
     setSelectedReportId,
     reportDetail,
+    reportMissing,
     setReportDetail,
     loadReportDetail,
   };

@@ -98,6 +98,7 @@ function ConsoleApp() {
     selectedReportId,
     setSelectedReportId,
     reportDetail,
+    reportMissing,
     setReportDetail,
     loadReportDetail,
   } = useReportDetail(callApi, currentUser, notify, t);
@@ -327,8 +328,9 @@ function ConsoleApp() {
 
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(currentUser.role));
   const webhookEndpoint = `${window.location.origin.replace(/\/$/, "")}/api/webhooks/alertmanager`;
-  const routeResourceMissing =
-    activeView === "clusters" && route.clusterId && loadStates.clusters.loadedAt && !loadStates.clusters.error
+  const routeResourceMissing = activeView === "reports" && route.reportId
+    ? reportMissing
+    : activeView === "clusters" && route.clusterId && loadStates.clusters.loadedAt && !loadStates.clusters.error
       ? !clusters.some((item) => item.cluster_id === route.clusterId)
       : false;
   const routeResourceId = route.clusterId || route.reportId || route.incidentId || "";

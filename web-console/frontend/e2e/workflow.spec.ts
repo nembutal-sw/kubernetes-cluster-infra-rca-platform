@@ -244,13 +244,14 @@ test("applies viewer navigation and mutation restrictions in the console", async
 
 test("keeps stale data visible and exposes structured API failure context", async ({ page }) => {
   let reportRequests = 0;
-  await page.route("**/api/rca/reports*", async (route) => {
+  let failReportRequests = false;
+  await page.route("**/api/v1/rca/reports*", async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue();
       return;
     }
     reportRequests += 1;
-    if (reportRequests === 2) {
+    if (failReportRequests) {
       await route.fulfill({
         status: 503,
         contentType: "application/json",
@@ -266,8 +267,10 @@ test("keeps stale data visible and exposes structured API failure context", asyn
     await route.continue();
   });
 
-  await login(page);
-  await expect.poll(() => reportRequests).toBe(1);
+  await login(page, "/reports");
+  await expect.poll(() => reportRequests).toBeGreaterThanOrEqual(1);
+  const requestsBeforeFailure = reportRequests;
+  failReportRequests = true;
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
 
   const failure = page.getByTestId("data-status-failure-reports");
@@ -278,9 +281,10 @@ test("keeps stale data visible and exposes structured API failure context", asyn
   await expect(failure).toContainText("trace-e2e-reports");
   await expect(failure).toContainText("Showing last successful data");
 
+  failReportRequests = false;
   await page.getByTestId("data-status-retry").click();
-  await expect(page.getByTestId("data-status-banner")).toHaveCount(0);
-  expect(reportRequests).toBeGreaterThanOrEqual(3);
+  await expect(page.getByTestId("data-status-failure-reports")).toHaveCount(0);
+  expect(reportRequests).toBeGreaterThanOrEqual(requestsBeforeFailure + 2);
 });
 
 test("shows agent connection states and filters them without mobile overflow", async ({ page }) => {
