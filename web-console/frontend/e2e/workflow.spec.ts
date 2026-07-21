@@ -268,7 +268,9 @@ test("keeps stale data visible and exposes structured API failure context", asyn
   });
 
   await login(page, "/reports");
-  await expect.poll(() => reportRequests).toBeGreaterThanOrEqual(1);
+  const reportList = page.getByTestId("report-list");
+  await expect(reportList).toHaveAttribute("data-loaded", "true");
+  await expect(reportList).toHaveAttribute("aria-busy", "false");
   const requestsBeforeFailure = reportRequests;
   failReportRequests = true;
   await page.getByRole("button", { name: "Refresh", exact: true }).click();

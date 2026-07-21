@@ -95,7 +95,12 @@ export function ReportsView({ callApi, clusters, refreshToken, selectedReportId,
         </section>
       )}
       <div className="report-layout">
-        <aside className="report-list">
+        <aside
+          className="report-list"
+          data-testid="report-list"
+          data-loaded={Boolean(result.loadedAt)}
+          aria-busy={result.loading}
+        >
           <div className="report-list-head">
             <span>{t("RCA Reports")}</span>
             <strong>{result.page.total}</strong>
