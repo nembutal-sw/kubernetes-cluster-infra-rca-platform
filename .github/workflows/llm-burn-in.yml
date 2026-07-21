@@ -12,6 +12,14 @@ on:
         required: true
         default: "admin"
         type: string
+      runner:
+        description: "Runner used for the burn-in job. Self-hosted live runs are restricted to loopback endpoints."
+        required: true
+        default: "github-hosted"
+        type: choice
+        options:
+          - "github-hosted"
+          - "self-hosted-rca-demo"
       scenarios:
         description: "Comma-separated demo scenario keys."
         required: true
@@ -84,12 +92,13 @@ concurrency:
 
 jobs:
   burn-in:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'self-hosted-rca-demo' && 'rca-demo' || 'ubuntu-latest' }}
     timeout-minutes: 30
     environment: ${{ inputs.dry_run && 'llm-burn-in-preview' || 'llm-burn-in' }}
     env:
       BURN_IN_BASE_URL: ${{ inputs.base_url || vars.RCA_SMOKE_BASE_URL }}
       BURN_IN_USERNAME: ${{ inputs.username }}
+      BURN_IN_RUNNER: ${{ inputs.runner }}
       BURN_IN_SCENARIOS: ${{ inputs.scenarios }}
       BURN_IN_CALL_BUDGET: ${{ inputs.provider_call_budget }}
       BURN_IN_DRY_RUN: ${{ inputs.dry_run }}
@@ -101,6 +110,7 @@ jobs:
       BURN_IN_TARGET_TIME_BUCKETS: ${{ inputs.target_time_buckets }}
       BURN_IN_TIME_BUCKET_HOURS: ${{ inputs.time_bucket_hours }}
       BURN_IN_TASK_TIMEOUT_SECONDS: ${{ inputs.task_timeout_seconds }}
+      BURN_IN_USE_TAILSCALE: ${{ inputs.use_tailscale }}
       BURN_IN_MAX_LLM_LATENCY_MS: ${{ vars.RCA_LLM_SMOKE_MAX_LATENCY_MS || '60000' }}
       BURN_IN_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       RCA_ADMIN_PASSWORD: ${{ secrets.RCA_SMOKE_PASSWORD }}
@@ -142,6 +152,11 @@ jobs:
             exit 2
           fi
 
+          if [ "${BURN_IN_RUNNER}" != "github-hosted" ] && [ "${BURN_IN_RUNNER}" != "self-hosted-rca-demo" ]; then
+            echo "runner must be github-hosted or self-hosted-rca-demo." >&2
+            exit 2
+          fi
+
           if [ "${BURN_IN_DRY_RUN}" = "false" ]; then
             if [ "${GITHUB_REF_NAME}" != "${BURN_IN_DEFAULT_BRANCH}" ]; then
               echo "Live campaigns must run from the default branch ${BURN_IN_DEFAULT_BRANCH}." >&2
@@ -172,6 +187,19 @@ jobs:
               echo "RCA_SMOKE_PASSWORD secret is required for a live campaign." >&2
               exit 2
             fi
+            if [ "${BURN_IN_RUNNER}" = "self-hosted-rca-demo" ]; then
+              if [ "${BURN_IN_USE_TAILSCALE}" = "true" ]; then
+                echo "use_tailscale must be disabled for a self-hosted live campaign." >&2
+                exit 2
+              fi
+              case "${BURN_IN_BASE_URL}" in
+                http://127.0.0.1:*|http://localhost:*) ;;
+                *)
+                  echo "Self-hosted live campaigns are restricted to loopback HTTP endpoints." >&2
+                  exit 2
+                  ;;
+              esac
+            fi
           fi
 
       - name: Verify and download previous cumulative history
@@ -198,13 +226,13 @@ jobs:
             --dir validation-results/previous-burn-in
 
       - name: Require Tailscale auth key
-        if: ${{ inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY == '' }}
+        if: ${{ inputs.runner == 'github-hosted' && inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY == '' }}
         run: |
           echo "TAILSCALE_AUTHKEY secret is required for a live Tailscale campaign." >&2
           exit 2
 
       - name: Connect runner to Tailscale
-        if: ${{ inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY != '' }}
+        if: ${{ inputs.runner == 'github-hosted' && inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY != '' }}
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ env.TAILSCALE_AUTHKEY }}
@@ -288,6 +316,7 @@ jobs:
                   [
                       f"- Status: `{summary.get('status', 'unknown')}`",
                       f"- Dry run: `{summary.get('dry_run', True)}`",
+                      f"- Runner: `{__import__('os').environ.get('BURN_IN_RUNNER', 'unknown')}`",
                       f"- Provider calls used: `{summary.get('provider_call_upper_bound_used', 0)}`",
                       f"- Planned scenarios: `{', '.join(summary.get('planned_scenarios') or []) or 'none'}`",
                   ]

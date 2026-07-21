@@ -19,6 +19,11 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "cancel-in-progress: false" in content
     assert "inputs.dry_run && 'llm-burn-in-preview' || 'llm-burn-in'" in content
     assert "Live campaigns must run from the default branch" in content
+    assert "self-hosted-rca-demo" in content
+    assert "inputs.runner == 'self-hosted-rca-demo'" in content
+    assert "Self-hosted live campaigns are restricted to loopback HTTP endpoints" in content
+    assert "use_tailscale must be disabled for a self-hosted live campaign" in content
+    assert "inputs.runner == 'github-hosted' && inputs.use_tailscale" in content
     assert "--require-new-time-bucket" in content
     assert "--planning-baseline config/llm-burn-in-planning-baseline.json" in content
     assert "scripts/llm-burn-in-planning-baseline.py" in content
