@@ -306,6 +306,12 @@ Campaign summary와 Actions summary에는 실제 readiness 진행률, 현재 UTC
 여부와 다음 호출 가능 시각을 표시합니다. Planning baseline 수치는 이 readiness 진행률에
 포함하지 않습니다.
 
+Run `29797237564`에서 `history_run_id` 입력을 비운 상태로 repository variable의 canonical
+history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0회였고 readiness는 표본
+`1/20`, scenario `1/5`, 실제 시간 구간 `1/3`으로 표시됐습니다. 현재 UTC 00시 구간은
+이미 표본이 있어 추가 호출이 차단됐으며 다음 가능 시각은 `2026-07-21T08:00:00Z`
+(KST 17:00)입니다. `RCA_LLM_BURN_IN_HISTORY_RUN_ID`는 이 정상 run으로 갱신했습니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.
