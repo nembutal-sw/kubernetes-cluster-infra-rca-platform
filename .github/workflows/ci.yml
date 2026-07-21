@@ -178,14 +178,6 @@ jobs:
             --set-string platform.secret.jdbcUrl=jdbc:postgresql://postgres.example:5432/rca \
             --set-string platform.secret.databaseUsername=rca \
             --set-string platform.secret.databasePassword=non-default-password > /dev/null
-          helm template rca charts/cluster-infra-rca-platform \
-            --set platform.config.springProfiles=prod \
-            --set platform.config.publicApiBaseUrl=https://rca.example.com \
-            --set-string platform.secret.defaultAdminUsername=platform-admin \
-            --set-string platform.secret.defaultAdminPassword=non-default-admin-password \
-            --set-string platform.secret.webhookToken=non-default-webhook-token \
-            --set-string platform.secret.encryptionSecret=non-default-encryption-secret \
-            --set-string database.auth.password=non-default-database-password > /dev/null
           llm_openai="$(helm template rca charts/cluster-infra-rca-platform \
             --set platform.config.llmEnabled=true \
             --set platform.config.llmProvider=openai_compatible \
