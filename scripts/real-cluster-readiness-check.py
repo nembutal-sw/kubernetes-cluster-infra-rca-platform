@@ -638,6 +638,10 @@ def add_recommendations(report: dict[str, Any]) -> None:
 
 
 def finalize(report: dict[str, Any], output: str) -> None:
+    if report.get("failures"):
+        report["status"] = "failed"
+    elif report.get("warnings") and report.get("status") == "passed":
+        report["status"] = "warning"
     encoded = json.dumps(report, ensure_ascii=False, indent=2)
     if output == "-":
         print(encoded)

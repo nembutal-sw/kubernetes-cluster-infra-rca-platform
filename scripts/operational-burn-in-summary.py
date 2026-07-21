@@ -87,6 +87,8 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
 def cluster_component(payload: dict[str, Any] | None) -> dict[str, Any]:
     if payload is None:
         return {"status": "skipped"}
+    failures = payload.get("failures") if isinstance(payload.get("failures"), list) else []
+    warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
     signals = payload.get("signals") if isinstance(payload.get("signals"), dict) else {}
     compatibility = signals.get("cluster_compatibility") if isinstance(signals.get("cluster_compatibility"), dict) else {}
     fingerprint = compatibility.get("fingerprint") if isinstance(compatibility.get("fingerprint"), dict) else {}
@@ -95,7 +97,7 @@ def cluster_component(payload: dict[str, Any] | None) -> dict[str, Any]:
     pods = signals.get("pods") if isinstance(signals.get("pods"), dict) else {}
     nodes = signals.get("nodes") if isinstance(signals.get("nodes"), list) else []
     return {
-        "status": payload.get("status", "unknown"),
+        "status": "failed" if failures else "warning" if warnings else payload.get("status", "unknown"),
         "platform": platform.get("family"),
         "compatibility_status": assessment.get("status"),
         "unverified_dimensions": assessment.get("unverified_dimensions") or [],
@@ -105,8 +107,8 @@ def cluster_component(payload: dict[str, Any] | None) -> dict[str, Any]:
         "node_count": len(nodes),
         "pod_count": pods.get("total"),
         "unhealthy_pod_count": len(pods.get("unhealthy") or []),
-        "failure_count": len(payload.get("failures") or []),
-        "warning_count": len(payload.get("warnings") or []),
+        "failure_count": len(failures),
+        "warning_count": len(warnings),
     }
 
 

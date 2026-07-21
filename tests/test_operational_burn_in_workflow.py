@@ -17,7 +17,7 @@ def test_workflow_is_manual_read_only_and_self_hosted() -> None:
     assert "operational-burn-in-summary.py" in content
     assert "--provider-call-budget 0" in content
     assert "--dry-run" in content
-    assert "--skip-connectivity-test" in content
+    assert "--skip-connectivity-test" not in content
     assert "APPROVED_ACTIONS_ENABLED=true" not in content
     assert "kubectl apply" not in content
     assert "kubectl delete" not in content

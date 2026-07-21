@@ -102,6 +102,17 @@ def test_summary_fails_when_required_cluster_report_is_missing() -> None:
     assert "real-cluster readiness is required but unavailable" in summary["failures"]
 
 
+def test_cluster_failures_override_an_incorrect_legacy_status() -> None:
+    summary_module = load_module()
+
+    component = summary_module.cluster_component(
+        {"status": "passed", "signals": {}, "failures": ["helm command is required"], "warnings": []}
+    )
+
+    assert component["status"] == "failed"
+    assert component["failure_count"] == 1
+
+
 def test_markdown_contains_only_compact_operational_status() -> None:
     summary_module = load_module()
     matrix = json.loads((ROOT / "config" / "platform-compatibility-matrix.json").read_text(encoding="utf-8"))

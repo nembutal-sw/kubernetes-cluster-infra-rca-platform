@@ -197,7 +197,6 @@ jobs:
             --target-time-buckets 3 \
             --time-bucket-hours 8 \
             --require-new-time-bucket \
-            --skip-connectivity-test \
             --dry-run \
             --output-dir validation-results/operational-burn-in/llm-status \
             "${history_args[@]}"

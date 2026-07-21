@@ -213,3 +213,5 @@ def test_catalog_and_readiness_contract_are_valid() -> None:
     assert validate_catalog(CATALOG) == []
     assert '"taints": spec.get("taints", [])' in readiness
     assert 'report["signals"]["cluster_compatibility"]' in readiness
+    assert 'if report.get("failures"):' in readiness
+    assert 'report["status"] = "failed"' in readiness
