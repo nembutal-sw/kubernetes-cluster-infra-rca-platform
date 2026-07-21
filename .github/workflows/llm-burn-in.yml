@@ -48,7 +48,7 @@ on:
         required: false
         type: string
       history_run_id:
-        description: "Previous successful LLM Burn-in run ID whose cumulative artifact should be reused."
+        description: "Previous completed LLM Burn-in run ID whose cumulative artifact should be reused or revalidated."
         required: false
         type: string
       target_samples:
@@ -224,10 +224,15 @@ jobs:
             echo "history_run_id must reference the LLM Burn-in workflow." >&2
             exit 2
           fi
-          if [ "${run_event}" != "workflow_dispatch" ] || [ "${run_conclusion}" != "success" ]; then
-            echo "history_run_id must reference a successful manual LLM Burn-in run." >&2
+          if [ "${run_event}" != "workflow_dispatch" ]; then
+            echo "history_run_id must reference a manual LLM Burn-in run." >&2
             exit 2
           fi
+          if [ "${run_conclusion}" != "success" ] && [ "${run_conclusion}" != "failure" ]; then
+            echo "history_run_id must reference a completed LLM Burn-in run." >&2
+            exit 2
+          fi
+          echo "BURN_IN_HISTORY_RUN_CONCLUSION=${run_conclusion}" >> "${GITHUB_ENV}"
 
           gh run download "${BURN_IN_HISTORY_RUN_ID}" \
             --repo "${GITHUB_REPOSITORY}" \
@@ -253,13 +258,26 @@ jobs:
             scripts/llm-burn-in-report.py \
             scripts/llm-burn-in-campaign.py \
             scripts/llm-burn-in-history.py \
-            scripts/llm-burn-in-planning-baseline.py
+            scripts/llm-burn-in-planning-baseline.py \
+            scripts/llm-burn-in-revalidate.py
+
+      - name: Revalidate recoverable samples from a failed history run
+        if: ${{ inputs.history_run_id != '' && env.BURN_IN_HISTORY_RUN_CONCLUSION == 'failure' }}
+        run: |
+          python3 scripts/llm-burn-in-revalidate.py \
+            validation-results/previous-burn-in \
+            --output-dir validation-results/revalidated-history-source
 
       - name: Normalize downloaded cumulative history
         if: ${{ inputs.history_run_id != '' }}
+        shell: bash
         run: |
+          history_source=validation-results/previous-burn-in/portable-history
+          if [ -d validation-results/revalidated-history-source ]; then
+            history_source=validation-results/revalidated-history-source
+          fi
           python3 scripts/llm-burn-in-history.py \
-            validation-results/previous-burn-in/portable-history \
+            "${history_source}" \
             --output-dir validation-results/validated-history
 
       - name: Run quota-aware burn-in campaign

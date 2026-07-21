@@ -24,9 +24,9 @@ from typing import Any
 
 
 SENSITIVE_PATTERNS = [
-    re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
-    re.compile(r"AIza[A-Za-z0-9_-]{30,}"),
-    re.compile(r"AQ\.[A-Za-z0-9_-]{30,}"),
+    re.compile(r"(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{12,}"),
+    re.compile(r"(?<![A-Za-z0-9_-])AIza[A-Za-z0-9_-]{30,}"),
+    re.compile(r"(?<![A-Za-z0-9_-])AQ\.[A-Za-z0-9_-]{30,}"),
     re.compile(
         r'(?i)["\']?(api[_-]?key|authorization|bearer|token|password)["\']?\s*[:=]\s*["\']?'
         r'(?!\[redacted\]|<redacted>|redacted(?:["\']|\s|,|}))[^,\s}"\']+'

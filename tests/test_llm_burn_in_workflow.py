@@ -32,13 +32,16 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "scripts/llm-burn-in-planning-baseline.py" in content
 
 
-def test_workflow_reuses_only_successful_manual_burn_in_history() -> None:
+def test_workflow_reuses_only_completed_manual_burn_in_history() -> None:
     content = WORKFLOW.read_text(encoding="utf-8")
 
     assert "history_run_id" in content
     assert '.github/workflows/llm-burn-in.yml' in content
     assert 'run_event}" != "workflow_dispatch"' in content
     assert 'run_conclusion}" != "success"' in content
+    assert 'run_conclusion}" != "failure"' in content
+    assert "llm-burn-in-revalidate.py" in content
+    assert "Revalidate recoverable samples from a failed history run" in content
     assert "llm-burn-in-results" in content
     assert "llm-burn-in-history.py" in content
     assert "validation-results/previous-burn-in/portable-history" in content

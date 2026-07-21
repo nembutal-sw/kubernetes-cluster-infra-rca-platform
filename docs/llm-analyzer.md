@@ -315,6 +315,8 @@ GitHub Actions의 `LLM Burn-in` workflow는 수동 실행만 허용하며 기본
 
 기본 `runner=github-hosted`는 공개 Actions runner를 사용하며 내부 endpoint에 접근할 때 Tailscale을 연결합니다. 전용 데모 서버에서 실행할 때는 Python 3.11 이상을 미리 설치하고 `runner=self-hosted-rca-demo`, `base_url=http://127.0.0.1:18081`, `use_tailscale=false`를 사용합니다. Self-hosted 실제 호출은 loopback HTTP endpoint만 허용하므로 runner가 다른 내부 시스템을 직접 호출하는 용도로 확장되지 않습니다. 배포판별 바이너리를 내려받는 `setup-python`은 GitHub-hosted runner에만 적용합니다.
 
-첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. repository의 planning baseline은 이 단계부터 적용됩니다. 실제 성공 실행 뒤 생성된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나, 수동 실행이 아니거나, 실패한 run은 history로 받아들이지 않습니다.
+첫 실행은 `dry_run=true`, `history_run_id` 공란으로 계획만 확인합니다. repository의 planning baseline은 이 단계부터 적용됩니다. 완료된 Actions run ID를 다음 실행의 `history_run_id`에 입력하면 `llm-burn-in-results` artifact를 검증해 누적 history로 사용합니다. workflow 종류가 다르거나 수동 실행이 아닌 run은 받아들이지 않습니다.
+
+실패한 run은 provider 응답과 sibling report가 artifact에 남아 있고, 실패 원인이 현재 allowlist에 있는 검증기 오탐뿐일 때만 `scripts/llm-burn-in-revalidate.py`로 오프라인 재검증합니다. 현재 검증기로 LLM 구성, 호출 예산, task 완료, usage, latency, evidence 참조, action 안전성과 비밀정보 검사를 모두 다시 통과해야 하며 provider는 재호출하지 않습니다. Provider 오류, task 실패, 안전성 위반 등 다른 오류가 하나라도 있으면 history 편입을 거부합니다.
 
 `scripts/llm-burn-in-history.py`는 이전 artifact와 현재 결과를 content hash로 중복 제거하고 `llm-burn-in-history/v1` manifest를 만듭니다. 절대 경로는 manifest에 기록하지 않으며, 통과 표본의 timestamp와 sibling RCA report가 빠지면 검증에 실패합니다. 실패 표본은 숨기지 않고 history에 남아 다음 aggregate report의 신뢰도 계산에 포함됩니다. Artifact에는 노드와 운영 evidence가 포함될 수 있으므로 repository 접근 권한을 제한하고 기본 30일 보존 기간을 조직 정책에 맞게 조정합니다.

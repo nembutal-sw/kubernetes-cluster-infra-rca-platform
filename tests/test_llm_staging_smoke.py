@@ -153,6 +153,13 @@ def test_sensitive_text_detection_covers_google_api_key_formats():
     assert smoke.contains_sensitive_text({"message": current_key})
 
 
+def test_sensitive_text_detection_does_not_treat_disk_node_as_openai_key():
+    smoke = load_module()
+
+    assert not smoke.contains_sensitive_text({"node_name": "burn-in-disk-pressure-node"})
+    assert smoke.contains_sensitive_text({"message": "sk-" + "A" * 24})
+
+
 def test_llm_report_rejects_automated_llm_actions():
     smoke = load_module()
     report = {
