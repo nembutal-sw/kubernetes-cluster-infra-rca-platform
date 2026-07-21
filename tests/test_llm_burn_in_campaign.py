@@ -91,6 +91,34 @@ def test_successful_time_buckets_ignore_invalid_results(tmp_path: Path) -> None:
     assert buckets == {"2026-07-21T00:00:00Z", "2026-07-21T08:00:00Z"}
 
 
+def test_next_time_bucket_uses_utc_boundary() -> None:
+    campaign = load_module()
+
+    assert campaign.next_time_bucket("2026-07-21T02:34:46Z", 8) == "2026-07-21T08:00:00Z"
+
+
+def test_readiness_progress_keeps_planning_baseline_out_of_actual_counts() -> None:
+    campaign = load_module()
+
+    progress = campaign.readiness_progress(
+        Counter({"disk-pressure": 1}),
+        {"2026-07-21T00:00:00Z"},
+        target_samples=20,
+        target_scenarios=5,
+        target_time_buckets=3,
+    )
+
+    assert progress == {
+        "ready": False,
+        "sample_count": 1,
+        "sample_target": 20,
+        "scenario_count": 1,
+        "scenario_target": 5,
+        "time_bucket_count": 1,
+        "time_bucket_target": 3,
+    }
+
+
 def test_history_validation_rejects_missing_or_empty_inputs(tmp_path: Path) -> None:
     campaign = load_module()
 

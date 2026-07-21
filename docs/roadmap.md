@@ -222,7 +222,7 @@
 Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
 남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
 
-1. 수동 `LLM Burn-in` workflow로 Gemini burn-in을 남은 15개 표본과 최소 1개 추가 시간 구간으로 확장
+1. 수동 `LLM Burn-in` workflow로 readiness 대상 Gemini 표본을 `1/20`에서 확장하고 실제 시간 구간을 `1/3`에서 확장
 2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
 3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
 
@@ -297,6 +297,14 @@ LLM-origin action의 unsafe 건수는 0개였습니다. 최초 run `29796180376`
 GitHub artifact 기준 readiness 표본은 `1/20`, scenario `1/5`, 시간 구간 `1/3`입니다.
 Planning baseline을 합친 호출 계획은 표본 6개, scenario 5개, 시간 구간 3개지만 baseline은
 계속 `readiness_eligible=false`이므로 60초 SLO를 유지합니다.
+
+15번째 단계에서는 canonical history 누락으로 같은 구간을 중복 호출할 수 있는 운영 위험을
+보완했습니다. `RCA_LLM_BURN_IN_HISTORY_RUN_ID` repository variable을 기본 history로
+사용하고 입력값은 일시적인 override로만 처리합니다. Canonical history 없이 live 호출을
+시작하려면 `initialize_history=true`가 필요하며, 기존 history와 동시에 사용할 수 없습니다.
+Campaign summary와 Actions summary에는 실제 readiness 진행률, 현재 UTC bucket, 호출 허용
+여부와 다음 호출 가능 시각을 표시합니다. Planning baseline 수치는 이 readiness 진행률에
+포함하지 않습니다.
 
 ## Positioning
 

@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -144,6 +144,40 @@ def time_bucket(value: Any, bucket_hours: int) -> str | None:
     bucket_epoch = int(parsed.timestamp()) // bucket_seconds * bucket_seconds
     bucket_start = datetime.fromtimestamp(bucket_epoch, tz=timezone.utc)
     return bucket_start.isoformat().replace("+00:00", "Z")
+
+
+def next_time_bucket(value: Any, bucket_hours: int) -> str | None:
+    bucket = time_bucket(value, bucket_hours)
+    bucket_start = parse_timestamp(bucket)
+    if bucket_start is None:
+        return None
+    return (bucket_start + timedelta(hours=bucket_hours)).isoformat().replace("+00:00", "Z")
+
+
+def readiness_progress(
+    counts: Counter[str],
+    time_buckets: set[str],
+    *,
+    target_samples: int,
+    target_scenarios: int,
+    target_time_buckets: int,
+) -> dict[str, Any]:
+    sample_count = sum(counts.values())
+    scenario_count = sum(1 for count in counts.values() if count > 0)
+    time_bucket_count = len(time_buckets)
+    return {
+        "ready": (
+            sample_count >= target_samples
+            and scenario_count >= target_scenarios
+            and time_bucket_count >= target_time_buckets
+        ),
+        "sample_count": sample_count,
+        "sample_target": target_samples,
+        "scenario_count": scenario_count,
+        "scenario_target": target_scenarios,
+        "time_bucket_count": time_bucket_count,
+        "time_bucket_target": target_time_buckets,
+    }
 
 
 def is_successful_result(result: dict[str, Any]) -> bool:
@@ -453,6 +487,18 @@ def main() -> int:
     current_time_bucket = time_bucket(datetime.now(timezone.utc), args.time_bucket_hours)
     current_time_bucket_sampled = current_time_bucket in planning_time_buckets
     calls_allowed = not args.require_new_time_bucket or not current_time_bucket_sampled
+    next_provider_call_at = (
+        next_time_bucket(current_time_bucket, args.time_bucket_hours)
+        if args.require_new_time_bucket and current_time_bucket_sampled
+        else None
+    )
+    readiness = readiness_progress(
+        counts,
+        existing_time_buckets,
+        target_samples=args.target_samples,
+        target_scenarios=args.target_scenarios,
+        target_time_buckets=args.target_time_buckets,
+    )
     effective_call_budget = effective_provider_call_budget(
         args.provider_call_budget,
         args.require_new_time_bucket,
@@ -558,8 +604,10 @@ def main() -> int:
         "planning_time_buckets": sorted(planning_time_buckets),
         "current_time_bucket": current_time_bucket,
         "current_time_bucket_sampled": current_time_bucket_sampled,
+        "next_provider_call_at": next_provider_call_at,
         "require_new_time_bucket": args.require_new_time_bucket,
         "provider_calls_allowed": calls_allowed,
+        "readiness": readiness,
         "planned_scenarios": plan,
         "attempted_scenarios": attempted,
         "succeeded_scenarios": succeeded,

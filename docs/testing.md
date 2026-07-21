@@ -308,7 +308,7 @@ RCA_ADMIN_PASSWORD='...' python3 scripts/llm-burn-in-campaign.py \
 
 원본 표본을 저장소에 올리지 않고 호출 계획만 이어받으려면 `scripts/llm-burn-in-planning-baseline.py`로 `config/llm-burn-in-planning-baseline.json`을 갱신합니다. 생성 결과에는 hash, 시나리오, timestamp, action 안전성만 있어야 하며 `readiness_eligible=false`인지 확인합니다. Planning baseline은 SLO readiness 표본으로 계산되지 않습니다.
 
-GitHub Actions에서는 `LLM Burn-in` workflow를 사용합니다. 최초에는 `dry_run=true`로 실행하고, 실제 호출 시에만 `dry_run=false`, `confirm_live_calls=true`, `provider_call_budget=1`, `change_reference`를 입력합니다. 실제 실행은 required reviewer가 설정된 `llm-burn-in` Environment와 저장소 기본 branch에서만 허용됩니다. 완료된 run의 누적 표본은 해당 Actions run ID를 `history_run_id`에 넣어 이어받으며 같은 8시간 구간에서는 추가 호출하지 않습니다. 실패 run은 sibling report가 있고 알려진 검증기 오탐만 남은 경우에만 현재 검증기로 오프라인 재검증하며 provider를 다시 호출하지 않습니다. 상세한 승인 조건과 artifact 취급 기준은 [llm-analyzer.md](llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
+GitHub Actions에서는 `LLM Burn-in` workflow를 사용합니다. 최초에는 `dry_run=true`로 실행하고, 실제 호출 시에만 `dry_run=false`, `confirm_live_calls=true`, `provider_call_budget=1`, `change_reference`를 입력합니다. 실제 실행은 required reviewer가 설정된 `llm-burn-in` Environment와 저장소 기본 branch에서만 허용됩니다. 최신 누적 표본은 `RCA_LLM_BURN_IN_HISTORY_RUN_ID` repository variable로 자동 연결하고, 임시 검증 시에는 `history_run_id` 입력값으로 덮어쓸 수 있습니다. 최초 live 표본만 `initialize_history=true`를 사용하며 canonical history가 있는데 이 옵션을 사용하면 거부됩니다. 같은 8시간 구간에서는 추가 호출하지 않습니다. 실패 run은 sibling report가 있고 알려진 검증기 오탐만 남은 경우에만 현재 검증기로 오프라인 재검증하며 provider를 다시 호출하지 않습니다. 상세한 승인 조건과 artifact 취급 기준은 [llm-analyzer.md](llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
 
 ## Kind E2E
 

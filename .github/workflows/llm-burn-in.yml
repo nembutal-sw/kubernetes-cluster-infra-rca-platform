@@ -48,9 +48,14 @@ on:
         required: false
         type: string
       history_run_id:
-        description: "Previous completed LLM Burn-in run ID whose cumulative artifact should be reused or revalidated."
+        description: "Previous completed run ID. Defaults to repository variable RCA_LLM_BURN_IN_HISTORY_RUN_ID."
         required: false
         type: string
+      initialize_history:
+        description: "Allow the first live call without prior history. Use only when no canonical history exists."
+        required: true
+        default: false
+        type: boolean
       target_samples:
         description: "Minimum successful sample target."
         required: true
@@ -104,7 +109,8 @@ jobs:
       BURN_IN_DRY_RUN: ${{ inputs.dry_run }}
       BURN_IN_CONFIRM_LIVE_CALLS: ${{ inputs.confirm_live_calls }}
       BURN_IN_CHANGE_REFERENCE: ${{ inputs.change_reference }}
-      BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id }}
+      BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id || vars.RCA_LLM_BURN_IN_HISTORY_RUN_ID }}
+      BURN_IN_INITIALIZE_HISTORY: ${{ inputs.initialize_history }}
       BURN_IN_TARGET_SAMPLES: ${{ inputs.target_samples }}
       BURN_IN_TARGET_SCENARIOS: ${{ inputs.target_scenarios }}
       BURN_IN_TARGET_TIME_BUCKETS: ${{ inputs.target_time_buckets }}
@@ -160,6 +166,10 @@ jobs:
             echo "history_run_id must be a numeric GitHub Actions run ID." >&2
             exit 2
           fi
+          if [ "${BURN_IN_INITIALIZE_HISTORY}" = "true" ] && [ -n "${BURN_IN_HISTORY_RUN_ID}" ]; then
+            echo "initialize_history cannot be used when a history run is configured." >&2
+            exit 2
+          fi
 
           if [ "${BURN_IN_RUNNER}" != "github-hosted" ] && [ "${BURN_IN_RUNNER}" != "self-hosted-rca-demo" ]; then
             echo "runner must be github-hosted or self-hosted-rca-demo." >&2
@@ -196,6 +206,10 @@ jobs:
               echo "RCA_SMOKE_PASSWORD secret is required for a live campaign." >&2
               exit 2
             fi
+            if [ -z "${BURN_IN_HISTORY_RUN_ID}" ] && [ "${BURN_IN_INITIALIZE_HISTORY}" != "true" ]; then
+              echo "A canonical history run is required. Set history_run_id or RCA_LLM_BURN_IN_HISTORY_RUN_ID." >&2
+              exit 2
+            fi
             if [ "${BURN_IN_RUNNER}" = "self-hosted-rca-demo" ]; then
               if [ "${BURN_IN_USE_TAILSCALE}" = "true" ]; then
                 echo "use_tailscale must be disabled for a self-hosted live campaign." >&2
@@ -212,7 +226,7 @@ jobs:
           fi
 
       - name: Verify previous history run
-        if: ${{ inputs.history_run_id != '' }}
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -222,14 +236,14 @@ jobs:
             --github-env "${GITHUB_ENV}"
 
       - name: Download previous cumulative history
-        if: ${{ inputs.history_run_id != '' }}
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' }}
         uses: actions/download-artifact@v8
         with:
           name: llm-burn-in-results
           path: validation-results/previous-burn-in
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.history_run_id }}
+          run-id: ${{ env.BURN_IN_HISTORY_RUN_ID }}
 
       - name: Require Tailscale auth key
         if: ${{ inputs.runner == 'github-hosted' && inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY == '' }}
@@ -255,14 +269,14 @@ jobs:
             scripts/llm-burn-in-run-metadata.py
 
       - name: Revalidate recoverable samples from a failed history run
-        if: ${{ inputs.history_run_id != '' && env.BURN_IN_HISTORY_RUN_CONCLUSION == 'failure' }}
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' && env.BURN_IN_HISTORY_RUN_CONCLUSION == 'failure' }}
         run: |
           python3 scripts/llm-burn-in-revalidate.py \
             validation-results/previous-burn-in \
             --output-dir validation-results/revalidated-history-source
 
       - name: Normalize downloaded cumulative history
-        if: ${{ inputs.history_run_id != '' }}
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' }}
         shell: bash
         run: |
           history_source=validation-results/previous-burn-in/portable-history
@@ -337,8 +351,21 @@ jobs:
                       f"- Status: `{summary.get('status', 'unknown')}`",
                       f"- Dry run: `{summary.get('dry_run', True)}`",
                       f"- Runner: `{__import__('os').environ.get('BURN_IN_RUNNER', 'unknown')}`",
+                      f"- History run: `{__import__('os').environ.get('BURN_IN_HISTORY_RUN_ID') or 'none'}`",
                       f"- Provider calls used: `{summary.get('provider_call_upper_bound_used', 0)}`",
+                      f"- Provider calls allowed now: `{summary.get('provider_calls_allowed', False)}`",
                       f"- Planned scenarios: `{', '.join(summary.get('planned_scenarios') or []) or 'none'}`",
+                      f"- Current UTC bucket: `{summary.get('current_time_bucket') or 'unknown'}`",
+                      f"- Next provider call at: `{summary.get('next_provider_call_at') or 'now, subject to approval'}`",
+                  ]
+              )
+              readiness = summary.get("readiness") or {}
+              lines.extend(
+                  [
+                      f"- Readiness samples: `{readiness.get('sample_count', 0)}/{readiness.get('sample_target', 0)}`",
+                      f"- Readiness scenarios: `{readiness.get('scenario_count', 0)}/{readiness.get('scenario_target', 0)}`",
+                      f"- Readiness time buckets: `{readiness.get('time_bucket_count', 0)}/{readiness.get('time_bucket_target', 0)}`",
+                      f"- SLO readiness: `{'ready' if readiness.get('ready') else 'not ready'}`",
                   ]
               )
           if history_path.is_file():

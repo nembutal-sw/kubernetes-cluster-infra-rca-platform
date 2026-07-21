@@ -14,6 +14,9 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert 'default: true\n        type: boolean' in content
     assert "confirm_live_calls" in content
     assert "change_reference" in content
+    assert "initialize_history" in content
+    assert "RCA_LLM_BURN_IN_HISTORY_RUN_ID" in content
+    assert "A canonical history run is required" in content
     assert "change_reference_pattern" in content
     assert "provider_call_budget must be 0 or 1" in content
     assert "RCA_SMOKE_PASSWORD secret is required" in content
@@ -29,6 +32,8 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
     assert "use_tailscale must be disabled for a self-hosted live campaign" in content
     assert "inputs.runner == 'github-hosted' && inputs.use_tailscale" in content
     assert "--require-new-time-bucket" in content
+    assert "Next provider call at" in content
+    assert "Readiness samples" in content
     assert "--planning-baseline config/llm-burn-in-planning-baseline.json" in content
     assert "scripts/llm-burn-in-planning-baseline.py" in content
 
