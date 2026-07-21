@@ -82,7 +82,7 @@ def test_summary_keeps_pending_llm_and_managed_canaries_as_visible_warnings() ->
         "gke",
         "openshift",
     ]
-    assert any("--agent-pid" in item for item in summary["next_actions"])
+    assert any("Agent Pod runtime" in item for item in summary["next_actions"])
 
 
 def test_summary_fails_when_required_cluster_report_is_missing() -> None:
@@ -129,3 +129,38 @@ def test_markdown_contains_only_compact_operational_status() -> None:
     assert "Operational Burn-in" in rendered
     assert "provider calls used: `0`" in rendered
     assert "node_name" not in rendered
+
+
+def test_agent_component_and_markdown_expose_redacted_fleet_coverage() -> None:
+    summary_module = load_module()
+    payload = agent()
+    payload["observability"] = {"agent_process_configured": True, "state_dir_configured": True}
+    payload["metrics"]["fleet"] = {
+        "target_count": 3,
+        "minimum_target_count": 3,
+        "passed_target_count": 3,
+        "variation": {
+            "rss_peak_bytes": {"minimum": 1000, "maximum": 2000, "spread": 1000},
+            "p95_cpu_percent": {"minimum": 0.1, "maximum": 0.4, "spread": 0.3},
+        },
+    }
+
+    component = summary_module.agent_component(payload)
+    rendered = summary_module.markdown(
+        {
+            "status": "warning",
+            "components": {
+                "agent_soak": component,
+                "real_cluster": {"status": "passed", "platform": "kind"},
+                "llm_burn_in": {"readiness": "pending", "provider_calls_used": 0},
+                "platform_coverage": {"real_e2e": [], "managed_canary_pending": []},
+            },
+            "failures": [],
+            "warnings": [],
+        }
+    )
+
+    assert component["fleet_target_count"] == 3
+    assert component["fleet_rss_peak_spread_mb"] == 1000 / 1024 / 1024
+    assert component["fleet_p95_cpu_spread_percent"] == 0.3
+    assert "Agent fleet: `3/3` targets passed" in rendered

@@ -51,6 +51,21 @@ def test_threshold_catalog_has_bounded_workflow_and_local_profiles() -> None:
     assert production["iterations"] * production["interval_seconds"] >= 24 * 60 * 60
 
 
+def test_legacy_threshold_profile_receives_conservative_fleet_defaults(tmp_path: Path) -> None:
+    soak = load_module()
+    payload = json.loads((ROOT / "config" / "agent-soak-thresholds.json").read_text(encoding="utf-8"))
+    for profile in payload["profiles"].values():
+        for key in soak.FLEET_PROFILE_DEFAULTS:
+            profile.pop(key)
+    path = tmp_path / "legacy-thresholds.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, profile = soak.load_configuration(path, "smoke")
+
+    assert profile["maximum_fleet_rss_peak_spread_mb"] == 128
+    assert profile["maximum_fleet_p95_cpu_spread_percent"] == 100
+
+
 def test_evidence_quality_requires_every_requested_collector_schema() -> None:
     soak = load_module()
     valid = {
@@ -205,6 +220,49 @@ def test_pod_runtime_snapshot_uses_fixed_kubectl_exec_and_validates_output(monke
     assert "shell" not in captured["kwargs"]
 
 
+def test_fleet_runtime_snapshots_collect_each_target_without_pod_refs(monkeypatch) -> None:
+    soak = load_module()
+    observed_pods = []
+
+    def fake_snapshot(agent_pod, container, context, timeout_seconds):
+        observed_pods.append((agent_pod, container, context, timeout_seconds))
+        suffix = 1 if agent_pod.endswith("agent-a") else 2
+        return (
+            {
+                "rss_bytes": 1024 * suffix,
+                "fd_count": 5,
+                "thread_count": 2,
+                "cpu_seconds": float(suffix),
+                "sampled_at_monotonic": 5.0,
+                "process_start_ticks": 1000 + suffix,
+            },
+            {"pending_files": 0, "pending_bytes": 0, "quarantine_files": 0},
+            None,
+        )
+
+    monkeypatch.setattr(soak, "pod_runtime_snapshot", fake_snapshot)
+    observations = soak.fleet_runtime_snapshots(
+        [
+            {"agent_pod": "rca-system/agent-b", "target_id": "2222222222222222"},
+            {"agent_pod": "rca-system/agent-a", "target_id": "1111111111111111"},
+        ],
+        "agent",
+        "kind-rca",
+        10,
+    )
+
+    assert [item[0] for item in sorted(observed_pods)] == [
+        "rca-system/agent-a",
+        "rca-system/agent-b",
+    ]
+    assert all(item[1:] == ("agent", "kind-rca", 10) for item in observed_pods)
+    assert [item["target_id"] for item in observations] == [
+        "1111111111111111",
+        "2222222222222222",
+    ]
+    assert all("agent_pod" not in item for item in observations)
+
+
 def test_agent_pod_discovery_rejects_ambiguous_ready_daemonset(monkeypatch) -> None:
     soak = load_module()
     items = []
@@ -254,3 +312,106 @@ def test_summary_fails_when_observed_agent_process_restarts() -> None:
     assert summary["status"] == "failed"
     assert "Agent process restarted during validation" in summary["failures"]
     assert summary["metrics"]["process"]["identity"]["stable"] is False
+
+
+def fleet_checkpoints(target_ids: list[str], *, rss_peaks: list[int] | None = None) -> list[dict]:
+    rss_peaks = rss_peaks or [1000 + index * 100 for index in range(len(target_ids))]
+    points = []
+    for iteration in range(1, 4):
+        point = checkpoint(iteration)
+        point["targets"] = []
+        point["runtime_observation_error"] = None
+        for index, target_id in enumerate(target_ids):
+            point["targets"].append(
+                {
+                    "target_id": target_id,
+                    "process": {
+                        "rss_bytes": rss_peaks[index] - 20 + iteration * 5,
+                        "fd_count": 5 + index,
+                        "thread_count": 2,
+                        "cpu_seconds": iteration * (0.01 + index * 0.01),
+                        "sampled_at_monotonic": float(iteration),
+                        "process_start_ticks": 1000 + index,
+                    },
+                    "spool": {"pending_files": 0, "pending_bytes": 0, "quarantine_files": 0},
+                    "runtime_observation_error": None,
+                }
+            )
+        points.append(point)
+    return points
+
+
+def test_ready_agent_pod_targets_are_deterministic_and_redacted() -> None:
+    soak = load_module()
+    payload = {
+        "items": [
+            {
+                "metadata": {"namespace": "rca-system", "name": name},
+                "status": {
+                    "phase": "Running",
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                    "containerStatuses": [{"name": "agent", "ready": True}],
+                },
+            }
+            for name in ("agent-b", "agent-a")
+        ]
+    }
+
+    targets = soak.ready_agent_pod_targets(payload, "agent", b"phase-19-test-salt")
+    other_run_targets = soak.ready_agent_pod_targets(payload, "agent", b"another-run-salt")
+
+    assert [item["agent_pod"] for item in targets] == ["rca-system/agent-a", "rca-system/agent-b"]
+    assert all(len(item["target_id"]) == 16 for item in targets)
+    assert all("agent" not in item["target_id"] for item in targets)
+    assert [item["target_id"] for item in targets] != [item["target_id"] for item in other_run_targets]
+
+
+def test_fleet_summary_passes_three_stable_targets_without_exposing_pod_names() -> None:
+    soak = load_module()
+    collectors, profile = soak.load_configuration(ROOT / "config" / "agent-soak-thresholds.json", "smoke")
+    target_ids = ["1111111111111111", "2222222222222222", "3333333333333333"]
+
+    summary = soak.build_fleet_summary(
+        profile_name="smoke",
+        profile=profile,
+        requested_collectors=collectors,
+        checkpoints=fleet_checkpoints(target_ids),
+        target_ids=target_ids,
+        minimum_target_count=3,
+        started_at="2026-07-21T00:00:00+00:00",
+        health_configured=True,
+        interrupted=False,
+    )
+
+    assert summary["status"] == "passed"
+    assert summary["observability"]["runtime_observation_source"] == "fleet"
+    assert summary["metrics"]["fleet"]["target_count"] == 3
+    assert summary["metrics"]["fleet"]["passed_target_count"] == 3
+    assert summary["metrics"]["fleet"]["variation"]["rss_peak_bytes"]["spread"] == 200
+    assert summary["metrics"]["process"]["identity"]["stable"] is True
+    rendered = json.dumps(summary)
+    assert "rca-system" not in rendered
+    assert "agent-a" not in rendered
+
+
+def test_fleet_summary_fails_minimum_count_and_rss_variation() -> None:
+    soak = load_module()
+    collectors, profile = soak.load_configuration(ROOT / "config" / "agent-soak-thresholds.json", "smoke")
+    profile["maximum_fleet_rss_peak_spread_mb"] = 1
+    target_ids = ["1111111111111111", "2222222222222222"]
+
+    summary = soak.build_fleet_summary(
+        profile_name="smoke",
+        profile=profile,
+        requested_collectors=collectors,
+        checkpoints=fleet_checkpoints(target_ids, rss_peaks=[1000, 3 * 1024 * 1024]),
+        target_ids=target_ids,
+        minimum_target_count=3,
+        started_at="2026-07-21T00:00:00+00:00",
+        health_configured=False,
+        interrupted=False,
+    )
+
+    assert summary["status"] == "failed"
+    assert "discovered 2 of 3 required Agent Pods" in summary["failures"]
+    assert "Agent fleet RSS peak spread exceeds threshold" in summary["failures"]

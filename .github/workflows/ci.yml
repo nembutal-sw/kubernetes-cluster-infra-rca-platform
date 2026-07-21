@@ -384,16 +384,17 @@ jobs:
       - uses: helm/kind-action@v1.14.0
         with:
           cluster_name: rca-smoke
+          config: config/kind-multi-node.yaml
       - uses: azure/setup-helm@v5
         with:
           version: v3.17.3
       - name: Run Kubernetes end-to-end smoke test
         run: bash scripts/kind-smoke.sh
-      - name: Upload Agent runtime smoke results
+      - name: Upload Agent fleet runtime smoke results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: kind-agent-runtime
+          name: kind-agent-fleet-runtime
           path: validation-results/kind-agent-runtime
           if-no-files-found: ignore
           retention-days: 14

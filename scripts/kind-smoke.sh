@@ -76,17 +76,19 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set-string secret.agentToken="${agent_token}"
 kubectl -n rca-system rollout status daemonset/rca-agent-cluster-infra-rca-agent --timeout=240s
 
+expected_agent_count="$(kubectl get nodes -o name | wc -l | tr -d '[:space:]')"
+test "${expected_agent_count}" -ge 2
 agent_count=0
 for _ in $(seq 1 60); do
   agent_count="$("${curl_command[@]}" \
     -H "Authorization: Bearer ${access_token}" \
     "http://127.0.0.1:${port}/api/clusters/${cluster_id}/agents" | jq length)"
-  if [[ "${agent_count}" -gt 0 ]]; then
+  if [[ "${agent_count}" -ge "${expected_agent_count}" ]]; then
     break
   fi
   sleep 2
 done
-test "${agent_count}" -gt 0
+test "${agent_count}" -ge "${expected_agent_count}"
 
 node_name="$("${curl_command[@]}" \
   -H "Authorization: Bearer ${access_token}" \
@@ -118,10 +120,11 @@ test "$("${curl_command[@]}" \
 python3 scripts/agent-soak-validation.py \
   --profile smoke \
   --collectors node,disk,inode,memory,process \
-  --discover-agent-pod \
+  --discover-agent-pods \
+  --minimum-agent-pods "${expected_agent_count}" \
   --require-runtime-observation \
   --health-url "http://127.0.0.1:${port}/health/ready" \
   --output-dir validation-results/kind-agent-runtime
 
 test_succeeded="true"
-echo "Kind platform, DaemonSet Agent runtime, evidence, incident, and RCA report smoke test passed."
+echo "Kind multi-node platform, DaemonSet Agent fleet runtime, evidence, incident, and RCA report smoke test passed."

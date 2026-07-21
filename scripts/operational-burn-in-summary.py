@@ -63,6 +63,14 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
     fds = process.get("fd_count") if isinstance(process.get("fd_count"), dict) else {}
     threads = process.get("thread_count") if isinstance(process.get("thread_count"), dict) else {}
     cpu = process.get("cpu_percent") if isinstance(process.get("cpu_percent"), dict) else {}
+    fleet = metrics.get("fleet") if isinstance(metrics.get("fleet"), dict) else {}
+    variation = fleet.get("variation") if isinstance(fleet.get("variation"), dict) else {}
+    rss_peak_variation = (
+        variation.get("rss_peak_bytes") if isinstance(variation.get("rss_peak_bytes"), dict) else {}
+    )
+    cpu_p95_variation = (
+        variation.get("p95_cpu_percent") if isinstance(variation.get("p95_cpu_percent"), dict) else {}
+    )
     return {
         "status": payload.get("status", "unknown"),
         "profile": payload.get("profile"),
@@ -79,6 +87,15 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
         "thread_growth": threads.get("growth"),
         "process_observed": bool((payload.get("observability") or {}).get("agent_process_configured")),
         "spool_observed": bool((payload.get("observability") or {}).get("state_dir_configured")),
+        "fleet_target_count": fleet.get("target_count", 0),
+        "fleet_minimum_target_count": fleet.get("minimum_target_count", 0),
+        "fleet_passed_target_count": fleet.get("passed_target_count", 0),
+        "fleet_rss_peak_spread_mb": (
+            (rss_peak_variation.get("spread") / 1024 / 1024)
+            if isinstance(rss_peak_variation.get("spread"), (int, float))
+            else None
+        ),
+        "fleet_p95_cpu_spread_percent": cpu_p95_variation.get("spread"),
         "failure_count": len(payload.get("failures") or []),
         "warning_count": len(payload.get("warnings") or []),
     }
@@ -197,9 +214,9 @@ def build_summary(
 
     next_actions = []
     if not agent_result["process_observed"]:
-        next_actions.append("Repeat the standard profile with --agent-pid to measure RSS, FD, and thread growth.")
+        next_actions.append("Repeat the standard profile with required Agent Pod runtime observation.")
     if not agent_result["spool_observed"]:
-        next_actions.append("Repeat the standard profile with --state-dir to measure spool and quarantine growth.")
+        next_actions.append("Repeat the standard profile with required Agent Pod spool observation.")
     if llm_result["readiness"] == "pending":
         next_actions.append("Continue the approval-gated LLM burn-in only in a new eligible time bucket.")
     if pending:
@@ -239,6 +256,11 @@ def markdown(summary: dict[str, Any]) -> str:
         f"- Real E2E platforms: `{', '.join(coverage['real_e2e']) or 'none'}`",
         f"- Managed canaries pending: `{', '.join(coverage['managed_canary_pending']) or 'none'}`",
     ]
+    if agent.get("fleet_target_count"):
+        lines.insert(
+            5,
+            f"- Agent fleet: `{agent['fleet_passed_target_count']}/{agent['fleet_target_count']}` targets passed",
+        )
     if summary["failures"]:
         lines.extend(["", "### Failures", *[f"- {item}" for item in summary["failures"]]])
     if summary["warnings"]:

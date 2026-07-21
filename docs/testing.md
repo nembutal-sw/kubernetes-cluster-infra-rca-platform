@@ -326,9 +326,20 @@ python3 scripts/agent-soak-validation.py \
 
 GitHub Actions의 수동 `Operational Burn-in` workflow는 `rca-demo` runner에서만 실행하며 provider 호출 예산을 0으로 고정합니다. `smoke`, `standard`, `extended` 순서로 확장하고 24시간 `production` profile은 승인된 Linux 운영 세션에서 실행합니다.
 
+다중 노드 fleet 검증:
+
+```bash
+python3 scripts/agent-soak-validation.py \
+  --profile smoke \
+  --discover-agent-pods \
+  --minimum-agent-pods 3 \
+  --require-runtime-observation \
+  --output-dir validation-results/operational-burn-in/agent-fleet
+```
+
 ## Kind E2E
 
-개발용 Kubernetes smoke test:
+개발용 Kubernetes smoke test는 1 control-plane과 2 worker로 구성된 Kind cluster에서 실행합니다.
 
 ```bash
 bash scripts/kind-smoke.sh

@@ -48,6 +48,29 @@ python3 scripts/agent-soak-validation.py \
 
 `kubectl exec`는 저장소에 고정된 Python 관측 코드만 실행합니다. 사용자 입력 명령, shell, spool 본문, 환경변수 값은 실행하거나 결과에 기록하지 않습니다. 실행 계정에는 대상 Pod의 `get/list`와 `pods/exec` 권한이 필요합니다.
 
+## Agent Fleet Observation
+
+다중 노드에서는 모든 Ready Agent Pod를 같은 반복 구간에서 병렬 관측합니다.
+
+```bash
+python3 scripts/agent-soak-validation.py \
+  --profile smoke \
+  --discover-agent-pods \
+  --minimum-agent-pods 3 \
+  --require-runtime-observation \
+  --output-dir validation-results/operational-burn-in/agent-fleet
+```
+
+fleet gate는 각 Pod의 개별 threshold와 다음 Pod 간 편차를 모두 검사합니다.
+
+- RSS peak spread
+- p95 CPU spread
+- file descriptor peak spread
+- thread peak spread
+- Pod별 process identity, spool, quarantine, runtime 관측 오류
+
+Pod 이름은 checkpoint와 summary에 저장하지 않습니다. 각 대상은 run마다 생성하는 무작위 salt를 적용한 HMAC-SHA-256 기반 16자리 `target_id`로 표시합니다. 따라서 한 run 안에서는 대상을 구분할 수 있지만 서로 다른 run의 대상을 연결할 수 없습니다. Ready Pod 수가 `--minimum-agent-pods`보다 적거나 하나의 Pod라도 개별 threshold를 넘으면 전체 결과가 실패합니다.
+
 ## Local Process Fallback
 
 Kubernetes 밖에서 Agent를 직접 실행한 경우에만 PID와 state directory를 지정합니다.
@@ -99,9 +122,10 @@ validation-results/operational-burn-in/
 수동 `Operational Burn-in` workflow는 `rca-demo` self-hosted runner에서 실행합니다.
 
 1. `profile=smoke`, `include_real_cluster=true`로 시작합니다. Agent Pod runtime 관측은 항상 필수입니다.
-2. Agent Pod가 하나면 자동 탐색하고, 여러 노드라면 `agent_pod=namespace/name`을 지정합니다.
-3. smoke 통과 후 `standard`, `extended` 순서로 확장합니다.
-4. 24시간 `production` profile은 Actions 시간 제한 밖의 승인된 Linux 세션에서 실행합니다.
+2. Agent Pod가 하나면 자동 탐색하고, 특정 Pod만 확인할 때는 `agent_pod=namespace/name`을 지정합니다.
+3. 다중 노드는 `fleet_mode=true`와 `minimum_agent_pods`를 지정합니다.
+4. smoke 통과 후 `standard`, `extended` 순서로 확장합니다.
+5. 24시간 `production` profile은 Actions 시간 제한 밖의 승인된 Linux 세션에서 실행합니다.
 
 Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM history artifact는 상태 계산에만 사용하고 self-hosted runner 임시 경로에서 job 종료 시 삭제합니다. Actions artifact에는 원본 반복 evidence를 포함하지 않습니다.
 
@@ -112,6 +136,7 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 - degraded 비율, p95 지연, payload가 임계값 이하
 - Agent 프로세스 재시작 없음
 - RSS, CPU, FD, thread 증가가 임계값 이하
+- fleet 모드에서 모든 target 통과와 Pod 간 자원 편차 기준 충족
 - spool과 quarantine 증가가 임계값 이하
 - 실제 클러스터 readiness 실패 없음
 

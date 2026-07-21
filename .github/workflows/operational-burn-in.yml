@@ -39,6 +39,16 @@ on:
         required: true
         default: "agent"
         type: string
+      fleet_mode:
+        description: "Observe every Ready Agent Pod and enforce fleet variation thresholds."
+        required: true
+        default: false
+        type: boolean
+      minimum_agent_pods:
+        description: "Minimum Ready Agent Pod count required in fleet mode."
+        required: true
+        default: "2"
+        type: string
       history_run_id:
         description: "Canonical LLM burn-in run ID. Defaults to RCA_LLM_BURN_IN_HISTORY_RUN_ID."
         required: false
@@ -64,6 +74,8 @@ jobs:
       BURN_IN_PLATFORM_BASE_URL: ${{ inputs.platform_base_url || vars.RCA_SMOKE_BASE_URL }}
       BURN_IN_AGENT_POD: ${{ inputs.agent_pod }}
       BURN_IN_AGENT_CONTAINER: ${{ inputs.agent_container }}
+      BURN_IN_FLEET_MODE: ${{ inputs.fleet_mode }}
+      BURN_IN_MINIMUM_AGENT_PODS: ${{ inputs.minimum_agent_pods }}
       BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id || vars.RCA_LLM_BURN_IN_HISTORY_RUN_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -85,6 +97,18 @@ jobs:
           esac
           if [ -n "${BURN_IN_HISTORY_RUN_ID}" ] && ! [[ "${BURN_IN_HISTORY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
             echo "history_run_id must be a numeric GitHub Actions run ID" >&2
+            exit 2
+          fi
+          if ! [[ "${BURN_IN_MINIMUM_AGENT_PODS}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "minimum_agent_pods must be a positive integer" >&2
+            exit 2
+          fi
+          if [ "${BURN_IN_FLEET_MODE}" = "true" ] && [ "${BURN_IN_MINIMUM_AGENT_PODS}" -lt 2 ]; then
+            echo "fleet mode requires at least two Agent Pods" >&2
+            exit 2
+          fi
+          if [ "${BURN_IN_FLEET_MODE}" = "true" ] && [ -n "${BURN_IN_AGENT_POD}" ]; then
+            echo "agent_pod cannot be combined with fleet mode" >&2
             exit 2
           fi
           python3 -m py_compile \
@@ -140,7 +164,9 @@ jobs:
           if [ -n "${BURN_IN_KUBECTL_CONTEXT}" ]; then
             args+=(--kubectl-context "${BURN_IN_KUBECTL_CONTEXT}")
           fi
-          if [ -n "${BURN_IN_AGENT_POD}" ]; then
+          if [ "${BURN_IN_FLEET_MODE}" = "true" ]; then
+            args+=(--discover-agent-pods --minimum-agent-pods "${BURN_IN_MINIMUM_AGENT_PODS}")
+          elif [ -n "${BURN_IN_AGENT_POD}" ]; then
             args+=(--agent-pod "${BURN_IN_AGENT_POD}")
           else
             args+=(--discover-agent-pod)

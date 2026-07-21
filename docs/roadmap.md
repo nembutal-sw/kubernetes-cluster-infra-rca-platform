@@ -323,9 +323,9 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 - provider 호출 예산 0인 수동 self-hosted `Operational Burn-in` workflow
 - smoke/1시간/5시간/24시간 profile과 release static gate
 
-실환경 표본 대기:
+실환경 표본 진행 상황:
 
-1. Agent Pod runtime 관측을 포함한 1시간 standard profile 통과
+1. 완료: Agent Pod runtime 관측을 포함한 1시간 standard profile
 2. 5시간 extended와 별도 24시간 production profile 표본 확보
 3. EKS, AKS, GKE, OpenShift real Agent canary 수행
 4. 승인된 새 시간 구간에서 canonical LLM readiness 표본 확장
@@ -360,6 +360,19 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 - 일시 spool 1건이 다음 표본에서 해소되는 것 확인
 
 Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 threshold 조정은 다중 노드와 추가 플랫폼 표본을 확보한 뒤 진행합니다.
+
+## Phase 19. Multi-Node Agent Fleet Baseline
+
+구현 완료:
+
+- 모든 Ready Agent Pod 병렬 runtime 관측
+- 최소 Agent Pod 수와 Pod별 개별 threshold gate
+- RSS peak, p95 CPU, FD, thread의 fleet 편차 gate
+- Pod 이름 대신 run별 salt를 적용한 HMAC-SHA-256 target ID 사용
+- 1 control-plane과 2 worker로 구성된 Kind CI
+- 단일 Pod Operational Burn-in과 호환되는 선택형 fleet mode
+
+CI 실표본을 통과한 뒤 Kind 3노드 기준값을 이 문서에 기록합니다.
 
 ## Positioning
 
