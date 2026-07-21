@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "llm-burn-in.yml"
+RUN_METADATA = ROOT / "scripts" / "llm-burn-in-run-metadata.py"
 
 
 def test_manual_workflow_has_explicit_live_call_controls() -> None:
@@ -34,12 +35,14 @@ def test_manual_workflow_has_explicit_live_call_controls() -> None:
 
 def test_workflow_reuses_only_completed_manual_burn_in_history() -> None:
     content = WORKFLOW.read_text(encoding="utf-8")
+    metadata = RUN_METADATA.read_text(encoding="utf-8")
 
     assert "history_run_id" in content
-    assert '.github/workflows/llm-burn-in.yml' in content
-    assert 'run_event}" != "workflow_dispatch"' in content
-    assert 'run_conclusion}" != "success"' in content
-    assert 'run_conclusion}" != "failure"' in content
+    assert '.github/workflows/llm-burn-in.yml' in metadata
+    assert "llm-burn-in-run-metadata.py" in content
+    assert "uses: actions/download-artifact@v8" in content
+    assert "gh run download" not in content
+    assert "gh api" not in content
     assert "llm-burn-in-revalidate.py" in content
     assert "Revalidate recoverable samples from a failed history run" in content
     assert "llm-burn-in-results" in content

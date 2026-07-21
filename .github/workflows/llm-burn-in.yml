@@ -211,33 +211,25 @@ jobs:
             fi
           fi
 
-      - name: Verify and download previous cumulative history
+      - name: Verify previous history run
         if: ${{ inputs.history_run_id != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          run_path="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.path')"
-          run_event="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.event')"
-          run_conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BURN_IN_HISTORY_RUN_ID}" --jq '.conclusion')"
+          python3 scripts/llm-burn-in-run-metadata.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${BURN_IN_HISTORY_RUN_ID}" \
+            --github-env "${GITHUB_ENV}"
 
-          if [ "${run_path}" != ".github/workflows/llm-burn-in.yml" ]; then
-            echo "history_run_id must reference the LLM Burn-in workflow." >&2
-            exit 2
-          fi
-          if [ "${run_event}" != "workflow_dispatch" ]; then
-            echo "history_run_id must reference a manual LLM Burn-in run." >&2
-            exit 2
-          fi
-          if [ "${run_conclusion}" != "success" ] && [ "${run_conclusion}" != "failure" ]; then
-            echo "history_run_id must reference a completed LLM Burn-in run." >&2
-            exit 2
-          fi
-          echo "BURN_IN_HISTORY_RUN_CONCLUSION=${run_conclusion}" >> "${GITHUB_ENV}"
-
-          gh run download "${BURN_IN_HISTORY_RUN_ID}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --name llm-burn-in-results \
-            --dir validation-results/previous-burn-in
+      - name: Download previous cumulative history
+        if: ${{ inputs.history_run_id != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: llm-burn-in-results
+          path: validation-results/previous-burn-in
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.history_run_id }}
 
       - name: Require Tailscale auth key
         if: ${{ inputs.runner == 'github-hosted' && inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY == '' }}
@@ -259,7 +251,8 @@ jobs:
             scripts/llm-burn-in-campaign.py \
             scripts/llm-burn-in-history.py \
             scripts/llm-burn-in-planning-baseline.py \
-            scripts/llm-burn-in-revalidate.py
+            scripts/llm-burn-in-revalidate.py \
+            scripts/llm-burn-in-run-metadata.py
 
       - name: Revalidate recoverable samples from a failed history run
         if: ${{ inputs.history_run_id != '' && env.BURN_IN_HISTORY_RUN_CONCLUSION == 'failure' }}
