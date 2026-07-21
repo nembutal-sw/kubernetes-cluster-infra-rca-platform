@@ -65,4 +65,5 @@ def test_ci_runs_agent_pod_runtime_observation_in_kind() -> None:
     assert "--discover-agent-pods" in script
     assert "--minimum-agent-pods" in script
     assert "--require-runtime-observation" in script
+    assert "--set mode=node-diagnostics" in script
     assert "--retain-evidence" not in script

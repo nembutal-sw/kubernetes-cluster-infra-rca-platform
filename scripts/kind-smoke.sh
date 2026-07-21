@@ -80,6 +80,7 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set image.repository=rca-agent \
   --set image.tag=smoke \
   --set image.pullPolicy=Never \
+  --set mode=node-diagnostics \
   --set backendUrl=http://rca-platform.default.svc.cluster.local:8080 \
   --set secret.create=true \
   --set-string secret.clusterId="${cluster_id}" \

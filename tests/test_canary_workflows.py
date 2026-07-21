@@ -30,6 +30,7 @@ def test_agent_fleet_burn_in_is_manual_approval_gated_and_reuses_kind_fleet() ->
     assert '--minimum-agent-pods "${agent_soak_minimum_pods}"' in kind_script
     assert "RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN" in kind_script
     assert "--platform-evidence-fleet" in kind_script
+    assert "--set mode=node-diagnostics" in kind_script
 
 
 def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -> None:

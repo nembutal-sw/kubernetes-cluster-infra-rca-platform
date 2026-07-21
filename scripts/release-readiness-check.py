@@ -316,6 +316,7 @@ def main() -> int:
                 "RCA_AGENT_SOAK_MINIMUM_PODS",
                 "--discover-agent-pods",
                 "--platform-evidence-fleet",
+                "--set mode=node-diagnostics",
                 "RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN",
             )
             and exists("agent_soak/platform_evidence.py")
