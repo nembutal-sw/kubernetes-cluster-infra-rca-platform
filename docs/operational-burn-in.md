@@ -236,3 +236,22 @@ python3 scripts/agent-soak-comparison.py \
 RSS는 전반부에 증가한 뒤 후반부에 둔화됐습니다. 누수로 단정할 신호는 아니지만 5시간 extended에서 plateau 유지 여부를 다시 확인합니다. 현재 공통 threshold는 변경하지 않습니다.
 
 동일 artifact의 180개 Pod runtime snapshot을 steady-state 로직으로 오프라인 재평가했습니다. 앞 30개 표본을 제외한 후 Pod별 RSS 기울기는 `0.640`, `0.646`, `0.942 MiB/hour`, 범위는 `1.648~1.652 MiB`, 최대 연속 증가는 1회였고 3/3 target이 standard 기준을 통과했습니다. 이 값은 알고리즘 검증용 기준선이며 extended 결과 없이 공통 threshold를 낮추는 근거로 사용하지 않습니다.
+
+## Last Verified Fleet Extended
+
+2026-07-22 KST workflow run `29821832228`에서 3노드 Kind DaemonSet Agent의 5시간 `extended` profile을 통과했습니다. Environment 승인부터 cluster 정리까지 전체 소요 시간은 5시간 3분 20초였습니다.
+
+- checkpoint 300/300, Pod runtime snapshot 900/900, Agent target 3/3 통과
+- 수집 성공률, evidence quality, health probe 100%, degraded collector 0%
+- 수집 p50 0.107초, p95 0.114초, 최대 0.152초
+- 최대 payload 20,674 bytes
+- Pod별 RSS peak 60.21~60.39 MiB, fleet spread 0.18 MiB
+- Pod별 전체 RSS peak 증가 26.88~27.71 MiB
+- 앞 150개 표본 제외 후 RSS 기울기 `-0.238~-0.231 MiB/hour`, 범위 `2.512~2.516 MiB`
+- 마지막 10개와 30개 표본의 RSS 범위와 기울기는 세 Pod 모두 0
+- Pod별 p95 CPU 0.1831~0.1834%, fleet spread 0.00024%p
+- FD 증가 1, thread 증가 0, process identity 모두 안정
+- runtime/collection 오류 0, spool 파일/bytes 0, quarantine 0
+- checkpoint, summary, comparison report의 인프라 식별정보 노출 0건
+
+동일 계산식으로 재평가한 standard와 비교하면 p95 수집 시간은 0.122초에서 0.114초, RSS peak spread는 0.42 MiB에서 0.18 MiB로 줄었습니다. 최악 steady-state RSS 기울기도 `+0.942 MiB/hour`에서 `-0.231 MiB/hour`로 안정화됐습니다. 다만 동일 Kind 환경의 단일 extended 표본이므로 공통 threshold는 유지하고, 24시간 production과 managed Kubernetes canary를 다음 검증 근거로 사용합니다.

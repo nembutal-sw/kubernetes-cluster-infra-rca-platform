@@ -413,11 +413,15 @@ Standard 결과는 Agent 3/3, checkpoint 60/60, runtime snapshot 180/180 통과�
 실행 순서:
 
 1. 완료: 기존 1시간 standard artifact를 새 로직으로 오프라인 재평가
-2. 대기: 3노드 Kind, 300회, 약 5시간 extended workflow 실행
-3. extended artifact의 900개 runtime snapshot, RSS plateau, CPU/FD/thread, spool을 검토
-4. standard와 extended 결과를 비교하고 24시간 production 진입 여부 결정
+2. 완료: 3노드 Kind, 300회, 약 5시간 extended workflow 실행
+3. 완료: extended artifact의 900개 runtime snapshot, RSS plateau, CPU/FD/thread, spool 검토
+4. 완료: standard와 extended 결과 비교 및 24시간 production 진입 조건 확인
 
-Standard 재평가 결과는 3/3 통과, 후반 30분 Pod별 RSS 기울기 `0.640~0.942 MiB/hour`, 범위 `1.648~1.652 MiB`, 최대 연속 증가 1회입니다. Extended 표본을 확보하기 전에는 현재 threshold를 변경하지 않습니다.
+Standard 재평가 결과는 3/3 통과, 후반 30분 Pod별 RSS 기울기 `0.640~0.942 MiB/hour`, 범위 `1.648~1.652 MiB`, 최대 연속 증가 1회입니다.
+
+Extended workflow run `29821832228`은 300/300 checkpoint, 900/900 runtime snapshot, target 3/3을 통과했습니다. 수집·evidence·health는 모두 100%, runtime/spool/quarantine 오류는 0건입니다. 후반 150분 RSS 기울기는 `-0.238~-0.231 MiB/hour`, 범위는 `2.512~2.516 MiB`였고 마지막 30개 표본은 세 Pod 모두 변화가 없었습니다. Standard 대비 수집 p95와 Fleet RSS 편차도 감소했습니다. 동일 Kind 환경의 단일 표본이므로 threshold는 유지합니다.
+
+다음 단계는 EKS, AKS, GKE, OpenShift managed canary를 플랫폼별 preflight부터 순차 실행하고, 별도의 승인된 Linux 세션에서 24시간 production profile을 확보하는 것입니다.
 
 ## Positioning
 
