@@ -190,3 +190,21 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 - artifact에 Pod 이름, namespace, `agent_pod` 필드 없음
 
 이 결과는 CI의 3노드 Kind smoke 기준선입니다. 다중 노드 standard/extended 및 managed Kubernetes 표본을 확보하기 전에는 공통 threshold를 낮추지 않습니다.
+
+## Last Verified Fleet Standard
+
+2026-07-21 workflow run `29816133829`에서 3노드 Kind DaemonSet Agent의 1시간 `standard` profile을 통과했습니다. Environment 승인부터 cluster 정리까지 전체 소요 시간은 1시간 3분 23초였습니다.
+
+- checkpoint 60/60, Pod runtime snapshot 180/180, Agent target 3/3 통과
+- 수집 성공률과 evidence quality 100%, degraded collector 0%, health probe 100%
+- 수집 p50 0.108초, p95 0.122초, 최대 0.153초
+- 최대 payload 20,662 bytes
+- Pod별 RSS peak 54.40~54.82 MiB, fleet spread 0.42 MiB
+- Pod별 RSS 증가 21.32~22.17 MiB, 마지막 10회 변동 폭 0.80~0.81 MiB
+- Pod별 p95 CPU 0.1834~0.1850%, fleet spread 0.0016%p
+- FD peak spread 1, FD 증가 0~1, thread peak spread와 thread 증가 0
+- process identity 모두 안정, runtime/collection 오류 0
+- spool 파일과 bytes 0, quarantine 0
+- checkpoint와 summary의 Pod 이름, namespace, `agent_pod` 노출 0건
+
+RSS는 전반부에 증가한 뒤 후반부에 둔화됐습니다. 누수로 단정할 신호는 아니지만 5시간 extended에서 plateau 유지 여부를 다시 확인합니다. 현재 공통 threshold는 변경하지 않습니다.

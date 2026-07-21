@@ -392,10 +392,12 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 
 실표본 순서:
 
-1. 3노드 Kind standard 1시간 campaign
-2. standard 검토 후 extended 5시간 campaign
+1. 완료: 3노드 Kind standard 1시간 campaign, workflow run `29816133829`
+2. 대기: standard 검토 후 extended 5시간 campaign
 3. EKS, AKS, GKE, OpenShift 순으로 preflight와 applied canary
 4. 플랫폼별 승인 PR로 compatibility matrix profile 추가
+
+Standard 결과는 Agent 3/3, checkpoint 60/60, runtime snapshot 180/180 통과였습니다. 수집 p95는 0.122초, 최대 payload는 20,662 bytes, RSS peak spread는 0.42 MiB, CPU spread는 0.0016%p였고 runtime/spool/quarantine 오류는 없었습니다. Pod별 RSS는 21.32~22.17 MiB 증가했지만 마지막 10회 변동 폭은 0.80~0.81 MiB로 둔화됐으므로 extended에서 장기 plateau를 확인합니다.
 
 ## Positioning
 
