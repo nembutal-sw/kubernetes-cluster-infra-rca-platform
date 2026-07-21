@@ -266,6 +266,8 @@ def main() -> int:
         check(
             "agent-fleet-long-burn-in",
             exists(".github/workflows/agent-fleet-burn-in.yml")
+            and exists("scripts/agent-soak-revalidate.py")
+            and exists("scripts/agent-soak-comparison.py")
             and contains(
                 ".github/workflows/agent-fleet-burn-in.yml",
                 "workflow_dispatch:",
@@ -284,6 +286,16 @@ def main() -> int:
                 "RCA_AGENT_SOAK_PROFILE",
                 "RCA_AGENT_SOAK_MINIMUM_PODS",
                 "--discover-agent-pods",
+            )
+            and contains(
+                "scripts/agent-soak-revalidate.py",
+                "forbidden infrastructure identifier",
+                "build_fleet_summary",
+            )
+            and contains(
+                "scripts/agent-soak-comparison.py",
+                "agent-soak-comparison/v1",
+                "candidate_minus_baseline",
             ),
             "Approval-gated standard and extended campaigns reuse the three-node Agent Fleet gate.",
         ),

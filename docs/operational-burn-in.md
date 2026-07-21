@@ -160,6 +160,20 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 
 결과 artifact 이름은 `agent-fleet-<profile>-<run_id>`입니다. 원본 Pod 이름은 저장하지 않고 run별 salt가 적용된 target ID만 기록합니다. 일반 CI의 smoke 실패, standard 실패, extended 실패는 서로 별개로 숨기지 않고 해당 profile artifact에서 확인합니다.
 
+과거 artifact를 현재 임계값과 계산식으로 다시 판정한 뒤 두 profile을 비교하려면 다음 명령을 사용합니다. 재검증기는 checkpoint에 node, namespace, Pod 식별 필드가 있으면 입력을 거부합니다. 비교 결과에는 target ID를 포함하지 않습니다.
+
+```bash
+python3 scripts/agent-soak-revalidate.py \
+  --summary validation-results/standard/agent-soak-summary.json \
+  --checkpoints validation-results/standard/agent-soak-checkpoints.jsonl \
+  --output validation-results/standard/agent-soak-summary-revalidated.json
+
+python3 scripts/agent-soak-comparison.py \
+  --baseline validation-results/standard/agent-soak-summary-revalidated.json \
+  --candidate validation-results/extended/agent-soak-summary.json \
+  --output validation-results/agent-soak-comparison.json
+```
+
 ## Acceptance
 
 - 요청한 collector가 모든 반복에서 `collector-evidence/v1` schema를 반환
