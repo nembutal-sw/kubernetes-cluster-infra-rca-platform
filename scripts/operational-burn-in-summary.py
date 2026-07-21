@@ -60,6 +60,7 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
     duration = metrics.get("collection_duration_seconds") if isinstance(metrics.get("collection_duration_seconds"), dict) else {}
     process = metrics.get("process") if isinstance(metrics.get("process"), dict) else {}
     rss = process.get("rss_bytes") if isinstance(process.get("rss_bytes"), dict) else {}
+    rss_steady = rss.get("steady_state") if isinstance(rss.get("steady_state"), dict) else {}
     fds = process.get("fd_count") if isinstance(process.get("fd_count"), dict) else {}
     threads = process.get("thread_count") if isinstance(process.get("thread_count"), dict) else {}
     cpu = process.get("cpu_percent") if isinstance(process.get("cpu_percent"), dict) else {}
@@ -71,6 +72,14 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
     cpu_p95_variation = (
         variation.get("p95_cpu_percent") if isinstance(variation.get("p95_cpu_percent"), dict) else {}
     )
+    fleet_steady = (
+        fleet.get("worst_rss_steady_state")
+        if isinstance(fleet.get("worst_rss_steady_state"), dict)
+        else {}
+    )
+    steady_slope = fleet_steady.get("maximum_slope_bytes_per_hour", rss_steady.get("slope_bytes_per_hour"))
+    steady_range = fleet_steady.get("maximum_range_bytes", rss_steady.get("range"))
+    steady_samples = fleet_steady.get("minimum_sample_count", rss_steady.get("sample_count"))
     return {
         "status": payload.get("status", "unknown"),
         "profile": payload.get("profile"),
@@ -82,6 +91,17 @@ def agent_component(payload: dict[str, Any]) -> dict[str, Any]:
         "p95_collection_seconds": duration.get("p95"),
         "maximum_payload_bytes": metrics.get("maximum_payload_bytes"),
         "rss_growth_mb": (rss.get("growth") / 1024 / 1024) if isinstance(rss.get("growth"), (int, float)) else None,
+        "rss_steady_state_slope_mb_per_hour": (
+            (steady_slope / 1024 / 1024)
+            if isinstance(steady_slope, (int, float))
+            else None
+        ),
+        "rss_steady_state_range_mb": (
+            (steady_range / 1024 / 1024)
+            if isinstance(steady_range, (int, float))
+            else None
+        ),
+        "rss_steady_state_samples": steady_samples,
         "p95_cpu_percent": cpu.get("p95"),
         "fd_growth": fds.get("growth"),
         "thread_growth": threads.get("growth"),
@@ -251,6 +271,11 @@ def markdown(summary: dict[str, Any]) -> str:
         f"- Agent soak: `{agent['status']}` ({agent['iterations_completed']}/{agent['iterations_target']} iterations)",
         f"- Evidence quality: `{agent.get('evidence_quality_rate')}`",
         f"- Agent p95 CPU: `{agent.get('p95_cpu_percent') if agent.get('p95_cpu_percent') is not None else 'not measured'}`",
+        (
+            f"- Agent steady RSS slope: `{agent['rss_steady_state_slope_mb_per_hour']:.3f} MiB/hour`"
+            if agent.get("rss_steady_state_slope_mb_per_hour") is not None
+            else "- Agent steady RSS slope: `not measured`"
+        ),
         f"- Real cluster: `{cluster['status']}` ({cluster.get('platform') or 'not included'})",
         f"- LLM readiness: `{llm['readiness']}`; provider calls used: `{llm['provider_calls_used']}`",
         f"- Real E2E platforms: `{', '.join(coverage['real_e2e']) or 'none'}`",

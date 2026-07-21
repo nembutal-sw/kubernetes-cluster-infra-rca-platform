@@ -399,6 +399,26 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 
 Standard 결과는 Agent 3/3, checkpoint 60/60, runtime snapshot 180/180 통과였습니다. 수집 p95는 0.122초, 최대 payload는 20,662 bytes, RSS peak spread는 0.42 MiB, CPU spread는 0.0016%p였고 runtime/spool/quarantine 오류는 없었습니다. Pod별 RSS는 21.32~22.17 MiB 증가했지만 마지막 10회 변동 폭은 0.80~0.81 MiB로 둔화됐으므로 extended에서 장기 plateau를 확인합니다.
 
+## Phase 21. Extended Fleet Steady-State Validation
+
+구현 완료:
+
+- RSS 전체 증가량과 warm-up 제외 steady-state를 분리
+- steady-state 시간당 선형 기울기, 범위, 연속 증가, 최근 10/30 표본 진단값 추가
+- `smoke`는 관측 전용, `standard/extended/production`은 profile별 실패 gate 적용
+- Fleet target별 판정과 비식별 최악값/편차 집계
+- Actions Job Summary와 Operational Burn-in 요약에 최악 steady-state 수치 노출
+- legacy threshold catalog에는 비활성화된 보수적 기본값을 적용해 하위 호환 유지
+
+실행 순서:
+
+1. 완료: 기존 1시간 standard artifact를 새 로직으로 오프라인 재평가
+2. 대기: 3노드 Kind, 300회, 약 5시간 extended workflow 실행
+3. extended artifact의 900개 runtime snapshot, RSS plateau, CPU/FD/thread, spool을 검토
+4. standard와 extended 결과를 비교하고 24시간 production 진입 여부 결정
+
+Standard 재평가 결과는 3/3 통과, 후반 30분 Pod별 RSS 기울기 `0.640~0.942 MiB/hour`, 범위 `1.648~1.652 MiB`, 최대 연속 증가 1회입니다. Extended 표본을 확보하기 전에는 현재 threshold를 변경하지 않습니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

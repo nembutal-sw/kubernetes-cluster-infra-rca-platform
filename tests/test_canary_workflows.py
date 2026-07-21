@@ -21,6 +21,8 @@ def test_agent_fleet_burn_in_is_manual_approval_gated_and_reuses_kind_fleet() ->
     assert "RCA_AGENT_SOAK_MINIMUM_PODS: \"3\"" in workflow
     assert "persist-credentials: false" in workflow
     assert "retention-days:" in workflow
+    assert "Worst steady RSS slope" in workflow
+    assert "Worst steady RSS range" in workflow
 
     assert 'agent_soak_profile="${RCA_AGENT_SOAK_PROFILE:-smoke}"' in kind_script
     assert '--profile "${agent_soak_profile}"' in kind_script

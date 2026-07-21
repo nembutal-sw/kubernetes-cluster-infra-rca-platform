@@ -102,6 +102,15 @@ jobs:
           variation = fleet.get("variation", {})
           rss_spread = variation.get("rss_peak_bytes", {}).get("spread")
           rss_mib = rss_spread / 1024 / 1024 if isinstance(rss_spread, (int, float)) else None
+          steady = fleet.get("worst_rss_steady_state", {})
+          steady_slope = steady.get("maximum_slope_bytes_per_hour")
+          steady_slope_mib = (
+              steady_slope / 1024 / 1024 if isinstance(steady_slope, (int, float)) else None
+          )
+          steady_range = steady.get("maximum_range_bytes")
+          steady_range_mib = (
+              steady_range / 1024 / 1024 if isinstance(steady_range, (int, float)) else None
+          )
           lines = [
               "## Agent Fleet Burn-in",
               "",
@@ -110,6 +119,14 @@ jobs:
               f"- Targets passed: `{fleet.get('passed_target_count', 0)}/{fleet.get('target_count', 0)}`",
               f"- Iterations: `{payload.get('metrics', {}).get('iterations_completed', 0)}`",
               f"- RSS peak spread: `{rss_mib:.2f} MiB`" if rss_mib is not None else "- RSS peak spread: `unavailable`",
+              (
+                  f"- Worst steady RSS slope: `{steady_slope_mib:.3f} MiB/hour`"
+                  if steady_slope_mib is not None else "- Worst steady RSS slope: `unavailable`"
+              ),
+              (
+                  f"- Worst steady RSS range: `{steady_range_mib:.2f} MiB`"
+                  if steady_range_mib is not None else "- Worst steady RSS range: `unavailable`"
+              ),
               f"- Runtime errors: `{payload.get('metrics', {}).get('runtime_observation_errors', 0)}`",
               f"- Failures: `{len(payload.get('failures') or [])}`",
           ]

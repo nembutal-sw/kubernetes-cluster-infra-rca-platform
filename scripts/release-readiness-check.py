@@ -240,6 +240,9 @@ def main() -> int:
                 "agent-soak-validation/v1",
                 "minimum_evidence_quality_rate",
                 "maximum_rss_growth_mb",
+                "rss_steady_state_metrics",
+                "enforce_rss_steady_state",
+                "maximum_rss_steady_state_slope_mb_per_hour",
                 "maximum_p95_cpu_percent",
                 "maximum_spool_files",
                 "collector-evidence/v1",
@@ -274,6 +277,7 @@ def main() -> int:
                 "config/kind-multi-node.yaml",
                 "RCA_AGENT_SOAK_MINIMUM_PODS",
                 "persist-credentials: false",
+                "Worst steady RSS slope",
             )
             and contains(
                 "scripts/kind-smoke.sh",

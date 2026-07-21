@@ -143,6 +143,19 @@ def test_agent_component_and_markdown_expose_redacted_fleet_coverage() -> None:
             "rss_peak_bytes": {"minimum": 1000, "maximum": 2000, "spread": 1000},
             "p95_cpu_percent": {"minimum": 0.1, "maximum": 0.4, "spread": 0.3},
         },
+        "worst_rss_steady_state": {
+            "maximum_slope_bytes_per_hour": 0.75 * 1024 * 1024,
+            "maximum_range_bytes": 3 * 1024 * 1024,
+            "minimum_sample_count": 30,
+        },
+    }
+    payload["metrics"]["process"]["rss_bytes"] = {
+        "growth": 4 * 1024 * 1024,
+        "steady_state": {
+            "sample_count": 30,
+            "range": 2 * 1024 * 1024,
+            "slope_bytes_per_hour": 0.5 * 1024 * 1024,
+        },
     }
 
     component = summary_module.agent_component(payload)
@@ -163,4 +176,7 @@ def test_agent_component_and_markdown_expose_redacted_fleet_coverage() -> None:
     assert component["fleet_target_count"] == 3
     assert component["fleet_rss_peak_spread_mb"] == 1000 / 1024 / 1024
     assert component["fleet_p95_cpu_spread_percent"] == 0.3
+    assert component["rss_steady_state_slope_mb_per_hour"] == 0.75
+    assert component["rss_steady_state_range_mb"] == 3
     assert "Agent fleet: `3/3` targets passed" in rendered
+    assert "Agent steady RSS slope: `0.750 MiB/hour`" in rendered

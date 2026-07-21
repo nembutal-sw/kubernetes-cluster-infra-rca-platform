@@ -125,6 +125,14 @@ FLEET_PROFILE_DEFAULTS = {
     "maximum_fleet_fd_spread": 64,
     "maximum_fleet_thread_spread": 64,
 }
+STEADY_STATE_PROFILE_DEFAULTS = {
+    "enforce_rss_steady_state": False,
+    "rss_steady_state_warmup_fraction": 0.5,
+    "minimum_rss_steady_state_samples": 3,
+    "maximum_rss_steady_state_slope_mb_per_hour": 1024,
+    "maximum_rss_steady_state_range_mb": 1024,
+    "maximum_rss_consecutive_growth_samples": 1000000,
+}
 
 
 def utc_now() -> str:
@@ -203,19 +211,24 @@ def load_configuration(path: Path, profile_name: str) -> tuple[list[str], dict[s
     if missing:
         raise ValueError("threshold profile is missing keys: " + ", ".join(missing))
     normalized_profile = dict(profile)
-    for key, value in FLEET_PROFILE_DEFAULTS.items():
+    for key, value in {**FLEET_PROFILE_DEFAULTS, **STEADY_STATE_PROFILE_DEFAULTS}.items():
         normalized_profile.setdefault(key, value)
     validate_profile(normalized_profile)
     return list(dict.fromkeys(collectors)), normalized_profile
 
 
 def validate_profile(profile: dict[str, Any]) -> None:
+    if not isinstance(profile["enforce_rss_steady_state"], bool):
+        raise ValueError("RSS steady-state enforcement flag must be boolean")
+    if not isinstance(profile["minimum_rss_steady_state_samples"], int):
+        raise ValueError("minimum RSS steady-state samples must be an integer")
     positive = (
         "iterations",
         "command_timeout_seconds",
         "maximum_p95_collection_seconds",
         "maximum_payload_bytes",
         "maximum_p95_cpu_percent",
+        "minimum_rss_steady_state_samples",
     )
     non_negative = (
         "interval_seconds",
@@ -229,6 +242,9 @@ def validate_profile(profile: dict[str, Any]) -> None:
         "maximum_fleet_p95_cpu_spread_percent",
         "maximum_fleet_fd_spread",
         "maximum_fleet_thread_spread",
+        "maximum_rss_steady_state_slope_mb_per_hour",
+        "maximum_rss_steady_state_range_mb",
+        "maximum_rss_consecutive_growth_samples",
     )
     rates = (
         "minimum_success_rate",
@@ -242,6 +258,9 @@ def validate_profile(profile: dict[str, Any]) -> None:
         raise ValueError("non-negative threshold values cannot be below zero")
     if any(not isinstance(profile[key], (int, float)) or not 0 <= profile[key] <= 1 for key in rates):
         raise ValueError("rate thresholds must be between zero and one")
+    warmup_fraction = profile["rss_steady_state_warmup_fraction"]
+    if not isinstance(warmup_fraction, (int, float)) or not 0 <= warmup_fraction < 1:
+        raise ValueError("RSS steady-state warm-up fraction must be between zero and one")
 
 
 def parse_collectors(value: str, defaults: list[str]) -> list[str]:
@@ -659,6 +678,96 @@ def resource_trend(checkpoints: list[dict[str, Any]], key: str) -> dict[str, Any
     }
 
 
+def linear_slope_per_hour(samples: list[tuple[float, float]]) -> float | None:
+    if len(samples) < 2:
+        return None
+    origin = samples[0][0]
+    hours = [(timestamp - origin) / 3600 for timestamp, _ in samples]
+    if any(current <= previous for previous, current in zip(hours, hours[1:])):
+        return None
+    mean_hour = sum(hours) / len(hours)
+    mean_value = sum(value for _, value in samples) / len(samples)
+    denominator = sum((hour - mean_hour) ** 2 for hour in hours)
+    if denominator <= 0:
+        return None
+    return sum(
+        (hour - mean_hour) * (value - mean_value)
+        for hour, (_, value) in zip(hours, samples)
+    ) / denominator
+
+
+def consecutive_increase_count(values: list[float]) -> int:
+    longest = 0
+    current = 0
+    for previous, value in zip(values, values[1:]):
+        if value > previous:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+def rss_window_metrics(samples: list[tuple[float, float]]) -> dict[str, Any] | None:
+    if not samples:
+        return None
+    values = [value for _, value in samples]
+    return {
+        "sample_count": len(samples),
+        "initial": values[0],
+        "final": values[-1],
+        "minimum": min(values),
+        "maximum": max(values),
+        "range": max(values) - min(values),
+        "final_delta": values[-1] - values[0],
+        "slope_bytes_per_hour": linear_slope_per_hour(samples),
+        "maximum_consecutive_increases": consecutive_increase_count(values),
+    }
+
+
+def rss_steady_state_metrics(
+    checkpoints: list[dict[str, Any]],
+    *,
+    warmup_fraction: float,
+    minimum_samples: int,
+    interval_seconds: float,
+) -> dict[str, Any] | None:
+    raw_samples = []
+    for index, item in enumerate(checkpoints):
+        process = item.get("process")
+        if not isinstance(process, dict) or "rss_bytes" not in process:
+            continue
+        sampled_at = process.get("sampled_at_monotonic")
+        fallback_time = index * interval_seconds
+        timestamp = float(sampled_at) if isinstance(sampled_at, (int, float)) else fallback_time
+        raw_samples.append((timestamp, float(process["rss_bytes"])))
+    if not raw_samples:
+        return None
+    if any(current[0] <= previous[0] for previous, current in zip(raw_samples, raw_samples[1:])):
+        raw_samples = [(index * max(interval_seconds, 1.0), value) for index, (_, value) in enumerate(raw_samples)]
+    warmup_samples = min(
+        math.floor(len(raw_samples) * warmup_fraction),
+        max(0, len(raw_samples) - minimum_samples),
+    )
+    steady_samples = raw_samples[warmup_samples:]
+    result = rss_window_metrics(steady_samples)
+    if result is None:
+        return None
+    result.update(
+        {
+            "warmup_fraction": warmup_fraction,
+            "warmup_samples_excluded": warmup_samples,
+            "minimum_samples_required": minimum_samples,
+            "sufficient_samples": len(steady_samples) >= minimum_samples,
+            "recent_windows": {
+                "last_10": rss_window_metrics(raw_samples[-10:]),
+                "last_30": rss_window_metrics(raw_samples[-30:]),
+            },
+        }
+    )
+    return result
+
+
 def cpu_usage_metrics(checkpoints: list[dict[str, Any]]) -> dict[str, Any] | None:
     samples = []
     for item in checkpoints:
@@ -708,6 +817,14 @@ def build_summary(
     health_values = [item["health_probe_ok"] for item in checkpoints if item.get("health_probe_ok") is not None]
     spool_values = [item["spool"] for item in checkpoints if isinstance(item.get("spool"), dict)]
     rss = resource_trend(checkpoints, "rss_bytes")
+    rss_steady_state = rss_steady_state_metrics(
+        checkpoints,
+        warmup_fraction=float(profile["rss_steady_state_warmup_fraction"]),
+        minimum_samples=int(profile["minimum_rss_steady_state_samples"]),
+        interval_seconds=float(profile["interval_seconds"]),
+    )
+    if rss is not None:
+        rss["steady_state"] = rss_steady_state
     fds = resource_trend(checkpoints, "fd_count")
     threads = resource_trend(checkpoints, "thread_count")
     cpu = cpu_usage_metrics(checkpoints)
@@ -790,6 +907,21 @@ def build_summary(
                 failures.append("Agent process restarted during validation")
             if rss["growth"] > float(profile["maximum_rss_growth_mb"]) * 1024 * 1024:
                 failures.append("Agent RSS growth exceeds threshold")
+            if profile["enforce_rss_steady_state"]:
+                if rss_steady_state is None or not rss_steady_state["sufficient_samples"]:
+                    failures.append("Agent RSS steady-state sample count is below threshold")
+                else:
+                    steady_slope = rss_steady_state["slope_bytes_per_hour"]
+                    if steady_slope is None:
+                        failures.append("Agent RSS steady-state slope could not be calculated")
+                    elif steady_slope > float(profile["maximum_rss_steady_state_slope_mb_per_hour"]) * 1024 * 1024:
+                        failures.append("Agent RSS steady-state slope exceeds threshold")
+                    if rss_steady_state["range"] > float(profile["maximum_rss_steady_state_range_mb"]) * 1024 * 1024:
+                        failures.append("Agent RSS steady-state range exceeds threshold")
+                    if rss_steady_state["maximum_consecutive_increases"] > int(
+                        profile["maximum_rss_consecutive_growth_samples"]
+                    ):
+                        failures.append("Agent RSS consecutive growth exceeds threshold")
             if cpu["p95"] > float(profile["maximum_p95_cpu_percent"]):
                 failures.append("Agent p95 CPU usage exceeds threshold")
             if fds["growth"] > int(profile["maximum_fd_growth"]):
@@ -926,6 +1058,17 @@ def build_fleet_summary(
                 "status": target_status,
                 "rss_peak_bytes": (process.get("rss_bytes") or {}).get("maximum"),
                 "rss_growth_bytes": (process.get("rss_bytes") or {}).get("growth"),
+                "rss_steady_state_slope_bytes_per_hour": (
+                    ((process.get("rss_bytes") or {}).get("steady_state") or {}).get("slope_bytes_per_hour")
+                ),
+                "rss_steady_state_range_bytes": (
+                    ((process.get("rss_bytes") or {}).get("steady_state") or {}).get("range")
+                ),
+                "rss_maximum_consecutive_increases": (
+                    ((process.get("rss_bytes") or {}).get("steady_state") or {}).get(
+                        "maximum_consecutive_increases"
+                    )
+                ),
                 "p95_cpu_percent": (process.get("cpu_percent") or {}).get("p95"),
                 "fd_peak": (process.get("fd_count") or {}).get("maximum"),
                 "fd_growth": (process.get("fd_count") or {}).get("growth"),
@@ -946,6 +1089,11 @@ def build_fleet_summary(
     fd_trends = [item.get("fd_count") for item in process_metrics if isinstance(item.get("fd_count"), dict)]
     thread_trends = [item.get("thread_count") for item in process_metrics if isinstance(item.get("thread_count"), dict)]
     cpu_metrics = [item.get("cpu_percent") for item in process_metrics if isinstance(item.get("cpu_percent"), dict)]
+    steady_rss_metrics = [
+        item["steady_state"]
+        for item in rss_trends
+        if isinstance(item.get("steady_state"), dict)
+    ]
     worst_rss = max(rss_trends, key=lambda item: item.get("growth", -1), default=None)
     worst_fd = max(fd_trends, key=lambda item: item.get("growth", -1), default=None)
     worst_thread = max(thread_trends, key=lambda item: item.get("growth", -1), default=None)
@@ -954,11 +1102,23 @@ def build_fleet_summary(
         bool((item.get("identity") or {}).get("stable")) for item in process_metrics
     )
     rss_peak_values = [item["rss_peak_bytes"] for item in fleet_targets if item["rss_peak_bytes"] is not None]
+    rss_steady_slope_values = [
+        item["rss_steady_state_slope_bytes_per_hour"]
+        for item in fleet_targets
+        if item["rss_steady_state_slope_bytes_per_hour"] is not None
+    ]
+    rss_steady_range_values = [
+        item["rss_steady_state_range_bytes"]
+        for item in fleet_targets
+        if item["rss_steady_state_range_bytes"] is not None
+    ]
     cpu_p95_values = [item["p95_cpu_percent"] for item in fleet_targets if item["p95_cpu_percent"] is not None]
     fd_peak_values = [item["fd_peak"] for item in fleet_targets if item["fd_peak"] is not None]
     thread_peak_values = [item["thread_peak"] for item in fleet_targets if item["thread_peak"] is not None]
     variation = {
         "rss_peak_bytes": numeric_spread(rss_peak_values),
+        "rss_steady_state_slope_bytes_per_hour": numeric_spread(rss_steady_slope_values),
+        "rss_steady_state_range_bytes": numeric_spread(rss_steady_range_values),
         "p95_cpu_percent": numeric_spread(cpu_p95_values),
         "fd_peak": numeric_spread(fd_peak_values),
         "thread_peak": numeric_spread(thread_peak_values),
@@ -1031,6 +1191,32 @@ def build_fleet_summary(
         "passed_target_count": sum(item["status"] == "passed" for item in fleet_targets),
         "targets": fleet_targets,
         "variation": variation,
+        "worst_rss_steady_state": {
+            "maximum_slope_bytes_per_hour": max(
+                (
+                    item["slope_bytes_per_hour"]
+                    for item in steady_rss_metrics
+                    if isinstance(item.get("slope_bytes_per_hour"), (int, float))
+                ),
+                default=None,
+            ),
+            "maximum_range_bytes": max(
+                (item["range"] for item in steady_rss_metrics if isinstance(item.get("range"), (int, float))),
+                default=None,
+            ),
+            "maximum_consecutive_increases": max(
+                (
+                    item["maximum_consecutive_increases"]
+                    for item in steady_rss_metrics
+                    if isinstance(item.get("maximum_consecutive_increases"), int)
+                ),
+                default=None,
+            ),
+            "minimum_sample_count": min(
+                (item["sample_count"] for item in steady_rss_metrics if isinstance(item.get("sample_count"), int)),
+                default=None,
+            ),
+        },
     }
     return summary
 

@@ -13,6 +13,18 @@
 
 임계값은 [agent-soak-thresholds.json](../config/agent-soak-thresholds.json)에서 관리합니다. 운영 기준 변경은 CLI override보다 config 변경과 코드 리뷰를 사용합니다.
 
+### RSS steady-state 판정
+
+전체 RSS 증가량만으로는 Python 런타임과 collector 캐시의 정상 워밍업을 누수와 구분하기 어렵습니다. 검증기는 모든 profile에서 다음 수치를 기록하고, `standard`, `extended`, `production`에서만 실패 조건으로 사용합니다.
+
+- profile에 정의된 초기 비율을 warm-up으로 제외합니다. 현재 장시간 profile은 앞 50%를 제외합니다.
+- 제외 후 구간의 RSS 선형 기울기를 `MiB/hour`로 계산합니다.
+- steady-state 구간의 최대/최소 범위와 연속 증가 횟수를 확인합니다.
+- 마지막 10개와 30개 표본의 범위, 최종 증감, 기울기를 진단 값으로 함께 저장합니다.
+- 최소 표본 수를 채우지 못하면 장시간 profile은 통과하지 않습니다.
+
+전체 증가량 gate도 유지합니다. 따라서 초기 워밍업이 비정상적으로 크거나 후반부에 지속 증가하는 두 경우를 각각 탐지합니다. `smoke`는 표본이 3개뿐이므로 steady-state를 관측만 하며 누수 판정 근거로 사용하지 않습니다.
+
 ## Kubernetes Agent Observation
 
 권장 방식은 Ready 상태의 DaemonSet Pod 안에서 Agent 프로세스와 spool 수치만 읽는 것입니다.
@@ -208,3 +220,5 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 - checkpoint와 summary의 Pod 이름, namespace, `agent_pod` 노출 0건
 
 RSS는 전반부에 증가한 뒤 후반부에 둔화됐습니다. 누수로 단정할 신호는 아니지만 5시간 extended에서 plateau 유지 여부를 다시 확인합니다. 현재 공통 threshold는 변경하지 않습니다.
+
+동일 artifact의 180개 Pod runtime snapshot을 steady-state 로직으로 오프라인 재평가했습니다. 앞 30개 표본을 제외한 후 Pod별 RSS 기울기는 `0.640`, `0.646`, `0.942 MiB/hour`, 범위는 `1.648~1.652 MiB`, 최대 연속 증가는 1회였고 3/3 target이 standard 기준을 통과했습니다. 이 값은 알고리즘 검증용 기준선이며 extended 결과 없이 공통 threshold를 낮추는 근거로 사용하지 않습니다.

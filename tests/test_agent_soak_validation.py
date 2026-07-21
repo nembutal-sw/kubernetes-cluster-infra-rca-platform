@@ -57,6 +57,8 @@ def test_legacy_threshold_profile_receives_conservative_fleet_defaults(tmp_path:
     for profile in payload["profiles"].values():
         for key in soak.FLEET_PROFILE_DEFAULTS:
             profile.pop(key)
+        for key in soak.STEADY_STATE_PROFILE_DEFAULTS:
+            profile.pop(key)
     path = tmp_path / "legacy-thresholds.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -64,6 +66,71 @@ def test_legacy_threshold_profile_receives_conservative_fleet_defaults(tmp_path:
 
     assert profile["maximum_fleet_rss_peak_spread_mb"] == 128
     assert profile["maximum_fleet_p95_cpu_spread_percent"] == 100
+    assert profile["rss_steady_state_warmup_fraction"] == 0.5
+    assert profile["enforce_rss_steady_state"] is False
+    assert profile["maximum_rss_steady_state_slope_mb_per_hour"] == 1024
+
+
+def test_rss_steady_state_excludes_warmup_and_reports_recent_windows() -> None:
+    soak = load_module()
+    collectors, profile = soak.load_configuration(ROOT / "config" / "agent-soak-thresholds.json", "standard")
+    mib = 1024 * 1024
+    points = []
+    for iteration in range(1, 61):
+        rss = (32 + min(iteration, 30) * 0.7) * mib
+        if iteration > 30:
+            rss = (53 + (iteration % 3) * 0.1) * mib
+        point = checkpoint(iteration, rss=int(rss))
+        point["process"]["sampled_at_monotonic"] = float(iteration * 60)
+        points.append(point)
+
+    summary = soak.build_summary(
+        profile_name="standard",
+        profile=profile,
+        requested_collectors=collectors,
+        checkpoints=points,
+        started_at="2026-07-21T00:00:00+00:00",
+        health_configured=False,
+        process_configured=True,
+        spool_configured=True,
+        interrupted=False,
+    )
+
+    steady = summary["metrics"]["process"]["rss_bytes"]["steady_state"]
+    assert summary["status"] == "passed"
+    assert steady["warmup_samples_excluded"] == 30
+    assert steady["sample_count"] == 30
+    assert steady["sufficient_samples"] is True
+    assert steady["recent_windows"]["last_10"]["sample_count"] == 10
+    assert steady["recent_windows"]["last_30"]["sample_count"] == 30
+    assert abs(steady["slope_bytes_per_hour"] / mib) < 1
+
+
+def test_rss_steady_state_fails_persistent_post_warmup_growth() -> None:
+    soak = load_module()
+    collectors, profile = soak.load_configuration(ROOT / "config" / "agent-soak-thresholds.json", "standard")
+    mib = 1024 * 1024
+    points = []
+    for iteration in range(1, 61):
+        point = checkpoint(iteration, rss=(32 + max(0, iteration - 30)) * mib)
+        point["process"]["sampled_at_monotonic"] = float(iteration * 60)
+        points.append(point)
+
+    summary = soak.build_summary(
+        profile_name="standard",
+        profile=profile,
+        requested_collectors=collectors,
+        checkpoints=points,
+        started_at="2026-07-21T00:00:00+00:00",
+        health_configured=False,
+        process_configured=True,
+        spool_configured=True,
+        interrupted=False,
+    )
+
+    assert summary["status"] == "failed"
+    assert "Agent RSS steady-state slope exceeds threshold" in summary["failures"]
+    assert "Agent RSS steady-state range exceeds threshold" in summary["failures"]
 
 
 def test_evidence_quality_requires_every_requested_collector_schema() -> None:
@@ -388,6 +455,8 @@ def test_fleet_summary_passes_three_stable_targets_without_exposing_pod_names() 
     assert summary["metrics"]["fleet"]["target_count"] == 3
     assert summary["metrics"]["fleet"]["passed_target_count"] == 3
     assert summary["metrics"]["fleet"]["variation"]["rss_peak_bytes"]["spread"] == 200
+    assert summary["metrics"]["fleet"]["worst_rss_steady_state"]["minimum_sample_count"] == 3
+    assert summary["metrics"]["fleet"]["worst_rss_steady_state"]["maximum_range_bytes"] == 10
     assert summary["metrics"]["process"]["identity"]["stable"] is True
     rendered = json.dumps(summary)
     assert "rca-system" not in rendered
