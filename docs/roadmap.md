@@ -270,10 +270,9 @@ runbook URL, 인증된 firing/resolved webhook 전달을 모두 확인했습니�
 추가 표본은 GitHub Actions의 수동 `LLM Burn-in` workflow로 수집하도록 정리했습니다.
 workflow는 기본 dry-run, 실행당 최대 provider 1회 호출, 명시적 확인, change reference,
 `llm-burn-in` Environment 승인을 사용합니다. 실제 호출은 기본 branch로 제한하고,
-같은 8시간 구간에 성공 표본이 있으면 호출하지 않습니다. 이전 성공 run만 cumulative history로
+같은 8시간 구간에 성공 표본이 있으면 호출하지 않습니다. 완료된 run의 cumulative history를
 연결하며, 표본과 sibling report는 content hash로 중복 제거한 30일 artifact로 보관합니다.
-이 단계에서는 provider를 호출하지 않았으므로 기존 `5/20`, 시간 구간 `2/3` 상태는
-변하지 않았습니다.
+실패 run은 알려진 검증기 오탐만 현재 validator로 오프라인 재검증하고 다른 오류는 거부합니다.
 
 `llm-burn-in` GitHub Environment에는 required reviewer를 적용했습니다. 단독 관리자
 저장소이므로 self-review는 허용하지만 workflow의 명시적 확인, change reference,
@@ -288,6 +287,16 @@ result/report SHA-256, 시나리오, timestamp, action 안전성만 포함하며
 evidence와 credential은 제외합니다. Campaign v4는 이 baseline을 시간 구간과 다음
 시나리오 선택에만 사용하고 `readiness_eligible=false`를 강제합니다. 따라서 GitHub
 artifact의 실제 표본 수가 늘기 전까지 SLO readiness는 별도로 충족되지 않습니다.
+
+2026-07-21 UTC 00시 구간에는 self-hosted `rca-demo` runner에서 Gemini를 1회 호출했습니다.
+DiskPressure 분석은 3.267초, 입력 2,279 token, 출력 573 token, 총 2,852 token이었고
+LLM-origin action의 unsafe 건수는 0개였습니다. 최초 run `29796180376`은 node 이름의
+`disk-pressure-node` 일부를 `sk-` credential로 오인해 실패했으며, 키 패턴 경계 조건을
+수정했습니다. Run `29796658948`에서 원본 artifact를 provider 재호출 없이 다시 검증해
+정상 cumulative history로 승격했고, 현재 8시간 구간의 추가 호출이 차단되는 것도 확인했습니다.
+GitHub artifact 기준 readiness 표본은 `1/20`, scenario `1/5`, 시간 구간 `1/3`입니다.
+Planning baseline을 합친 호출 계획은 표본 6개, scenario 5개, 시간 구간 3개지만 baseline은
+계속 `readiness_eligible=false`이므로 60초 SLO를 유지합니다.
 
 ## Positioning
 

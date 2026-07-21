@@ -195,7 +195,7 @@ python3 scripts/alertmanager_delivery_test.py \
   --alertmanager alertmanager
 ```
 
-반복 provider 검증은 GitHub Actions의 수동 `LLM Burn-in` workflow로도 실행할 수 있습니다. 기본 dry-run, 실행당 최대 1회 호출, 8시간 구간 중복 방지, 변경 참조값, Environment 승인, 이전 성공 run의 누적 artifact 연결을 지원합니다. 비민감 planning baseline은 호출 계획에만 사용하며 readiness 표본에는 포함하지 않습니다.
+반복 provider 검증은 GitHub Actions의 수동 `LLM Burn-in` workflow로도 실행할 수 있습니다. 기본 dry-run, 실행당 최대 1회 호출, 8시간 구간 중복 방지, 변경 참조값, Environment 승인, 완료된 run의 누적 artifact 연결을 지원합니다. 실패 artifact는 allowlist에 있는 검증기 오탐만 오프라인으로 재검증합니다. 비민감 planning baseline은 호출 계획에만 사용하며 readiness 표본에는 포함하지 않습니다.
 
 명령별 요구 도구와 추가 option은 [testing.md](testing.md)에 정리되어 있습니다.
 
