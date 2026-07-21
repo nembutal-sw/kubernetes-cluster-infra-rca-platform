@@ -64,7 +64,6 @@ jobs:
       BURN_IN_AGENT_PID: ${{ inputs.agent_pid }}
       BURN_IN_AGENT_STATE_DIR: ${{ inputs.agent_state_dir }}
       BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id || vars.RCA_LLM_BURN_IN_HISTORY_RUN_ID }}
-      BURN_IN_PRIVATE_DIR: ${{ runner.temp }}/rca-operational-burn-in-${{ github.run_id }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +74,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          printf 'BURN_IN_PRIVATE_DIR=%s/rca-operational-burn-in-%s\n' \
+            "${RUNNER_TEMP}" "${GITHUB_RUN_ID}" >> "${GITHUB_ENV}"
           command -v python3
           python3 -c 'import sys; assert sys.version_info >= (3, 11), sys.version'
           case "${BURN_IN_PROFILE}" in

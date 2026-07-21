@@ -37,7 +37,8 @@ def test_workflow_preserves_results_and_uses_canonical_llm_history() -> None:
     assert "retention-days: 30" in content
     assert "GITHUB_STEP_SUMMARY" in content
     assert "persist-credentials: false" in content
-    assert "BURN_IN_PRIVATE_DIR: ${{ runner.temp }}" in content
+    assert "BURN_IN_PRIVATE_DIR=%s/rca-operational-burn-in-%s" in content
+    assert '"${RUNNER_TEMP}" "${GITHUB_RUN_ID}" >> "${GITHUB_ENV}"' in content
     assert "Remove private LLM history from self-hosted runner" in content
     assert "real-cluster-agent-evidence.json" in content
     assert "unlink(missing_ok=True)" in content
