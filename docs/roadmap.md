@@ -372,7 +372,9 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 - 1 control-plane과 2 worker로 구성된 Kind CI
 - 단일 Pod Operational Burn-in과 호환되는 선택형 fleet mode
 
-CI 실표본을 통과한 뒤 Kind 3노드 기준값을 이 문서에 기록합니다.
+2026-07-21 CI run `29813187277`에서 Kind Agent 3/3이 fleet smoke gate를 통과했습니다. 수집 성공률과 evidence quality는 100%, RSS peak spread는 0.95 MiB였고 CPU·FD·thread spread와 runtime 오류는 0이었습니다. Artifact에는 Pod 이름과 namespace를 기록하지 않았습니다.
+
+남은 표본은 다중 노드 standard/extended, 24시간 production, EKS/AKS/GKE/OpenShift real canary입니다.
 
 ## Positioning
 

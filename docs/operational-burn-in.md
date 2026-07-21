@@ -157,3 +157,17 @@ Workflow의 LLM provider 호출 예산은 항상 0입니다. canonical LLM histo
 - quarantine 파일 0
 
 이 결과는 K3s 단일 노드 기준선입니다. 플랫폼과 노드 수가 다른 환경의 표본 없이 공통 threshold를 낮추지 않습니다.
+
+## Last Verified Fleet
+
+2026-07-21 CI run `29813187277`에서 1 control-plane과 2 worker로 구성된 Kind 클러스터의 DaemonSet Agent 3개를 `smoke` fleet profile로 검증했습니다.
+
+- Agent target 3/3 통과, 수집 성공률과 evidence quality 100%, degraded collector 0%
+- 수집 p95 0.158초, 최대 payload 20,647 bytes, health probe 성공률 100%
+- Pod별 RSS peak 32.52~33.46 MiB, fleet spread 0.95 MiB
+- p95 CPU, FD peak, thread peak의 fleet spread 0
+- 모든 target의 process identity 안정, runtime 관측 오류 0
+- spool과 quarantine 파일 0
+- artifact에 Pod 이름, namespace, `agent_pod` 필드 없음
+
+이 결과는 CI의 3노드 Kind smoke 기준선입니다. 다중 노드 standard/extended 및 managed Kubernetes 표본을 확보하기 전에는 공통 threshold를 낮추지 않습니다.
