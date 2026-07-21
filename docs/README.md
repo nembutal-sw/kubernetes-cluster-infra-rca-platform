@@ -81,6 +81,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 | [linux-node-collector-validation.md](linux-node-collector-validation.md) | 실제 Linux collector 검증 |
 | [real-cluster-validation.md](real-cluster-validation.md) | 실제 Kubernetes canary 절차 |
 | [runtime-compatibility.md](runtime-compatibility.md) | 배포판, runtime, CNI compatibility matrix |
+| [operational-burn-in.md](operational-burn-in.md) | Agent 장시간 안정성, cluster readiness, LLM 상태 통합 검증 |
 | [release-readiness.md](release-readiness.md) | Release gate와 완료 조건 |
 
 ## Planning And History

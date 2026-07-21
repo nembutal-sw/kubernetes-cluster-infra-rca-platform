@@ -310,6 +310,20 @@ RCA_ADMIN_PASSWORD='...' python3 scripts/llm-burn-in-campaign.py \
 
 GitHub Actions에서는 `LLM Burn-in` workflow를 사용합니다. 최초에는 `dry_run=true`로 실행하고, 실제 호출 시에만 `dry_run=false`, `confirm_live_calls=true`, `provider_call_budget=1`, `change_reference`를 입력합니다. 실제 실행은 required reviewer가 설정된 `llm-burn-in` Environment와 저장소 기본 branch에서만 허용됩니다. 최신 누적 표본은 `RCA_LLM_BURN_IN_HISTORY_RUN_ID` repository variable로 자동 연결하고, 임시 검증 시에는 `history_run_id` 입력값으로 덮어쓸 수 있습니다. 최초 live 표본만 `initialize_history=true`를 사용하며 canonical history가 있는데 이 옵션을 사용하면 거부됩니다. 같은 8시간 구간에서는 추가 호출하지 않습니다. 실패 run은 sibling report가 있고 알려진 검증기 오탐만 남은 경우에만 현재 검증기로 오프라인 재검증하며 provider를 다시 호출하지 않습니다. 상세한 승인 조건과 artifact 취급 기준은 [llm-analyzer.md](llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
 
+## Operational Burn-in
+
+반복 Agent 수집, 프로세스와 spool 증가 추세, 실제 클러스터 readiness, LLM readiness 상태를 한 artifact로 묶는 절차는 [operational-burn-in.md](operational-burn-in.md)를 사용합니다.
+
+짧은 로컬 검증:
+
+```bash
+python3 scripts/agent-soak-validation.py \
+  --profile smoke \
+  --output-dir validation-results/operational-burn-in/agent-soak
+```
+
+GitHub Actions의 수동 `Operational Burn-in` workflow는 `rca-demo` runner에서만 실행하며 provider 호출 예산을 0으로 고정합니다. `smoke`, `standard`, `extended` 순서로 확장하고 24시간 `production` profile은 승인된 Linux 운영 세션에서 실행합니다.
+
 ## Kind E2E
 
 개발용 Kubernetes smoke test:

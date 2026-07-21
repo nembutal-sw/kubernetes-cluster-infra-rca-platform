@@ -312,6 +312,25 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 이미 표본이 있어 추가 호출이 차단됐으며 다음 가능 시각은 `2026-07-21T08:00:00Z`
 (KST 17:00)입니다. `RCA_LLM_BURN_IN_HISTORY_RUN_ID`는 이 정상 run으로 갱신했습니다.
 
+## Phase 16. Integrated Operational Burn-in
+
+구현 완료:
+
+- Agent 반복 로컬 수집 checkpoint와 atomic summary
+- collector 누락/schema/degraded 비율과 p50/p95/payload threshold
+- 선택형 Agent PID RSS/p95 CPU/FD/thread와 state spool/quarantine 추세
+- real-cluster readiness, platform matrix, LLM readiness 통합 summary
+- provider 호출 예산 0인 수동 self-hosted `Operational Burn-in` workflow
+- smoke/1시간/5시간/24시간 profile과 release static gate
+
+실환경 표본 대기:
+
+1. `rca-demo` runner에서 smoke profile 통과
+2. Agent PID와 state directory를 포함한 1시간 standard profile 통과
+3. 5시간 extended와 별도 24시간 production profile 표본 확보
+4. EKS, AKS, GKE, OpenShift real Agent canary 수행
+5. 승인된 새 시간 구간에서 canonical LLM readiness 표본 확장
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

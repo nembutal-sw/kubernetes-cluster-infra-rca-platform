@@ -1,0 +1,259 @@
+name: Operational Burn-in
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Read-only Agent soak profile. Extended is capped at five hours."
+        required: true
+        default: "smoke"
+        type: choice
+        options:
+          - "smoke"
+          - "standard"
+          - "extended"
+      kubectl_context:
+        description: "Optional kubectl context for the read-only cluster check."
+        required: false
+        type: string
+      include_real_cluster:
+        description: "Include kubectl, events, Helm, and Agent local readiness checks."
+        required: true
+        default: true
+        type: boolean
+      skip_helm:
+        description: "Skip Helm lint/template/server dry-run in the cluster check."
+        required: true
+        default: false
+        type: boolean
+      platform_base_url:
+        description: "Optional platform URL for /health/ready probes. Defaults to RCA_SMOKE_BASE_URL."
+        required: false
+        type: string
+      agent_pid:
+        description: "Optional long-running Node Agent PID for RSS, FD, and thread trend checks."
+        required: false
+        type: string
+      agent_state_dir:
+        description: "Optional Node Agent state directory for spool trend checks."
+        required: false
+        type: string
+      history_run_id:
+        description: "Canonical LLM burn-in run ID. Defaults to RCA_LLM_BURN_IN_HISTORY_RUN_ID."
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: operational-burn-in-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  burn-in:
+    runs-on: rca-demo
+    timeout-minutes: 350
+    env:
+      BURN_IN_PROFILE: ${{ inputs.profile }}
+      BURN_IN_KUBECTL_CONTEXT: ${{ inputs.kubectl_context }}
+      BURN_IN_INCLUDE_REAL_CLUSTER: ${{ inputs.include_real_cluster }}
+      BURN_IN_SKIP_HELM: ${{ inputs.skip_helm }}
+      BURN_IN_PLATFORM_BASE_URL: ${{ inputs.platform_base_url || vars.RCA_SMOKE_BASE_URL }}
+      BURN_IN_AGENT_PID: ${{ inputs.agent_pid }}
+      BURN_IN_AGENT_STATE_DIR: ${{ inputs.agent_state_dir }}
+      BURN_IN_HISTORY_RUN_ID: ${{ inputs.history_run_id || vars.RCA_LLM_BURN_IN_HISTORY_RUN_ID }}
+      BURN_IN_PRIVATE_DIR: ${{ runner.temp }}/rca-operational-burn-in-${{ github.run_id }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate runner and manual inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v python3
+          python3 -c 'import sys; assert sys.version_info >= (3, 11), sys.version'
+          case "${BURN_IN_PROFILE}" in
+            smoke|standard|extended) ;;
+            *) echo "profile must be smoke, standard, or extended" >&2; exit 2 ;;
+          esac
+          if [ -n "${BURN_IN_AGENT_PID}" ] && ! [[ "${BURN_IN_AGENT_PID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "agent_pid must be a positive integer" >&2
+            exit 2
+          fi
+          if [ -n "${BURN_IN_HISTORY_RUN_ID}" ] && ! [[ "${BURN_IN_HISTORY_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "history_run_id must be a numeric GitHub Actions run ID" >&2
+            exit 2
+          fi
+          python3 -m py_compile \
+            scripts/agent-soak-validation.py \
+            scripts/operational-burn-in-summary.py \
+            scripts/real-cluster-readiness-check.py \
+            scripts/llm-burn-in-campaign.py \
+            scripts/llm-burn-in-history.py \
+            scripts/llm-burn-in-run-metadata.py
+
+      - name: Run real-cluster read-only readiness
+        id: real_cluster
+        if: ${{ inputs.include_real_cluster }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_output=validation-results/operational-burn-in/real-cluster-agent-evidence.json
+          cleanup_evidence() {
+            EVIDENCE_OUTPUT="${evidence_output}" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          Path(os.environ["EVIDENCE_OUTPUT"]).unlink(missing_ok=True)
+          PY
+          }
+          trap cleanup_evidence EXIT
+          args=(
+            --repo-root "${GITHUB_WORKSPACE}"
+            --agent-local
+            --agent-output "${evidence_output}"
+            --output validation-results/operational-burn-in/real-cluster-readiness.json
+          )
+          if [ -n "${BURN_IN_KUBECTL_CONTEXT}" ]; then
+            args+=(--context "${BURN_IN_KUBECTL_CONTEXT}")
+          fi
+          if [ "${BURN_IN_SKIP_HELM}" = "true" ]; then
+            args+=(--skip-helm --skip-server-dry-run)
+          fi
+          python3 scripts/real-cluster-readiness-check.py "${args[@]}"
+
+      - name: Run repeated Agent evidence validation
+        id: agent_soak
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --profile "${BURN_IN_PROFILE}"
+            --output-dir validation-results/operational-burn-in/agent-soak
+          )
+          if [ -n "${BURN_IN_AGENT_PID}" ]; then
+            args+=(--agent-pid "${BURN_IN_AGENT_PID}")
+          fi
+          if [ -n "${BURN_IN_AGENT_STATE_DIR}" ]; then
+            args+=(--state-dir "${BURN_IN_AGENT_STATE_DIR}")
+          fi
+          if [ -n "${BURN_IN_PLATFORM_BASE_URL}" ]; then
+            args+=(--health-url "${BURN_IN_PLATFORM_BASE_URL%/}/health/ready")
+          fi
+          python3 scripts/agent-soak-validation.py "${args[@]}"
+
+      - name: Verify canonical LLM history run
+        id: llm_history
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/llm-burn-in-run-metadata.py \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${BURN_IN_HISTORY_RUN_ID}" \
+            --github-env "${GITHUB_ENV}"
+
+      - name: Download canonical LLM history
+        if: ${{ env.BURN_IN_HISTORY_RUN_ID != '' && steps.llm_history.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: llm-burn-in-results
+          path: ${{ runner.temp }}/rca-operational-burn-in-${{ github.run_id }}/previous-llm-burn-in
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BURN_IN_HISTORY_RUN_ID }}
+
+      - name: Build LLM readiness status without provider calls
+        id: llm_status
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          history_args=()
+          portable_history="${BURN_IN_PRIVATE_DIR}/previous-llm-burn-in/portable-history"
+          if [ -d "${portable_history}" ]; then
+            python3 scripts/llm-burn-in-history.py \
+              "${portable_history}" \
+              --output-dir "${BURN_IN_PRIVATE_DIR}/validated-llm-history"
+            history_args+=(--history "${BURN_IN_PRIVATE_DIR}/validated-llm-history")
+          fi
+          python3 scripts/llm-burn-in-campaign.py \
+            --base-url http://127.0.0.1:1 \
+            --username burn-in-status \
+            --scenarios disk-pressure,node-not-ready,inode-exhaustion,network-link-flap,memory-pressure \
+            --planning-baseline config/llm-burn-in-planning-baseline.json \
+            --provider-call-budget 0 \
+            --target-samples 20 \
+            --target-scenarios 5 \
+            --target-time-buckets 3 \
+            --time-bucket-hours 8 \
+            --require-new-time-bucket \
+            --skip-connectivity-test \
+            --dry-run \
+            --output-dir validation-results/operational-burn-in/llm-status \
+            "${history_args[@]}"
+
+      - name: Build integrated operational summary
+        id: summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --agent-soak validation-results/operational-burn-in/agent-soak/agent-soak-summary.json
+            --llm-campaign validation-results/operational-burn-in/llm-status/campaign-summary.json
+            --platform-matrix config/platform-compatibility-matrix.json
+            --output validation-results/operational-burn-in/operational-burn-in-summary.json
+            --markdown-output validation-results/operational-burn-in/operational-burn-in-summary.md
+          )
+          if [ "${BURN_IN_INCLUDE_REAL_CLUSTER}" = "true" ]; then
+            args+=(
+              --real-cluster validation-results/operational-burn-in/real-cluster-readiness.json
+              --require-real-cluster
+            )
+          fi
+          python3 scripts/operational-burn-in-summary.py "${args[@]}"
+
+      - name: Publish operational summary
+        if: always()
+        shell: bash
+        run: |
+          summary=validation-results/operational-burn-in/operational-burn-in-summary.md
+          if [ -f "${summary}" ]; then
+            cat "${summary}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            printf '## Operational Burn-in\n\nIntegrated summary was not produced.\n' >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload operational burn-in results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: operational-burn-in-results-${{ github.run_id }}
+          path: validation-results/operational-burn-in
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove private LLM history from self-hosted runner
+        if: always()
+        shell: bash
+        run: |
+          PRIVATE_DIR="${BURN_IN_PRIVATE_DIR}" python3 - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          private_dir = Path(os.environ["PRIVATE_DIR"])
+          expected_parent = Path(os.environ["RUNNER_TEMP"]).resolve()
+          resolved = private_dir.resolve()
+          if resolved.parent != expected_parent or not resolved.name.startswith("rca-operational-burn-in-"):
+              raise SystemExit("refusing to remove an unexpected private directory")
+          shutil.rmtree(resolved, ignore_errors=True)
+          PY

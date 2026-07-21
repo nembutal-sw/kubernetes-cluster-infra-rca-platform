@@ -230,6 +230,37 @@ def main() -> int:
             "Manual LLM burn-in is approval-gated, quota-bounded, and backed by portable cumulative history.",
         ),
         check(
+            "operational-burn-in",
+            exists("scripts/agent-soak-validation.py")
+            and exists("scripts/operational-burn-in-summary.py")
+            and exists("config/agent-soak-thresholds.json")
+            and exists(".github/workflows/operational-burn-in.yml")
+            and contains(
+                "scripts/agent-soak-validation.py",
+                "agent-soak-validation/v1",
+                "minimum_evidence_quality_rate",
+                "maximum_rss_growth_mb",
+                "maximum_p95_cpu_percent",
+                "maximum_spool_files",
+                "collector-evidence/v1",
+            )
+            and contains(
+                "scripts/operational-burn-in-summary.py",
+                "operational-burn-in/v1",
+                "managed_canary_pending",
+                "provider_calls_used",
+            )
+            and contains(
+                ".github/workflows/operational-burn-in.yml",
+                "runs-on: rca-demo",
+                "--provider-call-budget 0",
+                "--dry-run",
+                "real-cluster-readiness-check.py",
+                "agent-soak-validation.py",
+            ),
+            "Manual self-hosted burn-in combines Agent quality, cluster readiness, platform coverage, and provider-free LLM status.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(

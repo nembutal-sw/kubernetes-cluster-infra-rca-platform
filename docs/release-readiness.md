@@ -109,6 +109,20 @@
 - 검증용 credential은 서버 내부 파일에만 저장하고 `chmod 600`을 적용한다.
 - 검증이 끝난 컨테이너를 남겨야 하는 경우 포트와 credential 위치를 운영자에게 별도로 공유한다.
 
+## Operational Burn-in Gate
+
+운영 배포 전에는 최소 `smoke` profile을 통과하고 결과 artifact를 릴리즈 기록에 연결합니다. 장시간 안정성이나 Agent 자원 기준을 변경하는 릴리즈는 `standard` 이상을 사용합니다.
+
+- `scripts/agent-soak-validation.py` 결과 `passed`
+- collector schema와 evidence quality threshold 충족
+- Agent PID를 지정한 경우 RSS, p95 CPU, FD, thread 증가량 충족
+- state directory를 지정한 경우 spool, quarantine threshold 충족
+- 실제 클러스터를 요구한 run에서 readiness 실패 없음
+- managed-platform canary와 LLM 표본 부족 상태가 summary에 명시됨
+- `scripts/release-readiness-check.py`의 `operational-burn-in` 검사 성공
+
+LLM readiness가 `pending`인 것은 기존 SLO를 유지하는 조건에서는 경고입니다. LLM SLO 값을 변경하려면 별도 LLM burn-in gate의 표본, 시나리오, 시간 구간 조건을 모두 충족해야 합니다.
+
 ## 7. Agent Local Collect
 
 서버에서 직접 Node Agent를 실행해 collector 계약을 확인한다.
