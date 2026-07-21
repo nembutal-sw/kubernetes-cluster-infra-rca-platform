@@ -144,4 +144,4 @@
 - collector 구현 파일을 `builtin_collectors.py`로 명확화하고 soak 통계 모듈 분리
 - 개발/운영 Helm values 분리와 production render-time 안전 조건 추가
 
-남은 외부 검증은 5시간 Extended Fleet 재실행과 managed Kubernetes 실제 canary입니다.
+실제 DaemonSet Agent Evidence 방식의 1시간 Standard와 5시간 Extended Fleet를 통과했습니다. 남은 외부 검증은 24시간 Production Fleet와 managed Kubernetes 실제 canary입니다.

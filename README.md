@@ -55,14 +55,15 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
 - 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
 
-남은 실환경 검증은 실제 DaemonSet Evidence 방식의 5시간 Extended Fleet 재실행과 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은
-Ubuntu 24.04 amd64, Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
+실제 DaemonSet Evidence 방식의 1시간 Standard와 5시간 Extended Fleet 검증을 완료했습니다. 남은 실환경 검증은
+24시간 Production Fleet와 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은 Ubuntu 24.04 amd64,
+Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
 
 ## 운영 검증 상태
 
 실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 3노드 장시간 검증은 승인형 `Agent Fleet Burn-in`, EKS/AKS/GKE/OpenShift는 플랫폼별 `Managed Cluster Canary` workflow를 사용합니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)과 [Real Cluster Validation](docs/real-cluster-validation.md)을 참고합니다.
 
-현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했고 K3s 단일 노드 1시간 standard와 Kind 3노드 5시간 extended burn-in을 통과했습니다. 기존 Extended run은 Runner local collector 300회와 3개 Agent Pod runtime snapshot 900회를 함께 검증했고 runtime/spool/quarantine 오류는 0건, 후반 150분 RSS 기울기는 세 Agent 모두 음수였습니다. 현재 Fleet gate는 각 DaemonSet Agent에 Platform Evidence Request를 보내 노드별 품질과 지연까지 측정하도록 수정했으며, 이 방식의 5시간 재실행은 아직 남아 있습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
+현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했습니다. Kind 3노드에서는 각 DaemonSet Agent에 Platform Evidence Request를 보내는 방식으로 1시간 Standard와 5시간 Extended burn-in을 통과했습니다. Extended run `29857828475`는 checkpoint 300/300, Agent Evidence 900/900, target 3/3을 기록했고 수집 성공률과 evidence 품질은 100%, degraded collector와 runtime/spool/quarantine 오류는 0건이었습니다. Standard 대비 compatibility, absolute, regression gate도 모두 통과했습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS, AKS, GKE, OpenShift는 contract fixture만 통과했으며 실제 managed-cluster canary는 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
 
 ## Quick Start
 

@@ -374,7 +374,7 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 
 2026-07-21 CI run `29813187277`에서 Kind Agent 3/3이 fleet smoke gate를 통과했습니다. 수집 성공률과 evidence quality는 100%, RSS peak spread는 0.95 MiB였고 CPU·FD·thread spread와 runtime 오류는 0이었습니다. Artifact에는 Pod 이름과 namespace를 기록하지 않았습니다.
 
-남은 표본은 다중 노드 standard/extended, 24시간 production, EKS/AKS/GKE/OpenShift real canary입니다.
+남은 표본은 24시간 production과 EKS/AKS/GKE/OpenShift real canary입니다.
 
 ## Phase 20. Long-Running Fleet and Managed Canary Pipeline
 
@@ -392,12 +392,12 @@ Run `29806950288`은 K3s 단일 노드 기준선으로 기록합니다. 공통 t
 
 실표본 순서:
 
-1. 완료: 3노드 Kind standard 1시간 campaign, workflow run `29816133829`
-2. 대기: standard 검토 후 extended 5시간 campaign
+1. 완료: 실제 Agent Evidence 방식의 3노드 Kind standard 1시간 campaign, workflow run `29853015154`
+2. 완료: 같은 commit과 지문을 사용한 extended 5시간 campaign, workflow run `29857828475`
 3. EKS, AKS, GKE, OpenShift 순으로 preflight와 applied canary
 4. 플랫폼별 승인 PR로 compatibility matrix profile 추가
 
-Standard 결과는 Agent 3/3, checkpoint 60/60, runtime snapshot 180/180 통과였습니다. 수집 p95는 0.122초, 최대 payload는 20,662 bytes, RSS peak spread는 0.42 MiB, CPU spread는 0.0016%p였고 runtime/spool/quarantine 오류는 없었습니다. Pod별 RSS는 21.32~22.17 MiB 증가했지만 마지막 10회 변동 폭은 0.80~0.81 MiB로 둔화됐으므로 extended에서 장기 plateau를 확인합니다.
+Standard 결과는 Agent 3/3, checkpoint 60/60, Agent Evidence 180/180 통과였습니다. 수집 p95는 15.146초, 최대 payload는 17,444 bytes였고 runtime/spool/quarantine 오류는 없었습니다. 이 결과를 Extended regression gate의 승인된 기준선으로 사용했습니다.
 
 ## Phase 21. Extended Fleet Steady-State Validation
 
@@ -412,14 +412,14 @@ Standard 결과는 Agent 3/3, checkpoint 60/60, runtime snapshot 180/180 통과�
 
 실행 순서:
 
-1. 완료: 기존 1시간 standard artifact를 새 로직으로 오프라인 재평가
+1. 완료: Platform Evidence Request 방식의 1시간 standard 기준선 확보
 2. 완료: 3노드 Kind, 300회, 약 5시간 extended workflow 실행
-3. 완료: extended artifact의 900개 runtime snapshot, RSS plateau, CPU/FD/thread, spool 검토
-4. 완료: standard와 extended 결과 비교 및 24시간 production 진입 조건 확인
+3. 완료: extended artifact의 900개 Agent Evidence와 RSS/CPU/FD/thread/spool 검토
+4. 완료: standard와 extended compatibility, absolute, regression gate 확인
 
-Standard 재평가 결과는 3/3 통과, 후반 30분 Pod별 RSS 기울기 `0.640~0.942 MiB/hour`, 범위 `1.648~1.652 MiB`, 최대 연속 증가 1회입니다.
+Standard run `29853015154`는 3/3 target, 60/60 checkpoint, 180/180 Agent Evidence를 통과했습니다. 수집 성공률과 evidence 품질은 100%, degraded collector와 runtime/spool/quarantine 오류는 0건입니다.
 
-Extended workflow run `29821832228`은 300/300 checkpoint, 900/900 runtime snapshot, target 3/3을 통과했습니다. 수집·evidence·health는 모두 100%, runtime/spool/quarantine 오류는 0건입니다. 후반 150분 RSS 기울기는 `-0.238~-0.231 MiB/hour`, 범위는 `2.512~2.516 MiB`였고 마지막 30개 표본은 세 Pod 모두 변화가 없었습니다. Standard 대비 수집 p95와 Fleet RSS 편차도 감소했습니다. 동일 Kind 환경의 단일 표본이므로 threshold는 유지합니다.
+Extended workflow run `29857828475`는 300/300 checkpoint, 900/900 Agent Evidence, target 3/3을 통과했습니다. 수집 성공률과 evidence 품질은 100%, degraded collector와 runtime/spool/quarantine 오류는 0건입니다. Agent Evidence 수집 p95는 14.937초, 최악 steady-state RSS 기울기는 `0.835 MiB/hour`, 범위는 `2.578 MiB`였습니다. Standard 대비 compatibility, absolute, regression gate가 모두 통과했습니다. 동일 Kind 환경의 단일 표본이므로 threshold는 유지합니다.
 
 다음 단계는 EKS, AKS, GKE, OpenShift managed canary를 플랫폼별 preflight부터 순차 실행하고, 별도의 승인된 Linux 세션에서 24시간 production profile을 확보하는 것입니다.
 
