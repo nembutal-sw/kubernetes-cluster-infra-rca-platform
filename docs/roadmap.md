@@ -325,11 +325,12 @@ history가 자동 연결되는 것을 확인했습니다. Provider 호출은 0�
 
 실환경 표본 대기:
 
-1. `rca-demo` runner에서 smoke profile 통과
-2. Agent PID와 state directory를 포함한 1시간 standard profile 통과
-3. 5시간 extended와 별도 24시간 production profile 표본 확보
-4. EKS, AKS, GKE, OpenShift real Agent canary 수행
-5. 승인된 새 시간 구간에서 canonical LLM readiness 표본 확장
+1. Agent PID와 state directory를 포함한 1시간 standard profile 통과
+2. 5시간 extended와 별도 24시간 production profile 표본 확보
+3. EKS, AKS, GKE, OpenShift real Agent canary 수행
+4. 승인된 새 시간 구간에서 canonical LLM readiness 표본 확장
+
+2026-07-21 `rca-demo` workflow run `29803718643`에서 smoke profile을 통과했습니다. 14개 collector를 3회 수집해 성공률과 evidence quality가 100%였고 degraded collector는 없었습니다. 수집 p95는 0.630초, 최대 payload는 91,130 bytes였습니다. openSUSE K3s amd64/containerd/Flannel cluster는 `verified_real`, node 1개와 pod 4개는 모두 정상으로 확인했습니다. LLM은 provider 호출 없이 canonical readiness `1/20`, `1/5`, `1/3`을 유지했습니다. Runner 권한 경계로 Agent PID와 state directory를 관찰하지 못했으므로 장시간 자원과 spool 추세는 완료로 표시하지 않습니다.
 
 ## Positioning
 

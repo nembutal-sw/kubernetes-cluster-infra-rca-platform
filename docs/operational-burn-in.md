@@ -109,6 +109,22 @@ LLM 표본 부족과 managed-platform canary 미완료는 숨기지 않고 `warn
 
 Workflow는 `RCA_LLM_BURN_IN_HISTORY_RUN_ID`의 canonical artifact를 읽어 LLM readiness를 표시하지만 provider 호출 예산은 항상 0입니다. 실제 LLM 표본 수집은 별도 승인형 `LLM Burn-in` workflow에서만 수행합니다.
 
+Artifact에는 원본 반복 evidence와 LLM history를 넣지 않습니다. 다만 readiness report에는 redacted node 이름, cluster 구조, runtime/CNI 정보가 포함될 수 있으므로 repository와 Actions artifact 접근 권한을 운영 로그 수준으로 제한합니다. 다운로드한 LLM history는 runner 임시 경로에서 사용한 뒤 job 종료 시 삭제합니다.
+
+## Last Verified Smoke
+
+2026-07-21 수동 workflow run `29803718643`에서 openSUSE K3s self-hosted 환경을 검증했습니다.
+
+- Agent collector 14종, 3/3회 수집 성공
+- evidence quality 100%, degraded collector 0%
+- 수집 p95 0.630초, 최대 payload 91,130 bytes
+- platform readiness probe 3/3회 성공
+- K3s amd64, containerd, Flannel 조합 `verified_real`
+- node 1개와 pod 4개 정상, unhealthy pod 0개
+- LLM provider 호출 0회, readiness `1/20` samples, `1/5` scenarios, `1/3` time buckets
+
+해당 runner에는 Helm이 설치되어 있지 않아 smoke에서 Helm 검사는 명시적으로 생략했습니다. Agent 프로세스는 root/container 경계 밖의 runner 계정에서 관찰할 수 없어 RSS/CPU/FD/thread와 state spool 추세는 다음 `standard` 검증의 남은 항목입니다.
+
 ## Acceptance
 
 - 모든 반복에서 요청 collector와 `collector-evidence/v1` schema가 존재
