@@ -356,7 +356,7 @@ public final class RcaModels {
     public record NodeAgentRegisterRequest(
         @NotBlank String clusterId,
         @NotBlank @Size(max = 255) String nodeName,
-        @NotBlank String agentToken,
+        String agentToken,
         @NotBlank @Size(max = 64) String agentVersion,
         @Size(max = 32) String agentProtocolVersion,
         List<String> supportedCollectors,
@@ -391,8 +391,8 @@ public final class RcaModels {
     public record NodeAgentHeartbeatRequest(
         @NotBlank String clusterId,
         @NotBlank @Size(max = 255) String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         AgentStatus status,
         String agentVersion,
         @Size(max = 32) String agentProtocolVersion,
@@ -758,8 +758,8 @@ public final class RcaModels {
     public record AgentEvidencePollRequest(
         @NotBlank String clusterId,
         @NotBlank String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         @Min(1) @Max(100) Integer limit
     ) {
         public int limitOrDefault() {
@@ -771,8 +771,8 @@ public final class RcaModels {
         @NotBlank String requestId,
         @NotBlank String clusterId,
         @NotBlank String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         EvidenceRequestStatus status,
         Map<String, Object> collectors,
         String errorMessage
@@ -1148,8 +1148,8 @@ public final class RcaModels {
     public record AgentActionPollRequest(
         @NotBlank String clusterId,
         @NotBlank String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         @Min(1) @Max(10) Integer limit
     ) {
         public int limitOrDefault() {
@@ -1161,8 +1161,8 @@ public final class RcaModels {
         @NotBlank String executionId,
         @NotBlank String clusterId,
         @NotBlank String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         @NotBlank String status,
         Integer exitCode,
         @Size(max = 65535) String stdout,
@@ -1204,13 +1204,21 @@ public final class RcaModels {
     public record AgentRealtimeEventBatch(
         @NotBlank String clusterId,
         @NotBlank String nodeName,
-        @NotBlank String agentToken,
-        @NotBlank String nodeToken,
+        String agentToken,
+        String nodeToken,
         @Size(max = 100) List<@Valid AgentRealtimeEvent> events
     ) {
         public List<AgentRealtimeEvent> eventsOrEmpty() {
             return events == null ? List.of() : events;
         }
+    }
+
+    public record AgentNodeTokenRotateRequest(
+        @NotBlank String clusterId,
+        @NotBlank @Size(max = 255) String nodeName,
+        String agentToken,
+        String nodeToken
+    ) {
     }
 
     public record TimelineNode(

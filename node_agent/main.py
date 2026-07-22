@@ -246,6 +246,8 @@ def run_agent(args: argparse.Namespace) -> int:
     )
     state.initialize()
     client.node_token = state.load_node_token()
+    if client.node_token:
+        client.discard_bootstrap_token()
     backoff = RetryBackoff(
         initial_seconds=args.retry_initial_seconds,
         maximum_seconds=args.retry_max_seconds,
@@ -302,12 +304,11 @@ def run_agent(args: argparse.Namespace) -> int:
             LOGGER.exception("backend communication failed")
             if exc.status_code in {401, 404}:
                 client.node_token = None
-                if not _register_with_retry(
-                    client, metadata, state, args.once, backoff, supported_collectors
-                ):
-                    return 1
-                if args.once:
-                    continue
+                state.clear_node_token()
+                LOGGER.error(
+                    "node identity was rejected; cleared the local token and stopped for explicit re-enrollment"
+                )
+                return 1
             if args.once:
                 return 1
             time.sleep(backoff.next_delay())
@@ -415,6 +416,7 @@ def _register_with_retry(
                 metadata=metadata,
             )
             state.save_node_token(str(response["node_token"]))
+            client.discard_bootstrap_token()
             backoff.reset()
             LOGGER.info("registered node agent for cluster=%s node=%s", client.cluster_id, client.node_name)
             return True

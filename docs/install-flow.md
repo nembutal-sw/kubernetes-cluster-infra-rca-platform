@@ -26,6 +26,11 @@ kubectl apply -f "https://rca.example.com/api/clusters/cluster-prod-01/agent-man
 `manifest_token`을 발급하며, 이 token은 manifest를 한 번 내려받으면 재사용할 수 없습니다.
 Bootstrap token은 manifest URL 인증에 사용할 수 없습니다.
 
+Agent protocol v2에서 bootstrap token은 최초 노드 등록에만 사용하고 기본 30분 후 만료됩니다.
+등록이 끝난 Agent는 node-scoped token만 사용합니다. TTL이 지난 뒤 노드를 증설하거나 Agent state가
+초기화된 경우 Web Console에서 bootstrap token을 회전하고 Kubernetes Secret을 갱신한 다음
+DaemonSet Pod를 재생성합니다.
+
 운영 환경에서는 HTTPS URL만 사용합니다. 기본 `agent_mode=safe`는 host namespace와
 hostPath를 사용하지 않습니다. Linux node 진단이 필요할 때만 `node-diagnostics`, eBPF가
 필요할 때만 `ebpf`를 명시적으로 선택합니다.

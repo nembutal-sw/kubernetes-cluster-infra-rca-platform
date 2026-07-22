@@ -260,6 +260,7 @@ public class ClusterController {
         requireCluster(clusterId);
         UserAccount user = access.currentUser(authentication);
         Cluster cluster = clusters.rotateBootstrapToken(clusterId);
+        Instant issuedAt = Instant.now();
         audit.user(
             user,
             "cluster.agent_token_rotated",
@@ -272,8 +273,61 @@ public class ClusterController {
         return Map.of(
             "cluster_id", clusterId,
             "agent_token", cluster.bootstrapToken(),
-            "issued_at", Instant.now(),
-            "note", "This token is shown once. Update the Agent Secret and restart the DaemonSet."
+            "issued_at", issuedAt,
+            "expires_at", issuedAt.plusSeconds(properties.getSecurity().getAgentBootstrapTokenTtlSeconds()),
+            "note", "This registration-only token is shown once and expires automatically."
+        );
+    }
+
+    @PostMapping("/{clusterId}/agent-token/revoke")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> revokeAgentToken(
+        @PathVariable String clusterId,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        requireCluster(clusterId);
+        UserAccount user = access.currentUser(authentication);
+        clusters.revokeBootstrapToken(clusterId);
+        audit.user(
+            user,
+            "cluster.agent_token_revoked",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of("new_agent_registration_blocked", true),
+            servletRequest
+        );
+        return Map.of("cluster_id", clusterId, "revoked", true, "revoked_at", Instant.now());
+    }
+
+    @PostMapping("/{clusterId}/agents/{nodeName}/token/revoke")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> revokeNodeToken(
+        @PathVariable String clusterId,
+        @PathVariable String nodeName,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        requireCluster(clusterId);
+        UserAccount user = access.currentUser(authentication);
+        if (!agents.revokeNodeToken(clusterId, nodeName)) {
+            throw new ResponseStatusException(NOT_FOUND, "agent not found");
+        }
+        audit.user(
+            user,
+            "agent.node_token_revoked",
+            "agent",
+            clusterId + "/" + nodeName,
+            "success",
+            Map.of("cluster_id", clusterId, "node_name", nodeName),
+            servletRequest
+        );
+        return Map.of(
+            "cluster_id", clusterId,
+            "node_name", nodeName,
+            "revoked", true,
+            "revoked_at", Instant.now()
         );
     }
 

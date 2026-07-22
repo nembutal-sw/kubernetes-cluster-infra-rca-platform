@@ -669,7 +669,7 @@ class PlatformHttpTests {
 
         assertThat(info.path("platform_version").asText()).isEqualTo("0.1.0");
         assertThat(info.path("api_version").asText()).isEqualTo("v1");
-        assertThat(info.path("agent_protocol_version").asText()).isEqualTo("1");
+        assertThat(info.path("agent_protocol_version").asText()).isEqualTo("2");
         assertThat(info.path("minimum_supported_agent_protocol_version").asText()).isEqualTo("1");
         JsonNode exportSecurity = info.path("export_security");
         assertThat(exportSecurity.path("hash_algorithm").asText()).isEqualTo("SHA-256");

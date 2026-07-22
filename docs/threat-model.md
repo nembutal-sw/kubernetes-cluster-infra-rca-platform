@@ -27,14 +27,17 @@ URL, proxy log, shell history를 통해 bootstrap token이 노출될 수 있습�
 - bootstrap token을 manifest URL에서 제거
 - 해시 저장된 1회용 manifest token 사용
 - manifest token 만료 및 재사용 차단
-- 관리자 전용 bootstrap token 회전 API
+- bootstrap token을 최초 등록에만 사용하고 기본 30분 TTL 적용
+- 등록 성공 후 Agent 프로세스 환경과 메모리에서 bootstrap token 제거
+- 관리자 전용 bootstrap token 회전·폐기 API
 
 ### Compromised Agent
 
 탈취된 Agent가 다른 노드로 가장하거나 과대 Evidence를 전송할 수 있습니다.
 
-- cluster token과 node token 동시 검증
+- 등록 이후 node-scoped Bearer token만 검증
 - cluster/node identity 일치 검증
+- 노드별 token 회전·폐기와 인증 거부 시 명시적 재등록
 - 선택적 client certificate 강제
 - Evidence response 크기 제한
 - request ID 기반 멱등 처리
@@ -71,7 +74,15 @@ Node Agent의 hostPID, hostNetwork, root, hostPath가 공격면을 확대할 수
 ```text
 Browser -> Platform session/RBAC
 Alertmanager -> Webhook token
-Node Agent -> cluster token + node token + optional mTLS
+Node Agent registration -> short-lived cluster bootstrap token + optional mTLS
+Node Agent runtime -> node-scoped token + optional mTLS
 Platform -> PostgreSQL/MariaDB
 Platform -> optional LLM provider
 ```
+
+## 잔여 위험
+
+현재 bootstrap credential은 Kubernetes Secret에 정적으로 배포됩니다. TTL 만료 후 autoscaling으로
+추가된 노드는 운영자가 token을 회전하고 Secret을 갱신해야 등록할 수 있습니다. 이 운영 부담과
+Secret 노출면을 제거하려면 향후 Kubernetes ServiceAccount TokenReview 또는 node-bound mTLS
+enrollment identity로 전환해야 합니다.

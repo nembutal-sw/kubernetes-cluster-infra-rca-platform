@@ -456,6 +456,27 @@ AKS Automatic과 Standard NAP은 Kubernetes snapshot에서 같은 Karpenter/Cili
 `contract_fixture_only`를 유지합니다. 다음 문서 기반 계약 대상은 GKE이며, managed platform을
 `verified_real`로 승격하는 작업은 별도 real canary와 수동 승인 PR 이후에만 수행합니다.
 
+## Phase 24. Agent Identity Lifecycle Hardening
+
+구현 및 검증 완료:
+
+- Agent protocol v2의 Authorization Bearer 인증
+- bootstrap token의 등록 전용 사용과 기본 30분 TTL
+- 등록 성공 직후 Agent 프로세스 환경·메모리에서 bootstrap token 제거
+- heartbeat, evidence, realtime 요청의 node-scoped token 단독 인증
+- bootstrap token 회전·폐기와 node token self-rotation·관리자 폐기
+- token 거부 시 자동 bootstrap 재사용을 금지하고 명시적 재등록 요구
+- protocol v1 body credential rolling-upgrade 호환과 header/body 충돌 차단
+- Flyway V21 기반 PostgreSQL·MariaDB 공통 token lifecycle schema
+- Python Agent, Spring HTTP security boundary, repository 회귀 테스트
+
+잔여 과제는 autoscaling node 등록을 위한 ServiceAccount TokenReview 또는 node-bound mTLS
+enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 수동 회전이 필요합니다.
+
+다음 코드 개선은 Transactional Outbox 기반 notification 비동기화입니다. 이후 RCA 분석 pipeline과
+Frontend orchestration 분리, 실제 비식별 장애 corpus 확장, Maven/Frontend build lifecycle 분리를
+순차 진행합니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

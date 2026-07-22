@@ -38,6 +38,11 @@ public class AgentProtocolConfigurationValidator implements InitializingBean {
         if (!agent.getExpectedVersion().isBlank()) {
             validateVersion(agent.getExpectedVersion(), "RCA_AGENT_EXPECTED_VERSION");
         }
+        if (properties.getSecurity().getAgentBootstrapTokenTtlSeconds() < 60) {
+            throw new IllegalStateException(
+                "RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS must be at least 60"
+            );
+        }
     }
 
     private int positiveInteger(String value, String propertyName) {

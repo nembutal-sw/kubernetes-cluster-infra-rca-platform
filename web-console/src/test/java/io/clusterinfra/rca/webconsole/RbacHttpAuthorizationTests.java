@@ -83,6 +83,12 @@ class RbacHttpAuthorizationTests {
             "name", "viewer-rbac-cluster",
             "environment", "test"
         ), HttpStatus.FORBIDDEN);
+        assertStatus(viewer, HttpMethod.POST,
+            "/api/clusters/cluster-missing/agent-token/revoke", Map.of(), HttpStatus.FORBIDDEN);
+        assertStatus(operator, HttpMethod.POST,
+            "/api/clusters/cluster-missing/agents/worker-a/token/revoke", Map.of(), HttpStatus.FORBIDDEN);
+        assertStatus(admin, HttpMethod.POST,
+            "/api/clusters/cluster-missing/agent-token/revoke", Map.of(), HttpStatus.NOT_FOUND);
 
         assertStatus(viewer, HttpMethod.GET, "/api/platform/info", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);

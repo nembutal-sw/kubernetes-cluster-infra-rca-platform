@@ -156,6 +156,30 @@ class AgentRepositoryTests {
         assertThat(stored.supportedCollectors()).containsExactly("disk", "kernel", "network");
     }
 
+    @Test
+    void nodeTokenCanBeRotatedAndRevokedIndependently() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("disk"),
+            Map.of()
+        ));
+
+        String rotated = agents.rotateNodeToken(cluster.clusterId(), "node-a");
+
+        assertThat(rotated).isNotBlank().isNotEqualTo(registered.nodeToken());
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", rotated)).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isFalse();
+        assertThat(agents.revokeNodeToken(cluster.clusterId(), "node-a")).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", rotated)).isFalse();
+        assertThat(agents.revokeNodeToken(cluster.clusterId(), "missing-node")).isFalse();
+    }
+
     private String storedNodeTokenHash(String clusterId, String nodeName) {
         return jdbc.queryForObject(
             "SELECT node_token_hash FROM node_agents WHERE cluster_id = ? AND node_name = ?",

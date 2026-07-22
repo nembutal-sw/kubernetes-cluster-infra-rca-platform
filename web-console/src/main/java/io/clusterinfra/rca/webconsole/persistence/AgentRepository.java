@@ -69,6 +69,8 @@ public class AgentRepository {
             jdbc.update(
                 """
                     UPDATE node_agents SET node_token_hash = ?, agent_version = ?,
+                        node_token_rotated_at = ?, node_token_revoked_at = NULL,
+                        next_node_token_hash = NULL, next_node_token_expires_at = NULL,
                         agent_protocol_version = ?, status = ?,
                         supported_collectors_json = ?, metadata_json = ?, health_json = ?,
                         registered_at = ?, last_heartbeat_at = ?
@@ -76,6 +78,7 @@ public class AgentRepository {
                     """,
                 tokens.hashPassword(nodeToken),
                 agent.agentVersion(),
+                timestamp(now),
                 agent.agentProtocolVersion(),
                 agent.status().name(),
                 json(agent.supportedCollectors()),
@@ -90,15 +93,18 @@ public class AgentRepository {
                 """
                     INSERT INTO node_agents
                         (agent_id, cluster_id, node_name, node_token_hash, agent_version,
+                         node_token_rotated_at, node_token_revoked_at,
                          agent_protocol_version, status,
                          supported_collectors_json, metadata_json, health_json, registered_at, last_heartbeat_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 agent.agentId(),
                 agent.clusterId(),
                 agent.nodeName(),
                 tokens.hashPassword(nodeToken),
                 agent.agentVersion(),
+                timestamp(now),
+                null,
                 agent.agentProtocolVersion(),
                 agent.status().name(),
                 json(agent.supportedCollectors()),
@@ -180,18 +186,86 @@ public class AgentRepository {
         );
     }
 
+    @Transactional
     public boolean verifyNodeToken(String clusterId, String nodeName, String nodeToken) {
+        if (nodeToken == null || nodeToken.isBlank()) {
+            return false;
+        }
         try {
-            String hash = jdbc.queryForObject(
-                "SELECT node_token_hash FROM node_agents WHERE cluster_id = ? AND node_name = ?",
-                String.class,
+            NodeTokenRow row = jdbc.queryForObject(
+                """
+                    SELECT node_token_hash, node_token_revoked_at,
+                           next_node_token_hash, next_node_token_expires_at
+                    FROM node_agents WHERE cluster_id = ? AND node_name = ?
+                    """,
+                (resultSet, rowNumber) -> new NodeTokenRow(
+                    resultSet.getString("node_token_hash"),
+                    instant(resultSet, "node_token_revoked_at"),
+                    resultSet.getString("next_node_token_hash"),
+                    instant(resultSet, "next_node_token_expires_at")
+                ),
                 clusterId,
-                nodeName
+                normalizedNodeName(nodeName)
             );
-            return hash != null && tokens.verifyPassword(nodeToken, hash);
+            if (row == null || row.revokedAt() != null) {
+                return false;
+            }
+            if (row.hash() != null && tokens.verifyPassword(nodeToken, row.hash())) {
+                return true;
+            }
+            if (row.nextHash() == null || row.nextExpiresAt() == null
+                || !Instant.now().isBefore(row.nextExpiresAt())
+                || !tokens.verifyPassword(nodeToken, row.nextHash())) {
+                return false;
+            }
+            jdbc.update(
+                """
+                    UPDATE node_agents
+                    SET node_token_hash = next_node_token_hash, node_token_rotated_at = ?,
+                        next_node_token_hash = NULL, next_node_token_expires_at = NULL
+                    WHERE cluster_id = ? AND node_name = ? AND next_node_token_hash = ?
+                    """,
+                timestamp(Instant.now()),
+                clusterId,
+                normalizedNodeName(nodeName),
+                row.nextHash()
+            );
+            return true;
         } catch (EmptyResultDataAccessException exception) {
             return false;
         }
+    }
+
+    public String rotateNodeToken(String clusterId, String nodeName) {
+        String token = tokens.generateToken();
+        int updated = jdbc.update(
+            """
+                UPDATE node_agents
+                SET next_node_token_hash = ?, next_node_token_expires_at = ?
+                WHERE cluster_id = ? AND node_name = ?
+                """,
+            tokens.hashPassword(token),
+            timestamp(Instant.now().plusSeconds(600)),
+            clusterId,
+            normalizedNodeName(nodeName)
+        );
+        if (updated != 1) {
+            throw new IllegalArgumentException("agent not found: " + clusterId + "/" + nodeName);
+        }
+        return token;
+    }
+
+    public boolean revokeNodeToken(String clusterId, String nodeName) {
+        return jdbc.update(
+            """
+                UPDATE node_agents SET node_token_revoked_at = ?,
+                    next_node_token_hash = NULL, next_node_token_expires_at = NULL
+                WHERE cluster_id = ? AND node_name = ?
+                """,
+            timestamp(Instant.now()),
+            clusterId,
+            normalizedNodeName(nodeName)
+        ) == 1;
     }
 
     private NodeAgent mapAgent(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -256,5 +330,13 @@ public class AgentRepository {
 
     private static String normalizedNodeName(String nodeName) {
         return nodeName == null ? null : nodeName.trim();
+    }
+
+    private record NodeTokenRow(
+        String hash,
+        Instant revokedAt,
+        String nextHash,
+        Instant nextExpiresAt
+    ) {
     }
 }

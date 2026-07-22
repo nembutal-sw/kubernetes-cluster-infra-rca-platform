@@ -59,6 +59,7 @@ public class SecurityConfig {
                     "/api/agents/evidence-requests",
                     "/api/agents/evidence-responses",
                     "/api/agents/realtime-events",
+                    "/api/agents/token/rotate",
                     "/api/agents/action-executions",
                     "/api/agents/action-results",
                     "/api/webhooks/alertmanager",

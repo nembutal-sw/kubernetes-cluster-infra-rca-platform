@@ -54,7 +54,7 @@ class AgentHealthServiceTests {
             "cluster-1",
             "worker-1",
             "0.1.0",
-            "2",
+            "3",
             AgentStatus.healthy,
             List.of("disk", "kernel"),
             Map.of(),
@@ -65,7 +65,7 @@ class AgentHealthServiceTests {
 
         var health = service.classify(incompatible);
         assertThat(health.healthStatus()).isEqualTo(AgentHealthStatus.version_mismatch);
-        assertThat(health.reasons()).anyMatch(reason -> reason.contains("protocol 2"));
+        assertThat(health.reasons()).anyMatch(reason -> reason.contains("protocol 3"));
     }
 
     @Test

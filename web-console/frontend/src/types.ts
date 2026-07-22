@@ -365,6 +365,8 @@ export interface GitOpsChange {
 
 export interface AgentTokenRotateResponse {
   agent_token?: string;
+  issued_at?: string;
+  expires_at?: string;
   note?: string;
   [key: string]: unknown;
 }

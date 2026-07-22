@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.util.UUID;
+import java.time.Duration;
+import java.time.Instant;
+import java.sql.Timestamp;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +59,29 @@ class ClusterRepositoryTests {
         assertThat(repository.verifyBootstrapToken(cluster.clusterId(), rotated.bootstrapToken())).isTrue();
         assertThat(storedBootstrapToken(cluster.clusterId())).isBlank();
         assertThat(storedBootstrapTokenHash(cluster.clusterId())).isNotBlank();
+    }
+
+    @Test
+    void bootstrapTokenHonorsTtlAndExplicitRevocation() {
+        var cluster = repository.create(new ClusterCreateRequest("prod-a", "prod", null));
+        jdbc.update(
+            "UPDATE clusters SET bootstrap_token_rotated_at = ? WHERE cluster_id = ?",
+            Timestamp.from(Instant.now().minus(Duration.ofHours(2))),
+            cluster.clusterId()
+        );
+
+        assertThat(repository.verifyBootstrapToken(
+            cluster.clusterId(), cluster.bootstrapToken(), Duration.ofMinutes(30)
+        )).isFalse();
+
+        var rotated = repository.rotateBootstrapToken(cluster.clusterId());
+        assertThat(repository.verifyBootstrapToken(
+            cluster.clusterId(), rotated.bootstrapToken(), Duration.ofMinutes(30)
+        )).isTrue();
+        assertThat(repository.revokeBootstrapToken(cluster.clusterId())).isTrue();
+        assertThat(repository.verifyBootstrapToken(
+            cluster.clusterId(), rotated.bootstrapToken(), Duration.ofMinutes(30)
+        )).isFalse();
     }
 
     @Test

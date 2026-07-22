@@ -46,7 +46,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 
 ## 현재 구현 상태
 
-- 클러스터 등록·삭제, Agent token 회전과 설치 명령 생성
+- 클러스터 등록·삭제, 등록 전용 bootstrap token TTL·회전·폐기와 설치 명령 생성
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence, Rule-based RCA 품질 gate, LLM provider 추상화
 - incident correlation, 장애 전파 timeline, 영향 범위
@@ -252,6 +252,8 @@ Mode별 추가 옵션:
 | eBPF | `--set mode=ebpf --set ebpf.enabled=true` | 실시간 kernel/network event |
 | Canary | `--set nodeSelector.cluster-infra-rca\.io/agent-canary=true` | label된 노드만 배포 |
 | mTLS | `--set tls.enabled=true --set tls.existingSecret=<tls-secret>` | Agent client 인증서 사용 |
+
+Agent protocol v2는 bootstrap token을 최초 등록에만 사용하고, 이후 요청은 node-scoped Bearer token으로 인증합니다. Bootstrap token은 기본 30분 후 만료되며 `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS`로 조정할 수 있습니다. 만료 뒤 새 노드를 등록하려면 Web Console에서 token을 회전하고 Agent Secret을 갱신한 후 Pod를 다시 생성합니다. 기존 protocol v1의 body credential은 rolling upgrade를 위해 임시 호환됩니다.
 
 자세한 권한과 canary 절차는 [docs/helm-agent-chart.md](docs/helm-agent-chart.md)를 확인합니다.
 

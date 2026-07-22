@@ -25,6 +25,7 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         "/api/agents/evidence-requests",
         "/api/agents/evidence-responses",
         "/api/agents/realtime-events",
+        "/api/agents/token/rotate",
         "/api/agents/action-executions",
         "/api/agents/action-results"
     );
@@ -61,16 +62,20 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
         try {
             JsonNode body = parseBody(wrapped);
             clusterId = requiredText(body, "cluster_id");
-            String agentToken = requiredText(body, "agent_token");
+            String bearerToken = PlatformAuthenticationFilter.bearerToken(
+                wrapped.getHeader("Authorization")
+            );
             if (REGISTER_PATH.equals(path)) {
-                access.verifyBootstrapToken(clusterId, agentToken);
+                access.verifyBootstrapToken(
+                    clusterId,
+                    credential(bearerToken, optionalText(body, "agent_token"))
+                );
             } else {
                 nodeName = requiredText(body, "node_name");
-                access.verifyAgentIdentity(
+                access.verifyNodeIdentity(
                     clusterId,
                     nodeName,
-                    agentToken,
-                    requiredText(body, "node_token")
+                    credential(bearerToken, optionalText(body, "node_token"))
                 );
             }
             request.setAttribute("rca.authenticated_cluster_id", clusterId);
@@ -106,11 +111,30 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private String requiredText(JsonNode body, String field) {
-        String value = body.path(field).asText("").trim();
+        String value = optionalText(body, field);
         if (value.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent credentials required");
         }
         return value;
+    }
+
+    private String optionalText(JsonNode body, String field) {
+        return body.path(field).asText("").trim();
+    }
+
+    private String credential(String bearerToken, String legacyBodyToken) {
+        boolean hasBearer = bearerToken != null && !bearerToken.isBlank();
+        boolean hasLegacy = legacyBodyToken != null && !legacyBodyToken.isBlank();
+        if (hasBearer && hasLegacy && !bearerToken.equals(legacyBodyToken)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "conflicting agent credentials");
+        }
+        if (hasBearer) {
+            return bearerToken;
+        }
+        if (hasLegacy) {
+            return legacyBodyToken;
+        }
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent credentials required");
     }
 
     private void auditFailure(

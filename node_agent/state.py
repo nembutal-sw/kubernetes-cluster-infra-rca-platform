@@ -55,6 +55,12 @@ class AgentStateStore:
             mode=0o600,
         )
 
+    def clear_node_token(self) -> None:
+        try:
+            (self.state_dir / "identity.json").unlink()
+        except FileNotFoundError:
+            pass
+
     def enqueue_response(self, payload: dict[str, Any]) -> None:
         request_id = str(payload.get("request_id") or "").strip()
         if not request_id:

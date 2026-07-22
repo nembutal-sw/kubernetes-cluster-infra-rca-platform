@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 import urllib.error
@@ -20,7 +21,7 @@ class AgentClient:
     backend_url: str
     cluster_id: str
     node_name: str
-    agent_token: str
+    agent_token: str | None
     node_token: str | None = None
     timeout_seconds: float = 10
     ca_bundle: str | None = None
@@ -32,19 +33,21 @@ class AgentClient:
         agent_version: str,
         supported_collectors: list[str],
         metadata: dict[str, Any],
-        agent_protocol_version: str = "1",
+        agent_protocol_version: str = "2",
     ) -> dict[str, Any]:
+        if not self.agent_token:
+            raise AgentClientError("agent_token is missing; bootstrap registration is required")
         response = self._post(
             "/api/agents/register",
             {
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
-                "agent_token": self.agent_token,
                 "agent_version": agent_version,
                 "agent_protocol_version": agent_protocol_version,
                 "supported_collectors": supported_collectors,
                 "metadata": metadata,
             },
+            bearer_token=self.agent_token,
         )
         node_token = response.get("node_token") if isinstance(response, dict) else None
         if not isinstance(node_token, str) or not node_token:
@@ -58,21 +61,20 @@ class AgentClient:
         supported_collectors: list[str],
         health: dict[str, Any],
         status: str = "healthy",
-        agent_protocol_version: str = "1",
+        agent_protocol_version: str = "2",
     ) -> dict[str, Any]:
         return self._post(
             "/api/agents/heartbeat",
             {
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
-                "agent_token": self.agent_token,
-                "node_token": self._required_node_token(),
                 "status": status,
                 "agent_version": agent_version,
                 "agent_protocol_version": agent_protocol_version,
                 "supported_collectors": supported_collectors,
                 "health": health,
             },
+            bearer_token=self._required_node_token(),
         )
 
     def poll_evidence_requests(self, limit: int = 10) -> list[dict[str, Any]]:
@@ -81,10 +83,9 @@ class AgentClient:
             {
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
-                "agent_token": self.agent_token,
-                "node_token": self._required_node_token(),
                 "limit": limit,
             },
+            bearer_token=self._required_node_token(),
         )
         if not isinstance(response, list):
             raise AgentClientError("backend returned non-list evidence request response")
@@ -101,13 +102,15 @@ class AgentClient:
             "request_id": request_id,
             "cluster_id": self.cluster_id,
             "node_name": self.node_name,
-            "agent_token": self.agent_token,
-            "node_token": self._required_node_token(),
             "status": status,
             "collectors": collectors or {},
             "error_message": error_message,
         }
-        return self._post("/api/agents/evidence-responses", payload)
+        return self._post(
+            "/api/agents/evidence-responses",
+            payload,
+            bearer_token=self._required_node_token(),
+        )
 
     def submit_realtime_events(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         response = self._post(
@@ -115,31 +118,50 @@ class AgentClient:
             {
                 "cluster_id": self.cluster_id,
                 "node_name": self.node_name,
-                "agent_token": self.agent_token,
-                "node_token": self._required_node_token(),
                 "events": events,
             },
+            bearer_token=self._required_node_token(),
         )
         if not isinstance(response, list):
             raise AgentClientError("backend returned non-list realtime event response")
         return response
+
+    def request_node_token_rotation(self) -> str:
+        response = self._post(
+            "/api/agents/token/rotate",
+            {
+                "cluster_id": self.cluster_id,
+                "node_name": self.node_name,
+            },
+            bearer_token=self._required_node_token(),
+        )
+        node_token = response.get("node_token") if isinstance(response, dict) else None
+        if not isinstance(node_token, str) or not node_token:
+            raise AgentClientError("backend token rotation response did not include node_token")
+        return node_token
 
     def _required_node_token(self) -> str:
         if not self.node_token:
             raise AgentClientError("node_token is missing; register the agent before sending node requests")
         return self.node_token
 
-    def _post(self, path: str, payload: dict[str, Any]) -> Any:
+    def discard_bootstrap_token(self) -> None:
+        self.agent_token = None
+        os.environ.pop("AGENT_TOKEN", None)
+
+    def _post(self, path: str, payload: dict[str, Any], *, bearer_token: str) -> Any:
         url = self.backend_url.rstrip("/") + path
         data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "cluster-infra-rca-agent",
+            "Authorization": f"Bearer {bearer_token}",
+        }
         request = urllib.request.Request(
             url,
             data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "cluster-infra-rca-agent",
-            },
+            headers=headers,
             method="POST",
         )
 

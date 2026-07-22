@@ -72,7 +72,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
-    private static final int FLYWAY_MIGRATION_COUNT = 20;
+    private static final int FLYWAY_MIGRATION_COUNT = 21;
     private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
@@ -219,6 +219,13 @@ class DatabaseCompatibilityTests {
         ))).isPresent();
         assertThat(agents.find(cluster.clusterId(), "worker-a").orElseThrow().agentProtocolVersion())
             .isEqualTo("1");
+
+        String pendingNodeToken = agents.rotateNodeToken(cluster.clusterId(), "worker-a");
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "worker-a", registration.nodeToken())).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "worker-a", pendingNodeToken)).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "worker-a", registration.nodeToken())).isFalse();
+        assertThat(agents.revokeNodeToken(cluster.clusterId(), "worker-a")).isTrue();
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "worker-a", pendingNodeToken)).isFalse();
 
         EvidenceRequest evidenceRequest = evidence.createRequest(new EvidenceRequestCreateRequest(
             cluster.clusterId(),

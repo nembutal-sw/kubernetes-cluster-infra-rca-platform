@@ -177,7 +177,7 @@ class SecurityBoundaryRegressionTests {
             jsonEntity(Map.of(
                 "cluster_id", cluster.clusterId(),
                 "node_name", "worker-a",
-                "agent_token", cluster.bootstrapToken(),
+                "agent_token", "legacy-bootstrap-is-not-used-after-registration",
                 "node_token", nodeToken,
                 "status", "healthy"
             )),
@@ -190,6 +190,130 @@ class SecurityBoundaryRegressionTests {
             .contains("reason")
             .contains("invalid node token")
             .contains("client_ip");
+    }
+
+    @Test
+    void agentProtocolV2UsesNodeBearerAndSupportsRotationAndRevocation() throws Exception {
+        ClusterFixture cluster = createCluster();
+        ResponseEntity<String> registered = restTemplate.exchange(
+            "/api/agents/register",
+            HttpMethod.POST,
+            agentEntity(cluster.bootstrapToken(), Map.of(
+                "cluster_id", cluster.clusterId(),
+                "node_name", "worker-v2",
+                "agent_version", "0.1.0",
+                "agent_protocol_version", "2"
+            )),
+            String.class
+        );
+        assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String nodeToken = objectMapper.readTree(registered.getBody()).path("node_token").asText();
+
+        Map<String, Object> heartbeat = Map.of(
+            "cluster_id", cluster.clusterId(),
+            "node_name", "worker-v2",
+            "status", "healthy",
+            "agent_protocol_version", "2"
+        );
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(nodeToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> bootstrapRevoked = exchange(
+            cluster.adminToken(),
+            HttpMethod.POST,
+            "/api/clusters/" + cluster.clusterId() + "/agent-token/revoke",
+            Map.of()
+        );
+        assertThat(bootstrapRevoked.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(nodeToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(restTemplate.exchange(
+            "/api/agents/register",
+            HttpMethod.POST,
+            agentEntity(cluster.bootstrapToken(), Map.of(
+                "cluster_id", cluster.clusterId(),
+                "node_name", "worker-after-revoke",
+                "agent_version", "0.1.0",
+                "agent_protocol_version", "2"
+            )),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> bootstrapReuse = restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(cluster.bootstrapToken(), heartbeat),
+            String.class
+        );
+        assertThat(bootstrapReuse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(bootstrapReuse.getBody()).contains("invalid node token");
+
+        ResponseEntity<String> conflicting = restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(nodeToken, Map.of(
+                "cluster_id", cluster.clusterId(),
+                "node_name", "worker-v2",
+                "node_token", "different-token"
+            )),
+            String.class
+        );
+        assertThat(conflicting.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(conflicting.getBody()).contains("conflicting agent credentials");
+
+        ResponseEntity<String> rotated = restTemplate.exchange(
+            "/api/agents/token/rotate",
+            HttpMethod.POST,
+            agentEntity(nodeToken, Map.of(
+                "cluster_id", cluster.clusterId(),
+                "node_name", "worker-v2"
+            )),
+            String.class
+        );
+        assertThat(rotated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String rotatedToken = objectMapper.readTree(rotated.getBody()).path("node_token").asText();
+        assertThat(rotatedToken).isNotBlank().isNotEqualTo(nodeToken);
+        assertThat(auditCount("agent.node_token_rotation_requested")).isGreaterThanOrEqualTo(1);
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(nodeToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(rotatedToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(nodeToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        ResponseEntity<String> revoked = exchange(
+            cluster.adminToken(),
+            HttpMethod.POST,
+            "/api/clusters/" + cluster.clusterId() + "/agents/worker-v2/token/revoke",
+            Map.of()
+        );
+        assertThat(revoked.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(restTemplate.exchange(
+            "/api/agents/heartbeat",
+            HttpMethod.POST,
+            agentEntity(rotatedToken, heartbeat),
+            String.class
+        ).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
@@ -320,6 +444,15 @@ class SecurityBoundaryRegressionTests {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Forwarded-For", "203.0.113.20");
         headers.set("User-Agent", "SecurityBoundaryRegressionTests/1.0");
+        return new HttpEntity<>(body, headers);
+    }
+
+    private HttpEntity<Object> agentEntity(String token, Object body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+        headers.set("X-Forwarded-For", "203.0.113.21");
+        headers.set("User-Agent", "SecurityBoundaryRegressionTests/2.0");
         return new HttpEntity<>(body, headers);
     }
 

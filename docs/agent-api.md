@@ -6,7 +6,7 @@ Node Agent API는 각 Kubernetes 노드에 배포된 Python Agent가 Platform에
 
 현재 설계에서 Agent는 **host mutation을 실행하지 않습니다.** 예전 승인 조치 실행 API는 호환성 목적으로 남아 있지만, action polling은 빈 목록을 반환하고 action result submit은 `410 Gone`으로 차단됩니다. 운영 조치는 approval/audit/manual runbook 또는 GitOps PR 흐름으로만 처리합니다.
 
-Agent는 `agent_token`과 노드별 `node_token`을 함께 사용합니다. 등록 시에는 bootstrap token 역할의 `agent_token`만 필요하고, 등록 후에는 backend가 발급한 `node_token`을 로컬 state directory에 저장한 뒤 heartbeat/evidence/realtime event 요청에 함께 보냅니다.
+Agent protocol v2는 bootstrap token과 node token의 수명을 분리합니다. Bootstrap token은 최초 등록에만 Bearer credential로 사용하고 기본 30분 뒤 만료됩니다. 등록 후에는 backend가 발급한 node token만 로컬 state directory에 저장해 heartbeat/evidence/realtime 요청의 Bearer credential로 사용합니다. Agent는 등록 성공 직후 bootstrap token을 프로세스 환경과 메모리에서 제거합니다.
 
 ---
 
@@ -20,6 +20,7 @@ POST /api/agents/heartbeat
 POST /api/agents/evidence-requests
 POST /api/agents/evidence-responses
 POST /api/agents/realtime-events
+POST /api/agents/token/rotate
 POST /api/agents/action-executions   # deprecated compatibility endpoint
 POST /api/agents/action-results      # disabled, returns 410 Gone
 ```
@@ -30,15 +31,14 @@ All agent endpoints are permitted by the HTTP authorization rules but are authen
 
 ### Register
 
-`/api/agents/register` requires:
+`/api/agents/register` requires `Authorization: Bearer <bootstrap-token>`:
 
 ```json
 {
   "cluster_id": "cluster-1",
   "node_name": "worker-1",
-  "agent_token": "cluster-bootstrap-token",
   "agent_version": "0.1.0",
-  "agent_protocol_version": "1",
+  "agent_protocol_version": "2",
   "supported_collectors": ["node", "disk", "kernel", "kubelet"],
   "metadata": {
     "kernel": "6.8.0",
@@ -55,7 +55,7 @@ The response includes a node-specific token.
   "cluster_id": "cluster-1",
   "node_name": "worker-1",
   "agent_version": "0.1.0",
-  "agent_protocol_version": "1",
+  "agent_protocol_version": "2",
   "status": "registered",
   "node_token": "node-specific-token"
 }
@@ -63,15 +63,15 @@ The response includes a node-specific token.
 
 ### Heartbeat
 
+Registration 이후 요청은 `Authorization: Bearer <node-token>`을 사용합니다.
+
 ```json
 {
   "cluster_id": "cluster-1",
   "node_name": "worker-1",
-  "agent_token": "cluster-bootstrap-token",
-  "node_token": "node-specific-token",
   "status": "healthy",
   "agent_version": "0.1.0",
-  "agent_protocol_version": "1",
+  "agent_protocol_version": "2",
   "supported_collectors": ["node", "disk", "kernel"],
   "health": {
     "agent": "running",
@@ -123,7 +123,7 @@ Response shape:
 {
   "platform_version": "0.1.0",
   "api_version": "v1",
-  "agent_protocol_version": "1",
+  "agent_protocol_version": "2",
   "minimum_supported_agent_protocol_version": "1",
   "minimum_supported_agent_version": "0.1.0",
   "export_security": {
@@ -139,16 +139,20 @@ Response shape:
 
 Agents that omit `agent_protocol_version` are treated as protocol `1`. Unsupported versions are not immediately rejected in the current soft-compatibility mode; they appear as `version_mismatch` in Agent Health.
 
+Protocol v1 body credentials remain temporarily accepted during migration. If an Authorization header and a legacy body credential are both present but differ, the request is rejected. Protocol v2 never sends credentials in JSON.
+
 ## Evidence Polling
 
 Agents poll read-only evidence work with:
+
+```text
+Authorization: Bearer <node-token>
+```
 
 ```json
 {
   "cluster_id": "cluster-1",
   "node_name": "worker-1",
-  "agent_token": "cluster-bootstrap-token",
-  "node_token": "node-specific-token",
   "limit": 10
 }
 ```
@@ -157,13 +161,13 @@ The platform returns pending evidence requests assigned to the node.
 
 ## Evidence Submit
 
+Header: `Authorization: Bearer <node-token>`
+
 ```json
 {
   "request_id": "request-...",
   "cluster_id": "cluster-1",
   "node_name": "worker-1",
-  "agent_token": "cluster-bootstrap-token",
-  "node_token": "node-specific-token",
   "status": "completed",
   "collectors": {
     "disk": {"root_usage_percent": 96.0},
@@ -178,6 +182,16 @@ Only `completed` and `failed` are valid response states. Submitted evidence may 
 ## Realtime Events
 
 `/api/agents/realtime-events` accepts eBPF or realtime event batches. eBPF is optional and disabled by default.
+
+## Token Lifecycle
+
+- Bootstrap token TTL: `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS`, default `1800`
+- Admin rotation: `POST /api/clusters/{cluster_id}/agent-token/rotate`
+- Admin bootstrap revoke: `POST /api/clusters/{cluster_id}/agent-token/revoke`
+- Node self-rotation: `POST /api/agents/token/rotate` (10분 pending token 발급, 새 token의 첫 인증 성공 시 승격)
+- Admin node revoke: `POST /api/clusters/{cluster_id}/agents/{node_name}/token/revoke`
+
+Node token 인증이 거부되면 Agent는 bootstrap token을 자동 재사용하지 않습니다. 로컬 node identity를 삭제하고 종료하며, 운영자가 bootstrap token을 회전하고 Agent Secret/Pod를 갱신해 명시적으로 재등록해야 합니다.
 
 ## Deprecated Action Endpoints
 

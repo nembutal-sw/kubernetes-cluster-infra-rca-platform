@@ -35,6 +35,7 @@ EXPECTED_AGENT_PATHS = {
     "/api/agents/evidence-requests",
     "/api/agents/evidence-responses",
     "/api/agents/realtime-events",
+    "/api/agents/token/rotate",
     "/api/agents/action-executions",
     "/api/agents/action-results",
 }
@@ -226,8 +227,10 @@ def validate_endpoint(endpoint: Endpoint) -> list[dict[str, object]]:
         findings.append(endpoint_record(endpoint, "failed", "mutating_endpoint_allows_viewer"))
     if ("/export" in path or "/bundle" in path) and {"VIEWER", "APPROVER"} & roles:
         findings.append(endpoint_record(endpoint, "failed", "sensitive_export_allows_viewer_or_approver"))
-    if path.endswith("/agent-token/rotate") and roles != {"ADMIN"}:
-        findings.append(endpoint_record(endpoint, "failed", "agent_token_rotation_must_be_admin_only"))
+    token_admin_path = path.endswith("/agent-token/rotate") or path.endswith("/agent-token/revoke") \
+        or bool(re.fullmatch(r"/api/clusters/\{[^/]+}/agents/\{[^/]+}/token/revoke", path))
+    if token_admin_path and roles != {"ADMIN"}:
+        findings.append(endpoint_record(endpoint, "failed", "agent_token_lifecycle_must_be_admin_only"))
     if endpoint.method == "DELETE" and re.fullmatch(r"/api/clusters/\{[^/]+}", path) and roles != {"ADMIN"}:
         findings.append(endpoint_record(endpoint, "failed", "cluster_delete_must_be_admin_only"))
     return findings

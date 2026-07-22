@@ -8,6 +8,7 @@ import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
 import io.clusterinfra.rca.webconsole.service.ManifestTokenService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,8 +44,7 @@ public class AccessService {
         return user;
     }
 
-    public void verifyAgentIdentity(String clusterId, String nodeName, String agentToken, String nodeToken) {
-        verifyBootstrapToken(clusterId, agentToken);
+    public void verifyNodeIdentity(String clusterId, String nodeName, String nodeToken) {
         if (!agents.verifyNodeToken(clusterId, nodeName, nodeToken)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid node token");
         }
@@ -52,7 +52,10 @@ public class AccessService {
 
     public void verifyBootstrapToken(String clusterId, String agentToken) {
         clusters.find(clusterId).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "cluster not found"));
-        if (!clusters.verifyBootstrapToken(clusterId, agentToken)) {
+        Duration tokenTtl = Duration.ofSeconds(
+            properties.getSecurity().getAgentBootstrapTokenTtlSeconds()
+        );
+        if (!clusters.verifyBootstrapToken(clusterId, agentToken, tokenTtl)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid agent token");
         }
     }

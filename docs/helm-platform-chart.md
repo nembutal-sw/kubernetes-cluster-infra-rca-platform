@@ -50,7 +50,7 @@ platform:
     agentOfflineAfterSeconds: 180
     agentExpectedVersion: ""
     agentMinimumSupportedVersion: "0.1.0"
-    agentProtocolVersion: "1"
+    agentProtocolVersion: "2"
     agentMinimumSupportedProtocolVersion: "1"
     platformVersion: "0.1.0"
     monitoringEnabled: false

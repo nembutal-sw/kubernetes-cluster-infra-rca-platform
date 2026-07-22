@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.config;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +13,7 @@ class AgentProtocolConfigurationValidatorTests {
 
         assertThatCode(() -> new AgentProtocolConfigurationValidator(properties).afterPropertiesSet())
             .doesNotThrowAnyException();
+        assertThat(properties.getAgent().getProtocolVersion()).isEqualTo("2");
     }
 
     @Test
@@ -37,5 +39,17 @@ class AgentProtocolConfigurationValidatorTests {
         )
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("RCA_AGENT_MINIMUM_SUPPORTED_VERSION");
+    }
+
+    @Test
+    void bootstrapTokenTtlMustAllowEnrollmentWindow() {
+        RcaConsoleProperties properties = new RcaConsoleProperties();
+        properties.getSecurity().setAgentBootstrapTokenTtlSeconds(59);
+
+        assertThatThrownBy(
+            () -> new AgentProtocolConfigurationValidator(properties).afterPropertiesSet()
+        )
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS");
     }
 }

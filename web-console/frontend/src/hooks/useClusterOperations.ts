@@ -86,8 +86,8 @@ export function useClusterOperations(options: ClusterOperationsOptions) {
     setInstallCommand({
       cluster_id: cluster.cluster_id,
       namespace: "cluster-infra-rca",
-      commands: [`New agent token: ${result.agent_token || ""}`],
-      notes: result.note ? [result.note] : [],
+      commands: [`New registration token: ${result.agent_token || ""}`],
+      notes: [result.note || "", result.expires_at ? `Expires at: ${result.expires_at}` : ""].filter(Boolean),
     });
   }, [callApi, notify, setInstallCommand, t]);
 

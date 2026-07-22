@@ -57,19 +57,17 @@ Examples:
 
 ## Agent Authentication
 
-Agent registration uses a cluster-level credential. After registration, the platform issues a node-specific credential.
+Agent protocol v2 uses a short-lived cluster credential only for registration. After registration, the platform issues a node-specific credential and the Agent removes the bootstrap credential from its process environment.
 
 Subsequent agent calls must identify:
 
 - cluster
 - node name
-- cluster credential
 - node credential
 
-The platform verifies these fields before processing heartbeat, evidence, and realtime event calls.
+The platform verifies the cluster/node binding and node-scoped Bearer credential before processing heartbeat, evidence, token rotation, and realtime event calls. Legacy protocol v1 body credentials remain temporarily accepted for rolling upgrades.
 
-Administrators can rotate the cluster credential. The old credential becomes invalid immediately,
-and the replacement value is returned once for Kubernetes Secret update.
+The bootstrap credential expires after `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS` (default 1800 seconds). Administrators can rotate or revoke it, and can revoke individual node credentials. Nodes can rotate their own credential after authenticating with the current value.
 
 ## Webhook Authentication
 

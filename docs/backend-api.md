@@ -100,7 +100,7 @@ Requires an authenticated platform user.
 {
   "platform_version": "0.1.0",
   "api_version": "v1",
-  "agent_protocol_version": "1",
+  "agent_protocol_version": "2",
   "minimum_supported_agent_protocol_version": "1",
   "minimum_supported_agent_version": "0.1.0",
   "export_security": {
@@ -138,6 +138,9 @@ DELETE /api/clusters/{cluster_id}
 GET    /api/clusters/{cluster_id}/install-command
 GET    /api/clusters/{cluster_id}/agent-manifest
 POST   /api/clusters/{cluster_id}/agent-token/rotate
+POST   /api/clusters/{cluster_id}/agent-token/revoke
+POST   /api/clusters/{cluster_id}/agents/{node_name}/token/revoke
+POST   /api/agents/token/rotate
 GET    /api/clusters/{cluster_id}/topology/history
 GET    /api/clusters/{cluster_id}/topology/compare
 GET    /api/clusters/{cluster_id}/agent-health

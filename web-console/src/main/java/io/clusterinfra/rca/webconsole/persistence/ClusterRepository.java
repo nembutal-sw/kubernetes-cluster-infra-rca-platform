@@ -9,6 +9,7 @@ import java.security.MessageDigest;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -143,26 +144,48 @@ public class ClusterRepository {
         );
     }
 
+    public boolean revokeBootstrapToken(String clusterId) {
+        return jdbc.update(
+            "UPDATE clusters SET bootstrap_token_revoked_at = ? WHERE cluster_id = ?",
+            timestamp(Instant.now()),
+            clusterId
+        ) == 1;
+    }
+
     @Transactional
     public boolean verifyBootstrapToken(String clusterId, String token) {
+        return verifyBootstrapToken(clusterId, token, null);
+    }
+
+    @Transactional
+    public boolean verifyBootstrapToken(String clusterId, String token, Duration maximumAge) {
         if (token == null || token.isBlank()) {
             return false;
         }
         try {
             ClusterTokenRow row = jdbc.queryForObject(
                 """
-                    SELECT bootstrap_token, bootstrap_token_hash, bootstrap_token_revoked_at
+                    SELECT bootstrap_token, bootstrap_token_hash, bootstrap_token_revoked_at,
+                           bootstrap_token_rotated_at, created_at
                     FROM clusters
                     WHERE cluster_id = ?
                     """,
                 (resultSet, rowNumber) -> new ClusterTokenRow(
                     resultSet.getString("bootstrap_token"),
                     resultSet.getString("bootstrap_token_hash"),
-                    instant(resultSet, "bootstrap_token_revoked_at")
+                    instant(resultSet, "bootstrap_token_revoked_at"),
+                    instant(resultSet, "bootstrap_token_rotated_at"),
+                    instant(resultSet, "created_at")
                 ),
                 clusterId
             );
             if (row == null || row.revokedAt() != null) {
+                return false;
+            }
+            Instant issuedAt = row.rotatedAt() == null ? row.createdAt() : row.rotatedAt();
+            if (maximumAge != null
+                && (maximumAge.isZero() || maximumAge.isNegative()
+                    || issuedAt == null || !Instant.now().isBefore(issuedAt.plus(maximumAge)))) {
                 return false;
             }
             boolean verified = false;
@@ -249,6 +272,12 @@ public class ClusterRepository {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private record ClusterTokenRow(String legacyPlaintextToken, String hash, Instant revokedAt) {
+    private record ClusterTokenRow(
+        String legacyPlaintextToken,
+        String hash,
+        Instant revokedAt,
+        Instant rotatedAt,
+        Instant createdAt
+    ) {
     }
 }

@@ -147,7 +147,7 @@ public class RcaConsoleProperties {
         private String namespace = "rca-system";
         private String expectedVersion = "";
         private String minimumSupportedVersion = "0.1.0";
-        private String protocolVersion = "1";
+        private String protocolVersion = "2";
         private String minimumSupportedProtocolVersion = "1";
         private String platformVersion = "0.1.0";
         private int pollIntervalSeconds = 30;
@@ -187,7 +187,7 @@ public class RcaConsoleProperties {
         }
 
         public String getProtocolVersion() {
-            return protocolVersion == null ? "1" : protocolVersion.trim();
+            return protocolVersion == null ? "2" : protocolVersion.trim();
         }
 
         public void setProtocolVersion(String protocolVersion) {
@@ -709,6 +709,7 @@ public class RcaConsoleProperties {
         private long standardRequestMaxBytes = 1024 * 1024;
         private long evidenceRequestMaxBytes = 10 * 1024 * 1024;
         private int manifestTokenTtlSeconds = 300;
+        private int agentBootstrapTokenTtlSeconds = 1800;
         private boolean agentMtlsRequired;
 
         public String getEncryptionSecret() {
@@ -741,6 +742,14 @@ public class RcaConsoleProperties {
 
         public void setManifestTokenTtlSeconds(int manifestTokenTtlSeconds) {
             this.manifestTokenTtlSeconds = manifestTokenTtlSeconds;
+        }
+
+        public int getAgentBootstrapTokenTtlSeconds() {
+            return agentBootstrapTokenTtlSeconds;
+        }
+
+        public void setAgentBootstrapTokenTtlSeconds(int agentBootstrapTokenTtlSeconds) {
+            this.agentBootstrapTokenTtlSeconds = agentBootstrapTokenTtlSeconds;
         }
 
         public boolean isAgentMtlsRequired() {

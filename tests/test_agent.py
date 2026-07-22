@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1053,14 +1054,19 @@ def test_agent_client_posts_expected_payloads() -> None:
             "/api/agents/evidence-responses",
         ]
         assert server.records[0]["payload"]["cluster_id"] == "cluster-1"
-        assert server.records[0]["payload"]["agent_token"] == "token-1"
-        assert server.records[0]["payload"]["agent_protocol_version"] == "1"
-        assert server.records[1]["payload"]["node_token"] == "node-token-1"
-        assert server.records[1]["payload"]["agent_protocol_version"] == "1"
+        assert "agent_token" not in server.records[0]["payload"]
+        assert server.records[0]["authorization"] == "Bearer token-1"
+        assert server.records[0]["payload"]["agent_protocol_version"] == "2"
+        assert "node_token" not in server.records[1]["payload"]
+        assert "agent_token" not in server.records[1]["payload"]
+        assert server.records[1]["authorization"] == "Bearer node-token-1"
+        assert server.records[1]["payload"]["agent_protocol_version"] == "2"
         assert server.records[2]["payload"]["limit"] == 5
-        assert server.records[2]["payload"]["node_token"] == "node-token-1"
+        assert "node_token" not in server.records[2]["payload"]
+        assert server.records[2]["authorization"] == "Bearer node-token-1"
         assert server.records[3]["payload"]["collectors"]["node"]["status"] == "ok"
-        assert server.records[3]["payload"]["node_token"] == "node-token-1"
+        assert "node_token" not in server.records[3]["payload"]
+        assert server.records[3]["authorization"] == "Bearer node-token-1"
     finally:
         server.close()
 
@@ -1112,6 +1118,43 @@ def test_agent_client_requires_registration_before_node_requests() -> None:
         client.heartbeat("0.1.0", ["node"], {})
 
 
+def test_agent_client_requests_pending_token_rotation_without_switching_early() -> None:
+    server = _TestHttpServer({
+        "/api/agents/token/rotate": (200, {"node_token": "node-token-2"}),
+    })
+    try:
+        client = AgentClient(
+            server.url,
+            "cluster-1",
+            "worker-1",
+            None,
+            node_token="node-token-1",
+            timeout_seconds=2,
+        )
+
+        assert client.request_node_token_rotation() == "node-token-2"
+        assert client.node_token == "node-token-1"
+        assert server.records[0]["authorization"] == "Bearer node-token-1"
+        assert server.records[0]["payload"] == {
+            "cluster_id": "cluster-1",
+            "node_name": "worker-1",
+        }
+    finally:
+        server.close()
+
+
+def test_agent_client_discards_bootstrap_token_after_enrollment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_TOKEN", "bootstrap-token")
+    client = AgentClient("http://127.0.0.1:1", "cluster-1", "worker-1", "bootstrap-token")
+
+    client.discard_bootstrap_token()
+
+    assert client.agent_token is None
+    assert "AGENT_TOKEN" not in os.environ
+    with pytest.raises(AgentClientError, match="bootstrap registration is required"):
+        client.register("0.1.0", ["node"], {})
+
+
 def test_agent_state_persists_identity_and_spooled_response(tmp_path: Path) -> None:
     state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
     state.save_node_token("node-token-1")
@@ -1131,6 +1174,8 @@ def test_agent_state_persists_identity_and_spooled_response(tmp_path: Path) -> N
 
     reloaded.acknowledge_response("evidence-request-1")
     assert reloaded.pending_responses() == []
+    reloaded.clear_node_token()
+    assert reloaded.load_node_token() is None
 
 
 def test_spooled_response_is_retried_without_recollecting(tmp_path: Path) -> None:
@@ -1360,7 +1405,11 @@ class _TestHttpServer:
                 length = int(self.headers.get("Content-Length", "0"))
                 raw_body = self.rfile.read(length).decode("utf-8")
                 payload = json.loads(raw_body) if raw_body else {}
-                records.append({"path": self.path, "payload": payload})
+                records.append({
+                    "path": self.path,
+                    "payload": payload,
+                    "authorization": self.headers.get("Authorization"),
+                })
 
                 status_code, response_body = routes.get(self.path, (404, {"detail": "not found"}))
                 if isinstance(response_body, str):

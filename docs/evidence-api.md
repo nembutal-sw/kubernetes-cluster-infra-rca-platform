@@ -45,14 +45,18 @@ Authorization: Bearer <access_token>
 
 `POST /api/agents/evidence-requests`
 
+Header:
+
+```text
+Authorization: Bearer <node-token>
+```
+
 요청:
 
 ```json
 {
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
-  "agent_token": "bootstrap-token",
-  "node_token": "node-specific-token",
   "limit": 10
 }
 ```
@@ -63,6 +67,8 @@ Authorization: Bearer <access_token>
 
 `POST /api/agents/evidence-responses`
 
+Header: `Authorization: Bearer <node-token>`
+
 성공 응답:
 
 ```json
@@ -70,8 +76,6 @@ Authorization: Bearer <access_token>
   "request_id": "evidence-request-12345678",
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
-  "agent_token": "bootstrap-token",
-  "node_token": "node-specific-token",
   "status": "completed",
   "collectors": {
     "systemd": {
@@ -91,8 +95,6 @@ Authorization: Bearer <access_token>
   "request_id": "evidence-request-12345678",
   "cluster_id": "cluster-12345678",
   "node_name": "worker-3",
-  "agent_token": "bootstrap-token",
-  "node_token": "node-specific-token",
   "status": "failed",
   "error_message": "journalctl timed out"
 }
@@ -101,7 +103,8 @@ Authorization: Bearer <access_token>
 제약:
 
 - `status`는 `completed` 또는 `failed`만 허용합니다.
-- `agent_token`과 `node_token`이 모두 맞아야 합니다.
+- node 이름과 node-scoped Bearer token이 일치해야 합니다.
+- bootstrap token은 등록 이후 evidence 요청에 사용할 수 없습니다.
 - request가 다른 node에 할당되어 있으면 `403`
 - 이미 닫힌 request면 `409`
 - 성공 응답은 `evidence_bundles` row를 만들고 request에 `evidence_id`를 연결합니다.
