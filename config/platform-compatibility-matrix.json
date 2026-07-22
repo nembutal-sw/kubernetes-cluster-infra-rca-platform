@@ -92,6 +92,9 @@
       "validation_level": "contract_fixture",
       "profiles": [],
       "notes": [
+        "Official-source contract fixtures cover system and user pools, node auto-provisioning, Virtual Nodes, and Windows pools.",
+        "The Linux Agent excludes Virtual Nodes and Windows pools; node auto-provisioning starts with safe mode.",
+        "Azure CNI and Azure CNI powered by Cilium remain separate fingerprint dimensions.",
         "Provider detection is tested; a real managed-node canary is pending."
       ]
     },

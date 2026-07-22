@@ -439,6 +439,23 @@ Extended workflow run `29857828475`는 300/300 checkpoint, 900/900 Agent Evidenc
 `contract_fixture`를 유지하고, 실제 EKS preflight와 applied canary artifact를 검토한 뒤에만 별도
 승인 PR로 변경합니다. 다음 managed platform fixture는 AKS, GKE, OpenShift 순으로 확장합니다.
 
+## Phase 23. AKS Document-Backed Canary Contract
+
+실제 AKS 노드 없이 완료한 범위:
+
+- 2026-07-21 기준 Microsoft Learn 공식 문서로 계약과 지원 경계 확인
+- Ubuntu amd64 system pool과 Azure CNI Overlay fixture
+- Azure Linux 3 arm64 user pool과 Azure CNI powered by Cilium fixture
+- Karpenter label 기반 NAP 판별과 `safe` 우선 배포 계약
+- Virtual Kubelet node와 Windows node pool의 Linux Agent 배포 차단
+- Agent Helm chart의 Linux node selector 기본값
+- EKS와 AKS를 함께 검사하는 multi-catalog freshness 및 CI gate
+
+AKS Automatic과 Standard NAP은 Kubernetes snapshot에서 같은 Karpenter/Cilium 신호를 보일 수 있어
+`node_auto_provisioning`으로만 기록합니다. 이 단계도 real Agent E2E가 아니며
+`contract_fixture_only`를 유지합니다. 다음 문서 기반 계약 대상은 GKE이며, managed platform을
+`verified_real`로 승격하는 작업은 별도 real canary와 수동 승인 PR 이후에만 수행합니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

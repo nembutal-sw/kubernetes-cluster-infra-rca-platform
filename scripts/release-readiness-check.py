@@ -346,6 +346,7 @@ def main() -> int:
             and exists("scripts/managed-canary-attestation.py")
             and exists("scripts/managed-platform-contract-check.py")
             and exists("tests/fixtures/managed-platforms/eks-contracts.json")
+            and exists("tests/fixtures/managed-platforms/aks-contracts.json")
             and contains(
                 ".github/workflows/managed-cluster-canary.yml",
                 "workflow_dispatch:",
@@ -365,6 +366,7 @@ def main() -> int:
                 "lifecycle cleanup state must be",
                 "applied canary evidence bundle verification failed",
                 "EKS Fargate does not support the Agent DaemonSet",
+                "AKS fingerprint contains no Linux VM node eligible for the Agent DaemonSet",
             )
             and contains(
                 "scripts/managed-platform-contract-check.py",
@@ -378,6 +380,7 @@ def main() -> int:
                 "Validate managed platform contract fixtures",
                 "python scripts/managed-platform-contract-check.py",
                 "EKS Auto Mode safe canary must not render hostPath volumes",
+                "AKS node auto-provisioning safe canary must not render hostPath volumes",
             )
             and contains(
                 "scripts/real-cluster-agent-e2e.sh",
@@ -385,6 +388,7 @@ def main() -> int:
                 "namespace_cleanup_state",
                 "platform_cluster_cleanup_state",
                 "exit_code=1",
+                "AKS Virtual Nodes do not support the Agent DaemonSet",
             ),
             "Managed platform canaries are environment-approved, platform-bound, cleanup-gated, and redacted.",
         ),

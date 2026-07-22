@@ -15,7 +15,7 @@ from cluster_compatibility import build_cluster_fingerprint, evaluate_compatibil
 
 SCHEMA_VERSION = "managed-platform-contract-fixtures/v1"
 FIXTURE_SCHEMA_VERSION = "managed-platform-contract-fixture/v1"
-ALLOWED_SOURCE_HOSTS = {"docs.aws.amazon.com", "kubernetes.io"}
+ALLOWED_SOURCE_HOSTS = {"docs.aws.amazon.com", "kubernetes.io", "learn.microsoft.com"}
 MAX_REVIEW_AGE_DAYS = 180
 
 
@@ -54,7 +54,11 @@ def validate_source(source: dict[str, Any], fixture_id: str) -> list[str]:
     return failures
 
 
-def evaluate_fixture(fixture: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+def evaluate_fixture(
+    fixture: dict[str, Any],
+    catalog: dict[str, Any],
+    declared_platform: str,
+) -> dict[str, Any]:
     fixture_id = str(fixture.get("fixture_id") or "missing-fixture-id")
     failures: list[str] = []
     if fixture.get("schema_version") != FIXTURE_SCHEMA_VERSION:
@@ -89,6 +93,7 @@ def evaluate_fixture(fixture: dict[str, Any], catalog: dict[str, Any]) -> dict[s
         "platform_family": object_value(fingerprint.get("platform")).get("family"),
         "platform_variant": object_value(fingerprint.get("platform")).get("variant"),
         "architectures": fingerprint.get("architectures"),
+        "operating_systems": fingerprint.get("operating_systems"),
         "runtime_families": fingerprint.get("runtime_families"),
         "cni_families": object_value(fingerprint.get("cni")).get("families"),
         "compatibility_status": compatibility.get("status"),
@@ -97,6 +102,11 @@ def evaluate_fixture(fixture: dict[str, Any], catalog: dict[str, Any]) -> dict[s
     for key, expected_value in expected.items():
         if actual.get(key) != expected_value:
             failures.append(f"{fixture_id}: {key} expected {expected_value!r}, got {actual.get(key)!r}")
+    if actual["platform_family"] != declared_platform:
+        failures.append(
+            f"{fixture_id}: detected platform {actual['platform_family']!r} does not match catalog platform "
+            f"{declared_platform!r}"
+        )
     if actual["compatibility_status"] != "contract_fixture_only":
         failures.append(f"{fixture_id}: fixtures must never claim real compatibility")
 
@@ -114,6 +124,7 @@ def evaluate_fixture(fixture: dict[str, Any], catalog: dict[str, Any]) -> dict[s
 
     return {
         "fixture_id": fixture_id,
+        "platform": declared_platform,
         "status": "passed" if not failures else "failed",
         "reviewed_on": reviewed_on,
         "official_source_count": len(sources),
@@ -128,22 +139,50 @@ def evaluate_fixture(fixture: dict[str, Any], catalog: dict[str, Any]) -> dict[s
     }
 
 
-def build_report(fixtures: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+def load_fixture_catalogs(path: Path) -> list[tuple[Path, dict[str, Any]]]:
+    if path.is_file():
+        return [(path, load_json(path))]
+    if not path.is_dir():
+        raise ValueError(f"fixture path does not exist: {path}")
+    candidates = sorted(path.glob("*-contracts.json"))
+    if not candidates:
+        raise ValueError(f"fixture directory contains no *-contracts.json files: {path}")
+    return [(candidate, load_json(candidate)) for candidate in candidates]
+
+
+def build_report(
+    fixture_catalogs: list[tuple[Path, dict[str, Any]]],
+    catalog: dict[str, Any],
+) -> dict[str, Any]:
     failures: list[str] = []
-    if fixtures.get("schema_version") != SCHEMA_VERSION:
-        failures.append(f"fixture catalog schema_version must be {SCHEMA_VERSION}")
-    results = [
-        evaluate_fixture(fixture, catalog)
-        for fixture in list_value(fixtures.get("fixtures"))
-        if isinstance(fixture, dict)
-    ]
+    results: list[dict[str, Any]] = []
+    platforms: list[str] = []
+    fixture_ids: set[str] = set()
+    for path, fixtures in fixture_catalogs:
+        if fixtures.get("schema_version") != SCHEMA_VERSION:
+            failures.append(f"{path.name}: fixture catalog schema_version must be {SCHEMA_VERSION}")
+        declared_platform = str(fixtures.get("platform") or "").strip().lower()
+        if not declared_platform:
+            failures.append(f"{path.name}: fixture catalog platform is required")
+        else:
+            platforms.append(declared_platform)
+        for fixture in list_value(fixtures.get("fixtures")):
+            if not isinstance(fixture, dict):
+                continue
+            fixture_id = str(fixture.get("fixture_id") or "missing-fixture-id")
+            if fixture_id in fixture_ids:
+                failures.append(f"duplicate fixture_id: {fixture_id}")
+            fixture_ids.add(fixture_id)
+            results.append(evaluate_fixture(fixture, catalog, declared_platform))
     if not results:
-        failures.append("fixture catalog must contain at least one fixture")
+        failures.append("fixture catalogs must contain at least one fixture")
     for result in results:
         failures.extend(result["failures"])
     return {
         "schema_version": "managed-platform-contract-report/v1",
         "status": "passed" if not failures else "failed",
+        "catalog_count": len(fixture_catalogs),
+        "platforms": sorted(set(platforms)),
         "fixture_count": len(results),
         "passed_fixture_count": sum(result["status"] == "passed" for result in results),
         "results": results,
@@ -157,7 +196,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fixtures",
         type=Path,
-        default=root / "tests" / "fixtures" / "managed-platforms" / "eks-contracts.json",
+        default=root / "tests" / "fixtures" / "managed-platforms",
+        help="Fixture catalog JSON file or directory containing *-contracts.json files.",
     )
     parser.add_argument(
         "--catalog",
@@ -171,11 +211,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        report = build_report(load_json(args.fixtures), load_catalog(args.catalog))
+        report = build_report(load_fixture_catalogs(args.fixtures), load_catalog(args.catalog))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         report = {
             "schema_version": "managed-platform-contract-report/v1",
             "status": "failed",
+            "catalog_count": 0,
+            "platforms": [],
             "fixture_count": 0,
             "passed_fixture_count": 0,
             "results": [],

@@ -67,8 +67,13 @@ def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -
     assert '!= "fargate"' in lifecycle
     assert "EKS Fargate does not support the Agent DaemonSet" in lifecycle
     assert "EKS Auto Mode requires a safe-mode canary" in lifecycle
+    assert "AKS Virtual Nodes do not support the Agent DaemonSet" in lifecycle
+    assert "AKS node auto-provisioning requires a safe-mode canary" in lifecycle
 
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "EKS Auto Mode safe canary must not render hostPath volumes" in ci
     assert "nodeSelector.eks\\.amazonaws\\.com/compute-type=auto" in ci
     assert "nodeSelector.eks\\.amazonaws\\.com/nodegroup=fixture-workers" in ci
+    assert "AKS node auto-provisioning safe canary must not render hostPath volumes" in ci
+    assert "nodeSelector.karpenter\\.sh/nodepool=fixture-workers" in ci
+    assert "nodeSelector.kubernetes\\.azure\\.com/mode=system" in ci

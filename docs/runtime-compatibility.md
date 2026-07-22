@@ -24,7 +24,9 @@ Node Agent는 RKE2나 containerd만 가정하지 않습니다. 런타임 evidenc
 | kubeadm / containerd / Flannel | 완료 | amd64 완료, 2026-07-21 검증 | `verified_real` |
 | EKS Managed Node / Bottlerocket / Auto Mode | 공식 문서 기반 fixture 완료 | 대기 | `contract_fixture_only` |
 | EKS Fargate | 탐지 및 배포 차단 fixture 완료 | DaemonSet 미지원 | `contract_fixture_only` |
-| AKS / GKE | 완료 | 대기 | `contract_fixture_only` |
+| AKS Linux VM pool / NAP | 공식 문서 기반 fixture 완료 | 대기 | `contract_fixture_only` |
+| AKS Virtual Node / Windows pool | 탐지 및 배포 차단 fixture 완료 | Linux Agent 미지원 | `contract_fixture_only` |
+| GKE | 완료 | 대기 | `contract_fixture_only` |
 | OpenShift / CRI-O / OVN-Kubernetes | 완료 | 대기 | `contract_fixture_only` |
 | MicroK8s / K0s | 기본 신호만 지원 | 대기 | `planned` |
 
@@ -66,6 +68,40 @@ HostNetwork를 지원하지 않으므로 node-level Agent 대상이 아닙니다
 - [Kubernetes DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
 - [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
 - [Kubernetes volumes and hostPath](https://kubernetes.io/docs/concepts/storage/volumes/)
+
+## AKS Document-Backed Contract
+
+AKS도 실제 노드 대신 `tests/fixtures/managed-platforms/aks-contracts.json`의 합성 Kubernetes API
+snapshot으로만 검사합니다. 공식 문서 확인일은 EKS와 같은 180일 freshness gate를 적용합니다.
+
+| AKS 구성 | 탐지 신호 | Agent 계약 |
+| --- | --- | --- |
+| Standard system pool / Ubuntu / Azure CNI Overlay | Azure provider, `kubernetes.azure.com/mode=system`, Azure CNI workload | `node-diagnostics` 후보, real canary 필수 |
+| Standard user pool / Azure Linux 3 arm64 / Cilium | `mode=user`, Linux/arm64, Cilium DaemonSet | `node-diagnostics` 후보, real canary 필수 |
+| Node Auto-Provisioning / Cilium | `karpenter.sh/nodepool`, Cilium DaemonSet | 먼저 `safe`, host evidence 접근 미검증 |
+| Virtual Node | `type=virtual-kubelet` 또는 provider taint | DaemonSet 미배포, Agent 대상에서 제외 |
+| Windows user pool | `kubernetes.io/os=windows` | 현재 Linux Agent 미지원 |
+
+AKS Automatic은 NAP과 Azure CNI Overlay powered by Cilium을 기본 사용하지만 AKS Standard도 같은
+NAP/Cilium 조합을 사용할 수 있습니다. 따라서 Kubernetes snapshot만으로 Automatic을 단정하지 않고
+`node_auto_provisioning`으로만 기록합니다. 실제 cluster mode는 향후 Azure Resource Manager metadata를
+명시적으로 제공받는 경우에만 별도 판별합니다.
+
+Agent Helm chart는 기본적으로 `kubernetes.io/os=linux`을 선택합니다. Managed canary는 AKS Virtual
+Node와 Windows 노드를 제외하며 NAP 노드를 선택하면 host 접근이 검증될 때까지 `safe` 모드만 허용합니다.
+Azure CNI와 Cilium은 서로 다른 CNI family로 유지해 네트워크 evidence 해석을 섞지 않습니다.
+
+참고한 공식 문서:
+
+- [AKS reserved node labels](https://learn.microsoft.com/en-us/azure/aks/use-labels)
+- [AKS system and user node pools](https://learn.microsoft.com/en-us/azure/aks/use-system-pools)
+- [AKS node images](https://learn.microsoft.com/en-us/azure/aks/node-images)
+- [Azure CNI Overlay](https://learn.microsoft.com/en-us/azure/aks/azure-cni-overlay)
+- [Azure CNI powered by Cilium](https://learn.microsoft.com/en-us/azure/aks/azure-cni-powered-by-cilium)
+- [AKS node auto-provisioning](https://learn.microsoft.com/en-us/azure/aks/node-auto-provisioning)
+- [AKS Automatic](https://learn.microsoft.com/en-us/azure/aks/intro-aks-automatic)
+- [AKS Virtual Nodes and limitations](https://learn.microsoft.com/en-us/azure/aks/virtual-nodes)
+- [AKS Windows HostProcess containers](https://learn.microsoft.com/en-us/azure/aks/use-windows-hpc)
 
 오프라인 검증 명령:
 

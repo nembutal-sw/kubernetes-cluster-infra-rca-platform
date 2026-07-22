@@ -154,6 +154,33 @@ def test_readiness_allows_mixed_eks_cluster_with_daemonset_eligible_nodes() -> N
     assert "EKS Fargate does not support the Agent DaemonSet" not in failures
 
 
+def test_readiness_rejects_aks_without_linux_vm_nodes() -> None:
+    module = load_module()
+    payload = readiness("aks", "mixed")
+    platform = payload["signals"]["cluster_compatibility"]["fingerprint"]["platform"]
+    platform["variants"] = ["virtual_node", "windows_node_pool"]
+
+    details, failures = module.assess_readiness("aks", payload, platform_matrix())
+
+    assert details["dimensions"]["platform_variants"] == ["virtual_node", "windows_node_pool"]
+    assert (
+        "AKS fingerprint contains no Linux VM node eligible for the Agent DaemonSet" in failures
+    )
+
+
+def test_readiness_allows_mixed_aks_cluster_with_linux_vm_node() -> None:
+    module = load_module()
+    payload = readiness("aks", "mixed")
+    platform = payload["signals"]["cluster_compatibility"]["fingerprint"]["platform"]
+    platform["variants"] = ["system_node_pool", "virtual_node", "windows_node_pool"]
+
+    _, failures = module.assess_readiness("aks", payload, platform_matrix())
+
+    assert (
+        "AKS fingerprint contains no Linux VM node eligible for the Agent DaemonSet" not in failures
+    )
+
+
 def test_applied_canary_requires_cleanup_and_verified_bundle() -> None:
     module = load_module()
 

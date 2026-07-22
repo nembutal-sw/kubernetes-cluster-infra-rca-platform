@@ -180,6 +180,10 @@ def detect_platform(
                 variants = detect_eks_variants(node_items)
                 result["variant"] = variants[0] if len(variants) == 1 else "mixed"
                 result["variants"] = variants
+            elif family == "aks":
+                variants = detect_aks_variants(node_items)
+                result["variant"] = variants[0] if len(variants) == 1 else "mixed"
+                result["variants"] = variants
             return result
     return {
         "family": "unknown",
@@ -203,6 +207,39 @@ def detect_eks_variants(node_items: list[dict[str, Any]]) -> list[str]:
             variants.add("managed_node_group")
         else:
             variants.add("ec2")
+    return sorted(variants) or ["unknown"]
+
+
+def detect_aks_variants(node_items: list[dict[str, Any]]) -> list[str]:
+    """Classify AKS compute boundaries without retaining pool names or Azure IDs."""
+    variants: set[str] = set()
+    for node in node_items:
+        labels = object_value(node.get("metadata", {}).get("labels"))
+        normalized = {str(key).lower(): str(value).strip().lower() for key, value in labels.items()}
+        taints = [
+            taint
+            for taint in list_value(node.get("spec", {}).get("taints"))
+            if isinstance(taint, dict)
+        ]
+        taint_keys = {str(taint.get("key") or "").lower() for taint in taints}
+        operating_system = str(
+            node.get("status", {}).get("nodeInfo", {}).get("operatingSystem")
+            or normalized.get("kubernetes.io/os")
+            or ""
+        ).lower()
+
+        if normalized.get("type") == "virtual-kubelet" or "virtual-kubelet.io/provider" in taint_keys:
+            variants.add("virtual_node")
+        elif operating_system == "windows":
+            variants.add("windows_node_pool")
+        elif "karpenter.sh/nodepool" in normalized:
+            variants.add("node_auto_provisioning")
+        elif normalized.get("kubernetes.azure.com/mode") == "system":
+            variants.add("system_node_pool")
+        elif normalized.get("kubernetes.azure.com/mode") == "user":
+            variants.add("user_node_pool")
+        else:
+            variants.add("standard_node_pool")
     return sorted(variants) or ["unknown"]
 
 

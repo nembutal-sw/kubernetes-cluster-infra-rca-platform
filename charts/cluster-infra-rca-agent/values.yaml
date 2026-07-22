@@ -88,7 +88,10 @@ terminationGracePeriodSeconds: 20
 
 podAnnotations: {}
 podLabels: {}
-nodeSelector: {}
+# The Agent image and host collectors are Linux-only. Override only with a
+# separately validated Linux node label selector.
+nodeSelector:
+  kubernetes.io/os: linux
 affinity: {}
 priorityClassName: ""
 

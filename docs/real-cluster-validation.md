@@ -98,6 +98,12 @@ immutable OS와 SELinux 경계를 실제로 확인하기 전까지 `mode=safe`�
 Bottlerocket의 `node-diagnostics`도 host file과 runtime socket 접근이 실제 canary에서 확인되기 전에는
 지원 완료로 표시하지 않습니다.
 
+AKS에서는 Linux VM node만 선택합니다. `type=virtual-kubelet` 또는
+`virtual-kubelet.io/provider` taint가 있는 Virtual Node와 `kubernetes.io/os=windows` node는 제외합니다.
+AKS NAP node는 `karpenter.sh/nodepool`로 식별하며, Automatic과 Standard NAP을 API snapshot만으로
+구분할 수 없으므로 두 경우 모두 host evidence가 확인될 때까지 `mode=safe`만 허용합니다.
+Virtual Node 또는 Windows node만 존재하면 canary는 DaemonSet 설치 전에 실패합니다.
+
 실행 순서:
 
 1. `apply=false`, confirmation=`PREFLIGHT-<PLATFORM>`으로 fingerprint, readiness, Helm server dry-run을 확인합니다.

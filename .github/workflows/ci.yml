@@ -258,6 +258,32 @@ jobs:
           grep -q 'hostPID: true' <<< "${eks_managed}"
           grep -q 'path: "/var/log"' <<< "${eks_managed}"
           grep -q 'readOnly: true' <<< "${eks_managed}"
+          aks_nap="$(helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set mode=safe \
+            --set statePersistence.enabled=false \
+            --set secret.existingSecret.name=agent-auth \
+            --set-string 'nodeSelector.karpenter\.sh/nodepool=fixture-workers')"
+          grep -q 'kubernetes.io/os: linux' <<< "${aks_nap}"
+          grep -q 'karpenter.sh/nodepool: fixture-workers' <<< "${aks_nap}"
+          grep -q 'hostNetwork: false' <<< "${aks_nap}"
+          grep -q 'hostPID: false' <<< "${aks_nap}"
+          if grep -q 'hostPath:' <<< "${aks_nap}"; then
+            echo "AKS node auto-provisioning safe canary must not render hostPath volumes" >&2
+            exit 1
+          fi
+          aks_system="$(helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set mode=node-diagnostics \
+            --set statePersistence.enabled=false \
+            --set secret.existingSecret.name=agent-auth \
+            --set-string 'nodeSelector.kubernetes\.azure\.com/mode=system')"
+          grep -q 'kubernetes.io/os: linux' <<< "${aks_system}"
+          grep -q 'kubernetes.azure.com/mode: system' <<< "${aks_system}"
+          grep -q 'hostNetwork: true' <<< "${aks_system}"
+          grep -q 'hostPID: true' <<< "${aks_system}"
+          grep -q 'path: "/var/log"' <<< "${aks_system}"
+          grep -q 'readOnly: true' <<< "${aks_system}"
 
   prometheus-operator-delivery-e2e:
     needs: helm-validate

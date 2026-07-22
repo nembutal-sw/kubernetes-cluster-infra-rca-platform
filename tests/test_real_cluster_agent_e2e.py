@@ -32,6 +32,8 @@ def test_real_cluster_agent_e2e_keeps_mutations_explicit_and_owned() -> None:
     assert "kubectl drain" not in script
     assert "kubectl cordon" not in script
     assert "systemctl restart" not in script
+    assert 'ascii_downcase) == "linux"' in script
+    assert '(.metadata.labels.type // "") != "virtual-kubelet"' in script
 
 
 def test_agent_chart_canary_options_are_safe_by_default() -> None:
@@ -43,6 +45,7 @@ def test_agent_chart_canary_options_are_safe_by_default() -> None:
     assert "developmentSourceBundle:\n  enabled: false" in values
     assert "statePersistence:\n  enabled: true" in values
     assert "filter='data'" in daemonset
+    assert "nodeSelector:\n  kubernetes.io/os: linux" in values
     assert 'or (eq $mode "safe") (not .Values.statePersistence.enabled)' in daemonset
     assert "mountPath: /app\n              readOnly: true" in daemonset
 

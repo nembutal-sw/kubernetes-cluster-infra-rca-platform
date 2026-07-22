@@ -104,6 +104,9 @@ def assess_readiness(
         failures.append("cluster fingerprint does not contain a node")
     if expected_platform == "eks" and variants == ["fargate"]:
         failures.append("EKS Fargate does not support the Agent DaemonSet")
+    unsupported_aks_variants = {"virtual_node", "windows_node_pool"}
+    if expected_platform == "aks" and variants and set(variants).issubset(unsupported_aks_variants):
+        failures.append("AKS fingerprint contains no Linux VM node eligible for the Agent DaemonSet")
     contract = object_value(platform_matrix.get("collector_contract"))
     if contract.get("action_execution") != "disabled":
         failures.append("platform matrix must keep action execution disabled")

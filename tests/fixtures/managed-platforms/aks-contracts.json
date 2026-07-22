@@ -1,0 +1,542 @@
+{
+  "schema_version": "managed-platform-contract-fixtures/v1",
+  "platform": "aks",
+  "fixtures": [
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "aks-system-pool-ubuntu-amd64-azure-cni-overlay",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Use labels in an Azure Kubernetes Service cluster",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-labels",
+          "supports": [
+            "AKS reserves agent pool, node pool mode, operating system, and managed-by labels."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Manage system node pools in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-system-pools",
+          "supports": [
+            "System pool nodes use kubernetes.azure.com/mode=system and run Ubuntu or Azure Linux."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Configure Azure CNI Overlay networking in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/azure-cni-overlay",
+          "supports": [
+            "Azure CNI Overlay is configured with the Azure network plugin and overlay mode."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Node images in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/node-images",
+          "supports": [
+            "Supported Ubuntu node images use containerd."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-aks-system-node",
+                "labels": {
+                  "kubernetes.azure.com/agentpool": "fixture-system",
+                  "kubernetes.azure.com/managedby": "aks",
+                  "kubernetes.azure.com/mode": "system",
+                  "kubernetes.io/arch": "amd64",
+                  "kubernetes.io/os": "linux"
+                }
+              },
+              "spec": {
+                "providerID": "azure:///subscriptions/redacted/resourceGroups/redacted/providers/Microsoft.Compute/virtualMachineScaleSets/fixture/virtualMachines/0"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "Ubuntu 24.04 fixture",
+                  "kernelVersion": "6.8.0-fixture",
+                  "kubeletVersion": "v1.34.0-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "azure-cni-networkmonitor-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "azure-cni-networkmonitor"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "azure-cni-networkmonitor",
+                    "image": "example.invalid/azure-cni:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "aks",
+        "platform_variant": "system_node_pool",
+        "architectures": [
+          "amd64"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "azure-cni"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "node-diagnostics",
+        "host_evidence": "requires_real_canary",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "aks-user-pool-azure-linux3-arm64-cilium",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Use labels in an Azure Kubernetes Service cluster",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-labels",
+          "supports": [
+            "AKS user pool nodes use the reserved node pool mode and operating system labels."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Configure Azure CNI powered by Cilium in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/azure-cni-powered-by-cilium",
+          "supports": [
+            "AKS Standard can use Azure CNI with the Cilium data plane and a managed Cilium DaemonSet."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Node images in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/node-images",
+          "supports": [
+            "Azure Linux 3 node images use containerd and support Arm64 variants."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-aks-user-node",
+                "labels": {
+                  "kubernetes.azure.com/agentpool": "fixture-user",
+                  "kubernetes.azure.com/managedby": "aks",
+                  "kubernetes.azure.com/mode": "user",
+                  "kubernetes.azure.com/os-sku-requested": "AzureLinux3",
+                  "kubernetes.io/arch": "arm64",
+                  "kubernetes.io/os": "linux"
+                }
+              },
+              "spec": {
+                "providerID": "azure:///subscriptions/redacted/resourceGroups/redacted/providers/Microsoft.Compute/virtualMachineScaleSets/fixture/virtualMachines/1"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "arm64",
+                  "operatingSystem": "linux",
+                  "osImage": "Azure Linux 3 fixture",
+                  "kernelVersion": "6.6.0-fixture",
+                  "kubeletVersion": "v1.34.0-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "cilium-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "cilium"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "cilium-agent",
+                    "image": "example.invalid/cilium:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "aks",
+        "platform_variant": "user_node_pool",
+        "architectures": [
+          "arm64"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "cilium"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "node-diagnostics",
+        "host_evidence": "requires_real_canary",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "aks-node-auto-provisioning-amd64-cilium",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Overview of node auto-provisioning in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/node-auto-provisioning",
+          "supports": [
+            "AKS node auto-provisioning is based on Karpenter and provisions nodes for pending pods."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Enable or disable node auto-provisioning in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-node-auto-provisioning",
+          "supports": [
+            "Karpenter-managed nodes are discoverable with the karpenter.sh/nodepool label."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "What is Azure Kubernetes Service Automatic",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/intro-aks-automatic",
+          "supports": [
+            "AKS Automatic preconfigures node auto-provisioning and Azure CNI Overlay powered by Cilium."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Configure Azure CNI powered by Cilium in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/azure-cni-powered-by-cilium",
+          "supports": [
+            "Azure CNI powered by Cilium is available to both Automatic and Standard clusters."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-aks-nap-node",
+                "labels": {
+                  "karpenter.sh/nodepool": "fixture",
+                  "kubernetes.azure.com/managedby": "aks",
+                  "kubernetes.io/arch": "amd64",
+                  "kubernetes.io/os": "linux"
+                }
+              },
+              "spec": {
+                "providerID": "azure:///subscriptions/redacted/resourceGroups/redacted/providers/Microsoft.Compute/virtualMachines/fixture"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "Azure Linux 3 fixture",
+                  "kernelVersion": "6.6.0-fixture",
+                  "kubeletVersion": "v1.34.0-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "cilium-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "cilium"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "cilium-agent",
+                    "image": "example.invalid/cilium:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "aks",
+        "platform_variant": "node_auto_provisioning",
+        "architectures": [
+          "amd64"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "cilium"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "safe",
+        "host_evidence": "restricted_unverified",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "aks-virtual-node-linux",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Use virtual nodes with Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/virtual-nodes",
+          "supports": [
+            "AKS Virtual Nodes are based on Virtual Kubelet and DaemonSets do not deploy pods to them."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Create virtual nodes in Azure Kubernetes Service using the Azure portal",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/virtual-nodes-portal",
+          "supports": [
+            "Virtual node workloads use the type=virtual-kubelet selector and virtual-kubelet.io/provider toleration."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-aks-virtual-node",
+                "labels": {
+                  "kubernetes.azure.com/managedby": "aks",
+                  "kubernetes.azure.com/mode": "user",
+                  "kubernetes.io/os": "linux",
+                  "type": "virtual-kubelet"
+                }
+              },
+              "spec": {
+                "providerID": "azure:///virtual-kubelet-fixture",
+                "taints": [
+                  {
+                    "key": "virtual-kubelet.io/provider",
+                    "value": "azure",
+                    "effect": "NoSchedule"
+                  }
+                ]
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "Virtual Kubelet fixture",
+                  "kernelVersion": "virtual-kubelet",
+                  "kubeletVersion": "v1.34.0-vk-fixture",
+                  "containerRuntimeVersion": "virtual-kubelet://1.11.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": []
+        }
+      },
+      "expected": {
+        "platform_family": "aks",
+        "platform_variant": "virtual_node",
+        "architectures": [
+          "amd64"
+        ],
+        "operating_systems": [
+          "linux"
+        ],
+        "runtime_families": [
+          "virtual-kubelet"
+        ],
+        "cni_families": [
+          "unknown"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": false,
+        "recommended_mode": "unsupported",
+        "host_evidence": "unavailable",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "aks-user-pool-windows-amd64",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Use labels in an Azure Kubernetes Service cluster",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-labels",
+          "supports": [
+            "AKS exposes Linux or Windows through the kubernetes.io/os reserved label."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Use Windows HostProcess containers in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/use-windows-hpc",
+          "supports": [
+            "A privileged Linux DaemonSet cannot monitor Windows hosts; Windows requires HostProcess containers."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Node images in Azure Kubernetes Service",
+          "url": "https://learn.microsoft.com/en-us/azure/aks/node-images",
+          "supports": [
+            "AKS publishes separate Linux and Windows node image families."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-aks-windows-node",
+                "labels": {
+                  "kubernetes.azure.com/agentpool": "fixture-windows",
+                  "kubernetes.azure.com/managedby": "aks",
+                  "kubernetes.azure.com/mode": "user",
+                  "kubernetes.io/arch": "amd64",
+                  "kubernetes.io/os": "windows"
+                }
+              },
+              "spec": {
+                "providerID": "azure:///subscriptions/redacted/resourceGroups/redacted/providers/Microsoft.Compute/virtualMachineScaleSets/fixture/virtualMachines/2"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "windows",
+                  "osImage": "Windows Server 2025 fixture",
+                  "kernelVersion": "10.0.26100-fixture",
+                  "kubeletVersion": "v1.34.0-fixture",
+                  "containerRuntimeVersion": "containerd://1.7.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "azure-cni-networkmonitor-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "azure-cni-networkmonitor"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "azure-cni-networkmonitor",
+                    "image": "example.invalid/azure-cni:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "aks",
+        "platform_variant": "windows_node_pool",
+        "architectures": [
+          "amd64"
+        ],
+        "operating_systems": [
+          "windows"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "azure-cni"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": false,
+        "recommended_mode": "unsupported",
+        "host_evidence": "unavailable",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    }
+  ]
+}
