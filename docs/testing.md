@@ -152,6 +152,19 @@ python3 scripts/verify-blind-evaluation-corpus.py
 production-like, blind 보고서를 함께 보존합니다. 이 holdout 재현 결과 역시 실운영 정확도가 아니며,
 managed cluster canary와 원인이 독립적으로 판정된 실제 장애 표본을 계속 축적해야 합니다.
 
+### Managed Blind Intake Contract
+
+Managed canary의 opt-in evidence 후보와 2인 독립 판정 봉인은 Python 회귀 테스트로 검증합니다.
+
+```bash
+python3 -m pytest tests/test_managed_blind_evaluation.py -q
+python3 scripts/verify-managed-blind-workflow.py
+```
+
+테스트는 raw ZIP 미업로드, path traversal와 hash 변조 차단, identifier·credential redaction,
+analyzer/label 필드 제외, 적용형 attestation 요건, 서로 다른 2인 reviewer와 최종 manifest SHA-256을
+검사합니다. 이 절차는 표본 생성 계약만 검증하며 실제 managed cluster 장애 정확도를 주장하지 않습니다.
+
 ## Runtime Smoke
 
 로컬 또는 서버에 플랫폼이 떠 있으면 운영 시나리오 검증 러너를 실행합니다.

@@ -548,6 +548,24 @@ enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 �
 canary에서 비식별 evidence와 사후 판정 label을 누적하는 것입니다. 이후 node enrollment identity를
 ServiceAccount TokenReview 또는 node-bound mTLS로 전환합니다.
 
+## Phase 30. Managed Blind Evaluation Intake
+
+구현 및 검증 완료:
+
+- 적용형 managed canary에서만 사용할 수 있는 opt-in evidence 후보 생성
+- bundle path traversal, 엔트리 수·크기, manifest SHA-256과 signature attestation 재검증
+- 단일 node collector payload만 allowlist로 추출하고 분석 report·signal·action 제외
+- cluster/node/workload 식별자, IP, credential, 사용자 경로와 raw Kubernetes metadata redaction
+- 무작위 opaque case ID와 analyzer 결과가 없는 adjudication template 생성
+- primary/secondary 두 명의 독립 판정, 합의와 RFC 3339 판정 시각 강제
+- evidence·label canonical SHA-256을 기록한 immutable sample manifest 생성
+- corpus 자동 변경 금지와 별도 검토 PR 승격 계약
+- raw lifecycle 미업로드와 runner private directory 삭제를 CI 정적 gate로 검증
+
+이 단계는 실제 managed 장애 표본을 추가한 것이 아니라 안전한 수집·판정 절차를 준비한 것입니다.
+실제 표본은 승인된 managed canary와 독립 판정이 완료된 뒤 별도 PR로 누적합니다. 다음 개선은 node
+enrollment identity를 ServiceAccount TokenReview 또는 node-bound mTLS로 전환하는 것입니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

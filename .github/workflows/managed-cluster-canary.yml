@@ -37,6 +37,15 @@ on:
         description: "Ticket or change reference. Required for an applied canary."
         required: false
         type: string
+      capture_blind_candidate:
+        description: "Create a sanitized evidence-only candidate for independent evaluation."
+        required: true
+        default: false
+        type: boolean
+      evaluation_reference:
+        description: "Evaluation approval reference. Required when candidate capture is enabled."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -61,6 +70,8 @@ jobs:
       CANARY_MODE: ${{ inputs.mode }}
       CANARY_CONFIRMATION: ${{ inputs.confirmation }}
       CANARY_CHANGE_REFERENCE: ${{ inputs.change_reference }}
+      CANARY_CAPTURE_BLIND_CANDIDATE: ${{ inputs.capture_blind_candidate }}
+      CANARY_EVALUATION_REFERENCE: ${{ inputs.evaluation_reference }}
       CANARY_ENVIRONMENT_PLATFORM: ${{ vars.RCA_MANAGED_CANARY_ENVIRONMENT }}
       CANARY_BASE_URL: ${{ vars.RCA_MANAGED_CANARY_BASE_URL }}
       CANARY_USERNAME: ${{ vars.RCA_MANAGED_CANARY_USERNAME || 'admin' }}
@@ -92,6 +103,14 @@ jobs:
             fi
             [ -n "${RCA_E2E_PASSWORD}" ] || { echo "managed canary password is missing" >&2; exit 2; }
           fi
+          if [ "${CANARY_CAPTURE_BLIND_CANDIDATE}" = "true" ]; then
+            [ "${CANARY_APPLY}" = "true" ] \
+              || { echo "blind candidate capture requires an applied canary" >&2; exit 2; }
+            if ! [[ "${CANARY_EVALUATION_REFERENCE}" =~ ^[A-Za-z0-9._:/#-]{3,100}$ ]]; then
+              echo "blind candidate capture requires a valid evaluation_reference" >&2
+              exit 2
+            fi
+          fi
           [ "${CANARY_CONFIRMATION}" = "${expected}" ] \
             || { echo "confirmation must be ${expected}" >&2; exit 2; }
           [[ "${CANARY_CONTEXT}" =~ ^[A-Za-z0-9._:@/-]{1,253}$ ]] \
@@ -106,11 +125,14 @@ jobs:
           if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
               raise SystemExit("RCA_MANAGED_CANARY_BASE_URL must be an HTTPS URL without userinfo")
           PY
-          for command in python3 kubectl helm curl jq tar; do
+          for command in python3 kubectl helm curl jq tar sha256sum; do
             command -v "${command}" >/dev/null
           done
           python3 -m py_compile \
             scripts/managed-canary-attestation.py \
+            scripts/managed_blind_common.py \
+            scripts/managed-blind-intake.py \
+            scripts/managed-blind-finalize.py \
             scripts/real-cluster-readiness-check.py
 
       - name: Prepare environment-scoped kubeconfig
@@ -231,6 +253,21 @@ jobs:
           fi
           python3 scripts/managed-canary-attestation.py "${args[@]}"
 
+      - name: Build sanitized blind evaluation candidate
+        id: blind_intake
+        if: ${{ inputs.capture_blind_candidate && steps.attestation.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          evaluation_reference_sha256="$(printf '%s' "${CANARY_EVALUATION_REFERENCE}" | sha256sum | awk '{print $1}')"
+          python3 scripts/managed-blind-intake.py \
+            --evidence-bundle "${CANARY_PRIVATE_DIR}/lifecycle/evidence-bundle.zip" \
+            --attestation validation-results/managed-canary/attestation.json \
+            --source-run-id "${GITHUB_RUN_ID}" \
+            --evaluation-reference-sha256 "${evaluation_reference_sha256}" \
+            --output-dir validation-results/managed-blind-intake
+
       - name: Publish managed canary status
         if: always()
         shell: bash
@@ -257,6 +294,7 @@ jobs:
               f"- Runtime: `{', '.join(dimensions.get('runtime_families', [])) or 'unknown'}`",
               f"- CNI: `{', '.join(dimensions.get('cni_families', [])) or 'unknown'}`",
               f"- Manual promotion eligible: `{payload.get('promotion', {}).get('eligible_for_manual_review', False)}`",
+              f"- Blind candidate requested: `{os.environ.get('CANARY_CAPTURE_BLIND_CANDIDATE', 'false')}`",
               f"- Failures: `{len(payload.get('failures') or [])}`",
           ]
           output.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -268,6 +306,15 @@ jobs:
         with:
           name: managed-canary-${{ inputs.platform }}-${{ github.run_id }}
           path: validation-results/managed-canary/attestation.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload sanitized blind evaluation candidate
+        if: ${{ steps.blind_intake.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-blind-intake-${{ inputs.platform }}-${{ github.run_id }}
+          path: validation-results/managed-blind-intake
           if-no-files-found: error
           retention-days: 90
 
@@ -299,3 +346,6 @@ jobs:
           [ "${{ steps.readiness_gate.outcome }}" = "success" ]
           [ "${{ steps.lifecycle.outcome }}" = "success" ]
           [ "${{ steps.attestation.outcome }}" = "success" ]
+          if [ "${CANARY_CAPTURE_BLIND_CANDIDATE}" = "true" ]; then
+            [ "${{ steps.blind_intake.outcome }}" = "success" ]
+          fi

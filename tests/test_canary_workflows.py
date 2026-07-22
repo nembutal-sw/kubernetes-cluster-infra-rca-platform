@@ -49,6 +49,11 @@ def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -
         "RUN-${platform_upper}-CANARY",
         "--readiness-only",
         "managed-canary-attestation.py",
+        "capture_blind_candidate:",
+        "evaluation_reference:",
+        "managed-blind-intake.py",
+        "Upload sanitized blind evaluation candidate",
+        "validation-results/managed-blind-intake",
         "Remove private canary material",
         "persist-credentials: false",
         "path: validation-results/managed-canary/attestation.json",
@@ -61,6 +66,7 @@ def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -
     assert "APPROVED_ACTIONS_ENABLED=true" not in workflow
     assert "path: ${{ runner.temp }}" not in workflow
     assert "validation-results/managed-canary/attestation.json" in workflow
+    assert "path: ${CANARY_PRIVATE_DIR}" not in workflow
     assert '"automatic_matrix_update": False' in attestation
 
     lifecycle = (ROOT / "scripts" / "real-cluster-agent-e2e.sh").read_text(encoding="utf-8")

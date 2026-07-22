@@ -112,7 +112,43 @@ Virtual Node 또는 Windows node만 존재하면 canary는 DaemonSet 설치 전�
 4. 단일 Ready node에 격리 namespace Agent를 배포하고 등록, evidence, RCA, incident, bundle 검증을 수행합니다.
 5. Helm release, namespace, Platform test cluster가 정리된 경우에만 성공합니다.
 
-업로드 artifact에는 `managed-cluster-canary/v1` attestation만 포함합니다. Node 이름, namespace, cluster ID, Platform URL, kubeconfig, evidence 원문은 업로드하지 않습니다. Attestation의 `promotion.eligible_for_manual_review=true`는 matrix 자동 변경 허가가 아닙니다. Platform owner와 security owner가 artifact를 검토한 뒤 별도 PR로 `config/platform-compatibility-matrix.json`을 수정해야 합니다.
+기본 업로드 artifact에는 `managed-cluster-canary/v1` attestation만 포함합니다. Node 이름, namespace, cluster ID, Platform URL, kubeconfig, evidence 원문은 업로드하지 않습니다. Attestation의 `promotion.eligible_for_manual_review=true`는 matrix 자동 변경 허가가 아닙니다. Platform owner와 security owner가 artifact를 검토한 뒤 별도 PR로 `config/platform-compatibility-matrix.json`을 수정해야 합니다.
+
+## Managed Blind Evaluation Intake
+
+실제 managed canary collector를 외부 blind 평가 후보로 남길 때만 `capture_blind_candidate=true`와
+`evaluation_reference`를 지정합니다. 이 옵션은 `apply=true`인 성공한 canary에서만 허용됩니다.
+
+후보 생성 단계는 다음 경계를 강제합니다.
+
+- ZIP 경로, 엔트리 수·크기와 manifest SHA-256을 재검증
+- attestation의 적용형 성공, cleanup 완료, bundle signature 검증 확인
+- `evidence/*.json`의 `collectors`만 allowlist로 추출
+- cluster/node/report/incident ID, IP, credential, 사용자 경로와 Kubernetes raw metadata redaction
+- `signals.json`, RCA report, timeline, action plan과 기존 analyzer 결과 제외
+- opaque `managed-<24 hex>` case ID와 빈 adjudication template 생성
+- raw bundle은 업로드하지 않고 runner private directory와 함께 삭제
+
+성공 artifact `managed-blind-intake-<platform>-<run_id>`에는 `evidence.json`,
+`adjudication-template.json`, `manifest.json`만 들어갑니다. `automatic_corpus_update=false`이므로 이
+artifact 자체는 평가 corpus가 아닙니다.
+
+판정자는 analyzer 결과를 보지 않은 상태에서 template 사본을 채웁니다. `primary`, `secondary` 역할의
+서로 다른 `reviewer_<8-32 lowercase hex>` ID, 각 판정 시각, 동일한 분류와 signal 목록,
+`consensus=true`가 필요합니다. `evaluation_reference` 원문은 artifact에 저장하지 않고 SHA-256만
+manifest에 기록합니다.
+완료한 파일을 다음과 같이 봉인합니다.
+
+```bash
+python3 scripts/managed-blind-finalize.py \
+  --evidence managed-blind-intake/evidence.json \
+  --adjudication adjudication.json \
+  --output-dir managed-blind-sample
+```
+
+최종 디렉터리의 `manifest.json`은 evidence와 label의 canonical SHA-256, reviewer 수, PR 승격 요건을
+기록합니다. 저장소 blind corpus 반영은 platform owner와 별도 평가 담당자가 manifest를 확인한 PR에서만
+수행합니다. 현재 저장소에는 실제 managed 장애 표본이 포함된 것으로 간주하지 않습니다.
 
 ## Output
 

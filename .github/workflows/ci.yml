@@ -370,6 +370,10 @@ jobs:
             scripts/release-readiness-check.py \
             scripts/verify-api-contract.py \
             scripts/verify-blind-evaluation-corpus.py \
+            scripts/verify-managed-blind-workflow.py \
+            scripts/managed_blind_common.py \
+            scripts/managed-blind-intake.py \
+            scripts/managed-blind-finalize.py \
             scripts/verify-container-pinning.py \
             scripts/verify-build-lifecycle.py \
             scripts/verify-operational-catalog.py \
@@ -387,6 +391,8 @@ jobs:
         run: python scripts/verify-api-contract.py
       - name: Validate blind evaluation corpus separation
         run: python scripts/verify-blind-evaluation-corpus.py
+      - name: Validate managed blind evaluation workflow
+        run: python scripts/verify-managed-blind-workflow.py
       - name: Validate container pinning
         run: python scripts/verify-container-pinning.py
       - name: Validate Maven and Frontend lifecycle separation

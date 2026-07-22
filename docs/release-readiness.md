@@ -202,6 +202,7 @@ Node diagnostics mode:
 - canary evidence collection 완료
 - managed canary cleanup 완료 및 evidence bundle 검증 통과
 - managed compatibility matrix 자동 승격 없음
+- blind 후보 수집 시 raw bundle 미업로드, redaction gate와 2인 독립 판정 manifest 확인
 - Gitleaks, Trivy, Syft SBOM, Grype scan 통과
 - 검증 중 발견된 누락은 테스트로 고정
 

@@ -51,6 +51,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence와 전처리·규칙·LLM 보강·보고서 조립 단계가 분리된 RCA pipeline
 - 비식별 production-like corpus와 입력·정답을 분리한 19개 blind evaluation 품질 gate
+- Managed canary collector만 익명화하고 2인 독립 판정으로 봉인하는 blind sample intake
 - incident correlation, 장애 전파 timeline, 영향 범위
 - Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
@@ -72,7 +73,7 @@ Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
 
 ## 운영 검증 상태
 
-실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 3노드 장시간 검증은 승인형 `Agent Fleet Burn-in`, EKS/AKS/GKE/OpenShift는 플랫폼별 `Managed Cluster Canary` workflow를 사용합니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)과 [Real Cluster Validation](docs/real-cluster-validation.md)을 참고합니다.
+실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 3노드 장시간 검증은 승인형 `Agent Fleet Burn-in`, EKS/AKS/GKE/OpenShift는 플랫폼별 `Managed Cluster Canary` workflow를 사용합니다. 적용형 canary는 선택적으로 익명화 evidence 후보를 만들 수 있지만, 두 명의 독립 판정과 별도 PR 없이는 평가 corpus에 반영되지 않습니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)과 [Real Cluster Validation](docs/real-cluster-validation.md)을 참고합니다.
 
 현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했습니다. Kind 3노드에서는 각 DaemonSet Agent에 Platform Evidence Request를 보내는 방식으로 1시간 Standard와 5시간 Extended burn-in을 통과했습니다. Extended run `29857828475`는 checkpoint 300/300, Agent Evidence 900/900, target 3/3을 기록했고 수집 성공률과 evidence 품질은 100%, degraded collector와 runtime/spool/quarantine 오류는 0건이었습니다. Standard 대비 compatibility, absolute, regression gate도 모두 통과했습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS는 Managed Node Group, Bottlerocket, Auto Mode, Fargate를, AKS는 system/user pool, NAP, Virtual Node, Windows pool을 공식 문서 기반 계약으로 분리해 검사합니다. 두 플랫폼 모두 실제 canary 전까지 `contract_fixture_only`이며 GKE와 OpenShift도 real managed-cluster canary가 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
 

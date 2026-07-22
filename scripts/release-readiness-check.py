@@ -393,6 +393,50 @@ def main() -> int:
             "Managed platform canaries are environment-approved, platform-bound, cleanup-gated, and redacted.",
         ),
         check(
+            "managed-blind-evaluation-intake",
+            exists("scripts/managed_blind_common.py")
+            and exists("scripts/managed-blind-intake.py")
+            and exists("scripts/managed-blind-finalize.py")
+            and exists("scripts/verify-managed-blind-workflow.py")
+            and exists("tests/test_managed_blind_evaluation.py")
+            and contains(
+                ".github/workflows/managed-cluster-canary.yml",
+                "capture_blind_candidate:",
+                "evaluation_reference:",
+                "managed-blind-intake.py",
+                "evaluation_reference_sha256",
+                "Upload sanitized blind evaluation candidate",
+                "validation-results/managed-blind-intake",
+                "Remove private canary material",
+            )
+            and contains(
+                "scripts/managed-blind-intake.py",
+                "rca-managed-blind-evidence/v1",
+                "contains_raw_customer_data",
+                "analyzer_output_included",
+                "automatic_corpus_update",
+                "evaluation_reference_sha256",
+                "requires exactly one node evidence document",
+            )
+            and contains(
+                "scripts/managed-blind-finalize.py",
+                "exactly two independent reviewers",
+                "rca-managed-blind-sample/v1",
+                "promotion_requires_pull_request",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "Validate managed blind evaluation workflow",
+                "verify-managed-blind-workflow.py",
+            )
+            and contains(
+                "docs/real-cluster-validation.md",
+                "Managed Blind Evaluation Intake",
+                "automatic_corpus_update=false",
+            ),
+            "Managed canary evidence can enter an opt-in, sanitized, independently adjudicated blind sample flow.",
+        ),
+        check(
             "llm-slo-prometheus-rule",
             exists("charts/cluster-infra-rca-platform/templates/platform-prometheusrule.yaml")
             and contains(

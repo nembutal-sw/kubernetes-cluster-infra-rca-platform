@@ -166,3 +166,15 @@ web-console/target/blind-evaluation-report.json
 현재 데이터는 저장소 E2E 구조를 바탕으로 만든 비식별 holdout 재현 표본입니다. Analyzer가 label을
 입력으로 받지 않는다는 점을 검증하지만, 동일 저장소에서 관리되는 데이터이므로 실운영 정확도나
 완전한 외부 blind test로 해석하지 않습니다.
+
+## Managed Blind Sample Lifecycle
+
+`Managed Cluster Canary`는 적용형 검증 성공 후 선택적으로 collector-only 후보를 생성합니다.
+`scripts/managed-blind-intake.py`는 bundle 무결성과 attestation을 확인하고 운영 식별자와 credential을
+redact한 `rca-managed-blind-evidence/v1`만 출력합니다. 기존 signal, report, timeline과 action 정보는
+후보에 포함하지 않습니다.
+
+정답은 별도 `rca-managed-blind-adjudication/v1` 파일에 두 명의 독립 판정자가 합의한 뒤 작성합니다.
+`scripts/managed-blind-finalize.py`가 evidence와 label을 canonical SHA-256으로 봉인하지만 corpus를 자동
+변경하지는 않습니다. 최종 sample의 승격에는 manifest 검토와 별도 PR이 필요합니다. 따라서 intake
+artifact 수나 canary 성공 횟수는 RCA 정확도 지표로 사용하지 않습니다.
