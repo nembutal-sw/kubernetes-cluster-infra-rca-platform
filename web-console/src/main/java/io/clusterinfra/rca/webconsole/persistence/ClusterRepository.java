@@ -96,6 +96,13 @@ public class ClusterRepository {
                 """,
             clusterId
         );
+        jdbc.update(
+            """
+                DELETE FROM notification_outbox
+                WHERE report_id IN (SELECT report_id FROM rca_reports WHERE cluster_id = ?)
+                """,
+            clusterId
+        );
         jdbc.update("DELETE FROM rca_jobs WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_requests WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM rca_reports WHERE cluster_id = ?", clusterId);

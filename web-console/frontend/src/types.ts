@@ -527,6 +527,12 @@ export interface NotificationConfigurationInfo {
   timeout_seconds?: number;
   timeoutSeconds?: number;
   channels?: string[];
+  delivery_mode?: string;
+  deliveryMode?: string;
+  queue_depth?: number;
+  queueDepth?: number;
+  dead_letter_count?: number;
+  deadLetterCount?: number;
   [key: string]: unknown;
 }
 

@@ -41,7 +41,9 @@ class RcaMetricsTests {
             ),
             180,
             7,
-            2
+            2,
+            4,
+            1
         );
 
         assertThat(registry.get("rca.webhook.alerts").tag("result", "accepted").counter().count())
@@ -65,6 +67,8 @@ class RcaMetricsTests {
         assertThat(registry.get("rca.agent.offline.count").gauge().value()).isEqualTo(2);
         assertThat(registry.get("rca.analysis.queue.depth").gauge().value()).isEqualTo(7);
         assertThat(registry.get("rca.analysis.dead.letter.count").gauge().value()).isEqualTo(2);
+        assertThat(registry.get("rca.notification.queue.depth").gauge().value()).isEqualTo(4);
+        assertThat(registry.get("rca.notification.dead.letter.count").gauge().value()).isEqualTo(1);
         assertThat(registry.get("rca.agent.heartbeat.lag.max.seconds").gauge().value())
             .isGreaterThanOrEqualTo(300);
     }

@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationDeliveryResult;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxEvent;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationTestResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
+import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
 import io.clusterinfra.rca.webconsole.security.SensitiveDataRedactor;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -21,41 +24,69 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 @Service
 public class IncidentNotificationService {
     private final RcaConsoleProperties properties;
-    private final AuditService audit;
     private final ObjectMapper objectMapper;
-    private final RcaMetrics metrics;
+    private final NotificationOutboxRepository outbox;
+    private final HttpClient httpClient;
 
     public IncidentNotificationService(
         RcaConsoleProperties properties,
-        AuditService audit,
         ObjectMapper objectMapper,
-        RcaMetrics metrics
+        NotificationOutboxRepository outbox
     ) {
         this.properties = properties;
-        this.audit = audit;
         this.objectMapper = objectMapper;
-        this.metrics = metrics;
+        this.outbox = outbox;
+        this.httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .build();
     }
 
-    public void notifyIncident(RcaReport report, EvidenceBundle evidence) {
+    public List<NotificationOutboxEvent> enqueueIncident(RcaReport report, EvidenceBundle evidence) {
         RcaConsoleProperties.Notification config = properties.getNotification();
         String severity = severity(report);
         if (!config.isEnabled() || !meetsThreshold(severity, config.getMinimumSeverity())) {
-            return;
+            return List.of();
         }
         List<NotificationTarget> targets = targets(config, report, evidence, severity);
         if (targets.isEmpty()) {
-            return;
+            return List.of();
         }
 
+        Instant now = Instant.now();
+        List<NotificationOutboxEvent> events = new ArrayList<>();
         for (NotificationTarget target : targets) {
-            deliver(report, config, severity, target);
+            String eventId = "notification-" + UUID.randomUUID().toString().replace("-", "");
+            String idempotencyKey = "rca-notification:v1:" + report.reportId() + ":" + target.channel();
+            NotificationOutboxEvent event = new NotificationOutboxEvent(
+                eventId,
+                idempotencyKey,
+                report.incidentId(),
+                report.reportId(),
+                target.channel(),
+                severity,
+                withDeliveryMetadata(target.payload(), eventId, idempotencyKey),
+                NotificationOutboxStatus.queued,
+                0,
+                Math.max(1, Math.min(10, config.getMaxAttempts())),
+                now,
+                null,
+                null,
+                null,
+                null,
+                now,
+                now,
+                null
+            );
+            outbox.enqueue(event);
+            events.add(event);
         }
+        return List.copyOf(events);
     }
 
     public NotificationTestResponse testDelivery() {
@@ -89,45 +120,37 @@ public class IncidentNotificationService {
         return new NotificationTestResponse(outcome, message, results);
     }
 
-    private void deliver(
-        RcaReport report,
-        RcaConsoleProperties.Notification config,
-        String severity,
-        NotificationTarget target
-    ) {
-        NotificationDeliveryResult result = attemptDelivery(target, config);
-        if ("success".equals(result.outcome())) {
-            metrics.notification("sent", severity);
-            audit.system(
-                "notification",
-                "notification.sent",
-                "incident",
-                report.incidentId(),
-                "success",
-                Map.of(
-                    "channel", target.channel(),
-                    "severity", severity,
-                    "attempt", result.attempts(),
-                    "status_code", result.statusCode() == null ? "" : result.statusCode()
-                )
+    public DeliveryAttempt deliver(NotificationOutboxEvent event) {
+        RcaConsoleProperties.Notification config = properties.getNotification();
+        NotificationTarget target = configuredTarget(config, event);
+        if (target == null) {
+            return new DeliveryAttempt(
+                false,
+                false,
+                null,
+                "notification target is no longer configured"
             );
-            return;
         }
-        metrics.notification("failed", severity);
-        audit.system(
-            "notification",
-            "notification.failed",
-            "incident",
-            report.incidentId(),
-            "failed",
-            Map.of(
-                "channel", target.channel(),
-                "severity", severity,
-                "attempts", result.attempts(),
-                "status_code", result.statusCode() == null ? "" : result.statusCode(),
-                "error", result.error()
-            )
-        );
+        try {
+            int status = send(
+                target.url(),
+                target.token(),
+                target.payload(),
+                config.getTimeoutSeconds(),
+                event.idempotencyKey()
+            );
+            if (status >= 200 && status < 300) {
+                return new DeliveryAttempt(true, false, status, "");
+            }
+            return new DeliveryAttempt(
+                false,
+                retryableStatus(status),
+                status,
+                "notification webhook returned HTTP " + status
+            );
+        } catch (Exception exception) {
+            return new DeliveryAttempt(false, true, null, safeError(exception));
+        }
     }
 
     private NotificationDeliveryResult attemptDelivery(
@@ -139,7 +162,13 @@ public class IncidentNotificationService {
         Integer lastStatusCode = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                int status = send(target.url(), target.token(), target.payload(), config.getTimeoutSeconds());
+                int status = send(
+                    target.url(),
+                    target.token(),
+                    target.payload(),
+                    config.getTimeoutSeconds(),
+                    target.idempotencyKey()
+                );
                 lastStatusCode = status;
                 if (status >= 200 && status < 300) {
                     return new NotificationDeliveryResult(target.channel(), "success", attempt, status, "");
@@ -162,10 +191,10 @@ public class IncidentNotificationService {
         String webhookUrl,
         String token,
         Map<String, Object> payload,
-        int timeoutSeconds
+        int timeoutSeconds,
+        String idempotencyKey
     ) throws Exception {
         Duration timeout = Duration.ofSeconds(Math.max(1, Math.min(30, timeoutSeconds)));
-        HttpClient client = HttpClient.newBuilder().connectTimeout(timeout).build();
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(webhookUrl))
             .timeout(timeout)
             .header("Content-Type", "application/json")
@@ -173,7 +202,10 @@ public class IncidentNotificationService {
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token.trim());
         }
-        return client.send(builder.build(), HttpResponse.BodyHandlers.discarding()).statusCode();
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            builder.header("Idempotency-Key", idempotencyKey);
+        }
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.discarding()).statusCode();
     }
 
     private List<NotificationTarget> targets(
@@ -188,7 +220,8 @@ public class IncidentNotificationService {
                 "slack",
                 config.getSlackWebhookUrl(),
                 "",
-                slackPayload(report, evidence, severity)
+                slackPayload(report, evidence, severity),
+                ""
             ));
         }
         if (!config.getWebhookUrl().isBlank()) {
@@ -196,7 +229,8 @@ public class IncidentNotificationService {
                 "webhook",
                 config.getWebhookUrl(),
                 config.getWebhookToken(),
-                webhookPayload(report, evidence, severity)
+                webhookPayload(report, evidence, severity),
+                ""
             ));
         }
         return List.copyOf(result);
@@ -209,7 +243,8 @@ public class IncidentNotificationService {
                 "slack",
                 config.getSlackWebhookUrl(),
                 "",
-                testSlackPayload()
+                testSlackPayload(),
+                "rca-notification-test:" + UUID.randomUUID()
             ));
         }
         if (!config.getWebhookUrl().isBlank()) {
@@ -217,10 +252,52 @@ public class IncidentNotificationService {
                 "webhook",
                 config.getWebhookUrl(),
                 config.getWebhookToken(),
-                testWebhookPayload()
+                testWebhookPayload(),
+                "rca-notification-test:" + UUID.randomUUID()
             ));
         }
         return List.copyOf(result);
+    }
+
+    private NotificationTarget configuredTarget(
+        RcaConsoleProperties.Notification config,
+        NotificationOutboxEvent event
+    ) {
+        return switch (event.channel()) {
+            case "slack" -> config.getSlackWebhookUrl().isBlank()
+                ? null
+                : new NotificationTarget(
+                    "slack",
+                    config.getSlackWebhookUrl(),
+                    "",
+                    event.payload(),
+                    event.idempotencyKey()
+                );
+            case "webhook" -> config.getWebhookUrl().isBlank()
+                ? null
+                : new NotificationTarget(
+                    "webhook",
+                    config.getWebhookUrl(),
+                    config.getWebhookToken(),
+                    event.payload(),
+                    event.idempotencyKey()
+                );
+            default -> null;
+        };
+    }
+
+    private Map<String, Object> withDeliveryMetadata(
+        Map<String, Object> payload,
+        String eventId,
+        String idempotencyKey
+    ) {
+        if (!payload.containsKey("schema_version")) {
+            return payload;
+        }
+        LinkedHashMap<String, Object> enriched = new LinkedHashMap<>(payload);
+        enriched.put("event_id", eventId);
+        enriched.put("idempotency_key", idempotencyKey);
+        return Collections.unmodifiableMap(enriched);
     }
 
     private Map<String, Object> slackPayload(RcaReport report, EvidenceBundle evidence, String severity) {
@@ -354,6 +431,10 @@ public class IncidentNotificationService {
         };
     }
 
+    private boolean retryableStatus(int status) {
+        return status == 408 || status == 425 || status == 429 || status >= 500;
+    }
+
     private String safeError(Exception error) {
         if (error == null || error.getMessage() == null || error.getMessage().isBlank()) {
             return "unknown notification failure";
@@ -366,7 +447,16 @@ public class IncidentNotificationService {
         String channel,
         String url,
         String token,
-        Map<String, Object> payload
+        Map<String, Object> payload,
+        String idempotencyKey
+    ) {
+    }
+
+    public record DeliveryAttempt(
+        boolean succeeded,
+        boolean retryable,
+        Integer statusCode,
+        String error
     ) {
     }
 }

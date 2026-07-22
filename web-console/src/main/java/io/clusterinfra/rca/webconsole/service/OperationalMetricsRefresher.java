@@ -2,8 +2,10 @@ package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
+import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -11,17 +13,20 @@ import org.springframework.stereotype.Service;
 public class OperationalMetricsRefresher {
     private final AgentRepository agents;
     private final AnalysisTaskRepository tasks;
+    private final NotificationOutboxRepository notificationOutbox;
     private final RcaConsoleProperties properties;
     private final RcaMetrics metrics;
 
     public OperationalMetricsRefresher(
         AgentRepository agents,
         AnalysisTaskRepository tasks,
+        NotificationOutboxRepository notificationOutbox,
         RcaConsoleProperties properties,
         RcaMetrics metrics
     ) {
         this.agents = agents;
         this.tasks = tasks;
+        this.notificationOutbox = notificationOutbox;
         this.properties = properties;
         this.metrics = metrics;
     }
@@ -41,7 +46,11 @@ public class OperationalMetricsRefresher {
             agents.listAll(),
             Math.max(1, properties.getAgentOfflineAfterSeconds()),
             queueDepth,
-            tasks.count(AnalysisTaskStatus.dead_letter)
+            tasks.count(AnalysisTaskStatus.dead_letter),
+            notificationOutbox.count(NotificationOutboxStatus.queued)
+                + notificationOutbox.count(NotificationOutboxStatus.retry_wait)
+                + notificationOutbox.count(NotificationOutboxStatus.processing),
+            notificationOutbox.count(NotificationOutboxStatus.dead_letter)
         );
     }
 }

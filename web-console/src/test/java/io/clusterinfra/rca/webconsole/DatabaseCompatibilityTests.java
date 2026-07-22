@@ -19,6 +19,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResponse;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxEvent;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PolicyLevel;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
@@ -34,6 +36,7 @@ import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterThresholdRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
+import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.persistence.RetentionRepository;
 import io.clusterinfra.rca.webconsole.persistence.RetentionRepository.RetentionCutoffs;
@@ -72,11 +75,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
-    private static final int FLYWAY_MIGRATION_COUNT = 21;
+    private static final int FLYWAY_MIGRATION_COUNT = 22;
     private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
     private static final List<String> DROP_ORDER = List.of(
+        "notification_outbox",
         "gitops_webhook_deliveries",
         "gitops_changes",
         "catalog_override_drafts",
@@ -159,6 +163,10 @@ class DatabaseCompatibilityTests {
         EvidenceRepository evidence = evidenceRepository(dataSource);
         IncidentRepository incidents = incidentRepository(dataSource);
         ReportRepository reports = reportRepository(dataSource);
+        NotificationOutboxRepository notificationOutbox = new NotificationOutboxRepository(
+            jdbc,
+            objectMapper()
+        );
         var admin = users.ensureDefaultAdmin("admin", "admin");
         assertThat(users.authenticate("admin", "admin")).contains(admin);
 
@@ -375,6 +383,56 @@ class DatabaseCompatibilityTests {
             10
         )).extracting(incident -> incident.incidentId()).contains(storedIncident.incidentId());
         assertThat(reports.findJob(job.jobId())).contains(job);
+
+        NotificationOutboxEvent notificationEvent = new NotificationOutboxEvent(
+            "notification-db-compat",
+            "rca-notification:v1:" + report.reportId() + ":webhook",
+            storedReport.incidentId(),
+            report.reportId(),
+            "webhook",
+            "critical",
+            Map.of("event_type", "rca.incident", "report_id", report.reportId()),
+            NotificationOutboxStatus.queued,
+            0,
+            2,
+            now,
+            null,
+            null,
+            null,
+            null,
+            now,
+            now,
+            null
+        );
+        notificationOutbox.enqueue(notificationEvent);
+        NotificationOutboxEvent firstNotificationAttempt = notificationOutbox.claim(
+            "database-notification-worker",
+            1,
+            now,
+            now.plusSeconds(30)
+        ).getFirst();
+        assertThat(notificationOutbox.markFailed(
+            firstNotificationAttempt,
+            "database-notification-worker",
+            503,
+            "temporary webhook failure",
+            now.plusSeconds(1),
+            true
+        )).isEqualTo(NotificationOutboxStatus.retry_wait);
+        NotificationOutboxEvent secondNotificationAttempt = notificationOutbox.claim(
+            "database-notification-worker",
+            1,
+            now.plusSeconds(2),
+            now.plusSeconds(32)
+        ).getFirst();
+        assertThat(notificationOutbox.markSent(
+            secondNotificationAttempt.eventId(),
+            "database-notification-worker",
+            204,
+            now.plusSeconds(3)
+        )).isTrue();
+        assertThat(notificationOutbox.find(notificationEvent.eventId()).orElseThrow().status())
+            .isEqualTo(NotificationOutboxStatus.sent);
 
         RcaReport promotedReport = new RcaReport(
             "report-db-promoted",

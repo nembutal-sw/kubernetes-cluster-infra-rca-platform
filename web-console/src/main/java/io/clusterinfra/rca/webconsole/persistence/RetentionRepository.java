@@ -176,6 +176,10 @@ public class RetentionRepository {
             "DELETE FROM action_requests WHERE report_id = ?",
             reportId
         );
+        result.notificationOutbox += jdbc.update(
+            "DELETE FROM notification_outbox WHERE report_id = ?",
+            reportId
+        );
         result.rcaJobs += jdbc.update("DELETE FROM rca_jobs WHERE report_id = ?", reportId);
         result.rcaReports += jdbc.update("DELETE FROM rca_reports WHERE report_id = ?", reportId);
     }
@@ -380,6 +384,7 @@ public class RetentionRepository {
         int evidenceBundles,
         int actionExecutions,
         int actionRequests,
+        int notificationOutbox,
         int rcaJobs,
         int rcaReports,
         int incidents
@@ -400,6 +405,7 @@ public class RetentionRepository {
             counts.put("evidence_bundles", evidenceBundles);
             counts.put("action_executions", actionExecutions);
             counts.put("action_requests", actionRequests);
+            counts.put("notification_outbox", notificationOutbox);
             counts.put("rca_jobs", rcaJobs);
             counts.put("rca_reports", rcaReports);
             counts.put("incidents", incidents);
@@ -418,6 +424,7 @@ public class RetentionRepository {
         private int evidenceBundles;
         private int actionExecutions;
         private int actionRequests;
+        private int notificationOutbox;
         private int rcaJobs;
         private int rcaReports;
         private int incidents;
@@ -434,6 +441,7 @@ public class RetentionRepository {
                 evidenceBundles,
                 actionExecutions,
                 actionRequests,
+                notificationOutbox,
                 rcaJobs,
                 rcaReports,
                 incidents

@@ -473,9 +473,23 @@ AKS Automatic과 Standard NAP은 Kubernetes snapshot에서 같은 Karpenter/Cili
 잔여 과제는 autoscaling node 등록을 위한 ServiceAccount TokenReview 또는 node-bound mTLS
 enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 수동 회전이 필요합니다.
 
-다음 코드 개선은 Transactional Outbox 기반 notification 비동기화입니다. 이후 RCA 분석 pipeline과
-Frontend orchestration 분리, 실제 비식별 장애 corpus 확장, Maven/Frontend build lifecycle 분리를
-순차 진행합니다.
+## Phase 25. Notification Transactional Outbox
+
+구현 및 검증 완료:
+
+- Incident·Report·Job과 notification event의 동일 DB transaction 저장
+- Flyway V22 기반 PostgreSQL·MariaDB 공통 outbox schema
+- 다중 worker conditional claim, lease 만료 복구와 최대 시도 횟수 관리
+- 네트워크 오류, `408`, `425`, `429`, `5xx` 지수 backoff 재시도
+- 영구 `4xx`와 재시도 소진 event의 `dead_letter` 격리
+- report/channel 단위 idempotency key와 일반 webhook `Idempotency-Key` 헤더
+- payload 비노출 outbox 조회, 역할 기반 dead-letter 수동 재큐잉과 audit 기록
+- queue depth와 dead-letter gauge, Settings 상태 표시
+- cluster 삭제와 report retention에 연결된 outbox 정리
+- 원자적 rollback, 동시 claim, lease 회수, 재시도·영구 실패 회귀 테스트
+
+다음 코드 개선은 RCA 분석 pipeline 단계 분리와 Frontend orchestration 축소입니다. 이후 실제
+비식별 장애 corpus 확장과 Maven/Frontend build lifecycle 분리를 순차 진행합니다.
 
 ## Positioning
 

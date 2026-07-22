@@ -251,6 +251,34 @@ class ProductionSecurityValidatorTests {
     }
 
     @Test
+    void notificationOutboxRejectsUnsafeWorkerBounds() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false",
+                "rca.notification.enabled=true",
+                "rca.notification.webhook-url=https://siem.example.com/rca",
+                "rca.notification.max-attempts=0",
+                "rca.notification.batch-size=1000",
+                "rca.notification.retry-base-seconds=60",
+                "rca.notification.retry-max-seconds=10"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_NOTIFICATION_MAX_ATTEMPTS")
+                    .hasStackTraceContaining("RCA_NOTIFICATION_BATCH_SIZE")
+                    .hasStackTraceContaining("RCA_NOTIFICATION_RETRY_SECONDS");
+            });
+    }
+
+    @Test
     void enabledGitOpsRequiresRepositoryAndSecrets() {
         contextRunner
             .withPropertyValues(

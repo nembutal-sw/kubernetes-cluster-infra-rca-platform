@@ -405,7 +405,9 @@ canary는 고유 namespace와 Platform 테스트 cluster만 생성하고, host p
 | Agent protocol config | `AgentProtocolConfigurationValidatorTests` |
 | Agent health | `AgentHealthServiceTests` |
 | Impact scope | `ImpactScopeAnalyzerTests` |
-| Notification | `IncidentNotificationServiceTests` |
+| Notification payload·HTTP 분류 | `IncidentNotificationServiceTests` |
+| Notification outbox claim·lease·retry | `NotificationOutboxRepositoryTests`, `NotificationOutboxWorkerTests` |
+| Incident/outbox 원자적 rollback | `NotificationOutboxTransactionTests` |
 | Metrics | `RcaMetricsTests` |
 | Retention | `RetentionRepositoryTests`, `DatabaseCompatibilityTests` |
 | Incident correlation | `IncidentCorrelationServiceTests`, `IncidentCorrelationDatasetTests`, `IncidentTimelineServiceTests` |

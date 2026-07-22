@@ -72,6 +72,8 @@ RCA_MONITORING_UNAUTHORIZED_INTERVAL_MINUTES=60
 | `rca.agent.heartbeat.lag.max.seconds` | 등록된 Agent 중 최대 heartbeat 지연 |
 | `rca.analysis.queue.depth` | queued, retry-waiting, processing 상태의 분석 작업 수 |
 | `rca.analysis.dead.letter.count` | dead-letter 상태의 분석 작업 수 |
+| `rca.notification.queue.depth` | queued, retry-waiting, processing 상태의 알림 event 수 |
+| `rca.notification.dead.letter.count` | dead-letter 상태의 알림 event 수 |
 | `rca.webhook.ingest` | Alertmanager webhook payload 수 |
 | `rca.webhook.alerts` | Alertmanager alert 수 |
 | `rca.evidence.requests` | Platform이 만든 evidence request 수 |
@@ -89,19 +91,21 @@ RCA_MONITORING_UNAUTHORIZED_INTERVAL_MINUTES=60
 | `rca.llm.usage` | provider usage metadata 제공 여부 |
 | `rca.llm.tokens` | provider가 반환한 input/output/total token 누적값 |
 | `rca.llm.estimated.cost.usd` | 설정 단가로 계산한 예상 USD 비용 누적값 |
-| `rca.notification` | incident notification 결과 |
+| `rca.notification` | queued, sent, retry_scheduled, dead_letter 알림 결과 |
 | `rca.maintenance.run` | scheduled maintenance 실행 결과 |
 | `rca.maintenance.duration` | scheduled maintenance 소요 시간 |
 | `rca.maintenance.retention.deleted` | retention policy로 삭제된 레코드 수 |
 
 ## Operational Gauge Refresh
 
-`OperationalMetricsRefresher`는 주기적으로 현재 Agent와 analysis task 상태를 읽어 gauge를 갱신한다.
+`OperationalMetricsRefresher`는 주기적으로 현재 Agent, analysis task, notification outbox 상태를 읽어 gauge를 갱신한다.
 
 - offline agent count
 - maximum heartbeat lag
 - queue depth
 - dead-letter count
+- notification queue depth
+- notification dead-letter count
 
 ## Suggested SLOs
 
@@ -113,6 +117,7 @@ Analysis task processing p95 < 300s
 Evidence collection p95 < 300s
 LLM analysis p95 < 60s
 Dead-letter task count = 0
+Notification dead-letter count = 0
 Agent offline count = 0 for required nodes
 Retention maintenance failures = 0
 ```

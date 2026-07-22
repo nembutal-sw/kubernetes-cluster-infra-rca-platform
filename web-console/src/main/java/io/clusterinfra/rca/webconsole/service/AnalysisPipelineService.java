@@ -6,9 +6,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJob;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
-import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
-import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService.CorrelationDecision;
+import io.clusterinfra.rca.webconsole.service.IncidentPersistenceService.PersistedIncident;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -19,33 +18,27 @@ import org.springframework.stereotype.Service;
 @Service
 public class AnalysisPipelineService {
     private final EvidenceRepository evidence;
-    private final IncidentRepository incidents;
-    private final ReportRepository reports;
+    private final IncidentPersistenceService persistence;
     private final RuleBasedRcaAnalyzer analyzer;
     private final IncidentCorrelationService correlation;
     private final AuditService audit;
-    private final IncidentNotificationService notifications;
     private final RcaMetrics metrics;
     private final TopologyService topology;
 
     public AnalysisPipelineService(
         EvidenceRepository evidence,
-        IncidentRepository incidents,
-        ReportRepository reports,
+        IncidentPersistenceService persistence,
         RuleBasedRcaAnalyzer analyzer,
         IncidentCorrelationService correlation,
         AuditService audit,
-        IncidentNotificationService notifications,
         RcaMetrics metrics,
         TopologyService topology
     ) {
         this.evidence = evidence;
-        this.incidents = incidents;
-        this.reports = reports;
+        this.persistence = persistence;
         this.analyzer = analyzer;
         this.correlation = correlation;
         this.audit = audit;
-        this.notifications = notifications;
         this.metrics = metrics;
         this.topology = topology;
     }
@@ -78,7 +71,7 @@ public class AnalysisPipelineService {
                 Instant.now()
             );
             CorrelationDecision decision = correlation.decide(report, evidence);
-            RcaJob saved = incidents.saveCorrelated(
+            PersistedIncident persisted = persistence.saveCorrelated(
                 report,
                 job,
                 decision.dedupKey(),
@@ -88,10 +81,9 @@ public class AnalysisPipelineService {
                 decision.recurrenceSequence(),
                 evidence
             );
-            boolean duplicate = !saved.reportId().equals(reportId);
-            String savedIncidentId = reports.findReport(saved.reportId())
-                .map(RcaReport::incidentId)
-                .orElse(null);
+            RcaJob saved = persisted.job();
+            boolean duplicate = persisted.duplicate();
+            String savedIncidentId = persisted.report().incidentId();
             boolean promoted = decision.matched()
                 && decision.promoteRootCause()
                 && !duplicate
@@ -115,6 +107,7 @@ public class AnalysisPipelineService {
             auditDetails.put("cross_node", decision.crossNode());
             auditDetails.put("topology_rule", decision.topologyRule());
             auditDetails.put("shared_services", decision.sharedServices());
+            auditDetails.put("notification_events_queued", persisted.notificationEvents().size());
             if (decision.recurrence()) {
                 auditDetails.put("recurrence_of_incident_id", decision.recurrenceOfIncidentId());
                 auditDetails.put("recurrence_sequence", decision.recurrenceSequence());
@@ -135,11 +128,9 @@ public class AnalysisPipelineService {
                     : duplicate ? "suppressed_duplicate_report" : "report_created",
                 auditDetails
             );
-            if (!duplicate) {
-                reports.findReport(saved.reportId()).ifPresent(savedReport ->
-                    notifications.notifyIncident(savedReport, evidence)
-                );
-            }
+            persisted.notificationEvents().forEach(event ->
+                metrics.notification("queued", event.severity())
+            );
             metrics.reportGenerated(
                 correlationResult,
                 Duration.between(startedAt, Instant.now())

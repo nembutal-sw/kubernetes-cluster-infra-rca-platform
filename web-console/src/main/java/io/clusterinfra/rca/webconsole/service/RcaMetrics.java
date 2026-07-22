@@ -20,6 +20,8 @@ public class RcaMetrics {
     private final AtomicLong agentHeartbeatLagMaxSeconds = new AtomicLong();
     private final AtomicLong analysisQueueDepth = new AtomicLong();
     private final AtomicLong analysisDeadLetterCount = new AtomicLong();
+    private final AtomicLong notificationQueueDepth = new AtomicLong();
+    private final AtomicLong notificationDeadLetterCount = new AtomicLong();
 
     public RcaMetrics(MeterRegistry registry) {
         this.registry = registry;
@@ -42,6 +44,16 @@ public class RcaMetrics {
             "rca.analysis.dead.letter.count",
             "Number of RCA analysis tasks currently in dead-letter state",
             analysisDeadLetterCount
+        );
+        gauge(
+            "rca.notification.queue.depth",
+            "Number of queued, retry-waiting, or processing notification outbox events",
+            notificationQueueDepth
+        );
+        gauge(
+            "rca.notification.dead.letter.count",
+            "Number of notification outbox events currently in dead-letter state",
+            notificationDeadLetterCount
         );
     }
 
@@ -308,7 +320,9 @@ public class RcaMetrics {
         List<NodeAgent> agents,
         long offlineAfterSeconds,
         long queueDepth,
-        long deadLetterCount
+        long deadLetterCount,
+        long notificationQueueDepth,
+        long notificationDeadLetterCount
     ) {
         Instant now = Instant.now();
         long offline = 0;
@@ -326,6 +340,8 @@ public class RcaMetrics {
         agentHeartbeatLagMaxSeconds.set(maximumLag);
         analysisQueueDepth.set(Math.max(0, queueDepth));
         analysisDeadLetterCount.set(Math.max(0, deadLetterCount));
+        this.notificationQueueDepth.set(Math.max(0, notificationQueueDepth));
+        this.notificationDeadLetterCount.set(Math.max(0, notificationDeadLetterCount));
     }
 
     private void increment(String name, String description, int amount, String... tags) {

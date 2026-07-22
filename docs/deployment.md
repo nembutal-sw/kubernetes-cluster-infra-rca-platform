@@ -102,9 +102,25 @@ Incident 알림은 선택 기능입니다. Slack 또는 일반 webhook을 사용
 RCA_NOTIFICATION_ENABLED=true
 RCA_NOTIFICATION_MINIMUM_SEVERITY=critical
 RCA_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+RCA_NOTIFICATION_MAX_ATTEMPTS=2
+RCA_NOTIFICATION_TIMEOUT_SECONDS=5
+RCA_NOTIFICATION_BATCH_SIZE=10
+RCA_NOTIFICATION_POLL_INTERVAL_MS=1000
+RCA_NOTIFICATION_LEASE_SECONDS=60
+RCA_NOTIFICATION_RETRY_BASE_SECONDS=5
+RCA_NOTIFICATION_RETRY_MAX_SECONDS=300
 ```
 
 일반 webhook에서 `RCA_NOTIFICATION_WEBHOOK_TOKEN`을 설정하면 `Authorization: Bearer` 헤더가 추가됩니다. 운영 profile에서는 HTTPS endpoint를 사용해야 합니다.
+
+Incident와 알림 event는 같은 DB transaction에 저장됩니다. 별도 worker가 lease를 획득해 전달하며,
+`408`, `425`, `429`, `5xx`와 네트워크 오류는 지수 backoff로 재시도합니다. 그 외 `4xx`와
+최대 시도 횟수를 소진한 event는 `dead_letter`로 이동합니다. 일반 webhook 요청에는
+`Idempotency-Key` 헤더가 포함됩니다.
+
+`ADMIN`, `OPERATOR`, `AUDITOR`는 `GET /api/notifications/outbox`에서 payload를 제외한 상태를
+확인할 수 있습니다. `ADMIN` 또는 `OPERATOR`는 확인 요청과 함께
+`POST /api/notifications/outbox/{eventId}/retry`를 호출해 dead-letter event를 다시 queue에 넣을 수 있습니다.
 
 ## GitOps
 

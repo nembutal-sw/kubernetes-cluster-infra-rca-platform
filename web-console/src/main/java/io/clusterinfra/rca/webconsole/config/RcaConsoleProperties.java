@@ -812,6 +812,12 @@ public class RcaConsoleProperties {
         private String minimumSeverity = "critical";
         private int maxAttempts = 2;
         private int timeoutSeconds = 5;
+        private int batchSize = 10;
+        private long pollIntervalMs = 1000;
+        private long initialDelayMs = 3000;
+        private int leaseSeconds = 60;
+        private int retryBaseSeconds = 5;
+        private int retryMaxSeconds = 300;
 
         public boolean isEnabled() {
             return enabled;
@@ -867,6 +873,54 @@ public class RcaConsoleProperties {
 
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public long getPollIntervalMs() {
+            return pollIntervalMs;
+        }
+
+        public void setPollIntervalMs(long pollIntervalMs) {
+            this.pollIntervalMs = pollIntervalMs;
+        }
+
+        public long getInitialDelayMs() {
+            return initialDelayMs;
+        }
+
+        public void setInitialDelayMs(long initialDelayMs) {
+            this.initialDelayMs = initialDelayMs;
+        }
+
+        public int getLeaseSeconds() {
+            return leaseSeconds;
+        }
+
+        public void setLeaseSeconds(int leaseSeconds) {
+            this.leaseSeconds = leaseSeconds;
+        }
+
+        public int getRetryBaseSeconds() {
+            return retryBaseSeconds;
+        }
+
+        public void setRetryBaseSeconds(int retryBaseSeconds) {
+            this.retryBaseSeconds = retryBaseSeconds;
+        }
+
+        public int getRetryMaxSeconds() {
+            return retryMaxSeconds;
+        }
+
+        public void setRetryMaxSeconds(int retryMaxSeconds) {
+            this.retryMaxSeconds = retryMaxSeconds;
         }
     }
 

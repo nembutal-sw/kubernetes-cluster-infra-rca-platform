@@ -329,3 +329,21 @@ GET /api/v1/evidence/schemas
 인증된 `ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER`, `AUDITOR`가 조회할 수 있습니다. 응답에는
 `collector-evidence/v1` 계약 버전, Collector별 필드 타입, alias, 단위가 포함됩니다. 이 API는
 진단 계약 확인용 read-only API이며 Evidence 원문은 반환하지 않습니다.
+## Notification Outbox
+
+Incident notification은 분석 요청 thread에서 직접 전송하지 않습니다. Incident 저장 transaction에서
+outbox event를 만들고 별도 worker가 전달합니다.
+
+| Method | Path | Role | 설명 |
+| --- | --- | --- | --- |
+| `GET` | `/api/notifications/status` | 모든 인증 역할 | 설정, queue depth, dead-letter 수 확인 |
+| `GET` | `/api/notifications/outbox` | `ADMIN`, `OPERATOR`, `AUDITOR` | payload를 제외한 outbox 상태 조회 |
+| `POST` | `/api/notifications/outbox/{eventId}/retry` | `ADMIN`, `OPERATOR` | 확인 후 dead-letter event 재큐잉 |
+
+재큐잉 요청 body:
+
+```json
+{
+  "confirmed": true
+}
+```

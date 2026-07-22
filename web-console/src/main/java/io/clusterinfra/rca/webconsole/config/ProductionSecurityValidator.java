@@ -190,11 +190,12 @@ public class ProductionSecurityValidator implements InitializingBean {
     }
 
     private void validateNotification(List<String> violations) {
-        if (!properties.getNotification().isEnabled()) {
+        RcaConsoleProperties.Notification notification = properties.getNotification();
+        if (!notification.isEnabled()) {
             return;
         }
-        String slackWebhookUrl = properties.getNotification().getSlackWebhookUrl();
-        String webhookUrl = properties.getNotification().getWebhookUrl();
+        String slackWebhookUrl = notification.getSlackWebhookUrl();
+        String webhookUrl = notification.getWebhookUrl();
         if (slackWebhookUrl.isBlank() && webhookUrl.isBlank()) {
             violations.add(
                 "RCA_SLACK_WEBHOOK_URL or RCA_NOTIFICATION_WEBHOOK_URL is required when RCA_NOTIFICATION_ENABLED=true"
@@ -202,8 +203,33 @@ public class ProductionSecurityValidator implements InitializingBean {
         }
         validateHttpsUrl(slackWebhookUrl, "RCA_SLACK_WEBHOOK_URL", violations);
         validateHttpsUrl(webhookUrl, "RCA_NOTIFICATION_WEBHOOK_URL", violations);
-        if (webhookUrl.isBlank() && !properties.getNotification().getWebhookToken().isBlank()) {
+        if (webhookUrl.isBlank() && !notification.getWebhookToken().isBlank()) {
             violations.add("RCA_NOTIFICATION_WEBHOOK_TOKEN requires RCA_NOTIFICATION_WEBHOOK_URL");
+        }
+        if (notification.getMaxAttempts() < 1 || notification.getMaxAttempts() > 10) {
+            violations.add("RCA_NOTIFICATION_MAX_ATTEMPTS must be between 1 and 10");
+        }
+        if (notification.getTimeoutSeconds() < 1 || notification.getTimeoutSeconds() > 30) {
+            violations.add("RCA_NOTIFICATION_TIMEOUT_SECONDS must be between 1 and 30");
+        }
+        if (notification.getBatchSize() < 1 || notification.getBatchSize() > 100) {
+            violations.add("RCA_NOTIFICATION_BATCH_SIZE must be between 1 and 100");
+        }
+        if (notification.getPollIntervalMs() < 100 || notification.getPollIntervalMs() > 60000) {
+            violations.add("RCA_NOTIFICATION_POLL_INTERVAL_MS must be between 100 and 60000");
+        }
+        if (notification.getInitialDelayMs() < 0 || notification.getInitialDelayMs() > 600000) {
+            violations.add("RCA_NOTIFICATION_INITIAL_DELAY_MS must be between 0 and 600000");
+        }
+        if (notification.getLeaseSeconds() < 15 || notification.getLeaseSeconds() > 3600) {
+            violations.add("RCA_NOTIFICATION_LEASE_SECONDS must be between 15 and 3600");
+        }
+        if (notification.getRetryBaseSeconds() < 1
+            || notification.getRetryMaxSeconds() < notification.getRetryBaseSeconds()
+            || notification.getRetryMaxSeconds() > 86400) {
+            violations.add(
+                "RCA_NOTIFICATION_RETRY_SECONDS must be positive, ordered, and no greater than 86400"
+            );
         }
     }
 

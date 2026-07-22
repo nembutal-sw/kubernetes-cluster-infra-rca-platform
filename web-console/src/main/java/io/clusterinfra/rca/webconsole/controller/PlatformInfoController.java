@@ -3,8 +3,10 @@ package io.clusterinfra.rca.webconsole.controller;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ExportSecurityInfo;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationConfigurationInfo;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.PlatformInfo;
 import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
+import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
 import io.clusterinfra.rca.webconsole.service.ClusterThresholdService;
 import io.clusterinfra.rca.webconsole.service.LlmConfigurationService;
 import java.util.ArrayList;
@@ -21,17 +23,20 @@ public class PlatformInfoController {
     private final LlmConfigurationService llmConfiguration;
     private final OperationalCatalogService catalogService;
     private final ClusterThresholdService thresholdService;
+    private final NotificationOutboxRepository notificationOutbox;
 
     public PlatformInfoController(
         RcaConsoleProperties properties,
         LlmConfigurationService llmConfiguration,
         OperationalCatalogService catalogService,
-        ClusterThresholdService thresholdService
+        ClusterThresholdService thresholdService,
+        NotificationOutboxRepository notificationOutbox
     ) {
         this.properties = properties;
         this.llmConfiguration = llmConfiguration;
         this.catalogService = catalogService;
         this.thresholdService = thresholdService;
+        this.notificationOutbox = notificationOutbox;
     }
 
     @GetMapping({"/api/platform/info", "/api/v1/platform/info"})
@@ -117,7 +122,12 @@ public class PlatformInfoController {
             notification.getMinimumSeverity(),
             notification.getMaxAttempts(),
             notification.getTimeoutSeconds(),
-            List.copyOf(channels)
+            List.copyOf(channels),
+            "transactional_outbox",
+            notificationOutbox.count(NotificationOutboxStatus.queued)
+                + notificationOutbox.count(NotificationOutboxStatus.retry_wait)
+                + notificationOutbox.count(NotificationOutboxStatus.processing),
+            notificationOutbox.count(NotificationOutboxStatus.dead_letter)
         );
     }
 

@@ -165,6 +165,12 @@ rca:
     minimum-severity: ${RCA_NOTIFICATION_MINIMUM_SEVERITY:critical}
     max-attempts: ${RCA_NOTIFICATION_MAX_ATTEMPTS:2}
     timeout-seconds: ${RCA_NOTIFICATION_TIMEOUT_SECONDS:5}
+    batch-size: ${RCA_NOTIFICATION_BATCH_SIZE:10}
+    poll-interval-ms: ${RCA_NOTIFICATION_POLL_INTERVAL_MS:1000}
+    initial-delay-ms: ${RCA_NOTIFICATION_INITIAL_DELAY_MS:3000}
+    lease-seconds: ${RCA_NOTIFICATION_LEASE_SECONDS:60}
+    retry-base-seconds: ${RCA_NOTIFICATION_RETRY_BASE_SECONDS:5}
+    retry-max-seconds: ${RCA_NOTIFICATION_RETRY_MAX_SECONDS:300}
   pipeline:
     enabled: ${RCA_PIPELINE_ENABLED:true}
     batch-size: ${RCA_PIPELINE_BATCH_SIZE:4}

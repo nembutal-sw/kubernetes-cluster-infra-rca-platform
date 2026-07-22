@@ -536,7 +536,10 @@ public final class RcaModels {
         String minimumSeverity,
         int maxAttempts,
         int timeoutSeconds,
-        List<String> channels
+        List<String> channels,
+        String deliveryMode,
+        long queueDepth,
+        long deadLetterCount
     ) {
     }
 
@@ -558,6 +561,50 @@ public final class RcaModels {
         String outcome,
         String message,
         List<NotificationDeliveryResult> results
+    ) {
+    }
+
+    public enum NotificationOutboxStatus {
+        queued, processing, retry_wait, sent, dead_letter
+    }
+
+    public record NotificationOutboxEvent(
+        String eventId,
+        String idempotencyKey,
+        String incidentId,
+        String reportId,
+        String channel,
+        String severity,
+        Map<String, Object> payload,
+        NotificationOutboxStatus status,
+        int attemptCount,
+        int maxAttempts,
+        Instant nextAttemptAt,
+        String leaseOwner,
+        Instant leaseExpiresAt,
+        Integer lastStatusCode,
+        String lastError,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant deliveredAt
+    ) {
+    }
+
+    public record NotificationOutboxSummary(
+        String eventId,
+        String incidentId,
+        String reportId,
+        String channel,
+        String severity,
+        NotificationOutboxStatus status,
+        int attemptCount,
+        int maxAttempts,
+        Integer lastStatusCode,
+        String lastError,
+        Instant nextAttemptAt,
+        Instant createdAt,
+        Instant updatedAt,
+        Instant deliveredAt
     ) {
     }
 

@@ -192,6 +192,18 @@ spec:
               value: {{ .Values.platform.config.notificationMaxAttempts | quote }}
             - name: RCA_NOTIFICATION_TIMEOUT_SECONDS
               value: {{ .Values.platform.config.notificationTimeoutSeconds | quote }}
+            - name: RCA_NOTIFICATION_BATCH_SIZE
+              value: {{ .Values.platform.config.notificationBatchSize | quote }}
+            - name: RCA_NOTIFICATION_POLL_INTERVAL_MS
+              value: {{ .Values.platform.config.notificationPollIntervalMs | quote }}
+            - name: RCA_NOTIFICATION_INITIAL_DELAY_MS
+              value: {{ .Values.platform.config.notificationInitialDelayMs | quote }}
+            - name: RCA_NOTIFICATION_LEASE_SECONDS
+              value: {{ .Values.platform.config.notificationLeaseSeconds | quote }}
+            - name: RCA_NOTIFICATION_RETRY_BASE_SECONDS
+              value: {{ .Values.platform.config.notificationRetryBaseSeconds | quote }}
+            - name: RCA_NOTIFICATION_RETRY_MAX_SECONDS
+              value: {{ .Values.platform.config.notificationRetryMaxSeconds | quote }}
             - name: RCA_GITOPS_ENABLED
               value: {{ .Values.platform.config.gitopsEnabled | quote }}
             - name: RCA_GITOPS_PROVIDER

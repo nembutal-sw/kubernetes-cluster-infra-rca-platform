@@ -202,6 +202,12 @@ platform:
     notificationMinimumSeverity: critical
     notificationMaxAttempts: 2
     notificationTimeoutSeconds: 5
+    notificationBatchSize: 10
+    notificationPollIntervalMs: 1000
+    notificationInitialDelayMs: 3000
+    notificationLeaseSeconds: 60
+    notificationRetryBaseSeconds: 5
+    notificationRetryMaxSeconds: 300
     pipelineEnabled: true
     pipelineBatchSize: 4
     pipelinePollIntervalMs: 2000

@@ -27,7 +27,8 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Optional LLM explanation
   -> Policy Engine
   -> Incident correlation
-  -> Report / Timeline / Audit / Manual Action Workflow
+  -> Report + Notification Outbox (same DB transaction)
+  -> Timeline / Audit / Manual Action Workflow
 ```
 
 운영 조치는 자동 실행하지 않습니다. 승인 요청, 승인/거절 기록, 수동 처리 완료, runbook, 검토된 GitOps PR 흐름만 제공합니다. LLM 조치는 항상 `automation_allowed=false`, `executable=false`입니다.
@@ -40,7 +41,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
 | Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
 | Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
 | Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway, 20 migrations | 신규 및 기존 schema 관리 |
+| Migration | Flyway, 22 migrations | 신규 및 기존 schema 관리 |
 
 Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
 
@@ -50,6 +51,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence, Rule-based RCA 품질 gate, LLM provider 추상화
 - incident correlation, 장애 전파 timeline, 영향 범위
+- Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
 - PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate

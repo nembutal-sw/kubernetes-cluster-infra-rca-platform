@@ -17,9 +17,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
-import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
-import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
 import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService.CorrelationDecision;
+import io.clusterinfra.rca.webconsole.service.IncidentPersistenceService.PersistedIncident;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -39,10 +38,7 @@ class AnalysisPipelineServiceTests {
     private EvidenceRepository evidenceRepository;
 
     @Mock
-    private IncidentRepository incidents;
-
-    @Mock
-    private ReportRepository reports;
+    private IncidentPersistenceService persistence;
 
     @Mock
     private RuleBasedRcaAnalyzer analyzer;
@@ -52,9 +48,6 @@ class AnalysisPipelineServiceTests {
 
     @Mock
     private AuditService audit;
-
-    @Mock
-    private IncidentNotificationService notifications;
 
     @Mock
     private RcaMetrics metrics;
@@ -68,12 +61,10 @@ class AnalysisPipelineServiceTests {
     void setUp() {
         service = new AnalysisPipelineService(
             evidenceRepository,
-            incidents,
-            reports,
+            persistence,
             analyzer,
             correlation,
             audit,
-            notifications,
             metrics,
             topology
         );
@@ -100,7 +91,7 @@ class AnalysisPipelineServiceTests {
 
         verify(topology).observe(evidence);
         verify(analyzer).hasActionableSignals(evidence.clusterId(), evidence.collectors());
-        verifyNoInteractions(incidents, reports, audit, notifications);
+        verifyNoInteractions(persistence, audit);
     }
 
     @Test
@@ -125,7 +116,7 @@ class AnalysisPipelineServiceTests {
             "",
             List.of()
         ));
-        when(incidents.saveCorrelated(
+        when(persistence.saveCorrelated(
             any(),
             any(),
             eq("cluster-1:worker-a:disk"),
@@ -134,10 +125,15 @@ class AnalysisPipelineServiceTests {
             eq(null),
             eq(0),
             eq(evidence)
-        )).thenAnswer(invocation -> invocation.getArgument(1));
-        when(reports.findReport(any())).thenAnswer(invocation ->
-            Optional.of(report(invocation.getArgument(0), "incident-1"))
-        );
+        )).thenAnswer(invocation -> {
+            RcaJob savedJob = invocation.getArgument(1);
+            return new PersistedIncident(
+                savedJob,
+                report(savedJob.reportId(), "incident-1"),
+                false,
+                List.of()
+            );
+        });
 
         RcaJob result = service.processAnalysisTask(task);
 
@@ -145,7 +141,16 @@ class AnalysisPipelineServiceTests {
         verify(topology).observe(evidence);
         verify(metrics).incident("created");
         verify(metrics).reportGenerated(eq("created"), any());
-        verify(notifications).notifyIncident(any(RcaReport.class), eq(evidence));
+        verify(persistence).saveCorrelated(
+            any(RcaReport.class),
+            any(RcaJob.class),
+            eq("cluster-1:worker-a:disk"),
+            eq(null),
+            eq(false),
+            eq(null),
+            eq(0),
+            eq(evidence)
+        );
 
         ArgumentCaptor<Map<String, Object>> auditDetails = ArgumentCaptor.forClass(Map.class);
         verify(audit).system(

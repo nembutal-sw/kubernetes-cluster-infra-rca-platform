@@ -940,6 +940,11 @@ function buildNotificationRows(
   const tokenConfigured = Boolean(notification?.webhook_token_configured ?? notification?.webhookTokenConfigured);
   const channels = Array.isArray(notification?.channels) ? notification.channels : [];
   const minimumSeverity = stringValue(notification?.minimum_severity ?? notification?.minimumSeverity) || "critical";
+  const queueDepth = numberValue(notification?.queue_depth ?? notification?.queueDepth, 0);
+  const deadLetterCount = numberValue(
+    notification?.dead_letter_count ?? notification?.deadLetterCount,
+    0,
+  );
   return [
     { key: "notification.enabled", label: t("Enabled"), value: enabled ? t("Enabled") : t("Disabled"), tone: enabled ? "ok" : "muted" },
     { key: "notification.channels", label: t("Configured targets"), value: channels.length ? channels.join(", ") : t("No"), tone: channels.length ? "ok" : "warn" },
@@ -949,6 +954,9 @@ function buildNotificationRows(
     { key: "notification.severity", label: t("Minimum severity"), value: t(minimumSeverity), tone: minimumSeverity === "critical" ? "muted" : "warn" },
     { key: "notification.attempts", label: t("Attempts"), value: numberValue(notification?.max_attempts ?? notification?.maxAttempts, 2) },
     { key: "notification.timeout", label: t("Timeout"), value: `${numberValue(notification?.timeout_seconds ?? notification?.timeoutSeconds, 5)}s` },
+    { key: "notification.delivery", label: t("Delivery mode"), value: t("Transactional outbox"), tone: "ok" },
+    { key: "notification.queue", label: t("Queue depth"), value: queueDepth, tone: queueDepth > 0 ? "warn" : "ok" },
+    { key: "notification.dead", label: t("Dead letter"), value: deadLetterCount, tone: deadLetterCount > 0 ? "danger" : "ok" },
   ];
 }
 

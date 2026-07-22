@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxEvent;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
+import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -42,6 +45,9 @@ class RbacHttpAuthorizationTests {
 
     @Autowired
     private TokenService tokens;
+
+    @Autowired
+    private NotificationOutboxRepository notificationOutbox;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -216,6 +222,57 @@ class RbacHttpAuthorizationTests {
         ), HttpStatus.UNAUTHORIZED);
     }
 
+    @Test
+    void notificationOutboxHidesPayloadAndRestrictsDeadLetterRetry() throws Exception {
+        String eventId = "notification-rbac-" + UUID.randomUUID().toString().substring(0, 8);
+        notificationOutbox.enqueue(notificationEvent(eventId));
+        NotificationOutboxEvent claimed = notificationOutbox.claim(
+            "rbac-worker",
+            1,
+            Instant.now(),
+            Instant.now().plusSeconds(30)
+        ).getFirst();
+        notificationOutbox.markFailed(
+            claimed,
+            "rbac-worker",
+            401,
+            "secret=must-not-leak",
+            Instant.now(),
+            false
+        );
+
+        String admin = token(UserRole.admin);
+        String operator = token(UserRole.operator);
+        String viewer = token(UserRole.viewer);
+        String auditor = token(UserRole.auditor);
+        ResponseEntity<String> listed = exchange(
+            auditor,
+            HttpMethod.GET,
+            "/api/notifications/outbox?status=dead_letter&limit=10",
+            null
+        );
+
+        assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var item = objectMapper.readTree(listed.getBody()).get(0);
+        assertThat(item.path("event_id").asText()).isEqualTo(eventId);
+        assertThat(item.has("payload")).isFalse();
+        assertThat(item.has("idempotency_key")).isFalse();
+        assertThat(item.path("last_error").asText()).contains("[redacted]").doesNotContain("must-not-leak");
+        assertStatus(operator, HttpMethod.GET, "/api/notifications/outbox", null, HttpStatus.OK);
+        assertStatus(viewer, HttpMethod.GET, "/api/notifications/outbox", null, HttpStatus.FORBIDDEN);
+        assertStatus(auditor, HttpMethod.POST, "/api/notifications/outbox/" + eventId + "/retry", Map.of(
+            "confirmed", true
+        ), HttpStatus.FORBIDDEN);
+        assertStatus(operator, HttpMethod.POST, "/api/notifications/outbox/" + eventId + "/retry", Map.of(
+            "confirmed", false
+        ), HttpStatus.BAD_REQUEST);
+        assertStatus(admin, HttpMethod.POST, "/api/notifications/outbox/" + eventId + "/retry", Map.of(
+            "confirmed", true
+        ), HttpStatus.OK);
+        assertThat(notificationOutbox.find(eventId).orElseThrow().status())
+            .isEqualTo(NotificationOutboxStatus.queued);
+    }
+
     private String token(UserRole role) throws Exception {
         ResponseEntity<String> response = restTemplate.postForEntity(
             "/api/auth/login",
@@ -224,6 +281,30 @@ class RbacHttpAuthorizationTests {
         );
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         return objectMapper.readTree(response.getBody()).path("access_token").asText();
+    }
+
+    private NotificationOutboxEvent notificationEvent(String eventId) {
+        Instant now = Instant.now();
+        return new NotificationOutboxEvent(
+            eventId,
+            "idempotency-" + eventId,
+            "incident-rbac",
+            "report-rbac",
+            "webhook",
+            "critical",
+            Map.of("secret", "must-not-leak"),
+            NotificationOutboxStatus.queued,
+            0,
+            3,
+            now,
+            null,
+            null,
+            null,
+            null,
+            now,
+            now,
+            null
+        );
     }
 
     private void assertStatus(
