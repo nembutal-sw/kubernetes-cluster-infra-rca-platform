@@ -127,7 +127,7 @@ export RCA_DEFAULT_ADMIN_USERNAME=admin
 export RCA_DEFAULT_ADMIN_PASSWORD='<strong-password>'
 export RCA_WEBHOOK_TOKEN='<random-webhook-token>'
 cd web-console
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 PowerShell:
@@ -138,7 +138,7 @@ $env:RCA_DEFAULT_ADMIN_USERNAME = "admin"
 $env:RCA_DEFAULT_ADMIN_PASSWORD = "<strong-password>"
 $env:RCA_WEBHOOK_TOKEN = "<random-webhook-token>"
 Set-Location web-console
-..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd spring-boot:run
+..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd -Pfrontend process-resources spring-boot:run
 ```
 
 초기 계정은 코드에 고정되어 있지 않습니다. 첫 로그인 후 Settings에서 로그인 ID와 비밀번호를 변경할 수 있습니다.
@@ -323,8 +323,13 @@ bash scripts/linux-dev-check.sh --full
 ```bash
 python -m pytest -q
 mvn -f web-console/pom.xml verify
+cd web-console/frontend && npm ci && npm test && npm run build
+mvn -f web-console/pom.xml -Pfrontend -DskipTests package
 python3 scripts/release-readiness-check.py
 ```
+
+기본 `mvn verify`는 Java Backend만 검증하며 Node.js나 npm registry를 사용하지 않습니다. React가
+포함된 실행 JAR과 Docker image는 명시적으로 `frontend` Maven profile을 사용합니다.
 
 DB 호환 테스트가 실제 실행됐는지 확인:
 

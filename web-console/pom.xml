@@ -24,6 +24,8 @@
     <spring-ai.version>1.1.8</spring-ai.version>
     <google-genai.version>1.61.0</google-genai.version>
     <flyway.version>12.9.0</flyway.version>
+    <frontend.node.version>v22.14.0</frontend.node.version>
+    <frontend.npm.version>11.3.0</frontend.npm.version>
   </properties>
 
   <dependencyManagement>
@@ -148,57 +150,18 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>com.github.eirslett</groupId>
-        <artifactId>frontend-maven-plugin</artifactId>
-        <version>1.15.1</version>
-        <configuration>
-          <workingDirectory>frontend</workingDirectory>
-        </configuration>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.2.0</version>
         <executions>
           <execution>
-            <id>install-node-and-npm</id>
-            <goals><goal>install-node-and-npm</goal></goals>
-            <phase>generate-resources</phase>
+            <id>remove-stale-frontend-assets</id>
+            <phase>initialize</phase>
+            <goals><goal>run</goal></goals>
             <configuration>
-              <nodeVersion>v22.14.0</nodeVersion>
-              <npmVersion>11.3.0</npmVersion>
-            </configuration>
-          </execution>
-          <execution>
-            <id>npm-ci</id>
-            <goals><goal>npm</goal></goals>
-            <phase>generate-resources</phase>
-            <configuration><arguments>ci --no-audit --no-fund</arguments></configuration>
-          </execution>
-          <execution>
-            <id>vite-build</id>
-            <goals><goal>npm</goal></goals>
-            <phase>generate-resources</phase>
-            <configuration><arguments>run build</arguments></configuration>
-          </execution>
-          <execution>
-            <id>frontend-test</id>
-            <goals><goal>npm</goal></goals>
-            <phase>generate-resources</phase>
-            <configuration><arguments>test</arguments></configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <artifactId>maven-resources-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>copy-frontend</id>
-            <phase>process-resources</phase>
-            <goals><goal>copy-resources</goal></goals>
-            <configuration>
-              <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
-              <resources>
-                <resource>
-                  <directory>${project.basedir}/target/frontend-dist</directory>
-                  <filtering>false</filtering>
-                </resource>
-              </resources>
+              <target>
+                <delete dir="${project.build.outputDirectory}/static" quiet="true" />
+              </target>
             </configuration>
           </execution>
         </executions>
@@ -209,4 +172,83 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>frontend</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.github.eirslett</groupId>
+            <artifactId>frontend-maven-plugin</artifactId>
+            <version>1.15.1</version>
+            <configuration>
+              <workingDirectory>frontend</workingDirectory>
+            </configuration>
+            <executions>
+              <execution>
+                <id>install-node-and-npm</id>
+                <goals><goal>install-node-and-npm</goal></goals>
+                <phase>generate-resources</phase>
+                <configuration>
+                  <nodeVersion>${frontend.node.version}</nodeVersion>
+                  <npmVersion>${frontend.npm.version}</npmVersion>
+                </configuration>
+              </execution>
+              <execution>
+                <id>npm-ci</id>
+                <goals><goal>npm</goal></goals>
+                <phase>generate-resources</phase>
+                <configuration><arguments>ci --no-audit --no-fund</arguments></configuration>
+              </execution>
+              <execution>
+                <id>vite-build</id>
+                <goals><goal>npm</goal></goals>
+                <phase>generate-resources</phase>
+                <configuration><arguments>run build</arguments></configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-resources-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>copy-frontend</id>
+                <phase>process-resources</phase>
+                <goals><goal>copy-resources</goal></goals>
+                <configuration>
+                  <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>${project.basedir}/target/frontend-dist</directory>
+                      <filtering>false</filtering>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>require-frontend-assets</id>
+                <phase>prepare-package</phase>
+                <goals><goal>run</goal></goals>
+                <configuration>
+                  <target>
+                    <available file="${project.build.outputDirectory}/static/index.html"
+                               property="frontend.assets.present" />
+                    <fail unless="frontend.assets.present"
+                          message="Frontend profile requires target/classes/static/index.html." />
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

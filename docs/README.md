@@ -116,9 +116,14 @@ bash scripts/linux-dev-check.sh --full
 
 ```bash
 mvn -f web-console/pom.xml verify
+cd web-console/frontend && npm ci && npm test && npm run build
+mvn -f web-console/pom.xml -Pfrontend -DskipTests package
 python -m pytest -q
 python3 scripts/release-readiness-check.py
 ```
+
+첫 Maven 명령은 Java 전용 검증입니다. React 정적 자산이 포함된 JAR은 `frontend` profile로만
+생성하며 Frontend test/build는 npm lifecycle에서 독립 실행합니다.
 
 ### DB 호환성
 

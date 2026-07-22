@@ -11,6 +11,8 @@ cd web-console
 mvn test
 ```
 
+기본 Maven lifecycle은 Java Backend만 실행하며 Node.js와 npm registry에 의존하지 않습니다.
+
 Windows 로컬에서 저장소 내 Maven을 사용할 때:
 
 ```powershell
@@ -205,7 +207,7 @@ Kubernetes 클러스터는 사용하지 않습니다.
 
 ```bash
 cd web-console
-mvn --batch-mode --no-transfer-progress -DskipTests package
+mvn --batch-mode --no-transfer-progress -Pfrontend -DskipTests package
 
 cd frontend
 npx playwright install chromium

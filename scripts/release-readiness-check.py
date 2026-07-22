@@ -644,6 +644,23 @@ def main() -> int:
             "Sanitized production-like evidence scenarios enforce positive, negative, boundary, compound, degraded, temporal, and runtime-variant gates.",
         ),
         check(
+            "build-lifecycle-separation",
+            exists("scripts/verify-build-lifecycle.py")
+            and contains(
+                "web-console/pom.xml",
+                "<id>frontend</id>",
+                "remove-stale-frontend-assets",
+                "require-frontend-assets",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "Validate Maven and Frontend lifecycle separation",
+                "-Pfrontend -DskipTests package",
+            )
+            and contains("Dockerfile.web-console", "-Pfrontend verify"),
+            "Java-only Maven verification is separated from explicit integrated Frontend packaging.",
+        ),
+        check(
             "gitops-change-tracking",
             exists("web-console/src/main/resources/db/migration/V18__gitops_change_tracking.sql")
             and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GitHubGitOpsProvider.java")

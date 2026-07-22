@@ -178,7 +178,7 @@ check_tooling() {
   if has_cmd node; then
     log "Node OK: $(node --version)"
   else
-    log "Node.js is missing. JavaScript syntax validation will be skipped."
+    log "System Node.js is missing. The Frontend Maven profile will install its pinned Node.js runtime."
   fi
 
   return "${failed}"
@@ -218,8 +218,11 @@ run_validation() {
   log "Running Python compile check"
   "${ROOT_DIR}/.venv/bin/python" -m compileall -q "${ROOT_DIR}/node_agent" "${ROOT_DIR}/tests"
 
-  log "Running Spring Boot platform tests"
-  (cd "${ROOT_DIR}/web-console" && mvn verify)
+  log "Running integrated Spring Boot and Frontend build"
+  (cd "${ROOT_DIR}/web-console" && mvn -Pfrontend verify)
+
+  log "Running Frontend unit tests"
+  (cd "${ROOT_DIR}/web-console/frontend" && PATH="${ROOT_DIR}/web-console/frontend/node:${PATH}" "${ROOT_DIR}/web-console/frontend/node/npm" test)
 }
 
 case "${MODE}" in
@@ -244,8 +247,10 @@ case "${MODE}" in
     ;;
   --validate-web)
     bootstrap_user_tools
-    log "Running Spring Boot platform tests"
-    (cd "${ROOT_DIR}/web-console" && mvn verify)
+    log "Running integrated Spring Boot and Frontend build"
+    (cd "${ROOT_DIR}/web-console" && mvn -Pfrontend verify)
+    log "Running Frontend unit tests"
+    (cd "${ROOT_DIR}/web-console/frontend" && PATH="${ROOT_DIR}/web-console/frontend/node:${PATH}" "${ROOT_DIR}/web-console/frontend/node/npm" test)
     ;;
   --full)
     bootstrap_user_tools
@@ -263,7 +268,7 @@ Usage: scripts/linux-dev-check.sh [--check|--bootstrap-tools|--bootstrap-python|
   --bootstrap-python Install user-local uv and managed Python 3.11 under $HOME/.local.
   --bootstrap        Create .venv and install Python dependencies.
   --validate         Run Python, JavaScript, and Spring Boot checks.
-  --validate-web     Bootstrap user-local Java tools and run Spring Boot tests only.
+  --validate-web     Bootstrap user-local Java tools and run the integrated Spring Boot/Frontend checks.
   --full             Bootstrap user-local Java tools, Python env, and run validation.
 
 The script does not use sudo and does not modify OS packages, Docker, CNI,

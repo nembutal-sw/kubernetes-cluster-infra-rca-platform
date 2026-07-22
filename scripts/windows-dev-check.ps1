@@ -89,13 +89,22 @@ function Check-Tooling {
 
     $maven = Get-MavenCommand
     Require-CommandPath $maven "Maven"
-    $mavenVersionLine = (cmd /c "`"$maven`" -version 2>&1" | Select-Object -First 1)
+    $mavenVersionOutput = @(cmd /c "`"$maven`" -version 2>&1")
+    $mavenVersionLine = $mavenVersionOutput | Select-Object -First 1
     Write-Step "Maven OK: $mavenVersionLine"
+    $mavenJavaVersionLine = $mavenVersionOutput | Where-Object { $_ -match '^Java version:' } | Select-Object -First 1
+    if (-not $mavenJavaVersionLine -or $mavenJavaVersionLine -notmatch '^Java version:\s+(?<major>\d+)') {
+        throw "Unable to determine the Java runtime used by Maven"
+    }
+    if ([int] $Matches.major -lt 21) {
+        throw "Maven must use Java 21+. Detected: $mavenJavaVersionLine. Set JAVA_HOME to a JDK 21 installation."
+    }
+    Write-Step "Maven runtime OK: $mavenJavaVersionLine"
 
     if (Test-Path $BundledNode) {
         Write-Step "Node OK: $(& $BundledNode --version)"
     } else {
-        Write-Step "Node is missing. JavaScript syntax check will be skipped."
+        Write-Step "System Node is missing. The Frontend Maven profile will install its pinned Node.js runtime."
     }
 }
 
@@ -122,12 +131,28 @@ function Run-Validation {
         throw "Python compile check failed"
     }
 
-    Write-Step "Running Spring Boot platform tests"
+    Write-Step "Running integrated Spring Boot and Frontend build"
     Push-Location (Join-Path $Root "web-console")
     try {
-        Invoke-Maven $maven @("verify")
+        Invoke-Maven $maven @("-Pfrontend", "verify")
     } finally {
         Pop-Location
+    }
+
+    $frontendNpm = Join-Path $Root "web-console\frontend\node\npm.cmd"
+    Require-CommandPath $frontendNpm "Maven-managed Frontend npm"
+    Write-Step "Running Frontend unit tests"
+    $originalPath = $env:PATH
+    $env:PATH = "$(Split-Path -Parent $frontendNpm);$env:PATH"
+    Push-Location (Join-Path $Root "web-console\frontend")
+    try {
+        & $frontendNpm test
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend tests failed"
+        }
+    } finally {
+        Pop-Location
+        $env:PATH = $originalPath
     }
 }
 

@@ -20,7 +20,7 @@ Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다. React W
 | --- | --- |
 | Java | 21 |
 | Maven | 3.9 이상 |
-| Node.js | Maven build 사용 시 자동 설치 |
+| Node.js | `frontend` Maven profile 사용 시 자동 설치 |
 | Docker | DB 호환 Testcontainers 실행 시 필요 |
 
 ## Local Run
@@ -31,7 +31,7 @@ H2 file DB를 사용하는 가장 단순한 실행 방법입니다.
 export RCA_DEFAULT_ADMIN_USERNAME=admin
 export RCA_DEFAULT_ADMIN_PASSWORD='<strong-password>'
 export RCA_WEBHOOK_TOKEN='<random-webhook-token>'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 PowerShell:
@@ -41,7 +41,7 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
 $env:RCA_DEFAULT_ADMIN_USERNAME = "admin"
 $env:RCA_DEFAULT_ADMIN_PASSWORD = "<strong-password>"
 $env:RCA_WEBHOOK_TOKEN = "<random-webhook-token>"
-..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd spring-boot:run
+..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd -Pfrontend process-resources spring-boot:run
 ```
 
 ```text
@@ -63,7 +63,7 @@ Readiness    http://127.0.0.1:8080/health/ready
 export RCA_JDBC_URL='jdbc:postgresql://localhost:5432/rca'
 export RCA_DB_USERNAME='rca'
 export RCA_DB_PASSWORD='<database-password>'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 ### MariaDB
@@ -72,10 +72,10 @@ mvn spring-boot:run
 export RCA_JDBC_URL='jdbc:mariadb://localhost:3306/rca'
 export RCA_DB_USERNAME='rca'
 export RCA_DB_PASSWORD='<database-password>'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
-Flyway가 신규 schema에는 19개 migration을 적용하고, 기존 Python/Alembic schema는 version 1에서 baseline한 뒤 나머지 migration을 적용합니다.
+Flyway가 신규 schema에는 22개 migration을 적용하고, 기존 Python/Alembic schema는 version 1에서 baseline한 뒤 나머지 migration을 적용합니다.
 
 ## Common Options
 
@@ -85,7 +85,7 @@ Flyway가 신규 schema에는 19개 migration을 적용하고, 기존 Python/Ale
 export RCA_DEMO_ENABLED=true
 export RCA_MONITORING_ENABLED=true
 export RCA_MONITORING_INTERVAL_MS=60000
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 Demo는 개발 전용입니다. 자체 monitoring은 Prometheus 없이 Agent evidence request를 주기적으로 생성합니다.
@@ -100,7 +100,7 @@ export RCA_LLM_PROVIDER=gemini
 export RCA_LLM_MODEL=gemini-3.1-flash-lite
 export RCA_SPRING_AI_CHAT_MODEL=google-genai
 export SPRING_AI_GOOGLE_GENAI_API_KEY='<api-key>'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 OpenAI:
@@ -111,7 +111,7 @@ export RCA_LLM_PROVIDER=openai
 export RCA_LLM_MODEL='<model-name>'
 export RCA_SPRING_AI_CHAT_MODEL=openai-sdk
 export SPRING_AI_OPENAI_SDK_API_KEY='<api-key>'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 Ollama:
@@ -122,7 +122,7 @@ export RCA_LLM_PROVIDER=ollama
 export RCA_LLM_MODEL='<local-model-name>'
 export RCA_SPRING_AI_CHAT_MODEL=ollama
 export SPRING_AI_OLLAMA_BASE_URL='http://localhost:11434'
-mvn spring-boot:run
+mvn -Pfrontend process-resources spring-boot:run
 ```
 
 LLM 연결 상태는 로그인 후 Settings 또는 `GET /api/llm/diagnostics`에서 확인합니다. API key 원문은 응답하지 않습니다.
@@ -192,11 +192,13 @@ export RCA_AUDIT_ENABLED=true
 
 ## Build And Test
 
-전체 검증과 패키징:
+Java Backend 검증과 패키징:
 
 ```bash
 mvn verify
 ```
+
+이 명령은 Node.js를 설치하거나 npm registry에 접근하지 않습니다.
 
 테스트만 실행:
 
@@ -204,14 +206,7 @@ mvn verify
 mvn test
 ```
 
-JAR 생성과 실행:
-
-```bash
-mvn -DskipTests package
-java -jar target/cluster-infra-rca-platform-0.1.0.jar
-```
-
-Frontend만 검증:
+Frontend 독립 검증:
 
 ```bash
 cd frontend
@@ -219,6 +214,17 @@ npm ci
 npm test
 npm run build
 ```
+
+React 정적 자산이 포함된 통합 JAR 생성과 실행:
+
+```bash
+mvn -Pfrontend -DskipTests package
+java -jar target/cluster-infra-rca-platform-0.1.0.jar
+```
+
+`frontend` profile은 Maven 관리 Node/npm으로 locked dependency 설치와 Vite build를 실행하고,
+`target/classes/static/index.html` 포함 여부를 패키징 전에 검사합니다. Frontend unit test는 중복 실행을
+피하기 위해 npm lifecycle에서만 실행합니다.
 
 브라우저 E2E:
 

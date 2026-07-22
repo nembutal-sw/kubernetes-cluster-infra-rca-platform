@@ -56,6 +56,7 @@ class RbacHttpAuthorizationTests {
             "jdbc:h2:mem:" + databaseName + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
         registry.add("spring.ai.model.chat", () -> "none");
         registry.add("rca.pipeline.initial-delay-ms", () -> "600000");
+        registry.add("rca.notification.initial-delay-ms", () -> "600000");
         registry.add("rca.webhook-token", () -> "rbac-webhook-token");
         registry.add("rca.observability.metrics-token", () -> "rbac-metrics-token");
         registry.add("rca.export.signature-secret", () -> "rbac-signing-secret");
@@ -296,7 +297,7 @@ class RbacHttpAuthorizationTests {
             NotificationOutboxStatus.queued,
             0,
             3,
-            now,
+            now.minusSeconds(1),
             null,
             null,
             null,

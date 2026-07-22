@@ -75,8 +75,20 @@ class PlatformHttpTests {
 
     @Test
     @Order(1)
-    void consolePageRendersUnifiedApiShellWithSecurityHeaders() {
+    void consolePageMatchesFrontendPackagingProfileAndSecurityHeaders() {
         ResponseEntity<String> response = restTemplate.getForEntity("/", String.class);
+
+        assertThat(response.getHeaders().getFirst("X-Frame-Options")).isEqualTo("DENY");
+        assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(response.getHeaders().getFirst("Content-Security-Policy"))
+            .contains("default-src 'self'")
+            .contains("connect-src 'self'")
+            .contains("frame-ancestors 'none'");
+
+        if (!frontendAssetsPackaged()) {
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            return;
+        }
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getContentType()).isNotNull();
@@ -85,12 +97,6 @@ class PlatformHttpTests {
             .contains("id=\"rca-console-root\"")
             .contains("type=\"module\"")
             .contains("/assets/index-");
-        assertThat(response.getHeaders().getFirst("X-Frame-Options")).isEqualTo("DENY");
-        assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
-        assertThat(response.getHeaders().getFirst("Content-Security-Policy"))
-            .contains("default-src 'self'")
-            .contains("connect-src 'self'")
-            .contains("frame-ancestors 'none'");
 
         for (String path : List.of(
             "/overview",
@@ -103,6 +109,10 @@ class PlatformHttpTests {
             assertThat(directRoute.getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
             assertThat(directRoute.getBody()).as(path).contains("id=\"rca-console-root\"");
         }
+    }
+
+    private boolean frontendAssetsPackaged() {
+        return getClass().getClassLoader().getResource("static/index.html") != null;
     }
 
     @Test

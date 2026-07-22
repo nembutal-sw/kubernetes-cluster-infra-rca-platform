@@ -515,9 +515,21 @@ enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 �
 - CI artifact와 release-readiness 정적 gate 연결
 - 합성 golden, production-like reproduction, 실운영 정확도의 문서상 구분
 
-다음 개선은 Maven과 Frontend build lifecycle을 분리해 Java 전용 개발·검증이 npm registry 상태에
-직접 의존하지 않도록 정리합니다. 이후 비식별 blind evaluation corpus와 managed Kubernetes 실제
-장애 표본을 지속적으로 확장합니다.
+## Phase 28. Maven And Frontend Lifecycle Separation
+
+구현 및 검증 완료:
+
+- 기본 `mvn test/verify`에서 Frontend Maven plugin과 npm 접근 제거
+- 명시적 `frontend` profile에서 locked dependency 설치, Vite build, 정적 자산 복사
+- 통합 package 전 `target/classes/static/index.html` 존재 여부 강제
+- 기본 lifecycle 시작 시 이전 Frontend 정적 자산 제거로 stale UI 혼입 방지
+- Frontend unit test를 Maven 중복 실행에서 제거하고 npm/CI job으로 단일화
+- E2E JAR, Docker image와 전체 개발 검증 스크립트에 `frontend` profile 적용
+- CI와 release-readiness에 빌드 lifecycle 정적 계약 검사 추가
+
+다음 개선은 비식별 blind evaluation corpus와 managed Kubernetes 실제 장애 표본을 지속적으로
+확장하는 것입니다. 그 다음 node enrollment를 ServiceAccount TokenReview 또는 node-bound mTLS로
+전환해 static bootstrap Secret 의존성을 줄입니다.
 
 ## Positioning
 

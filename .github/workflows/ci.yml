@@ -91,7 +91,7 @@ jobs:
           cache: npm
           cache-dependency-path: web-console/frontend/package-lock.json
       - name: Package isolated E2E platform
-        run: mvn --batch-mode --no-transfer-progress -f web-console/pom.xml -DskipTests package
+        run: mvn --batch-mode --no-transfer-progress -f web-console/pom.xml -Pfrontend -DskipTests package
       - name: Install Playwright Chromium
         working-directory: web-console/frontend
         run: npx playwright install --with-deps chromium
@@ -369,6 +369,7 @@ jobs:
             scripts/release-readiness-check.py \
             scripts/verify-api-contract.py \
             scripts/verify-container-pinning.py \
+            scripts/verify-build-lifecycle.py \
             scripts/verify-operational-catalog.py \
             scripts/verify-supply-chain-workflows.py \
             scripts/verify_database_compatibility_report.py \
@@ -384,6 +385,8 @@ jobs:
         run: python scripts/verify-api-contract.py
       - name: Validate container pinning
         run: python scripts/verify-container-pinning.py
+      - name: Validate Maven and Frontend lifecycle separation
+        run: python scripts/verify-build-lifecycle.py
       - name: Validate operational catalog
         run: python scripts/verify-operational-catalog.py
       - name: Validate managed platform contract fixtures
