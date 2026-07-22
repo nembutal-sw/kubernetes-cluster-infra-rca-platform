@@ -390,9 +390,9 @@ spec:
           {{- if or (eq $mode "safe") (not .Values.statePersistence.enabled) }}
           emptyDir: {}
           {{- else }}
-              hostPath:
-                path: {{ .Values.hostPaths.state | quote }}
-                type: DirectoryOrCreate
+          hostPath:
+            path: {{ .Values.hostPaths.state | quote }}
+            type: DirectoryOrCreate
           {{- end }}
         {{- if eq $enrollmentMode "kubernetes-token-review" }}
         - name: agent-enrollment-token
