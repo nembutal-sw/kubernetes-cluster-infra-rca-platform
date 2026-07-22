@@ -236,6 +236,28 @@ jobs:
             --set mode=ebpf \
             --set ebpf.enabled=true \
             --set secret.existingSecret.name=agent-auth > /dev/null
+          eks_auto="$(helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set mode=safe \
+            --set statePersistence.enabled=false \
+            --set secret.existingSecret.name=agent-auth \
+            --set-string 'nodeSelector.eks\.amazonaws\.com/compute-type=auto')"
+          grep -q 'hostNetwork: false' <<< "${eks_auto}"
+          grep -q 'hostPID: false' <<< "${eks_auto}"
+          if grep -q 'hostPath:' <<< "${eks_auto}"; then
+            echo "EKS Auto Mode safe canary must not render hostPath volumes" >&2
+            exit 1
+          fi
+          eks_managed="$(helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set mode=node-diagnostics \
+            --set statePersistence.enabled=false \
+            --set secret.existingSecret.name=agent-auth \
+            --set-string 'nodeSelector.eks\.amazonaws\.com/nodegroup=fixture-workers')"
+          grep -q 'hostNetwork: true' <<< "${eks_managed}"
+          grep -q 'hostPID: true' <<< "${eks_managed}"
+          grep -q 'path: "/var/log"' <<< "${eks_managed}"
+          grep -q 'readOnly: true' <<< "${eks_managed}"
 
   prometheus-operator-delivery-e2e:
     needs: helm-validate
@@ -328,13 +350,16 @@ jobs:
             scripts/llm-staging-smoke.py \
             scripts/agent-soak-validation.py \
             scripts/agent-soak-revalidate.py \
-            scripts/agent-soak-comparison.py
+            scripts/agent-soak-comparison.py \
+            scripts/managed-platform-contract-check.py
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py
       - name: Validate container pinning
         run: python scripts/verify-container-pinning.py
       - name: Validate operational catalog
         run: python scripts/verify-operational-catalog.py
+      - name: Validate managed platform contract fixtures
+        run: python scripts/managed-platform-contract-check.py
       - name: Validate supply-chain workflows
         run: python scripts/verify-supply-chain-workflows.py
       - name: Validate release readiness contracts

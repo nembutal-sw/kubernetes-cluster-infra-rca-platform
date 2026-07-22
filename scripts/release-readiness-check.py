@@ -344,6 +344,8 @@ def main() -> int:
             "managed-cluster-canary",
             exists(".github/workflows/managed-cluster-canary.yml")
             and exists("scripts/managed-canary-attestation.py")
+            and exists("scripts/managed-platform-contract-check.py")
+            and exists("tests/fixtures/managed-platforms/eks-contracts.json")
             and contains(
                 ".github/workflows/managed-cluster-canary.yml",
                 "workflow_dispatch:",
@@ -362,6 +364,20 @@ def main() -> int:
                 "action execution disabled",
                 "lifecycle cleanup state must be",
                 "applied canary evidence bundle verification failed",
+                "EKS Fargate does not support the Agent DaemonSet",
+            )
+            and contains(
+                "scripts/managed-platform-contract-check.py",
+                "managed-platform-contract-fixtures/v1",
+                "contract_fixture_only",
+                "fixtures must never claim real compatibility",
+                "action execution must be disabled",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "Validate managed platform contract fixtures",
+                "python scripts/managed-platform-contract-check.py",
+                "EKS Auto Mode safe canary must not render hostPath volumes",
             )
             and contains(
                 "scripts/real-cluster-agent-e2e.sh",

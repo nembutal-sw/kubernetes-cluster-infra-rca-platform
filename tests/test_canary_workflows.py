@@ -62,3 +62,13 @@ def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -
     assert "path: ${{ runner.temp }}" not in workflow
     assert "validation-results/managed-canary/attestation.json" in workflow
     assert '"automatic_matrix_update": False' in attestation
+
+    lifecycle = (ROOT / "scripts" / "real-cluster-agent-e2e.sh").read_text(encoding="utf-8")
+    assert '!= "fargate"' in lifecycle
+    assert "EKS Fargate does not support the Agent DaemonSet" in lifecycle
+    assert "EKS Auto Mode requires a safe-mode canary" in lifecycle
+
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "EKS Auto Mode safe canary must not render hostPath volumes" in ci
+    assert "nodeSelector.eks\\.amazonaws\\.com/compute-type=auto" in ci
+    assert "nodeSelector.eks\\.amazonaws\\.com/nodegroup=fixture-workers" in ci

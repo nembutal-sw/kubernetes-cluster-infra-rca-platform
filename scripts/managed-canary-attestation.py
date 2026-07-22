@@ -89,6 +89,9 @@ def assess_readiness(
     platform = object_value(fingerprint.get("platform"))
     detected_platform = str(platform.get("family") or "unknown")
     confidence = str(platform.get("confidence") or "unknown")
+    variants = string_list(platform.get("variants"))
+    if not variants and platform.get("variant"):
+        variants = [str(platform["variant"])]
     if readiness.get("status") == "failed" or readiness.get("failures"):
         failures.append("real-cluster readiness contains blocking failures")
     if detected_platform != expected_platform:
@@ -99,6 +102,8 @@ def assess_readiness(
         failures.append("managed platform detection confidence must be high")
     if int(fingerprint.get("node_count") or 0) < 1:
         failures.append("cluster fingerprint does not contain a node")
+    if expected_platform == "eks" and variants == ["fargate"]:
+        failures.append("EKS Fargate does not support the Agent DaemonSet")
     contract = object_value(platform_matrix.get("collector_contract"))
     if contract.get("action_execution") != "disabled":
         failures.append("platform matrix must keep action execution disabled")
@@ -113,6 +118,8 @@ def assess_readiness(
             "detection_confidence": confidence,
             "dimensions": {
                 "node_count": int(fingerprint.get("node_count") or 0),
+                "platform_variant": str(platform.get("variant") or "unknown"),
+                "platform_variants": variants,
                 "architectures": string_list(fingerprint.get("architectures")),
                 "runtime_families": string_list(fingerprint.get("runtime_families")),
                 "cni_families": string_list(object_value(fingerprint.get("cni")).get("families")),

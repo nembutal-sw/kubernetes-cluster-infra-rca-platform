@@ -82,6 +82,9 @@
       "validation_level": "contract_fixture",
       "profiles": [],
       "notes": [
+        "Official-source contract fixtures cover AL2023 managed nodes, Bottlerocket arm64 nodes, Auto Mode, and Fargate.",
+        "Fargate is not an Agent target because EKS Fargate does not support DaemonSets.",
+        "Auto Mode starts with safe mode because host evidence access remains unverified.",
         "Provider detection is tested; a real managed-node canary is pending."
       ]
     },

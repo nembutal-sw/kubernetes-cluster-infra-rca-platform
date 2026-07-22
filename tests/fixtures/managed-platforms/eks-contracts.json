@@ -1,0 +1,394 @@
+{
+  "schema_version": "managed-platform-contract-fixtures/v1",
+  "platform": "eks",
+  "fixtures": [
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "eks-managed-node-group-al2023-amd64",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Simplify node lifecycle with managed node groups",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html",
+          "supports": [
+            "Managed node labels use the eks.amazonaws.com prefix."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Create nodes with optimized Amazon Linux AMIs",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/eks-optimized-ami.html",
+          "supports": [
+            "EKS optimized Amazon Linux nodes include containerd and kubelet.",
+            "Managed node groups on Kubernetes 1.30 or later default to AL2023."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Amazon VPC CNI",
+          "url": "https://docs.aws.amazon.com/eks/latest/best-practices/vpc-cni.html",
+          "supports": [
+            "The standard VPC CNI runs as the aws-node DaemonSet."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "DaemonSet",
+          "url": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+          "supports": [
+            "DaemonSets provide node-local facilities and node monitoring agents."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-eks-managed-node",
+                "labels": {
+                  "eks.amazonaws.com/nodegroup": "fixture-workers",
+                  "eks.amazonaws.com/capacityType": "ON_DEMAND",
+                  "kubernetes.io/arch": "amd64"
+                }
+              },
+              "spec": {
+                "providerID": "aws:///ap-northeast-2a/i-fixture"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "Amazon Linux 2023",
+                  "kernelVersion": "6.1.0-fixture",
+                  "kubeletVersion": "v1.34.0-eks-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "aws-node-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "aws-node"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "aws-node",
+                    "image": "example.invalid/amazon-k8s-cni:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "eks",
+        "platform_variant": "managed_node_group",
+        "architectures": [
+          "amd64"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "aws-vpc-cni"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "node-diagnostics",
+        "host_evidence": "requires_real_canary",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "eks-managed-node-group-bottlerocket-arm64",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Create nodes with optimized Bottlerocket AMIs",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/eks-optimized-ami-bottlerocket.html",
+          "supports": [
+            "Bottlerocket includes containerd and kubelet.",
+            "Bottlerocket supports x86_64 and arm64 EKS nodes.",
+            "Bottlerocket does not include a normal SSH server or shell."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Amazon VPC CNI",
+          "url": "https://docs.aws.amazon.com/eks/latest/best-practices/vpc-cni.html",
+          "supports": [
+            "The standard VPC CNI runs as the aws-node DaemonSet."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-eks-bottlerocket-node",
+                "labels": {
+                  "eks.amazonaws.com/nodegroup": "fixture-bottlerocket",
+                  "eks.amazonaws.com/capacityType": "ON_DEMAND",
+                  "kubernetes.io/arch": "arm64"
+                }
+              },
+              "spec": {
+                "providerID": "aws:///ap-northeast-2a/i-fixture"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "arm64",
+                  "operatingSystem": "linux",
+                  "osImage": "Bottlerocket OS fixture",
+                  "kernelVersion": "6.1.0-fixture",
+                  "kubeletVersion": "v1.34.0-eks-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": [
+            {
+              "metadata": {
+                "name": "aws-node-fixture",
+                "namespace": "kube-system",
+                "labels": {
+                  "k8s-app": "aws-node"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "name": "aws-node",
+                    "image": "example.invalid/amazon-k8s-cni:fixture"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "platform_family": "eks",
+        "platform_variant": "managed_node_group",
+        "architectures": [
+          "arm64"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "aws-vpc-cni"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "node-diagnostics",
+        "host_evidence": "requires_real_canary",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "eks-auto-mode-amd64",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Create a Node Pool for EKS Auto Mode",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/create-node-pool.html",
+          "supports": [
+            "EKS Auto Mode nodes use eks.amazonaws.com/compute-type=auto."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Automate cluster infrastructure with EKS Auto Mode",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/automode.html",
+          "supports": [
+            "Auto Mode permits node monitoring DaemonSets.",
+            "The node image is immutable, SELinux enforcing, and read-only."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Learn about VPC Networking and Load Balancing in EKS Auto Mode",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/auto-networking.html",
+          "supports": [
+            "AWS manages VPC CNI and node-local DNS components in Auto Mode."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Pod Security Standards",
+          "url": "https://kubernetes.io/docs/concepts/security/pod-security-standards/",
+          "supports": [
+            "Host namespace and hostPath access require policy treatment outside restricted workloads."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Volumes",
+          "url": "https://kubernetes.io/docs/concepts/storage/volumes/",
+          "supports": [
+            "hostPath volumes carry explicit security risks even when a mount is read-only."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-eks-auto-node",
+                "labels": {
+                  "eks.amazonaws.com/compute-type": "auto",
+                  "karpenter.sh/capacity-type": "on-demand",
+                  "kubernetes.io/arch": "amd64"
+                }
+              },
+              "spec": {
+                "providerID": "aws:///ap-northeast-2a/i-fixture"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "EKS Auto Mode fixture",
+                  "kernelVersion": "6.1.0-fixture",
+                  "kubeletVersion": "v1.34.0-eks-fixture",
+                  "containerRuntimeVersion": "containerd://2.1.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": []
+        }
+      },
+      "expected": {
+        "platform_family": "eks",
+        "platform_variant": "auto_mode",
+        "architectures": [
+          "amd64"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "unknown"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": true,
+        "recommended_mode": "safe",
+        "host_evidence": "restricted_unverified",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    },
+    {
+      "schema_version": "managed-platform-contract-fixture/v1",
+      "fixture_id": "eks-fargate-amd64",
+      "reviewed_on": "2026-07-21",
+      "sources": [
+        {
+          "kind": "official",
+          "title": "Simplify compute management with AWS Fargate",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/fargate.html",
+          "supports": [
+            "EKS Fargate does not support DaemonSets, privileged containers, HostNetwork, or HostPort.",
+            "The VPC CNI is managed on Fargate nodes and alternate CNI plugins are unsupported."
+          ]
+        },
+        {
+          "kind": "official",
+          "title": "Migrate from EKS Fargate to EKS Auto Mode",
+          "url": "https://docs.aws.amazon.com/eks/latest/userguide/auto-migrate-fargate.html",
+          "supports": [
+            "Fargate compute is identified with eks.amazonaws.com/compute-type=fargate."
+          ]
+        }
+      ],
+      "synthetic_snapshot": {
+        "nodes": {
+          "items": [
+            {
+              "metadata": {
+                "name": "fixture-eks-fargate-node",
+                "labels": {
+                  "eks.amazonaws.com/compute-type": "fargate",
+                  "kubernetes.io/arch": "amd64"
+                }
+              },
+              "spec": {
+                "providerID": "aws:///ap-northeast-2a/fargate-fixture"
+              },
+              "status": {
+                "nodeInfo": {
+                  "architecture": "amd64",
+                  "operatingSystem": "linux",
+                  "osImage": "Amazon Linux fixture",
+                  "kernelVersion": "5.10.0-fixture",
+                  "kubeletVersion": "v1.34.0-eks-fixture",
+                  "containerRuntimeVersion": "containerd://1.7.0"
+                }
+              }
+            }
+          ]
+        },
+        "pods": {
+          "items": []
+        }
+      },
+      "expected": {
+        "platform_family": "eks",
+        "platform_variant": "fargate",
+        "architectures": [
+          "amd64"
+        ],
+        "runtime_families": [
+          "containerd"
+        ],
+        "cni_families": [
+          "unknown"
+        ],
+        "compatibility_status": "contract_fixture_only",
+        "validation_level": "contract_fixture"
+      },
+      "agent_deployment": {
+        "daemonset_supported": false,
+        "recommended_mode": "unsupported",
+        "host_evidence": "unavailable",
+        "real_canary_required": true,
+        "action_execution": "disabled"
+      }
+    }
+  ]
+}

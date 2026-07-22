@@ -171,16 +171,39 @@ def detect_platform(
     for family in PLATFORM_PRIORITY:
         if matches[family]:
             confidence = "high" if family in {"rke2", "k3s", "eks", "aks", "gke", "openshift"} else "medium"
-            return {
+            result = {
                 "family": family,
                 "confidence": confidence,
                 "evidence": matches[family],
             }
+            if family == "eks":
+                variants = detect_eks_variants(node_items)
+                result["variant"] = variants[0] if len(variants) == 1 else "mixed"
+                result["variants"] = variants
+            return result
     return {
         "family": "unknown",
         "confidence": "low",
         "evidence": ["No distribution-specific Kubernetes signal was detected."],
     }
+
+
+def detect_eks_variants(node_items: list[dict[str, Any]]) -> list[str]:
+    """Classify EKS compute without retaining raw labels or provider identifiers."""
+    variants: set[str] = set()
+    for node in node_items:
+        labels = object_value(node.get("metadata", {}).get("labels"))
+        normalized = {str(key).lower(): str(value).strip().lower() for key, value in labels.items()}
+        compute_type = normalized.get("eks.amazonaws.com/compute-type", "")
+        if compute_type == "auto":
+            variants.add("auto_mode")
+        elif compute_type == "fargate":
+            variants.add("fargate")
+        elif "eks.amazonaws.com/nodegroup" in normalized:
+            variants.add("managed_node_group")
+        else:
+            variants.add("ec2")
+    return sorted(variants) or ["unknown"]
 
 
 def detect_cni(

@@ -253,11 +253,16 @@ curl -fsS --connect-timeout 10 --max-time 30 "${base_url}/health/ready" \
 
 kubectl get nodes -o json >"${output_dir}/nodes-before.json"
 if [[ -z "${node_name}" ]]; then
-  node_name="$(jq -r '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))][0].metadata.name // empty' "${output_dir}/nodes-before.json")"
+  node_name="$(jq -r '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True")) | select((.metadata.labels["eks.amazonaws.com/compute-type"] // "") != "fargate")][0].metadata.name // empty' "${output_dir}/nodes-before.json")"
 fi
-[[ -n "${node_name}" ]] || fail "No Ready Kubernetes node found"
+[[ -n "${node_name}" ]] || fail "No Ready DaemonSet-compatible Kubernetes node found"
 jq -e --arg node "${node_name}" '.items[] | select(.metadata.name == $node) | any(.status.conditions[]?; .type == "Ready" and .status == "True")' \
   "${output_dir}/nodes-before.json" >/dev/null || fail "Selected node is missing or not Ready: ${node_name}"
+selected_compute_type="$(jq -r --arg node "${node_name}" '.items[] | select(.metadata.name == $node) | .metadata.labels["eks.amazonaws.com/compute-type"] // ""' "${output_dir}/nodes-before.json")"
+[[ "${selected_compute_type}" != "fargate" ]] || fail "EKS Fargate does not support the Agent DaemonSet"
+if [[ "${selected_compute_type}" == "auto" && "${mode}" != "safe" ]]; then
+  fail "EKS Auto Mode requires a safe-mode canary until host evidence access is verified"
+fi
 
 for permission in \
   'create namespaces' \

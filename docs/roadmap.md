@@ -423,6 +423,22 @@ Extended workflow run `29857828475`는 300/300 checkpoint, 900/900 Agent Evidenc
 
 다음 단계는 EKS, AKS, GKE, OpenShift managed canary를 플랫폼별 preflight부터 순차 실행하고, 별도의 승인된 Linux 세션에서 24시간 production profile을 확보하는 것입니다.
 
+## Phase 22. EKS Document-Backed Canary Contract
+
+실제 EKS 노드 없이 완료한 범위:
+
+- AWS 최신 공식 문서와 Kubernetes 공식 보안 문서를 기준으로 계약 확인
+- EKS Managed Node Group AL2023 amd64 fixture
+- EKS Managed Node Group Bottlerocket arm64 fixture
+- EKS Auto Mode의 관리형 CNI/DNS 비노출과 `safe` 우선 배포 계약
+- EKS Fargate의 DaemonSet/HostNetwork 미지원 탐지 및 lifecycle 차단
+- EKS compute variant가 섞인 클러스터의 비식별 fingerprint
+- CI와 release-readiness에서 4개 fixture 자동 검증
+
+이 단계는 문서 기반 contract 검증이며 real Agent E2E가 아닙니다. Compatibility matrix는 계속
+`contract_fixture`를 유지하고, 실제 EKS preflight와 applied canary artifact를 검토한 뒤에만 별도
+승인 PR로 변경합니다. 다음 managed platform fixture는 AKS, GKE, OpenShift 순으로 확장합니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

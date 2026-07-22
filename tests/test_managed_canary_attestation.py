@@ -15,7 +15,7 @@ def load_module():
     return module
 
 
-def readiness(platform: str = "eks") -> dict:
+def readiness(platform: str = "eks", variant: str = "managed_node_group") -> dict:
     return {
         "status": "warning",
         "kubectl_context": "sensitive-context",
@@ -26,7 +26,12 @@ def readiness(platform: str = "eks") -> dict:
             "cluster_compatibility": {
                 "fingerprint": {
                     "node_count": 3,
-                    "platform": {"family": platform, "confidence": "high"},
+                    "platform": {
+                        "family": platform,
+                        "confidence": "high",
+                        "variant": variant,
+                        "variants": [variant],
+                    },
                     "architectures": ["amd64"],
                     "runtime_families": ["containerd"],
                     "cni": {"families": ["aws-vpc-cni"]},
@@ -122,6 +127,31 @@ def test_readiness_rejects_unexpected_managed_platform() -> None:
 
     assert details["detected_platform"] == "eks"
     assert "detected platform eks does not match expected platform aks" in failures
+
+
+def test_readiness_rejects_eks_fargate_only_cluster() -> None:
+    module = load_module()
+
+    details, failures = module.assess_readiness(
+        "eks",
+        readiness("eks", "fargate"),
+        platform_matrix(),
+    )
+
+    assert details["dimensions"]["platform_variant"] == "fargate"
+    assert "EKS Fargate does not support the Agent DaemonSet" in failures
+
+
+def test_readiness_allows_mixed_eks_cluster_with_daemonset_eligible_nodes() -> None:
+    module = load_module()
+    payload = readiness("eks", "mixed")
+    platform = payload["signals"]["cluster_compatibility"]["fingerprint"]["platform"]
+    platform["variants"] = ["fargate", "managed_node_group"]
+
+    details, failures = module.assess_readiness("eks", payload, platform_matrix())
+
+    assert details["dimensions"]["platform_variants"] == ["fargate", "managed_node_group"]
+    assert "EKS Fargate does not support the Agent DaemonSet" not in failures
 
 
 def test_applied_canary_requires_cleanup_and_verified_bundle() -> None:

@@ -92,6 +92,12 @@ base64 -w 0 managed-canary.kubeconfig
 
 Runner에는 `self-hosted`, `linux`, `managed-canary`, 플랫폼명(`eks`, `aks`, `gke`, `openshift`) label을 지정합니다. Environment marker가 선택 플랫폼과 다르거나 비어 있으면 workflow가 시작 단계에서 실패합니다. Kubeconfig와 Platform은 runner에서 접근 가능해야 하며, 적용형 canary에 필요한 RBAC는 사전에 최소 권한으로 부여합니다. Workflow 자체는 cloud IAM이나 SCC를 추가하지 않습니다.
 
+EKS에서는 Ready node를 고를 때 `eks.amazonaws.com/compute-type=fargate` 노드를 제외합니다. Fargate-only
+클러스터는 DaemonSet을 지원하지 않으므로 canary를 실패 처리합니다. Auto Mode node를 선택한 경우에는
+immutable OS와 SELinux 경계를 실제로 확인하기 전까지 `mode=safe`만 허용합니다. Managed Node Group과
+Bottlerocket의 `node-diagnostics`도 host file과 runtime socket 접근이 실제 canary에서 확인되기 전에는
+지원 완료로 표시하지 않습니다.
+
 실행 순서:
 
 1. `apply=false`, confirmation=`PREFLIGHT-<PLATFORM>`으로 fingerprint, readiness, Helm server dry-run을 확인합니다.
