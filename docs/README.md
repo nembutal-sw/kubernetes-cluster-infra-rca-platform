@@ -49,6 +49,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 | --- | --- |
 | [backend-api.md](backend-api.md) | Platform API 전체 개요 |
 | [agent-api.md](agent-api.md) | Agent 등록, heartbeat, evidence 계약 |
+| [agent-enrollment.md](agent-enrollment.md) | bootstrap과 Kubernetes TokenReview 등록 identity |
 | [api-security-contract.md](api-security-contract.md) | Endpoint별 인증 필터와 CI guard |
 | [rbac-matrix.md](rbac-matrix.md) | 역할별 조회, 변경, export 권한 |
 | [audit-and-actions.md](audit-and-actions.md) | Audit와 승인/거절/수동 완료 lifecycle |

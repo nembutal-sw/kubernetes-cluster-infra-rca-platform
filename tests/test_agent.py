@@ -1071,6 +1071,59 @@ def test_agent_client_posts_expected_payloads() -> None:
         server.close()
 
 
+def test_agent_client_uses_fresh_projected_token_for_kubernetes_enrollment(tmp_path: Path) -> None:
+    identity_token = tmp_path / "enrollment-token"
+    identity_token.write_text("projected-token-1\n", encoding="utf-8")
+    server = _TestHttpServer({
+        "/api/agents/register": (201, {"agent_id": "agent-1", "node_token": "node-token-1"}),
+    })
+    try:
+        client = AgentClient(
+            backend_url=server.url,
+            cluster_id="cluster-1",
+            node_name="worker-1",
+            agent_token=None,
+            timeout_seconds=2,
+            enrollment_mode="kubernetes-token-review",
+            identity_token_path=str(identity_token),
+        )
+
+        client.register("0.1.0", ["node"], {})
+        identity_token.write_text("projected-token-2\n", encoding="utf-8")
+        client.register("0.1.0", ["node"], {})
+
+        assert [record["authorization"] for record in server.records] == [
+            "Bearer projected-token-1",
+            "Bearer projected-token-2",
+        ]
+        assert all(
+            record["enrollment"] == "kubernetes-token-review" for record in server.records
+        )
+        assert all("agent_token" not in record["payload"] for record in server.records)
+    finally:
+        server.close()
+
+
+def test_build_client_accepts_kubernetes_enrollment_without_bootstrap_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity_token = tmp_path / "enrollment-token"
+    identity_token.write_text("projected-token", encoding="utf-8")
+    monkeypatch.setenv("BACKEND_URL", "https://backend.example")
+    monkeypatch.setenv("CLUSTER_ID", "cluster-1")
+    monkeypatch.setenv("NODE_NAME", "worker-1")
+    monkeypatch.setenv("AGENT_ENROLLMENT_MODE", "kubernetes-token-review")
+    monkeypatch.setenv("AGENT_IDENTITY_TOKEN_PATH", str(identity_token))
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+
+    client = agent_main.build_client_from_env(timeout_seconds=5)
+
+    assert client.agent_token is None
+    assert client.enrollment_mode == "kubernetes-token-review"
+    assert client.identity_token_path == str(identity_token)
+
+
 def test_agent_client_raises_clear_errors() -> None:
     http_error_server = _TestHttpServer({"/api/agents/heartbeat": (500, {"detail": "failed"})})
     try:
@@ -1409,6 +1462,7 @@ class _TestHttpServer:
                     "path": self.path,
                     "payload": payload,
                     "authorization": self.headers.get("Authorization"),
+                    "enrollment": self.headers.get("X-RCA-Agent-Enrollment"),
                 })
 
                 status_code, response_body = routes.get(self.path, (404, {"detail": "not found"}))

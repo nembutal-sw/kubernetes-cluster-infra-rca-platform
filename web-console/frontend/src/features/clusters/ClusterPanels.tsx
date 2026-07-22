@@ -5,6 +5,8 @@ import { EmptyState, Icon, ResponsiveTable, StatusBadge } from "../../components
 import { agentHealthTone, agentReason, normalizedAgentStatus, relativeTime, summarizeAgentFleet } from "../../lib/consoleUtils";
 import type {
   AgentHealthView,
+  AgentEnrollmentProfile,
+  AgentEnrollmentUpdate,
   ClusterCreateForm,
   ClusterDetailState,
   ClusterThresholdSettings,
@@ -49,7 +51,9 @@ interface ClusterDetailProps {
   onStartCollection: (cluster: ClusterView) => MaybePromise;
   onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
   onClearThresholds: (cluster: ClusterView) => MaybePromise;
+  onUpdateEnrollment: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
   canOperate: boolean;
+  canAdmin: boolean;
   t: TFunction;
 }
 
@@ -226,7 +230,9 @@ export function ClusterDetail({
   onStartCollection,
   onUpdateThresholds,
   onClearThresholds,
+  onUpdateEnrollment,
   canOperate,
+  canAdmin,
   t,
 }: ClusterDetailProps) {
   const [activeTab, setActiveTab] = useState("agents");
@@ -239,6 +245,12 @@ export function ClusterDetail({
     { id: "evidence", label: t("Evidence"), icon: "clipboard2-pulse", count: evidence.length },
     { id: "topology", label: t("Topology"), icon: "diagram-3", count: entities.length },
     { id: "thresholds", label: t("Thresholds"), icon: "sliders", count: thresholdOverrides },
+    {
+      id: "enrollment",
+      label: t("Agent enrollment"),
+      icon: "shield-lock",
+      count: detail?.enrollment?.mode === "kubernetes_token_review" ? 1 : 0,
+    },
   ];
 
   return (
@@ -282,9 +294,136 @@ export function ClusterDetail({
             t={t}
           />
         )}
+        {activeTab === "enrollment" && (
+          <AgentEnrollmentSettings
+            cluster={cluster}
+            profile={detail?.enrollment}
+            canAdmin={canAdmin}
+            onUpdate={onUpdateEnrollment}
+            t={t}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+function AgentEnrollmentSettings({
+  cluster,
+  profile,
+  canAdmin,
+  onUpdate,
+  t,
+}: {
+  cluster: ClusterView;
+  profile?: AgentEnrollmentProfile | null;
+  canAdmin: boolean;
+  onUpdate: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
+  t: TFunction;
+}) {
+  const [mode, setMode] = useState<AgentEnrollmentUpdate["mode"]>(profile?.mode || "bootstrap_token");
+  const [apiServerUrl, setApiServerUrl] = useState(profile?.api_server_url || "");
+  const [audience, setAudience] = useState(profile?.audience || "");
+  const [namespace, setNamespace] = useState(profile?.namespace || "rca-system");
+  const [serviceAccount, setServiceAccount] = useState(profile?.service_account || "cluster-infra-rca-agent");
+  const [caBundlePem, setCaBundlePem] = useState("");
+  const [fallbackAllowed, setFallbackAllowed] = useState(profile?.bootstrap_fallback_allowed ?? true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setMode(profile?.mode || "bootstrap_token");
+    setApiServerUrl(profile?.api_server_url || "");
+    setAudience(profile?.audience || "");
+    setNamespace(profile?.namespace || "rca-system");
+    setServiceAccount(profile?.service_account || "cluster-infra-rca-agent");
+    setFallbackAllowed(profile?.bootstrap_fallback_allowed ?? true);
+    setCaBundlePem("");
+  }, [cluster.cluster_id, profile?.updated_at, profile?.mode]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const enablingStrictMode = mode === "kubernetes_token_review"
+      && !fallbackAllowed
+      && !(profile?.mode === "kubernetes_token_review" && !profile.bootstrap_fallback_allowed);
+    if (enablingStrictMode && !window.confirm(t("Disable bootstrap fallback and revoke the current bootstrap token?"))) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await onUpdate(cluster, mode === "bootstrap_token" ? { mode } : {
+        mode,
+        api_server_url: apiServerUrl.trim(),
+        ca_bundle_pem: caBundlePem.trim() || undefined,
+        audience: audience.trim(),
+        namespace: namespace.trim(),
+        service_account: serviceAccount.trim(),
+        bootstrap_fallback_allowed: fallbackAllowed,
+      });
+      setCaBundlePem("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const strict = profile?.mode === "kubernetes_token_review" && !profile.bootstrap_fallback_allowed;
+  return (
+    <form className="agent-enrollment-settings" onSubmit={submit}>
+      <div className="enrollment-status-grid">
+        <div><span>{t("Mode")}</span><strong>{enrollmentModeLabel(profile?.mode, t)}</strong></div>
+        <div><span>{t("Service account")}</span><strong>{profile?.service_account || "n/a"}</strong></div>
+        <div><span>{t("Audience")}</span><strong>{profile?.audience || "n/a"}</strong></div>
+        <div><span>{t("CA fingerprint")}</span><strong className="fingerprint">{profile?.ca_sha256 || "n/a"}</strong></div>
+      </div>
+      {strict && (
+        <div className="enrollment-strict-status">
+          <Icon name="shield-lock" />
+          <strong>{t("Bootstrap fallback disabled")}</strong>
+        </div>
+      )}
+      {profile?.bootstrap_token_rotation_required && (
+        <div className="enrollment-token-status">
+          <Icon name="arrow-repeat" />
+          <strong>{t("Bootstrap token rotation required")}</strong>
+        </div>
+      )}
+      {canAdmin && (
+        <div className="enrollment-editor">
+          <label>
+            {t("Enrollment mode")}
+            <select className="form-select" value={mode} disabled={busy} onChange={(event) => setMode(event.target.value as AgentEnrollmentUpdate["mode"])}>
+              <option value="bootstrap_token">{t("Bootstrap token")}</option>
+              <option value="kubernetes_token_review">{t("Kubernetes TokenReview")}</option>
+            </select>
+          </label>
+          {mode === "kubernetes_token_review" && (
+            <>
+              <label className="wide">{t("API Server URL")}<input className="form-control" type="url" required value={apiServerUrl} disabled={busy} onChange={(event) => setApiServerUrl(event.target.value)} /></label>
+              <label>{t("Audience")}<input className="form-control" required value={audience} disabled={busy} onChange={(event) => setAudience(event.target.value)} /></label>
+              <label>{t("Namespace")}<input className="form-control" required value={namespace} disabled={busy} onChange={(event) => setNamespace(event.target.value)} /></label>
+              <label>{t("Service account")}<input className="form-control" required value={serviceAccount} disabled={busy} onChange={(event) => setServiceAccount(event.target.value)} /></label>
+              <label className="wide">
+                {t("CA bundle PEM")}
+                <textarea className="form-control enrollment-ca" rows={5} required={!profile?.configured} value={caBundlePem} disabled={busy} placeholder={profile?.configured ? t("Leave blank to keep the current CA bundle") : "-----BEGIN CERTIFICATE-----"} onChange={(event) => setCaBundlePem(event.target.value)} />
+              </label>
+              <label className="form-check enrollment-fallback">
+                <input className="form-check-input" type="checkbox" checked={fallbackAllowed} disabled={busy} onChange={(event) => setFallbackAllowed(event.target.checked)} />
+                <span className="form-check-label">{t("Allow bootstrap fallback")}</span>
+              </label>
+            </>
+          )}
+          <div className="wide enrollment-actions">
+            <button className="btn btn-primary icon-button" disabled={busy}>
+              <Icon name="save" /><span>{busy ? "..." : t("Save enrollment")}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
+
+function enrollmentModeLabel(mode: AgentEnrollmentProfile["mode"] | undefined, t: TFunction): string {
+  return mode === "kubernetes_token_review" ? t("Kubernetes TokenReview") : t("Bootstrap token");
 }
 
 function AgentTable({ agents, t }: { agents: AgentHealthView[]; t: TFunction }) {

@@ -78,7 +78,31 @@ def main() -> int:
                 "agent-token",
                 "stringData",
             ),
-            "/api/agent-manifest renders a cluster token Secret for direct kubectl apply flows.",
+            "Bootstrap-mode /api/agent-manifest renders a cluster token Secret for direct kubectl apply flows.",
+        ),
+        check(
+            "agent-tokenreview-enrollment",
+            exists("web-console/src/main/resources/db/migration/V23__agent_enrollment_profiles.sql")
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/KubernetesTokenReviewService.java"
+            )
+            and contains(
+                "charts/cluster-infra-rca-agent/templates/daemonset.yaml",
+                "kubernetes-token-review",
+                "serviceAccountToken:",
+                "AGENT_IDENTITY_TOKEN_PATH",
+            )
+            and contains(
+                "charts/cluster-infra-rca-agent/templates/rbac.yaml",
+                'resources: ["tokenreviews"]',
+                'verbs: ["create"]',
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "TokenReview enrollment must not render a bootstrap token Secret key",
+                "enrollment.audience=https://kubernetes.default.svc",
+            ),
+            "Agent enrollment supports projected Kubernetes identity with TokenReview and no rendered bootstrap secret.",
         ),
         check(
             "readiness-health",

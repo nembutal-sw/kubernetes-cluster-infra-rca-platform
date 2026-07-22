@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEvidenceSubmitRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentMode;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ActionRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
@@ -30,6 +31,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RecommendedAction;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
 import io.clusterinfra.rca.webconsole.persistence.ActionRepository;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository;
+import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import io.clusterinfra.rca.webconsole.persistence.AnalysisTaskRepository;
 import io.clusterinfra.rca.webconsole.persistence.AuditRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
@@ -75,7 +78,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
-    private static final int FLYWAY_MIGRATION_COUNT = 22;
+    private static final int FLYWAY_MIGRATION_COUNT = 23;
     private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
@@ -97,6 +100,7 @@ class DatabaseCompatibilityTests {
         "topology_observations",
         "manifest_download_tokens",
         "cluster_threshold_overrides",
+        "agent_enrollment_profiles",
         "evidence_bundles",
         "node_agents",
         "user_accounts",
@@ -157,6 +161,7 @@ class DatabaseCompatibilityTests {
         ActionRepository actions = actionRepository(dataSource);
         AuditRepository audits = auditRepository(dataSource);
         ClusterRepository clusters = clusterRepository(dataSource);
+        AgentEnrollmentRepository enrollments = new AgentEnrollmentRepository(jdbc);
         ClusterThresholdRepository thresholds = thresholdRepository(dataSource);
         AgentRepository agents = agentRepository(dataSource);
         AnalysisTaskRepository tasks = analysisTaskRepository(dataSource);
@@ -187,6 +192,23 @@ class DatabaseCompatibilityTests {
         assertThat(storedBootstrapTokenHash(jdbc, cluster.clusterId())).isNotBlank();
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), cluster.bootstrapToken())).isTrue();
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), "wrong-token")).isFalse();
+        Instant enrollmentCreatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        enrollments.save(new AgentEnrollmentConfiguration(
+            cluster.clusterId(),
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            "test-ca-pem",
+            "test-ca-sha256",
+            "https://kubernetes.default.svc",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            false,
+            enrollmentCreatedAt,
+            enrollmentCreatedAt
+        ));
+        assertThat(enrollments.view(cluster.clusterId()).mode())
+            .isEqualTo(AgentEnrollmentMode.kubernetes_token_review);
+        assertThat(enrollments.view(cluster.clusterId()).caSha256()).isEqualTo("test-ca-sha256");
         thresholds.replace(
             cluster.clusterId(),
             Map.of("disk.critical.percent", 95.0),
@@ -558,6 +580,7 @@ class DatabaseCompatibilityTests {
         assertThat(audits.list(10)).hasSize(1);
         assertThat(clusters.delete(cluster.clusterId())).isTrue();
         assertThat(clusters.find(cluster.clusterId())).isEmpty();
+        assertThat(enrollments.findConfiguration(cluster.clusterId())).isEmpty();
     }
 
     private void verifyExistingSchemaBaseline(DataSource dataSource) {

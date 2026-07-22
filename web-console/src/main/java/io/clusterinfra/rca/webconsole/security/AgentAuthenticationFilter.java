@@ -3,12 +3,14 @@ package io.clusterinfra.rca.webconsole.security;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentIdentity;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
@@ -19,6 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class AgentAuthenticationFilter extends OncePerRequestFilter {
     private static final String REGISTER_PATH = "/api/agents/register";
+    public static final String ENROLLMENT_IDENTITY_ATTRIBUTE = "rca.agent_enrollment_identity";
+    private static final String ENROLLMENT_HEADER = "X-RCA-Agent-Enrollment";
     private static final Set<String> AGENT_PATHS = Set.of(
         REGISTER_PATH,
         "/api/agents/heartbeat",
@@ -66,10 +70,28 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                 wrapped.getHeader("Authorization")
             );
             if (REGISTER_PATH.equals(path)) {
-                access.verifyBootstrapToken(
+                nodeName = requiredText(body, "node_name");
+                String method = enrollmentMethod(wrapped.getHeader(ENROLLMENT_HEADER));
+                String legacyToken = optionalText(body, "agent_token");
+                String credential;
+                if ("kubernetes-token-review".equals(method)) {
+                    if (!legacyToken.isEmpty()) {
+                        throw new ResponseStatusException(
+                            HttpStatus.UNAUTHORIZED,
+                            "legacy body credentials are not allowed for Kubernetes enrollment"
+                        );
+                    }
+                    credential = requiredBearer(bearerToken);
+                } else {
+                    credential = credential(bearerToken, legacyToken);
+                }
+                AgentEnrollmentIdentity identity = access.verifyAgentEnrollment(
                     clusterId,
-                    credential(bearerToken, optionalText(body, "agent_token"))
+                    nodeName,
+                    method,
+                    credential
                 );
+                wrapped.setAttribute(ENROLLMENT_IDENTITY_ATTRIBUTE, identity);
             } else {
                 nodeName = requiredText(body, "node_name");
                 access.verifyNodeIdentity(
@@ -78,8 +100,8 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
                     credential(bearerToken, optionalText(body, "node_token"))
                 );
             }
-            request.setAttribute("rca.authenticated_cluster_id", clusterId);
-            request.setAttribute("rca.authenticated_node_name", nodeName);
+            wrapped.setAttribute("rca.authenticated_cluster_id", clusterId);
+            wrapped.setAttribute("rca.authenticated_node_name", nodeName);
             filterChain.doFilter(wrapped, response);
         } catch (ResponseStatusException exception) {
             auditFailure(wrapped, path, clusterId, nodeName, exception.getReason());
@@ -135,6 +157,24 @@ public class AgentAuthenticationFilter extends OncePerRequestFilter {
             return legacyBodyToken;
         }
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent credentials required");
+    }
+
+    private String requiredBearer(String bearerToken) {
+        if (bearerToken == null || bearerToken.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "agent bearer credential required");
+        }
+        return bearerToken;
+    }
+
+    private String enrollmentMethod(String value) {
+        if (value == null || value.isBlank()) {
+            return "bootstrap-token";
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (!Set.of("bootstrap-token", "kubernetes-token-review").contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unsupported agent enrollment method");
+        }
+        return normalized;
     }
 
     private void auditFailure(

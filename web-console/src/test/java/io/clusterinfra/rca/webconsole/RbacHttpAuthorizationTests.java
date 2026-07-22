@@ -96,6 +96,25 @@ class RbacHttpAuthorizationTests {
             "/api/clusters/cluster-missing/agents/worker-a/token/revoke", Map.of(), HttpStatus.FORBIDDEN);
         assertStatus(admin, HttpMethod.POST,
             "/api/clusters/cluster-missing/agent-token/revoke", Map.of(), HttpStatus.NOT_FOUND);
+        assertStatus(admin, HttpMethod.GET,
+            "/api/clusters/cluster-missing/agent-enrollment", null, HttpStatus.NOT_FOUND);
+        assertStatus(operator, HttpMethod.GET,
+            "/api/clusters/cluster-missing/agent-enrollment", null, HttpStatus.NOT_FOUND);
+        assertStatus(viewer, HttpMethod.GET,
+            "/api/clusters/cluster-missing/agent-enrollment", null, HttpStatus.NOT_FOUND);
+        assertStatus(auditor, HttpMethod.GET,
+            "/api/clusters/cluster-missing/agent-enrollment", null, HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.GET,
+            "/api/clusters/cluster-missing/agent-enrollment", null, HttpStatus.FORBIDDEN);
+        assertStatus(admin, HttpMethod.PUT,
+            "/api/clusters/cluster-missing/agent-enrollment", Map.of("mode", "bootstrap_token"),
+            HttpStatus.NOT_FOUND);
+        assertStatus(operator, HttpMethod.PUT,
+            "/api/clusters/cluster-missing/agent-enrollment", Map.of("mode", "bootstrap_token"),
+            HttpStatus.FORBIDDEN);
+        assertStatus(viewer, HttpMethod.PUT,
+            "/api/clusters/cluster-missing/agent-enrollment", Map.of("mode", "bootstrap_token"),
+            HttpStatus.FORBIDDEN);
 
         assertStatus(viewer, HttpMethod.GET, "/api/platform/info", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);

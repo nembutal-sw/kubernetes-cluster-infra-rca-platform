@@ -2,6 +2,7 @@ import { PageHeader, Surface } from "../components/common";
 import { AgentFleetPanel, ClusterDetail, ClusterForm, ClusterList, InstallCommand } from "../features/clusters/ClusterPanels";
 import type {
   AgentHealthView,
+  AgentEnrollmentUpdate,
   ClusterCreateForm,
   ClusterDetailState,
   ClusterView,
@@ -25,6 +26,7 @@ interface ClustersViewProps {
   onStartCollection: (cluster: ClusterView) => MaybePromise;
   onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
   onClearThresholds: (cluster: ClusterView) => MaybePromise;
+  onUpdateEnrollment: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
   onDelete: (cluster: ClusterView) => void;
   onRotateToken: (cluster: ClusterView) => MaybePromise;
   onCopy: (text: string) => MaybePromise;
@@ -44,6 +46,7 @@ export function ClustersView({
   onStartCollection,
   onUpdateThresholds,
   onClearThresholds,
+  onUpdateEnrollment,
   onDelete,
   onRotateToken,
   onCopy,
@@ -83,7 +86,9 @@ export function ClustersView({
             onStartCollection={onStartCollection}
             onUpdateThresholds={onUpdateThresholds}
             onClearThresholds={onClearThresholds}
+            onUpdateEnrollment={onUpdateEnrollment}
             canOperate={canOperate}
+            canAdmin={currentUser.role === "admin"}
             t={t}
           />
         </Surface>

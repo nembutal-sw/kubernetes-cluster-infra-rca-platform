@@ -126,6 +126,16 @@ test("registers a cluster, shows its install command, restores detail, and delet
     await expect(page.getByTestId("cluster-row").filter({ hasText: clusterName })).toBeVisible();
     await expect(page.getByRole("heading", { name: clusterName, exact: true })).toBeVisible();
 
+    await page.getByRole("button", { name: /Agent enrollment/ }).click();
+    await expect(page.getByLabel("Enrollment mode")).toHaveValue("bootstrap_token");
+    const enrollmentResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(`/api/clusters/${cluster!.cluster_id}/agent-enrollment`)
+        && response.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Save enrollment" }).click();
+    expect((await enrollmentResponsePromise).ok()).toBeTruthy();
+    await expect(page.getByText("Agent enrollment updated.")).toBeVisible();
+
     const row = page.getByTestId("cluster-row").filter({ hasText: clusterName });
     await row.getByTestId("cluster-delete").click();
     await expect(page.getByTestId("delete-cluster-dialog")).toBeVisible();

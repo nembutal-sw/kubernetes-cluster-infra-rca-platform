@@ -7,6 +7,7 @@ import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -27,6 +28,8 @@ class AgentClient:
     ca_bundle: str | None = None
     client_cert: str | None = None
     client_key: str | None = None
+    enrollment_mode: str = "bootstrap-token"
+    identity_token_path: str | None = None
 
     def register(
         self,
@@ -35,8 +38,7 @@ class AgentClient:
         metadata: dict[str, Any],
         agent_protocol_version: str = "2",
     ) -> dict[str, Any]:
-        if not self.agent_token:
-            raise AgentClientError("agent_token is missing; bootstrap registration is required")
+        bearer_token = self._registration_token()
         response = self._post(
             "/api/agents/register",
             {
@@ -47,7 +49,8 @@ class AgentClient:
                 "supported_collectors": supported_collectors,
                 "metadata": metadata,
             },
-            bearer_token=self.agent_token,
+            bearer_token=bearer_token,
+            extra_headers={"X-RCA-Agent-Enrollment": self.enrollment_mode},
         )
         node_token = response.get("node_token") if isinstance(response, dict) else None
         if not isinstance(node_token, str) or not node_token:
@@ -149,7 +152,14 @@ class AgentClient:
         self.agent_token = None
         os.environ.pop("AGENT_TOKEN", None)
 
-    def _post(self, path: str, payload: dict[str, Any], *, bearer_token: str) -> Any:
+    def _post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        bearer_token: str,
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
         url = self.backend_url.rstrip("/") + path
         data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
         headers = {
@@ -158,6 +168,8 @@ class AgentClient:
             "User-Agent": "cluster-infra-rca-agent",
             "Authorization": f"Bearer {bearer_token}",
         }
+        if extra_headers:
+            headers.update(extra_headers)
         request = urllib.request.Request(
             url,
             data=data,
@@ -180,6 +192,28 @@ class AgentClient:
             raise AgentClientError(f"failed to call backend {path}: {exc}") from exc
         except json.JSONDecodeError as exc:
             raise AgentClientError(f"backend returned invalid JSON for {path}") from exc
+
+    def _registration_token(self) -> str:
+        if self.enrollment_mode == "bootstrap-token":
+            if not self.agent_token:
+                raise AgentClientError("agent_token is missing; bootstrap registration is required")
+            return self.agent_token
+        if self.enrollment_mode != "kubernetes-token-review":
+            raise AgentClientError(f"unsupported agent enrollment mode: {self.enrollment_mode}")
+        if not self.identity_token_path:
+            raise AgentClientError("AGENT_IDENTITY_TOKEN_PATH is required for Kubernetes enrollment")
+        try:
+            path = Path(self.identity_token_path)
+            if path.stat().st_size > 32768:
+                raise AgentClientError("Kubernetes enrollment token exceeds the size limit")
+            token = path.read_text(encoding="utf-8").strip()
+        except AgentClientError:
+            raise
+        except (OSError, UnicodeError) as exc:
+            raise AgentClientError("failed to read the Kubernetes enrollment token") from exc
+        if not token or len(token) > 32768:
+            raise AgentClientError("Kubernetes enrollment token is empty or invalid")
+        return token
 
     def _ssl_context(self) -> ssl.SSLContext:
         context = ssl.create_default_context(cafile=self.ca_bundle or None)

@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole.service;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.InstallCommandResponse;
+import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -13,9 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.springframework.stereotype.Service;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
+import org.springframework.stereotype.Service;
 
 @Service
 public class AgentManifestService {
@@ -27,15 +28,18 @@ public class AgentManifestService {
     private final RcaConsoleProperties properties;
     private final ManifestTokenService manifestTokens;
     private final Environment environment;
+    private final AgentEnrollmentService enrollments;
 
     public AgentManifestService(
         RcaConsoleProperties properties,
         ManifestTokenService manifestTokens,
-        Environment environment
+        Environment environment,
+        AgentEnrollmentService enrollments
     ) {
         this.properties = properties;
         this.manifestTokens = manifestTokens;
         this.environment = environment;
+        this.enrollments = enrollments;
     }
 
     public InstallCommandResponse installCommand(
@@ -45,11 +49,16 @@ public class AgentManifestService {
         String namespace,
         String requestedBy
     ) {
+        AgentEnrollmentConfiguration enrollment = enrollments.configuration(cluster.clusterId());
         String validatedImage = validateImage(defaultIfBlank(image, properties.getAgent().getImage()));
         String validatedNamespace = validateKubernetesName(
-            defaultIfBlank(namespace, properties.getAgent().getNamespace()),
+            defaultIfBlank(
+                namespace,
+                enrollment == null ? properties.getAgent().getNamespace() : enrollment.namespace()
+            ),
             "namespace"
         );
+        validateEnrollmentNamespace(enrollment, validatedNamespace);
         String manifestCommand = "kubectl apply -f manifests/agent-daemonset.yaml";
         List<String> notes = List.of(
             "Provide backend_url to generate a cluster-specific manifest URL.",
@@ -75,23 +84,30 @@ public class AgentManifestService {
                 "The default safe mode runs without host namespaces or hostPath mounts."
             );
         }
+        List<String> commands = new ArrayList<>();
+        commands.add(
+            "kubectl create namespace " + validatedNamespace + " --dry-run=client -o yaml | kubectl apply -f -"
+        );
+        String secretCommand = "kubectl -n " + validatedNamespace + " create secret generic " + APP_NAME
+            + " --from-literal=cluster-id=" + cluster.clusterId();
+        if (enrollment == null) {
+            secretCommand += " --from-literal=agent-token=" + agentTokenForManifest(cluster);
+        }
+        commands.add(secretCommand + " --dry-run=client -o yaml | kubectl apply -f -");
+        commands.add(manifestCommand);
         return new InstallCommandResponse(
             cluster.clusterId(),
             validatedNamespace,
-            List.of(
-                "kubectl create namespace " + validatedNamespace + " --dry-run=client -o yaml | kubectl apply -f -",
-                "kubectl -n " + validatedNamespace + " create secret generic " + APP_NAME
-                    + " --from-literal=cluster-id=" + cluster.clusterId()
-                    + " --from-literal=agent-token=" + agentTokenForManifest(cluster)
-                    + " --dry-run=client -o yaml | kubectl apply -f -",
-                manifestCommand
-            ),
-            notesWithTokenGuidance(notes, cluster)
+            List.copyOf(commands),
+            enrollment == null ? notesWithTokenGuidance(notes, cluster) : notes
         );
     }
 
     public Map<String, Object> manifest(Cluster cluster, ManifestOptions requested) {
+        AgentEnrollmentConfiguration enrollment = enrollments.configuration(cluster.clusterId());
         ManifestOptions options = normalize(requested);
+        validateEnrollmentNamespace(enrollment, options.namespace());
+        String serviceAccount = enrollment == null ? APP_NAME : enrollment.serviceAccount();
         String configMapName = APP_NAME + "-config";
         List<Object> items = new ArrayList<>();
         items.add(map(
@@ -102,10 +118,10 @@ public class AgentManifestService {
         items.add(map(
             "apiVersion", "v1",
             "kind", "ServiceAccount",
-            "metadata", map("name", APP_NAME, "namespace", options.namespace())
+            "metadata", map("name", serviceAccount, "namespace", options.namespace())
         ));
-        items.add(clusterRole());
-        items.add(clusterRoleBinding(options.namespace()));
+        items.add(clusterRole(enrollment));
+        items.add(clusterRoleBinding(options.namespace(), serviceAccount));
         items.add(map(
             "apiVersion", "v1",
             "kind", "ConfigMap",
@@ -131,6 +147,7 @@ public class AgentManifestService {
                 "KUBERNETES_TOPOLOGY_ENABLED", "true",
                 "KUBERNETES_TOPOLOGY_MAX_ITEMS", "500",
                 "AGENT_MODE", options.agentMode(),
+                "AGENT_ENROLLMENT_MODE", enrollment == null ? "bootstrap-token" : "kubernetes-token-review",
                 "AGENT_EVIDENCE_MAX_BYTES", "8388608",
                 "HOST_LOG_MAX_FILES", "12",
                 "HOST_LOG_MAX_BYTES_PER_FILE", "262144",
@@ -142,12 +159,20 @@ public class AgentManifestService {
                 "AGENT_STATE_DIR", "/var/lib/cluster-infra-rca-agent"
             )
         ));
-        items.add(secret(cluster, options.namespace()));
-        items.add(daemonSet(options, configMapName));
+        items.add(secret(cluster, options.namespace(), enrollment));
+        items.add(daemonSet(options, configMapName, enrollment, serviceAccount));
         return map("apiVersion", "v1", "kind", "List", "items", items);
     }
 
-    private Map<String, Object> secret(Cluster cluster, String namespace) {
+    private Map<String, Object> secret(
+        Cluster cluster,
+        String namespace,
+        AgentEnrollmentConfiguration enrollment
+    ) {
+        Map<String, Object> stringData = map("cluster-id", cluster.clusterId());
+        if (enrollment == null) {
+            stringData.put("agent-token", agentTokenForManifest(cluster));
+        }
         return map(
             "apiVersion", "v1",
             "kind", "Secret",
@@ -159,10 +184,7 @@ public class AgentManifestService {
                 )
             ),
             "type", "Opaque",
-            "stringData", map(
-                "cluster-id", cluster.clusterId(),
-                "agent-token", agentTokenForManifest(cluster)
-            )
+            "stringData", stringData
         );
     }
 
@@ -182,35 +204,43 @@ public class AgentManifestService {
         return List.copyOf(updated);
     }
 
-    private Map<String, Object> clusterRole() {
+    private Map<String, Object> clusterRole(AgentEnrollmentConfiguration enrollment) {
+        List<Object> rules = new ArrayList<>(List.of(
+            map(
+                "apiGroups", List.of(""),
+                "resources", List.of("nodes", "pods", "events", "services", "endpoints"),
+                "verbs", List.of("get", "list")
+            ),
+            map(
+                "apiGroups", List.of("discovery.k8s.io"),
+                "resources", List.of("endpointslices"),
+                "verbs", List.of("get", "list")
+            ),
+            map("apiGroups", List.of("coordination.k8s.io"), "resources", List.of("leases"), "verbs", List.of("get", "list")),
+            map("apiGroups", List.of("metrics.k8s.io"), "resources", List.of("nodes", "pods"), "verbs", List.of("get", "list")),
+            map("nonResourceURLs", List.of("/readyz", "/readyz/*", "/livez", "/livez/*"), "verbs", List.of("get"))
+        ));
+        if (enrollment != null) {
+            rules.add(map(
+                "apiGroups", List.of("authentication.k8s.io"),
+                "resources", List.of("tokenreviews"),
+                "verbs", List.of("create")
+            ));
+        }
         return map(
             "apiVersion", "rbac.authorization.k8s.io/v1",
             "kind", "ClusterRole",
             "metadata", map("name", APP_NAME),
-            "rules", List.of(
-                map(
-                    "apiGroups", List.of(""),
-                    "resources", List.of("nodes", "pods", "events", "services", "endpoints"),
-                    "verbs", List.of("get", "list")
-                ),
-                map(
-                    "apiGroups", List.of("discovery.k8s.io"),
-                    "resources", List.of("endpointslices"),
-                    "verbs", List.of("get", "list")
-                ),
-                map("apiGroups", List.of("coordination.k8s.io"), "resources", List.of("leases"), "verbs", List.of("get", "list")),
-                map("apiGroups", List.of("metrics.k8s.io"), "resources", List.of("nodes", "pods"), "verbs", List.of("get", "list")),
-                map("nonResourceURLs", List.of("/readyz", "/readyz/*", "/livez", "/livez/*"), "verbs", List.of("get"))
-            )
+            "rules", rules
         );
     }
 
-    private Map<String, Object> clusterRoleBinding(String namespace) {
+    private Map<String, Object> clusterRoleBinding(String namespace, String serviceAccount) {
         return map(
             "apiVersion", "rbac.authorization.k8s.io/v1",
             "kind", "ClusterRoleBinding",
             "metadata", map("name", APP_NAME),
-            "subjects", List.of(map("kind", "ServiceAccount", "name", APP_NAME, "namespace", namespace)),
+            "subjects", List.of(map("kind", "ServiceAccount", "name", serviceAccount, "namespace", namespace)),
             "roleRef", map(
                 "apiGroup", "rbac.authorization.k8s.io",
                 "kind", "ClusterRole",
@@ -219,7 +249,12 @@ public class AgentManifestService {
         );
     }
 
-    private Map<String, Object> daemonSet(ManifestOptions options, String configMapName) {
+    private Map<String, Object> daemonSet(
+        ManifestOptions options,
+        String configMapName,
+        AgentEnrollmentConfiguration enrollment,
+        String serviceAccount
+    ) {
         Map<String, Object> selector = map("app.kubernetes.io/name", APP_NAME);
         Map<String, Object> labels = map(
             "app.kubernetes.io/name", APP_NAME,
@@ -253,16 +288,16 @@ public class AgentManifestService {
             "image", options.image(),
             "imagePullPolicy", "IfNotPresent",
             "command", List.of("python", "-m", "node_agent.main"),
-            "env", environment(configMapName),
+            "env", environment(configMapName, enrollment),
             "securityContext", securityContext,
-            "volumeMounts", volumeMounts(options.agentMode()),
+            "volumeMounts", volumeMounts(options.agentMode(), enrollment),
             "resources", map(
                 "requests", map("cpu", "50m", "memory", "64Mi"),
                 "limits", map("cpu", "500m", "memory", "256Mi")
             )
         );
         Map<String, Object> podSpec = map(
-            "serviceAccountName", APP_NAME,
+            "serviceAccountName", serviceAccount,
             "securityContext", diagnostics
                 ? map()
                 : map("fsGroup", 65532, "fsGroupChangePolicy", "OnRootMismatch"),
@@ -272,7 +307,7 @@ public class AgentManifestService {
             "terminationGracePeriodSeconds", 20,
             "tolerations", List.of(map("operator", "Exists")),
             "containers", List.of(container),
-            "volumes", volumes(options.agentMode())
+            "volumes", volumes(options.agentMode(), enrollment)
         );
         return map(
             "apiVersion", "apps/v1",
@@ -288,7 +323,10 @@ public class AgentManifestService {
         );
     }
 
-    private List<Object> environment(String configMapName) {
+    private List<Object> environment(
+        String configMapName,
+        AgentEnrollmentConfiguration enrollment
+    ) {
         List<Object> environment = new ArrayList<>();
         environment.add(map("name", "PYTHONDONTWRITEBYTECODE", "value", "1"));
         environment.add(map("name", "PYTHONUNBUFFERED", "value", "1"));
@@ -306,6 +344,7 @@ public class AgentManifestService {
             "KUBERNETES_TOPOLOGY_ENABLED",
             "KUBERNETES_TOPOLOGY_MAX_ITEMS",
             "AGENT_MODE",
+            "AGENT_ENROLLMENT_MODE",
             "AGENT_EVIDENCE_MAX_BYTES",
             "HOST_LOG_MAX_FILES",
             "HOST_LOG_MAX_BYTES_PER_FILE",
@@ -325,10 +364,17 @@ public class AgentManifestService {
             "name", "CLUSTER_ID",
             "valueFrom", map("secretKeyRef", map("name", APP_NAME, "key", "cluster-id"))
         ));
-        environment.add(map(
-            "name", "AGENT_TOKEN",
-            "valueFrom", map("secretKeyRef", map("name", APP_NAME, "key", "agent-token"))
-        ));
+        if (enrollment == null) {
+            environment.add(map(
+                "name", "AGENT_TOKEN",
+                "valueFrom", map("secretKeyRef", map("name", APP_NAME, "key", "agent-token"))
+            ));
+        } else {
+            environment.add(map(
+                "name", "AGENT_IDENTITY_TOKEN_PATH",
+                "value", "/var/run/secrets/cluster-infra-rca/enrollment/token"
+            ));
+        }
         environment.add(map(
             "name", "NODE_NAME",
             "valueFrom", map("fieldRef", map("fieldPath", "spec.nodeName"))
@@ -336,7 +382,7 @@ public class AgentManifestService {
         return environment;
     }
 
-    private List<Object> volumeMounts(String mode) {
+    private List<Object> volumeMounts(String mode, AgentEnrollmentConfiguration enrollment) {
         List<Object> mounts = new ArrayList<>();
         if (!"safe".equals(mode)) {
             mounts.add(mount("host-root", "/host/root"));
@@ -352,6 +398,13 @@ public class AgentManifestService {
             mounts.add(mount("host-modules", "/lib/modules"));
         }
         mounts.add(map("name", "agent-state", "mountPath", "/var/lib/cluster-infra-rca-agent"));
+        if (enrollment != null) {
+            mounts.add(map(
+                "name", "agent-enrollment-token",
+                "mountPath", "/var/run/secrets/cluster-infra-rca/enrollment",
+                "readOnly", true
+            ));
+        }
         return mounts;
     }
 
@@ -359,7 +412,7 @@ public class AgentManifestService {
         return map("name", name, "mountPath", path, "readOnly", true);
     }
 
-    private List<Object> volumes(String mode) {
+    private List<Object> volumes(String mode, AgentEnrollmentConfiguration enrollment) {
         List<Object> volumes = new ArrayList<>();
         if (!"safe".equals(mode)) {
             volumes.add(volume("host-root", "/"));
@@ -383,7 +436,33 @@ public class AgentManifestService {
                 "name", "agent-state",
                 "hostPath", map("path", "/var/lib/cluster-infra-rca-agent", "type", "DirectoryOrCreate")
             ));
+        if (enrollment != null) {
+            volumes.add(map(
+                "name", "agent-enrollment-token",
+                "projected", map(
+                    "defaultMode", 256,
+                    "sources", List.of(map(
+                        "serviceAccountToken", map(
+                            "audience", enrollment.audience(),
+                            "expirationSeconds", 3600,
+                            "path", "token"
+                        )
+                    ))
+                )
+            ));
+        }
         return volumes;
+    }
+
+    private void validateEnrollmentNamespace(
+        AgentEnrollmentConfiguration enrollment,
+        String namespace
+    ) {
+        if (enrollment != null && !enrollment.namespace().equals(namespace)) {
+            throw new IllegalArgumentException(
+                "namespace must match the Kubernetes enrollment profile namespace"
+            );
+        }
     }
 
     private Map<String, Object> volume(String name, String path) {

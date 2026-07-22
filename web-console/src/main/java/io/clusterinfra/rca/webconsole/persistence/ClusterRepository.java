@@ -115,6 +115,7 @@ public class ClusterRepository {
         jdbc.update("DELETE FROM topology_observations WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM manifest_download_tokens WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM cluster_threshold_overrides WHERE cluster_id = ?", clusterId);
+        jdbc.update("DELETE FROM agent_enrollment_profiles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM evidence_bundles WHERE cluster_id = ?", clusterId);
         jdbc.update("DELETE FROM node_agents WHERE cluster_id = ?", clusterId);
         return jdbc.update("DELETE FROM clusters WHERE cluster_id = ?", clusterId) == 1;
@@ -157,6 +158,33 @@ public class ClusterRepository {
             timestamp(Instant.now()),
             clusterId
         ) == 1;
+    }
+
+    public boolean bootstrapTokenRequiresRotation(String clusterId, Duration maximumAge) {
+        try {
+            BootstrapTokenState state = jdbc.queryForObject(
+                """
+                    SELECT bootstrap_token_revoked_at, bootstrap_token_rotated_at, created_at
+                    FROM clusters
+                    WHERE cluster_id = ?
+                    """,
+                (resultSet, rowNumber) -> new BootstrapTokenState(
+                    instant(resultSet, "bootstrap_token_revoked_at"),
+                    instant(resultSet, "bootstrap_token_rotated_at"),
+                    instant(resultSet, "created_at")
+                ),
+                clusterId
+            );
+            if (state == null || state.revokedAt() != null) {
+                return true;
+            }
+            Instant issuedAt = state.rotatedAt() == null ? state.createdAt() : state.rotatedAt();
+            return maximumAge != null
+                && (maximumAge.isZero() || maximumAge.isNegative()
+                    || issuedAt == null || !Instant.now().isBefore(issuedAt.plus(maximumAge)));
+        } catch (EmptyResultDataAccessException exception) {
+            return true;
+        }
     }
 
     @Transactional
@@ -282,6 +310,13 @@ public class ClusterRepository {
     private record ClusterTokenRow(
         String legacyPlaintextToken,
         String hash,
+        Instant revokedAt,
+        Instant rotatedAt,
+        Instant createdAt
+    ) {
+    }
+
+    private record BootstrapTokenState(
         Instant revokedAt,
         Instant rotatedAt,
         Instant createdAt

@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
@@ -35,6 +36,10 @@ public final class RcaModels {
 
     public enum AgentStatus {
         registered, healthy, degraded, offline
+    }
+
+    public enum AgentEnrollmentMode {
+        bootstrap_token, kubernetes_token_review
     }
 
     public enum AgentHealthStatus {
@@ -164,6 +169,81 @@ public final class RcaModels {
                 cluster.createdAt(),
                 cluster.lastSeenAt()
             );
+        }
+    }
+
+    public record AgentEnrollmentProfileUpdateRequest(
+        @NotNull AgentEnrollmentMode mode,
+        @Size(max = 2048) String apiServerUrl,
+        @Size(max = 65535) String caBundlePem,
+        @Size(max = 255) String audience,
+        @Size(max = 63) String namespace,
+        @Size(max = 253) String serviceAccount,
+        Boolean bootstrapFallbackAllowed
+    ) {
+        public boolean fallbackAllowedOrDefault() {
+            return bootstrapFallbackAllowed == null || bootstrapFallbackAllowed;
+        }
+    }
+
+    public record AgentEnrollmentProfile(
+        String clusterId,
+        AgentEnrollmentMode mode,
+        boolean configured,
+        String apiServerUrl,
+        String caSha256,
+        String audience,
+        String namespace,
+        String serviceAccount,
+        boolean bootstrapFallbackAllowed,
+        boolean bootstrapTokenRotationRequired,
+        Instant updatedAt
+    ) {
+        public static AgentEnrollmentProfile bootstrap(
+            String clusterId,
+            boolean bootstrapTokenRotationRequired
+        ) {
+            return new AgentEnrollmentProfile(
+                clusterId,
+                AgentEnrollmentMode.bootstrap_token,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                true,
+                bootstrapTokenRotationRequired,
+                null
+            );
+        }
+    }
+
+    public record AgentEnrollmentIdentity(
+        String method,
+        String subject,
+        String serviceAccountUid,
+        String namespace,
+        String serviceAccount,
+        String podName,
+        String podUid
+    ) {
+        public Map<String, Object> metadata() {
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("method", method);
+            putIfPresent(values, "subject", subject);
+            putIfPresent(values, "service_account_uid", serviceAccountUid);
+            putIfPresent(values, "namespace", namespace);
+            putIfPresent(values, "service_account", serviceAccount);
+            putIfPresent(values, "pod_name", podName);
+            putIfPresent(values, "pod_uid", podUid);
+            return Collections.unmodifiableMap(values);
+        }
+
+        private static void putIfPresent(Map<String, Object> values, String key, String value) {
+            if (value != null && !value.isBlank()) {
+                values.put(key, value);
+            }
         }
     }
 

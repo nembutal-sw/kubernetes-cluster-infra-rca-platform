@@ -2,6 +2,8 @@ package io.clusterinfra.rca.webconsole.controller;
 
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentProfile;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentProfileUpdateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCollectionResponse;
@@ -22,6 +24,7 @@ import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
 import io.clusterinfra.rca.webconsole.security.AccessService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService;
+import io.clusterinfra.rca.webconsole.service.AgentEnrollmentService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptions;
 import io.clusterinfra.rca.webconsole.service.CollectorSelectionService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
@@ -69,6 +72,7 @@ public class ClusterController {
     private final RcaMetrics metrics;
     private final TopologyService topology;
     private final ClusterThresholdService thresholds;
+    private final AgentEnrollmentService enrollments;
 
     public ClusterController(
         ClusterRepository clusters,
@@ -81,7 +85,8 @@ public class ClusterController {
         AuditService audit,
         RcaMetrics metrics,
         TopologyService topology,
-        ClusterThresholdService thresholds
+        ClusterThresholdService thresholds,
+        AgentEnrollmentService enrollments
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -94,6 +99,7 @@ public class ClusterController {
         this.metrics = metrics;
         this.topology = topology;
         this.thresholds = thresholds;
+        this.enrollments = enrollments;
     }
 
     @PostMapping
@@ -128,6 +134,44 @@ public class ClusterController {
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public ClusterView get(@PathVariable String clusterId) {
         return ClusterView.from(requireCluster(clusterId));
+    }
+
+    @GetMapping("/{clusterId}/agent-enrollment")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
+    public AgentEnrollmentProfile agentEnrollment(@PathVariable String clusterId) {
+        return enrollments.profile(clusterId);
+    }
+
+    @PutMapping("/{clusterId}/agent-enrollment")
+    @PreAuthorize("hasRole('ADMIN')")
+    public AgentEnrollmentProfile updateAgentEnrollment(
+        @PathVariable String clusterId,
+        @Valid @RequestBody AgentEnrollmentProfileUpdateRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        UserAccount user = access.currentUser(authentication);
+        AgentEnrollmentProfile profile = enrollments.update(clusterId, request);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("mode", profile.mode().name());
+        details.put("bootstrap_fallback_allowed", profile.bootstrapFallbackAllowed());
+        if (profile.configured()) {
+            details.put("api_server_url", profile.apiServerUrl());
+            details.put("ca_sha256", profile.caSha256());
+            details.put("audience", profile.audience());
+            details.put("namespace", profile.namespace());
+            details.put("service_account", profile.serviceAccount());
+        }
+        audit.user(
+            user,
+            "cluster.agent_enrollment.update",
+            "cluster",
+            clusterId,
+            "success",
+            details,
+            servletRequest
+        );
+        return profile;
     }
 
     @GetMapping("/{clusterId}/thresholds")

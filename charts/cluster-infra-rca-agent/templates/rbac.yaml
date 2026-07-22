@@ -23,6 +23,11 @@ rules:
     verbs: ["get", "list"]
   - nonResourceURLs: ["/readyz", "/readyz/*", "/livez", "/livez/*"]
     verbs: ["get"]
+  {{ if eq (lower .Values.enrollment.mode) "kubernetes-token-review" }}
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  {{ end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

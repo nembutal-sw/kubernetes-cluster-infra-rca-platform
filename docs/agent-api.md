@@ -6,7 +6,10 @@ Node Agent API는 각 Kubernetes 노드에 배포된 Python Agent가 Platform에
 
 현재 설계에서 Agent는 **host mutation을 실행하지 않습니다.** 예전 승인 조치 실행 API는 호환성 목적으로 남아 있지만, action polling은 빈 목록을 반환하고 action result submit은 `410 Gone`으로 차단됩니다. 운영 조치는 approval/audit/manual runbook 또는 GitOps PR 흐름으로만 처리합니다.
 
-Agent protocol v2는 bootstrap token과 node token의 수명을 분리합니다. Bootstrap token은 최초 등록에만 Bearer credential로 사용하고 기본 30분 뒤 만료됩니다. 등록 후에는 backend가 발급한 node token만 로컬 state directory에 저장해 heartbeat/evidence/realtime 요청의 Bearer credential로 사용합니다. Agent는 등록 성공 직후 bootstrap token을 프로세스 환경과 메모리에서 제거합니다.
+Agent protocol v2는 enrollment identity와 node token의 수명을 분리합니다. 최초 등록은 짧은 TTL의
+bootstrap token 또는 projected ServiceAccount token을 사용합니다. 등록 후에는 backend가 발급한
+node token만 로컬 state directory에 저장해 heartbeat/evidence/realtime 요청의 Bearer credential로
+사용합니다. 자세한 신뢰 경계와 전환 절차는 [Agent Enrollment](agent-enrollment.md)를 참고합니다.
 
 ---
 
@@ -31,7 +34,20 @@ All agent endpoints are permitted by the HTTP authorization rules but are authen
 
 ### Register
 
-`/api/agents/register` requires `Authorization: Bearer <bootstrap-token>`:
+`/api/agents/register` requires one of these headers:
+
+```text
+X-RCA-Agent-Enrollment: bootstrap-token
+Authorization: Bearer <bootstrap-token>
+```
+
+```text
+X-RCA-Agent-Enrollment: kubernetes-token-review
+Authorization: Bearer <projected-service-account-token>
+```
+
+The missing enrollment header defaults to `bootstrap-token` for rolling compatibility. The
+TokenReview path rejects legacy body credentials. Both paths use the same registration payload:
 
 ```json
 {

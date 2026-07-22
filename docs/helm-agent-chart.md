@@ -13,7 +13,8 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set backendUrl=https://rca.example.com
 ```
 
-기본적으로 Secret은 chart가 생성하지 않는다. 백엔드에서 받은 cluster별 토큰으로 먼저 Secret을 만든다.
+기본 `bootstrap-token` mode에서는 chart가 Secret을 생성하지 않는다. 백엔드에서 받은 cluster별
+token으로 먼저 Secret을 만든다.
 
 ```bash
 kubectl -n rca-system create secret generic cluster-infra-rca-agent \
@@ -29,6 +30,9 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `image.repository` | `ghcr.io/example/cluster-infra-rca-agent` | agent 이미지 repository |
 | `image.tag` | `latest` | agent 이미지 tag |
 | `backendUrl` | `""` | backend API URL |
+| `enrollment.mode` | `bootstrap-token` | `bootstrap-token` 또는 `kubernetes-token-review` |
+| `enrollment.audience` | `""` | TokenReview와 projected token audience |
+| `enrollment.tokenExpirationSeconds` | `3600` | projected token lifetime, 600~86400초 |
 | `secret.create` | `false` | chart가 agent Secret을 만들지 여부 |
 | `secret.existingSecret.name` | `cluster-infra-rca-agent` | 기존 Secret 이름 |
 | `runtimeSocketPaths` | `""` | 비표준 CRI socket 경로 override |
@@ -36,6 +40,28 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `hostPID` | `true` | 노드 프로세스 상태 확인용 host PID 사용 |
 | `tolerations` | `Exists` | control-plane, tainted node까지 수집 대상 포함 |
 | `nodeSelector` | `{}` | canary나 특정 node pool 제한 |
+
+## Kubernetes TokenReview 등록
+
+TokenReview profile을 Platform에 먼저 저장한 뒤 cluster ID만 포함한 Secret으로 설치한다.
+
+```bash
+kubectl -n rca-system create secret generic cluster-infra-rca-agent \
+  --from-literal=cluster-id=<cluster-id> \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
+  --namespace rca-system \
+  --create-namespace \
+  --set backendUrl=https://rca.example.com \
+  --set enrollment.mode=kubernetes-token-review \
+  --set enrollment.audience=https://kubernetes.default.svc \
+  --set secret.existingSecret.name=cluster-infra-rca-agent
+```
+
+이 mode에서는 `agent-token` Secret key를 렌더링하지 않습니다. audience는 대상 API Server가
+수락하는 값이어야 하며, Agent ServiceAccount에는 TokenReview 생성 권한이 추가됩니다. 세부 보안
+경계는 [Agent Enrollment](agent-enrollment.md)를 참고합니다.
 
 ## Canary 설치
 

@@ -7,7 +7,7 @@
 현재 보안 경계는 다음처럼 나뉩니다.
 
 - 사용자 API: platform session + RBAC
-- Agent API: cluster credential + node credential
+- Agent API: bootstrap 또는 Kubernetes identity + node credential
 - Webhook API: shared webhook credential
 - Manifest API: manifest access filter
 - Metrics API: operational role or metrics credential
@@ -57,7 +57,9 @@ Examples:
 
 ## Agent Authentication
 
-Agent protocol v2 uses a short-lived cluster credential only for registration. After registration, the platform issues a node-specific credential and the Agent removes the bootstrap credential from its process environment.
+Agent protocol v2 supports two registration identities. `bootstrap-token` uses a short-lived cluster credential. `kubernetes-token-review` uses a projected ServiceAccount token and validates it against an administrator-configured API Server and CA. After either registration path succeeds, the platform issues a node-specific credential.
+
+TokenReview enrollment verifies the expected audience, ServiceAccount subject and groups, then re-fetches the bound Pod from the trusted API Server. Pod UID, namespace, ServiceAccount, requested node name, and deletion state must all match. Agent-provided API URLs, CA bundles, and enrollment metadata are never trusted. Raw identity tokens and CA contents are excluded from API responses and audit details.
 
 Subsequent agent calls must identify:
 
@@ -68,6 +70,8 @@ Subsequent agent calls must identify:
 The platform verifies the cluster/node binding and node-scoped Bearer credential before processing heartbeat, evidence, token rotation, and realtime event calls. Legacy protocol v1 body credentials remain temporarily accepted for rolling upgrades.
 
 The bootstrap credential expires after `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS` (default 1800 seconds). Administrators can rotate or revoke it, and can revoke individual node credentials. Nodes can rotate their own credential after authenticating with the current value.
+
+Strict TokenReview mode revokes the cluster bootstrap credential and disables fallback. Switching back to bootstrap mode does not silently mint a replacement; the Console reports that explicit token rotation is required.
 
 ## Webhook Authentication
 

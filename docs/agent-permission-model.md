@@ -59,3 +59,13 @@ hostNetwork 또는 배포판 네트워크 구성 때문에 Service ClusterIP를 
 ```
 
 URL만 override되며 인증은 기존 ServiceAccount token과 CA bundle을 계속 사용합니다.
+
+## Enrollment Token Permission
+
+`enrollment.mode=kubernetes-token-review`는 일반 Kubernetes API 수집 token과 같은 ServiceAccount의
+별도 projected token을 지정 audience로 mount합니다. Agent는 이 파일을 등록할 때마다 다시 읽습니다.
+Chart는 해당 mode에서만 `authentication.k8s.io/tokenreviews`의 `create` 권한을 추가합니다.
+
+TokenReview 결과만으로 node identity를 확정하지 않습니다. Platform이 신뢰한 API Server에서 bound
+Pod를 다시 조회해 Pod UID, ServiceAccount, node name과 삭제 상태를 검증합니다. 자세한 설정은
+[Agent Enrollment](agent-enrollment.md)를 참고합니다.

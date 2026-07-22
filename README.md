@@ -41,13 +41,13 @@ Alertmanager / Platform Scheduler / Demo Scenario
 | Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
 | Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
 | Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway, 22 migrations | 신규 및 기존 schema 관리 |
+| Migration | Flyway, 23 migrations | 신규 및 기존 schema 관리 |
 
 Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
 
 ## 현재 구현 상태
 
-- 클러스터 등록·삭제, 등록 전용 bootstrap token TTL·회전·폐기와 설치 명령 생성
+- 클러스터 등록·삭제, bootstrap token 또는 Kubernetes TokenReview 기반 Agent 등록과 설치 명령 생성
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence와 전처리·규칙·LLM 보강·보고서 조립 단계가 분리된 RCA pipeline
 - 비식별 production-like corpus와 입력·정답을 분리한 19개 blind evaluation 품질 gate
@@ -265,9 +265,14 @@ Mode별 추가 옵션:
 | Canary | `--set nodeSelector.cluster-infra-rca\.io/agent-canary=true` | label된 노드만 배포 |
 | mTLS | `--set tls.enabled=true --set tls.existingSecret=<tls-secret>` | Agent client 인증서 사용 |
 
-Agent protocol v2는 bootstrap token을 최초 등록에만 사용하고, 이후 요청은 node-scoped Bearer token으로 인증합니다. Bootstrap token은 기본 30분 후 만료되며 `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS`로 조정할 수 있습니다. 만료 뒤 새 노드를 등록하려면 Web Console에서 token을 회전하고 Agent Secret을 갱신한 후 Pod를 다시 생성합니다. 기존 protocol v1의 body credential은 rolling upgrade를 위해 임시 호환됩니다.
+Agent protocol v2는 등록 후 모든 요청을 node-scoped Bearer token으로 인증합니다. 등록 identity는 다음 두 방식 중 하나를 사용합니다.
 
-자세한 권한과 canary 절차는 [docs/helm-agent-chart.md](docs/helm-agent-chart.md)를 확인합니다.
+- `bootstrap-token`: 기본 호환 모드입니다. 등록 전용 token은 기본 30분 후 만료되며 회전·폐기할 수 있습니다.
+- `kubernetes-token-review`: projected ServiceAccount token을 매번 다시 읽고, Platform이 대상 API Server의 TokenReview와 Pod 조회로 ServiceAccount, Pod UID, node binding을 검증합니다. 엄격 모드에서는 bootstrap token을 폐기하고 fallback을 허용하지 않습니다.
+
+TokenReview mode의 `enrollment.audience`는 대상 API Server가 인증 대상으로 수락하는 값이어야 합니다. 설정과 전환 순서는 [Agent Enrollment](docs/agent-enrollment.md), 권한과 canary 절차는 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
+
+기존 protocol v1의 body credential은 rolling upgrade를 위해 임시 호환됩니다.
 
 ## Platform Helm 설치
 

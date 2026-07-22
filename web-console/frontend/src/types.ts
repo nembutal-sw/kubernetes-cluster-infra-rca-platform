@@ -212,6 +212,33 @@ export interface ClusterDetailState {
   evidence: EvidenceRequestView[];
   topology: JsonObject | null;
   thresholds?: ClusterThresholdSettings | null;
+  enrollment?: AgentEnrollmentProfile | null;
+}
+
+export type AgentEnrollmentMode = "bootstrap_token" | "kubernetes_token_review";
+
+export interface AgentEnrollmentProfile {
+  cluster_id: string;
+  mode: AgentEnrollmentMode;
+  configured: boolean;
+  api_server_url?: string | null;
+  ca_sha256?: string | null;
+  audience?: string | null;
+  namespace?: string | null;
+  service_account?: string | null;
+  bootstrap_fallback_allowed: boolean;
+  bootstrap_token_rotation_required: boolean;
+  updated_at?: string | null;
+}
+
+export interface AgentEnrollmentUpdate {
+  mode: AgentEnrollmentMode;
+  api_server_url?: string;
+  ca_bundle_pem?: string;
+  audience?: string;
+  namespace?: string;
+  service_account?: string;
+  bootstrap_fallback_allowed?: boolean;
 }
 
 export interface ClusterThresholdSettings {

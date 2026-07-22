@@ -11,6 +11,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResponse;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentIdentity;
+import io.clusterinfra.rca.webconsole.security.AgentAuthenticationFilter;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.EvidenceRepository;
@@ -67,7 +69,19 @@ public class AgentEvidenceController {
         @Valid @RequestBody NodeAgentRegisterRequest request,
         HttpServletRequest servletRequest
     ) {
-        NodeAgentRegistrationResponse registered = agents.register(request);
+        Object attribute = servletRequest.getAttribute(AgentAuthenticationFilter.ENROLLMENT_IDENTITY_ATTRIBUTE);
+        AgentEnrollmentIdentity identity = attribute instanceof AgentEnrollmentIdentity value ? value : null;
+        NodeAgentRegistrationResponse registered = agents.register(
+            request,
+            identity == null ? java.util.Map.of() : identity.metadata()
+        );
+        java.util.Map<String, Object> auditDetails = new java.util.LinkedHashMap<>();
+        auditDetails.put("agent_version", request.agentVersion());
+        auditDetails.put("agent_protocol_version", request.protocolVersionOrDefault());
+        auditDetails.put("enrollment_method", identity == null ? "unknown" : identity.method());
+        if (identity != null && identity.podUid() != null) {
+            auditDetails.put("pod_uid", identity.podUid());
+        }
         audit.record(
             "agent",
             request.nodeName(),
@@ -75,10 +89,7 @@ public class AgentEvidenceController {
             "cluster",
             request.clusterId(),
             "success",
-            java.util.Map.of(
-                "agent_version", request.agentVersion(),
-                "agent_protocol_version", request.protocolVersionOrDefault()
-            ),
+            auditDetails,
             servletRequest
         );
         return registered;

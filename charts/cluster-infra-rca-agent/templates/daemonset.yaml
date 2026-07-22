@@ -2,6 +2,16 @@
 {{- if not (has $mode (list "safe" "node-diagnostics" "ebpf")) -}}
 {{- fail "mode must be one of: safe, node-diagnostics, ebpf" -}}
 {{- end -}}
+{{- $enrollmentMode := lower (required "enrollment.mode is required" .Values.enrollment.mode) -}}
+{{- if not (has $enrollmentMode (list "bootstrap-token" "kubernetes-token-review")) -}}
+{{- fail "enrollment.mode must be one of: bootstrap-token, kubernetes-token-review" -}}
+{{- end -}}
+{{- if eq $enrollmentMode "kubernetes-token-review" -}}
+{{- required "enrollment.audience is required for kubernetes-token-review" .Values.enrollment.audience -}}
+{{- if or (lt (int .Values.enrollment.tokenExpirationSeconds) 600) (gt (int .Values.enrollment.tokenExpirationSeconds) 86400) -}}
+{{- fail "enrollment.tokenExpirationSeconds must be between 600 and 86400" -}}
+{{- end -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -104,16 +114,23 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: AGENT_MODE
+            - name: AGENT_ENROLLMENT_MODE
+              value: {{ $enrollmentMode | quote }}
             - name: CLUSTER_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ include "cluster-infra-rca-agent.secretName" . }}
                   key: {{ .Values.secret.existingSecret.clusterIdKey | quote }}
+            {{- if eq $enrollmentMode "bootstrap-token" }}
             - name: AGENT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "cluster-infra-rca-agent.secretName" . }}
                   key: {{ .Values.secret.existingSecret.agentTokenKey | quote }}
+            {{- else }}
+            - name: AGENT_IDENTITY_TOKEN_PATH
+              value: {{ .Values.enrollment.tokenPath | quote }}
+            {{- end }}
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -314,6 +331,11 @@ spec:
             {{- end }}
             - name: agent-state
               mountPath: /var/lib/cluster-infra-rca-agent
+            {{- if eq $enrollmentMode "kubernetes-token-review" }}
+            - name: agent-enrollment-token
+              mountPath: {{ dir .Values.enrollment.tokenPath | quote }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.tls.enabled }}
             - name: agent-tls
               mountPath: /var/run/cluster-infra-rca-tls
@@ -368,10 +390,20 @@ spec:
           {{- if or (eq $mode "safe") (not .Values.statePersistence.enabled) }}
           emptyDir: {}
           {{- else }}
-          hostPath:
-            path: {{ .Values.hostPaths.state | quote }}
-            type: DirectoryOrCreate
+              hostPath:
+                path: {{ .Values.hostPaths.state | quote }}
+                type: DirectoryOrCreate
           {{- end }}
+        {{- if eq $enrollmentMode "kubernetes-token-review" }}
+        - name: agent-enrollment-token
+          projected:
+            defaultMode: 0400
+            sources:
+              - serviceAccountToken:
+                  audience: {{ .Values.enrollment.audience | quote }}
+                  expirationSeconds: {{ int .Values.enrollment.tokenExpirationSeconds }}
+                  path: {{ base .Values.enrollment.tokenPath | quote }}
+        {{- end }}
         {{- if .Values.tls.enabled }}
         - name: agent-tls
           secret:

@@ -137,6 +137,8 @@ GET    /api/clusters/{cluster_id}
 DELETE /api/clusters/{cluster_id}
 GET    /api/clusters/{cluster_id}/install-command
 GET    /api/clusters/{cluster_id}/agent-manifest
+GET    /api/clusters/{cluster_id}/agent-enrollment
+PUT    /api/clusters/{cluster_id}/agent-enrollment
 POST   /api/clusters/{cluster_id}/agent-token/rotate
 POST   /api/clusters/{cluster_id}/agent-token/revoke
 POST   /api/clusters/{cluster_id}/agents/{node_name}/token/revoke
@@ -156,6 +158,10 @@ comma-separated, and limited to 100 values. The Web Console uses this endpoint t
 The install-command response uses a short-lived, single-use `manifest_token`. The cluster
 bootstrap token is not accepted as a manifest query parameter. Production manifest URLs must use
 HTTPS.
+
+Agent enrollment profile은 `bootstrap_token`과 `kubernetes_token_review` mode를 선택합니다. 조회
+응답은 CA 원문을 제외하고 fingerprint만 반환하며 변경은 `ADMIN` 전용입니다. 자세한 설정은
+[Agent Enrollment](agent-enrollment.md)을 참고합니다.
 
 Evidence request lists support `node_name`, `status`, `before`, and `limit` filters.
 The default limit is 100 and the maximum is 200.

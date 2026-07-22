@@ -111,6 +111,7 @@ export function ConsoleViewHost({
             onStartCollection={clusterOperations.startCollection}
             onUpdateThresholds={clusterOperations.updateClusterThresholds}
             onClearThresholds={clusterOperations.clearClusterThresholds}
+            onUpdateEnrollment={clusterOperations.updateAgentEnrollment}
             onDelete={(cluster) => clusterOperations.setDeleteDialog({ cluster })}
             onRotateToken={clusterOperations.rotateAgentToken}
             onCopy={(text) => copyText(text, notify)}

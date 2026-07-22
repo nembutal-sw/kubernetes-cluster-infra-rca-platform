@@ -25,6 +25,14 @@ statePersistence:
 backendUrl: ""
 mode: safe
 
+enrollment:
+  mode: bootstrap-token
+  # Must be accepted by the target Kubernetes API server because the Agent
+  # uses this token to submit its own TokenReview request.
+  audience: ""
+  tokenExpirationSeconds: 3600
+  tokenPath: /var/run/secrets/cluster-infra-rca/enrollment/token
+
 secret:
   create: false
   clusterId: ""

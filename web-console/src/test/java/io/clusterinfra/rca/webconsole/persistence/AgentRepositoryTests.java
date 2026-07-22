@@ -11,6 +11,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.security.TokenService;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
@@ -178,6 +179,33 @@ class AgentRepositoryTests {
         assertThat(agents.revokeNodeToken(cluster.clusterId(), "node-a")).isTrue();
         assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", rotated)).isFalse();
         assertThat(agents.revokeNodeToken(cluster.clusterId(), "missing-node")).isFalse();
+    }
+
+    @Test
+    void trustedEnrollmentMetadataOverridesAgentInputWithoutRejectingNullMetadataValues() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        Map<String, Object> supplied = new LinkedHashMap<>();
+        supplied.put("optional_runtime", null);
+        supplied.put("_enrollment", Map.of("method", "forged"));
+
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            null,
+            "0.1.0",
+            "2",
+            List.of("node"),
+            supplied
+        ), Map.of(
+            "method", "kubernetes_token_review",
+            "pod_uid", "pod-uid-1"
+        ));
+
+        assertThat(registered.metadata()).containsEntry("optional_runtime", null);
+        assertThat(registered.metadata().get("_enrollment"))
+            .isEqualTo(Map.of("method", "kubernetes_token_review", "pod_uid", "pod-uid-1"));
+        assertThat(agents.find(cluster.clusterId(), "node-a").orElseThrow().metadata())
+            .containsEntry("optional_runtime", null);
     }
 
     private String storedNodeTokenHash(String clusterId, String nodeName) {

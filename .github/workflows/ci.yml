@@ -239,6 +239,22 @@ jobs:
             --set mode=ebpf \
             --set ebpf.enabled=true \
             --set secret.existingSecret.name=agent-auth > /dev/null
+          token_review="$(helm template rca-agent charts/cluster-infra-rca-agent \
+            --set backendUrl=https://rca.example.com \
+            --set secret.create=true \
+            --set secret.clusterId=cluster-token-review \
+            --set enrollment.mode=kubernetes-token-review \
+            --set-string enrollment.audience=https://kubernetes.default.svc)"
+          grep -q 'name: AGENT_ENROLLMENT_MODE' <<< "${token_review}"
+          grep -q 'value: "kubernetes-token-review"' <<< "${token_review}"
+          grep -q 'name: AGENT_IDENTITY_TOKEN_PATH' <<< "${token_review}"
+          grep -q 'serviceAccountToken:' <<< "${token_review}"
+          grep -q 'audience: "https://kubernetes.default.svc"' <<< "${token_review}"
+          grep -q 'resources: \["tokenreviews"\]' <<< "${token_review}"
+          if grep -q 'agent-token:' <<< "${token_review}"; then
+            echo "TokenReview enrollment must not render a bootstrap token Secret key" >&2
+            exit 1
+          fi
           eks_auto="$(helm template rca-agent charts/cluster-infra-rca-agent \
             --set backendUrl=https://rca.example.com \
             --set mode=safe \

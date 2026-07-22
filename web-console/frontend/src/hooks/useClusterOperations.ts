@@ -3,6 +3,8 @@ import type { Dispatch, SetStateAction } from "react";
 
 import type {
   AgentTokenRotateResponse,
+  AgentEnrollmentProfile,
+  AgentEnrollmentUpdate,
   ApiCall,
   ClusterCreateForm,
   ClusterDetailState,
@@ -129,6 +131,19 @@ export function useClusterOperations(options: ClusterOperationsOptions) {
     notify(t("Threshold overrides cleared."));
   }, [callApi, notify, setClusterDetail, t]);
 
+  const updateAgentEnrollment = useCallback(async (
+    cluster: ClusterView,
+    update: AgentEnrollmentUpdate,
+  ) => {
+    const enrollment = await callApi<AgentEnrollmentProfile>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-enrollment`,
+      { method: "PUT", body: update },
+    );
+    setClusterDetail((current) => current ? { ...current, enrollment } : current);
+    setInstallCommand(null);
+    notify(t("Agent enrollment updated."));
+  }, [callApi, notify, setClusterDetail, setInstallCommand, t]);
+
   return {
     deleteDialog,
     setDeleteDialog,
@@ -138,5 +153,6 @@ export function useClusterOperations(options: ClusterOperationsOptions) {
     startCollection,
     updateClusterThresholds,
     clearClusterThresholds,
+    updateAgentEnrollment,
   };
 }

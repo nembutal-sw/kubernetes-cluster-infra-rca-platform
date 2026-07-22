@@ -177,7 +177,15 @@ def write_local_evidence(evidence: dict[str, Any], output: str) -> None:
 def build_client_from_env(timeout_seconds: float) -> AgentClient:
     backend_url = _required_env("BACKEND_URL")
     cluster_id = _required_env("CLUSTER_ID")
-    agent_token = _required_env("AGENT_TOKEN")
+    enrollment_mode = os.getenv("AGENT_ENROLLMENT_MODE", "bootstrap-token").strip().lower()
+    if enrollment_mode not in {"bootstrap-token", "kubernetes-token-review"}:
+        raise ValueError("AGENT_ENROLLMENT_MODE must be bootstrap-token or kubernetes-token-review")
+    agent_token = _required_env("AGENT_TOKEN") if enrollment_mode == "bootstrap-token" else None
+    identity_token_path = (
+        _required_env("AGENT_IDENTITY_TOKEN_PATH")
+        if enrollment_mode == "kubernetes-token-review"
+        else None
+    )
     node_name = os.getenv("NODE_NAME") or socket.gethostname()
     return AgentClient(
         backend_url=backend_url,
@@ -188,6 +196,8 @@ def build_client_from_env(timeout_seconds: float) -> AgentClient:
         ca_bundle=os.getenv("AGENT_CA_BUNDLE") or None,
         client_cert=os.getenv("AGENT_CLIENT_CERT") or None,
         client_key=os.getenv("AGENT_CLIENT_KEY") or None,
+        enrollment_mode=enrollment_mode,
+        identity_token_path=identity_token_path,
     )
 
 

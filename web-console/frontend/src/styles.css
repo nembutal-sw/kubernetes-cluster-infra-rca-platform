@@ -4485,3 +4485,116 @@ code {
     gap: 8px;
   }
 }
+
+.agent-enrollment-settings {
+  display: grid;
+  gap: 16px;
+}
+
+.enrollment-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--line);
+}
+
+.enrollment-status-grid > div {
+  min-width: 0;
+  padding: 12px;
+  background: var(--surface);
+}
+
+.enrollment-status-grid span,
+.enrollment-status-grid strong {
+  display: block;
+}
+
+.enrollment-status-grid span {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.enrollment-status-grid strong {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.enrollment-status-grid .fingerprint {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.enrollment-strict-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.enrollment-token-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.enrollment-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.enrollment-editor label:not(.form-check) {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.enrollment-editor .wide {
+  grid-column: 1 / -1;
+}
+
+.enrollment-ca {
+  resize: vertical;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.74rem;
+}
+
+.enrollment-fallback {
+  align-self: center;
+  margin: 4px 0 0;
+}
+
+.enrollment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .enrollment-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .enrollment-status-grid,
+  .enrollment-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .enrollment-editor .wide {
+    grid-column: auto;
+  }
+}

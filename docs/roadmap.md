@@ -566,6 +566,25 @@ ServiceAccount TokenReview 또는 node-bound mTLS로 전환합니다.
 실제 표본은 승인된 managed canary와 독립 판정이 완료된 뒤 별도 PR로 누적합니다. 다음 개선은 node
 enrollment identity를 ServiceAccount TokenReview 또는 node-bound mTLS로 전환하는 것입니다.
 
+## Phase 31. Agent Enrollment Identity Hardening
+
+구현 및 검증 완료:
+
+- bootstrap token과 Kubernetes TokenReview를 선택하는 클러스터별 enrollment profile
+- 관리자가 고정한 HTTPS API Server와 private CA trust, CA fingerprint만 조회·감사에 노출
+- TokenReview audience, ServiceAccount subject/UID/group 검증
+- trusted Pod 재조회 기반 Pod UID, ServiceAccount, node binding과 삭제 상태 검증
+- projected ServiceAccount token의 요청 시점 재읽기와 kubelet rotation 대응
+- strict mode의 bootstrap credential 폐기 및 fallback 차단
+- bootstrap 복귀 시 암묵적 token 재발급 금지와 명시적 rotation 요구
+- TokenReview Helm/RBAC 분기와 bootstrap secret 비노출 렌더링 gate
+- Flyway V23 PostgreSQL·MariaDB 공통 enrollment profile schema
+- Web Console profile 상태, CA fingerprint, strict mode와 복구 안내
+
+기본값은 rolling compatibility를 위해 `bootstrap-token`입니다. 실제 운영 전환은 대상 API Server가
+설정 audience를 수락하는지 canary로 확인한 뒤 strict mode를 적용합니다. 다음 우선순위는 승인된
+managed cluster에서 TokenReview enrollment와 실제 장애 표본 intake를 함께 검증하는 것입니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

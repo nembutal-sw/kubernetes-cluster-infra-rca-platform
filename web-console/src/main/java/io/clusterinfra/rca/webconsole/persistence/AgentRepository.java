@@ -14,6 +14,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +50,14 @@ public class AgentRepository {
 
     @Transactional
     public NodeAgentRegistrationResponse register(NodeAgentRegisterRequest request) {
+        return register(request, Map.of());
+    }
+
+    @Transactional
+    public NodeAgentRegistrationResponse register(
+        NodeAgentRegisterRequest request,
+        Map<String, Object> trustedEnrollmentMetadata
+    ) {
         String nodeName = normalizedNodeName(request.nodeName());
         Optional<NodeAgent> existing = find(request.clusterId(), nodeName);
         String nodeToken = tokens.generateToken();
@@ -60,7 +70,7 @@ public class AgentRepository {
             request.protocolVersionOrDefault(),
             AgentStatus.registered,
             request.collectorsOrEmpty(),
-            request.metadataOrEmpty(),
+            registrationMetadata(request.metadataOrEmpty(), trustedEnrollmentMetadata),
             existing.map(NodeAgent::health).orElse(Map.of()),
             existing.map(NodeAgent::registeredAt).orElse(now),
             existing.map(NodeAgent::lastHeartbeatAt).orElse(null)
@@ -129,6 +139,21 @@ public class AgentRepository {
             agent.lastHeartbeatAt(),
             nodeToken
         );
+    }
+
+    private Map<String, Object> registrationMetadata(
+        Map<String, Object> supplied,
+        Map<String, Object> trustedEnrollmentMetadata
+    ) {
+        Map<String, Object> metadata = new LinkedHashMap<>(supplied == null ? Map.of() : supplied);
+        metadata.remove("_enrollment");
+        if (trustedEnrollmentMetadata != null && !trustedEnrollmentMetadata.isEmpty()) {
+            metadata.put(
+                "_enrollment",
+                Collections.unmodifiableMap(new LinkedHashMap<>(trustedEnrollmentMetadata))
+            );
+        }
+        return Collections.unmodifiableMap(metadata);
     }
 
     @Transactional

@@ -1,10 +1,14 @@
 package io.clusterinfra.rca.webconsole.security;
 
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentIdentity;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentMode;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
+import io.clusterinfra.rca.webconsole.service.AgentEnrollmentService;
+import io.clusterinfra.rca.webconsole.service.KubernetesTokenReviewService;
 import io.clusterinfra.rca.webconsole.service.ManifestTokenService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -12,6 +16,7 @@ import java.time.Duration;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
@@ -22,19 +27,25 @@ public class AccessService {
     private final UserSessionRepository sessions;
     private final RcaConsoleProperties properties;
     private final ManifestTokenService manifestTokens;
+    private final AgentEnrollmentService enrollments;
+    private final KubernetesTokenReviewService tokenReviews;
 
     public AccessService(
         ClusterRepository clusters,
         AgentRepository agents,
         UserSessionRepository sessions,
         RcaConsoleProperties properties,
-        ManifestTokenService manifestTokens
+        ManifestTokenService manifestTokens,
+        AgentEnrollmentService enrollments,
+        KubernetesTokenReviewService tokenReviews
     ) {
         this.clusters = clusters;
         this.agents = agents;
         this.sessions = sessions;
         this.properties = properties;
         this.manifestTokens = manifestTokens;
+        this.enrollments = enrollments;
+        this.tokenReviews = tokenReviews;
     }
 
     public UserAccount currentUser(Authentication authentication) {
@@ -58,6 +69,37 @@ public class AccessService {
         if (!clusters.verifyBootstrapToken(clusterId, agentToken, tokenTtl)) {
             throw new ResponseStatusException(UNAUTHORIZED, "invalid agent token");
         }
+    }
+
+    public AgentEnrollmentIdentity verifyAgentEnrollment(
+        String clusterId,
+        String nodeName,
+        String enrollmentMethod,
+        String credential
+    ) {
+        var configuration = enrollments.configuration(clusterId);
+        if ("kubernetes-token-review".equals(enrollmentMethod)) {
+            if (configuration == null
+                || configuration.mode() != AgentEnrollmentMode.kubernetes_token_review) {
+                throw new ResponseStatusException(UNAUTHORIZED, "Kubernetes agent enrollment is not configured");
+            }
+            return tokenReviews.verify(configuration, credential, nodeName);
+        }
+        if (configuration != null
+            && configuration.mode() == AgentEnrollmentMode.kubernetes_token_review
+            && !configuration.bootstrapFallbackAllowed()) {
+            throw new ResponseStatusException(UNAUTHORIZED, "bootstrap agent enrollment is disabled");
+        }
+        verifyBootstrapToken(clusterId, credential);
+        return new AgentEnrollmentIdentity(
+            "bootstrap_token",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     public void verifyManifestAccess(

@@ -43,6 +43,7 @@ Web Console과 Backend API의 기본 보안 계약을 정리한다. 실제 정�
 - `VIEWER`는 변경 API에 접근할 수 없다.
 - `VIEWER`, `APPROVER`는 report export와 evidence bundle download 권한을 갖지 않는다.
 - Agent bootstrap token rotation/revocation과 node token revocation은 `ADMIN` 전용이다.
+- Agent enrollment profile 변경은 `ADMIN` 전용이고 조회는 `ADMIN`, `OPERATOR`, `VIEWER`만 가능하다.
 - Cluster delete는 `ADMIN` 전용이다.
 - Action workflow는 agent 자동 실행이 아니라 승인, 거절, 감사, 수동 처리 완료 기록을 중심으로 유지한다.
 
@@ -70,6 +71,7 @@ python3 scripts/verify-api-contract.py
 - `SecurityBoundaryRegressionTests`
 - Webhook token header/Bearer 인증과 실패 감사로그
 - protocol v2의 등록 전용 bootstrap Bearer와 node-scoped Bearer 검증
+- Kubernetes TokenReview의 audience, ServiceAccount, Pod UID, node binding 검증과 bootstrap fallback 차단
 - protocol v1 body credential 호환 및 header/body 충돌 거부
 - Agent endpoint 인증 선차단
 - Agent manifest의 사용자 인증/1회성 manifest token 검증
