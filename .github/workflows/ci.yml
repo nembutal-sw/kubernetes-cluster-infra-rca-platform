@@ -71,6 +71,7 @@ jobs:
           path: |
             web-console/target/analysis-quality-report.json
             web-console/target/production-like-evidence-corpus-report.json
+            web-console/target/blind-evaluation-report.json
           if-no-files-found: error
           retention-days: 30
 
@@ -368,6 +369,7 @@ jobs:
           python -m py_compile \
             scripts/release-readiness-check.py \
             scripts/verify-api-contract.py \
+            scripts/verify-blind-evaluation-corpus.py \
             scripts/verify-container-pinning.py \
             scripts/verify-build-lifecycle.py \
             scripts/verify-operational-catalog.py \
@@ -383,6 +385,8 @@ jobs:
             scripts/managed-platform-contract-check.py
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py
+      - name: Validate blind evaluation corpus separation
+        run: python scripts/verify-blind-evaluation-corpus.py
       - name: Validate container pinning
         run: python scripts/verify-container-pinning.py
       - name: Validate Maven and Frontend lifecycle separation

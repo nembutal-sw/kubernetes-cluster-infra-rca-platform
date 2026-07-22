@@ -644,6 +644,31 @@ def main() -> int:
             "Sanitized production-like evidence scenarios enforce positive, negative, boundary, compound, degraded, temporal, and runtime-variant gates.",
         ),
         check(
+            "blind-evaluation-corpus",
+            exists("scripts/verify-blind-evaluation-corpus.py")
+            and exists(
+                "web-console/src/test/resources/analysis/blind-evaluation-evidence.json"
+            )
+            and exists(
+                "web-console/src/test/resources/analysis/blind-evaluation-labels.json"
+            )
+            and exists(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/BlindEvaluationCorpusTests.java"
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "Validate blind evaluation corpus separation",
+                "blind-evaluation-report.json",
+            )
+            and contains(
+                "docs/evidence-schema-and-quality.md",
+                "Blind Evaluation Corpus Gate",
+                "label_loaded_after_detection",
+                "실운영 정확도",
+            ),
+            "Blind evidence and sealed labels are separated, independently gated, and retained as a CI report.",
+        ),
+        check(
             "build-lifecycle-separation",
             exists("scripts/verify-build-lifecycle.py")
             and contains(

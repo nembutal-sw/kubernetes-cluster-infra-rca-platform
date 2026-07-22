@@ -215,6 +215,15 @@ npm test
 npm run build
 ```
 
+Rule-based holdout 평가만 실행:
+
+```bash
+mvn -Dtest=BlindEvaluationCorpusTests test
+```
+
+Blind evidence와 sealed label은 별도 test resource이며 detector 실행이 끝난 뒤에만 결합됩니다. 결과는
+`target/blind-evaluation-report.json`에 생성되고 CI 품질 artifact에 포함됩니다.
+
 React 정적 자산이 포함된 통합 JAR 생성과 실행:
 
 ```bash

@@ -121,3 +121,48 @@ web-console/target/production-like-evidence-corpus-report.json
 이 수치는 비식별 재현 corpus에 대한 회귀 성능입니다. 실운영 정확도를 의미하지 않습니다. 실제
 Precision과 Recall은 비식별 장애 corpus, 정상 negative 표본, 복합 장애, blind evaluation set,
 managed Kubernetes canary를 별도로 축적한 뒤 평가합니다.
+
+## Blind Evaluation Corpus Gate
+
+Production-like fixture와 달리 blind evaluation은 analyzer 입력과 정답을 물리적으로 분리합니다.
+
+```text
+web-console/src/test/resources/analysis/blind-evaluation-evidence.json
+web-console/src/test/resources/analysis/blind-evaluation-labels.json
+```
+
+Evidence 파일의 case는 `blind-NNN` ID, platform/runtime/window, collectors만 가집니다. 장애 설명,
+expected/allowed/forbidden signal, root cause, alert 이름과 분류 필드는 허용하지 않습니다. Label 파일은
+같은 opaque ID와 정답 signal만 가지며 collectors를 포함할 수 없습니다.
+
+`BlindEvaluationCorpusTests`의 실행 순서는 고정되어 있습니다.
+
+1. Evidence 계약과 비식별 상태 검사
+2. 19개 case의 detector 결과를 메모리에 확정
+3. Sealed label 로드
+4. Case ID로만 결과와 label 결합
+5. 품질 계산과 비식별 보고서 생성
+
+| Metric | Minimum |
+| --- | ---: |
+| Micro precision | 0.90 |
+| Micro recall | 0.95 |
+| Positive scenario pass rate | 0.90 |
+| Negative scenario pass rate | 1.00 |
+| Top-1 expected-signal hit rate | 0.90 |
+| Top-3 expected-signal hit rate | 0.95 |
+| Forbidden signal matches | 0 |
+
+결과 파일:
+
+```text
+web-console/target/blind-evaluation-report.json
+```
+
+보고서에는 raw evidence 대신 case별 expected/actual 결과, 입력·label SHA-256과
+`label_loaded_after_detection=true`를 기록합니다. `scripts/verify-blind-evaluation-corpus.py`는 CI에서
+입력/label 분리, case coverage, secret marker와 exact label value 누출을 정적으로 검사합니다.
+
+현재 데이터는 저장소 E2E 구조를 바탕으로 만든 비식별 holdout 재현 표본입니다. Analyzer가 label을
+입력으로 받지 않는다는 점을 검증하지만, 동일 저장소에서 관리되는 데이터이므로 실운영 정확도나
+완전한 외부 blind test로 해석하지 않습니다.

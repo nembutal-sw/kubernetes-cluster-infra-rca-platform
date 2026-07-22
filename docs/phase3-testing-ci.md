@@ -8,7 +8,7 @@ Phase 3는 테스트와 배포 산출물이 서로 다른 경로를 사용하지
 | --- | --- |
 | `node-agent-test` | Python compile, pytest |
 | `frontend-build` | locked dependency install, Frontend unit test, TypeScript, Vite build |
-| `web-console-test` | npm 비의존 Spring Boot test, package, PostgreSQL/MariaDB Testcontainers |
+| `web-console-test` | npm 비의존 Spring Boot test, DB 호환성, golden/production-like/blind RCA 품질 보고서 |
 | `helm-validate` | platform/agent lint와 주요 values 변형 렌더링 |
 | `docker-build` | 선행 job 통과 후 platform/agent image build |
 | `Operational Smoke` | 배포된 platform API 대상 demo RCA, evidence bundle manifest, audit, 선택적 LLM staging smoke 검증 |

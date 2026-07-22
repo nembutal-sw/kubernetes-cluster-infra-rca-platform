@@ -1,0 +1,29 @@
+{
+  "schema_version": "rca-blind-label-set/v1",
+  "provenance": {
+    "classification": "sanitized_holdout_labels",
+    "contains_raw_customer_data": false,
+    "review_state": "labels_sealed_before_detector_execution"
+  },
+  "labels": [
+    {"case_id": "blind-001", "class": "negative", "expected_signals": [], "allowed_signals": [], "forbidden_signals": ["node_not_ready", "container_runtime_unit_unhealthy", "disk_usage_high"]},
+    {"case_id": "blind-002", "class": "negative", "expected_signals": [], "allowed_signals": [], "forbidden_signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy", "systemd_failed_units"]},
+    {"case_id": "blind-003", "class": "boundary", "expected_signals": [], "allowed_signals": [], "forbidden_signals": ["disk_usage_high", "inode_usage_high", "memory_pressure_critical", "pid_usage_high", "conntrack_near_limit", "dns_latency_high"]},
+    {"case_id": "blind-004", "class": "negative", "expected_signals": [], "allowed_signals": [], "forbidden_signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy", "kubelet_unit_unhealthy"]},
+    {"case_id": "blind-005", "class": "compound_fault", "expected_signals": ["node_disk_pressure", "disk_usage_critical", "disk_io_latency_high", "inode_usage_critical", "kernel_io_error"], "allowed_signals": [], "forbidden_signals": ["root_filesystem_read_only"]},
+    {"case_id": "blind-006", "class": "compound_fault", "expected_signals": ["memory_pressure_critical", "kernel_oom_detected", "ebpf_oom_kill"], "allowed_signals": [], "forbidden_signals": []},
+    {"case_id": "blind-007", "class": "compound_fault", "expected_signals": ["node_pid_pressure", "pid_usage_high"], "allowed_signals": [], "forbidden_signals": ["memory_pressure_critical"]},
+    {"case_id": "blind-008", "class": "compound_fault", "expected_signals": ["node_not_ready", "container_runtime_unit_unhealthy", "containerd_unit_unhealthy", "kubelet_unit_unhealthy", "systemd_failed_units"], "allowed_signals": [], "forbidden_signals": []},
+    {"case_id": "blind-009", "class": "compound_fault", "expected_signals": ["node_network_unavailable", "cni_config_invalid", "cni_daemonset_unavailable"], "allowed_signals": [], "forbidden_signals": ["dns_unconfigured"]},
+    {"case_id": "blind-010", "class": "compound_fault", "expected_signals": ["conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops", "conntrack_near_limit"], "allowed_signals": [], "forbidden_signals": []},
+    {"case_id": "blind-011", "class": "compound_fault", "expected_signals": ["dns_unconfigured", "dns_latency_high"], "allowed_signals": [], "forbidden_signals": ["coredns_no_ready_endpoints"]},
+    {"case_id": "blind-012", "class": "compound_fault", "expected_signals": ["api_server_latency_high", "api_server_readyz_failed", "api_server_request_errors", "etcd_latency_high", "etcd_readyz_failed"], "allowed_signals": [], "forbidden_signals": ["api_server_livez_failed"]},
+    {"case_id": "blind-013", "class": "single_fault", "expected_signals": ["nic_link_flap"], "allowed_signals": [], "forbidden_signals": ["node_network_unavailable"]},
+    {"case_id": "blind-014", "class": "single_fault", "expected_signals": ["cni_mtu_values_inconsistent"], "allowed_signals": [], "forbidden_signals": ["cni_config_invalid"]},
+    {"case_id": "blind-015", "class": "single_fault", "expected_signals": ["coredns_no_ready_endpoints"], "allowed_signals": [], "forbidden_signals": ["coredns_pod_not_running", "dns_unconfigured"]},
+    {"case_id": "blind-016", "class": "compound_fault", "expected_signals": ["blocked_task_detected", "disk_io_latency_high"], "allowed_signals": [], "forbidden_signals": ["kernel_io_error"]},
+    {"case_id": "blind-017", "class": "degraded_evidence", "expected_signals": ["node_not_ready", "kubelet_unit_unhealthy"], "allowed_signals": [], "forbidden_signals": ["systemd_failed_units", "container_runtime_unit_unhealthy"]},
+    {"case_id": "blind-018", "class": "compound_fault", "expected_signals": ["ebpf_tcp_retransmit", "ebpf_dns_timeout"], "allowed_signals": [], "forbidden_signals": ["dns_latency_high"]},
+    {"case_id": "blind-019", "class": "single_fault", "expected_signals": ["node_memory_pressure"], "allowed_signals": [], "forbidden_signals": ["memory_pressure_critical", "kernel_oom_detected"]}
+  ]
+}

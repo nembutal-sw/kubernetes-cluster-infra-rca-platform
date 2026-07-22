@@ -1,0 +1,267 @@
+{
+  "schema_version": "rca-blind-evidence-set/v1",
+  "provenance": {
+    "classification": "sanitized_holdout_reproduction",
+    "contains_raw_customer_data": false,
+    "construction": "Collector shapes are derived from redacted repository E2E artifacts; all identifiers, values, timestamps, addresses, and excerpts are synthetic.",
+    "label_access": "Labels are stored separately and are not loaded until every detector result has been captured."
+  },
+  "cases": [
+    {
+      "case_id": "blind-001",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "window": "steady-state-a",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "holdout-a.example.invalid", "platform": "ubuntu", "uptime_seconds": 622114},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "DiskPressure": {"status": "False"}, "MemoryPressure": {"status": "False"}, "PIDPressure": {"status": "False"}, "NetworkUnavailable": {"status": "False"}}, "api_server_latency_ms": 96, "api_readyz_failed_check_count": 0, "api_livez_failed_check_count": 0, "api_request_error_count": 0, "etcd_readyz_healthy": true},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": [], "runtime_units": [{"name": "containerd.service", "status": "active"}]},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_exists": true, "runtime_socket_healthy": true, "runtime_socket_latency_ms": 2.8},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 63.4, "inode_usage_percent": 35.2, "await_ms": 4.1, "root_mount_read_only": false},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 57.2, "oom_kill_detected": false},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.02, "zombie_process_count": 0},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "nic_link_flap_detected": false, "conntrack_usage_percent": 18.7},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false, "blocked_task_detected": false},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 2, "dns_lookup_latency_ms": 14}
+      }
+    },
+    {
+      "case_id": "blind-002",
+      "platform": "openshift-rhel",
+      "runtime": "crio",
+      "window": "steady-state-b",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "holdout-b.example.invalid", "platform": "rhel"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}, "api_server_latency_ms": 121},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": [], "runtime_units": [{"name": "crio.service", "status": "active"}]},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "crio", "runtime_name": "CRI-O", "runtime_socket_exists": true, "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 55.8, "inode_usage_percent": 29.7, "await_ms": 5.9},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 60.1},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "conntrack_usage_percent": 21.0},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-003",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "window": "boundary-a",
+      "collectors": {
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": "84.7%", "inode_usage_percent": 84.8, "await_ms": "19.6ms", "root_mount_read_only": false},
+        "inode": {"_schema_version": "1.0", "status": "ok", "root_inode_usage_percent": "84.8%"},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 89.4, "oom_kill_detected": false},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 84.6},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "count": 25919, "max": 32768, "usage_percent": 79.1, "insert_failed": 0, "drop": 0, "early_drop": 0},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 492},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "kernel_log_excerpt": "health sampling window completed", "io_error_detected": false, "oom_detected": false, "blocked_task_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-004",
+      "platform": "k3s-suse",
+      "runtime": "embedded-containerd",
+      "window": "steady-state-c",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "holdout-c.example.invalid", "platform": "suse"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "host-files", "failed_units": [], "runtime_units": [{"name": "k3s.service", "status": "active"}]},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "embedded-containerd", "runtime_name": "k3s containerd", "runtime_socket_exists": true, "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true, "collection_mode": "host-files"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "kernel_log_excerpt": "service health snapshot complete", "io_error_detected": false, "oom_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 47.3, "inode_usage_percent": 18.5, "await_ms": 3.0}
+      }
+    },
+    {
+      "case_id": "blind-005",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "window": "event-a",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "DiskPressure": {"status": "True"}}},
+        "disk": {"_schema_version": "1.0", "status": "warning", "root_usage_percent": 93.6, "inode_usage_percent": 92.4, "await_ms": 47.0, "root_mount_read_only": false},
+        "inode": {"_schema_version": "1.0", "status": "warning", "root_inode_usage_percent": 92.4},
+        "kernel": {"_schema_version": "1.0", "status": "warning", "io_error_detected": true, "oom_detected": false, "blocked_task_detected": false, "kernel_log_excerpt": "nvme2n1: I/O error while completing write request"},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 66.1},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true}
+      }
+    },
+    {
+      "case_id": "blind-006",
+      "platform": "eks-bottlerocket",
+      "runtime": "containerd",
+      "window": "event-b",
+      "collectors": {
+        "memory": {"_schema_version": "1.0", "status": "warning", "usage_percent": 96.8, "oom_kill_detected": true, "pressure": {"some_avg10": 71.2, "full_avg10": 24.7}},
+        "kernel": {"_schema_version": "1.0", "status": "warning", "oom_detected": true, "kernel_log_excerpt": "Out of memory: Killed process 912 (worker) total-vm:6291456kB"},
+        "ebpf": {"_schema_version": "1.0", "status": "ok", "events": [{"timestamp": "2026-07-20T11:13:07Z", "event_type": "oom_kill", "pid": 912, "comm": "worker"}]},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 44.0, "await_ms": 2.9},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.04}
+      }
+    },
+    {
+      "case_id": "blind-007",
+      "platform": "aks-ubuntu",
+      "runtime": "containerd",
+      "window": "event-c",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "PIDPressure": {"status": "True"}}},
+        "process": {"_schema_version": "1.0", "status": "warning", "process_count": 12983, "zombie_process_count": 318, "pid_max": 16384, "pid_usage_percent": 97.1},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 73.0},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-008",
+      "platform": "kubeadm-debian",
+      "runtime": "containerd",
+      "window": "event-d",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": "Unknown", "node_conditions": {"Ready": {"status": "Unknown"}}},
+        "systemd": {"_schema_version": "1.0", "status": "warning", "failed_units": ["containerd.service", "kubelet.service"], "runtime_units": [{"name": "containerd.service", "status": "failed"}], "journal_excerpt": "containerd.service: start request repeated too quickly"},
+        "runtime": {"_schema_version": "1.0", "status": "failed", "runtime_kind": "containerd", "runtime_socket_exists": true, "runtime_socket_healthy": false},
+        "containerd": {"_schema_version": "1.0", "status": "failed", "socket_healthy": false},
+        "kubelet": {"_schema_version": "1.0", "status": "failed", "active": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 64.0, "await_ms": 7.2},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-009",
+      "platform": "rke2-rocky",
+      "runtime": "embedded-containerd",
+      "window": "event-e",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "NetworkUnavailable": {"status": "True"}}, "cni_daemonset_unavailable_count": 1},
+        "cni": {"_schema_version": "1.0", "status": "warning", "config_dir_exists": true, "config_count": 2, "plugin_types": ["calico"], "plugin_errors_detected": true, "mtu_values": [1450]},
+        "network": {"_schema_version": "1.0", "status": "warning", "interfaces_down": [], "conntrack_usage_percent": 24.0},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 26}
+      }
+    },
+    {
+      "case_id": "blind-010",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "window": "event-f",
+      "collectors": {
+        "conntrack": {"_schema_version": "1.0", "status": "warning", "count": 64120, "max": 65536, "usage_percent": 97.8, "insert_failed": 37, "drop": 142, "early_drop": 19},
+        "network": {"_schema_version": "1.0", "status": "warning", "interfaces_down": [], "conntrack_usage_percent": 97.8},
+        "kernel": {"_schema_version": "1.0", "status": "warning", "kernel_log_excerpt": "nf_conntrack: table full, dropping packet", "io_error_detected": false},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 88}
+      }
+    },
+    {
+      "case_id": "blind-011",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "window": "event-g",
+      "collectors": {
+        "dns": {"_schema_version": "1.0", "status": "warning", "dns_configured": false, "resolv_conf_exists": true, "nameserver_count": 0, "dns_lookup_latency_ms": 1160},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "conntrack_usage_percent": 31.0},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-012",
+      "platform": "kubeadm-control-plane",
+      "runtime": "containerd",
+      "window": "event-h",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": true, "api_server_latency_ms": 2180, "api_readyz_latency_ms": 2075, "api_readyz_failed_check_count": 1, "api_livez_failed_check_count": 0, "api_request_error_count": 4, "api_timeout_detected": true, "etcd_readyz_healthy": false, "api_readyz_failed_checks": ["etcd check failed"]},
+        "etcd": {"_schema_version": "1.0", "status": "warning", "fsync_latency_ms": 734, "readyz_healthy": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 62.0, "await_ms": 8.1},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-013",
+      "platform": "talos-linux",
+      "runtime": "containerd",
+      "window": "event-i",
+      "collectors": {
+        "network": {"_schema_version": "1.0", "status": "warning", "interfaces_down": ["enp4s0"], "carrier_changes": 6, "rx_dropped": 93, "tx_errors": 4},
+        "kernel": {"_schema_version": "1.0", "status": "warning", "kernel_log_excerpt": "enp4s0: Link is Down; bond0: carrier lost", "io_error_detected": false},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "NetworkUnavailable": {"status": "False"}}},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "usage_percent": 28.0, "insert_failed": 0, "drop": 0}
+      }
+    },
+    {
+      "case_id": "blind-014",
+      "platform": "kubeadm-flatcar",
+      "runtime": "containerd",
+      "window": "event-j",
+      "collectors": {
+        "cni": {"_schema_version": "1.0", "status": "warning", "config_dir_exists": true, "config_count": 1, "plugin_types": ["cilium"], "mtu_values": [1500, 1450], "mtu_mismatch_detected": true},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "host_mtu": 1500, "overlay_mtu": 1450},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "kernel_log_excerpt": "network snapshot completed", "io_error_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-015",
+      "platform": "gke-cos",
+      "runtime": "containerd",
+      "window": "event-k",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": true, "coredns_service_observed": true, "coredns_endpoint_count": 2, "coredns_ready_endpoint_count": 0, "coredns_non_running_pods": []},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 210},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "conntrack_usage_percent": 34.0},
+        "cni": {"_schema_version": "1.0", "status": "ok", "config_dir_exists": true, "config_count": 1}
+      }
+    },
+    {
+      "case_id": "blind-016",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "window": "event-l",
+      "collectors": {
+        "kernel": {"_schema_version": "1.0", "status": "warning", "blocked_task_detected": true, "io_error_detected": false, "kernel_log_excerpt": "task jbd2 blocked for more than 120 seconds"},
+        "disk": {"_schema_version": "1.0", "status": "warning", "root_usage_percent": 73.0, "inode_usage_percent": 41.0, "await_ms": 38.0},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 68.0},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true}
+      }
+    },
+    {
+      "case_id": "blind-017",
+      "platform": "containerized-agent-linux",
+      "runtime": "containerd",
+      "window": "degraded-a",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": "Unknown", "node_conditions": {"Ready": {"status": "Unknown"}}},
+        "systemd": {"_schema_version": "1.0", "status": "degraded", "collector_status": "degraded", "error": "host journal unavailable", "collection_mode": "host-files", "failed_units": []},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "failed", "active": false, "collection_mode": "host-files", "host_log_excerpt": "health endpoint refused connection"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []}
+      }
+    },
+    {
+      "case_id": "blind-018",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "window": "event-m",
+      "collectors": {
+        "ebpf": {"_schema_version": "1.0", "status": "ok", "events": [{"timestamp": "2026-07-20T18:02:11Z", "event_type": "tcp_retransmit", "source": "192.0.2.10", "destination": "192.0.2.20"}, {"timestamp": "2026-07-20T18:02:12Z", "event_type": "dns_timeout", "server": "192.0.2.53"}]},
+        "network": {"_schema_version": "1.0", "status": "warning", "interfaces_down": [], "tcp_retrans_segments": 1842, "conntrack_usage_percent": 45.0},
+        "dns": {"_schema_version": "1.0", "status": "warning", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 310},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false}
+      }
+    },
+    {
+      "case_id": "blind-019",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "window": "event-n",
+      "collectors": {
+        "kubernetes": {"_schema_version": "1.0", "status": "warning", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "MemoryPressure": {"status": "True"}}},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 81.0, "oom_kill_detected": false},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "oom_detected": false, "io_error_detected": false},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.03}
+      }
+    }
+  ]
+}

@@ -50,7 +50,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - 클러스터 등록·삭제, 등록 전용 bootstrap token TTL·회전·폐기와 설치 명령 생성
 - session 인증, RBAC, audit 검색·필터·export
 - typed evidence와 전처리·규칙·LLM 보강·보고서 조립 단계가 분리된 RCA pipeline
-- 비식별 production-like evidence corpus와 양성·음성·경계·복합 장애 품질 gate
+- 비식별 production-like corpus와 입력·정답을 분리한 19개 blind evaluation 품질 gate
 - incident correlation, 장애 전파 timeline, 영향 범위
 - Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
@@ -61,9 +61,10 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 `RuleBasedRcaAnalyzer`는 분석 단계의 실행 순서만 조정합니다. Web Console의 `App.tsx`도 인증과
 전역 shell을 담당하고, URL 동기화와 화면 선택은 별도 hook/component에서 처리합니다.
 
-Rule-based 품질은 합성 golden fixture와 저장소 E2E 구조를 비식별화한 13개 production-like
-시나리오로 회귀 검증합니다. 이 결과는 실운영 정확도 수치가 아니며, managed cluster canary와 blind
-evaluation corpus는 별도 검증 단계로 유지합니다.
+Rule-based 품질은 합성 golden fixture, 저장소 E2E 구조를 비식별화한 13개 production-like 시나리오,
+입력과 sealed label을 분리한 19개 blind 시나리오로 검증합니다. Blind evaluator는 모든 detector 실행이
+끝난 뒤 label을 로드하며 입력·label SHA-256을 보고서에 기록합니다. 이 결과는 실운영 정확도 수치가
+아니며, managed cluster canary와 실제 장애 표본은 별도 검증 단계로 유지합니다.
 
 실제 DaemonSet Evidence 방식의 1시간 Standard와 5시간 Extended Fleet 검증을 완료했습니다. 남은 실환경 검증은
 24시간 Production Fleet와 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은 Ubuntu 24.04 amd64,

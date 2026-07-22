@@ -531,6 +531,23 @@ enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 �
 확장하는 것입니다. 그 다음 node enrollment를 ServiceAccount TokenReview 또는 node-bound mTLS로
 전환해 static bootstrap Secret 의존성을 줄입니다.
 
+## Phase 29. Blind Evaluation Corpus
+
+구현 및 검증 완료:
+
+- 19개 비식별 holdout evidence를 opaque case ID로 구성
+- Analyzer 입력과 sealed label을 별도 JSON으로 분리
+- 장애 설명, 예상 signal, root cause, alert/class 필드의 입력 포함 금지
+- 모든 detector 실행 후 label을 로드하는 평가 순서 강제
+- 정상·경계·단일·복합·degraded evidence와 3개 runtime, 8개 이상 platform shape 검증
+- Precision, Recall, 양성·음성 통과율, Top-1/Top-3, forbidden signal gate 적용
+- Evidence/label SHA-256과 `label_loaded_after_detection` 상태를 독립 보고서에 기록
+- CI 정적 분리 검사와 `rule-analysis-quality` artifact 보존
+
+다음 개선은 원인 판정자가 분석 규칙과 분리된 외부 표본 수집 절차를 만들고, managed Kubernetes
+canary에서 비식별 evidence와 사후 판정 label을 누적하는 것입니다. 이후 node enrollment identity를
+ServiceAccount TokenReview 또는 node-bound mTLS로 전환합니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

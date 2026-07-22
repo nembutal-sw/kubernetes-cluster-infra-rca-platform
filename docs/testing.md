@@ -120,8 +120,37 @@ web-console/src/test/resources/analysis/production-like-evidence-corpus.json
 인증 헤더, 고객 식별자, 운영 주소를 넣지 않습니다. CI의 `rule-analysis-quality` artifact에는 golden과
 production-like 보고서가 함께 보존됩니다.
 
-두 fixture의 통과율은 규칙 회귀 성능이며 실운영 정확도가 아닙니다. 실제 정확도 평가는 원인을 숨긴
-blind evaluation set과 managed cluster canary 결과를 별도 표본으로 관리합니다.
+두 fixture의 통과율은 규칙 회귀 성능이며 실운영 정확도가 아닙니다.
+
+## Blind Evaluation Corpus
+
+Blind 입력과 sealed label은 별도 파일로 관리합니다.
+
+```text
+web-console/src/test/resources/analysis/blind-evaluation-evidence.json
+web-console/src/test/resources/analysis/blind-evaluation-labels.json
+```
+
+입력에는 장애 설명, 예상 signal, 분류 label을 넣지 않습니다. `BlindEvaluationCorpusTests`는 19개
+입력을 모두 분석한 뒤 label 파일을 로드하고 Micro Precision/Recall, 양성·음성 통과율, Top-1/Top-3,
+금지 signal을 평가합니다. 정상, threshold 경계, 단일·복합 장애, degraded evidence와 containerd,
+CRI-O, embedded-containerd 변형을 포함합니다.
+
+```bash
+cd web-console
+mvn -Dtest=BlindEvaluationCorpusTests test
+```
+
+구조 분리만 빠르게 검사:
+
+```bash
+python3 scripts/verify-blind-evaluation-corpus.py
+```
+
+결과는 `web-console/target/blind-evaluation-report.json`에 생성되며 evidence와 label의 SHA-256,
+`label_loaded_after_detection=true`가 기록됩니다. CI의 `rule-analysis-quality` artifact가 golden,
+production-like, blind 보고서를 함께 보존합니다. 이 holdout 재현 결과 역시 실운영 정확도가 아니며,
+managed cluster canary와 원인이 독립적으로 판정된 실제 장애 표본을 계속 축적해야 합니다.
 
 ## Runtime Smoke
 
