@@ -49,13 +49,16 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 
 - 클러스터 등록·삭제, 등록 전용 bootstrap token TTL·회전·폐기와 설치 명령 생성
 - session 인증, RBAC, audit 검색·필터·export
-- typed evidence, Rule-based RCA 품질 gate, LLM provider 추상화
+- typed evidence와 전처리·규칙·LLM 보강·보고서 조립 단계가 분리된 RCA pipeline
 - incident correlation, 장애 전파 timeline, 영향 범위
 - Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
 - PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
 - 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
+
+`RuleBasedRcaAnalyzer`는 분석 단계의 실행 순서만 조정합니다. Web Console의 `App.tsx`도 인증과
+전역 shell을 담당하고, URL 동기화와 화면 선택은 별도 hook/component에서 처리합니다.
 
 실제 DaemonSet Evidence 방식의 1시간 Standard와 5시간 Extended Fleet 검증을 완료했습니다. 남은 실환경 검증은
 24시간 Production Fleet와 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은 Ubuntu 24.04 amd64,

@@ -29,6 +29,22 @@ Node Agent는 Python으로 유지한다. Agent는 각 노드에서 host evidence
 5. Policy Engine이 모든 권장 조치를 다시 분류한다.
 6. LLM 기반 조치는 항상 자동 실행 불가 상태로 저장한다.
 
+분석 구현은 아래 단계로 분리되어 있으며 `RuleBasedRcaAnalyzer`는 단계 실행 순서만 조정한다.
+
+```text
+EvidencePreprocessingStage
+  -> collector contract 정규화, signal 탐지, 품질 평가, 민감정보 제거
+RuleAnalysisStage
+  -> 규칙 기반 원인 후보, 정책 분류 조치, 초기 quality gate, LLM 입력 JSON
+LlmEnrichmentStage
+  -> 선택적 LLM 진단 병합, evidence 품질 penalty, 최종 quality gate
+ReportAssemblyStage
+  -> impact scope, topology, checklist, report evidence와 summary 조립
+```
+
+단계 사이에는 `RcaAnalysisPipelineContext`의 불변 record만 전달한다. LLM 단계는 규칙 기반 후보의
+신뢰도를 올릴 수 없고, LLM 조치는 반드시 `PolicyEngine`을 다시 통과한다.
+
 ## Availability
 
 중앙 플랫폼을 진단 대상 클러스터 내부에만 배포하면 클러스터 장애 시 접근이 끊길 수 있다. 운영 환경에서는
@@ -49,6 +65,7 @@ EvidenceRepository
 AnalysisTaskRepository
 IncidentRepository
 ReportRepository
+NotificationOutboxRepository
 ActionRepository
 UserRepository
 UserSessionRepository
@@ -61,8 +78,14 @@ DB 호환성은 repository 단위 테스트와 PostgreSQL/MariaDB Testcontainers
 
 ## Rule Detection
 
-`RuleBasedRcaAnalyzer`는 보고서 orchestration을 담당한다. 실제 signal 판단은 `SignalDetectionEngine`과
-`SignalDetector` 구현에서 수행한다.
+`RuleBasedRcaAnalyzer`는 네 분석 stage를 순서대로 호출하는 facade다. 실제 signal 판단은
+`EvidencePreprocessingStage`가 사용하는 `SignalDetectionEngine`과 `SignalDetector` 구현에서 수행한다.
 
 각 signal에는 threshold, matched field, confidence, supporting evidence가 포함된다. UI와 report export는
 이 정보를 기반으로 원인 후보와 근거를 추적한다.
+
+## Frontend Composition
+
+`App.tsx`는 인증 상태, 공통 data/workflow hook, shell과 전역 dialog를 조립한다. URL 정규화와 권한
+redirect는 `useConsoleNavigation`, Report/Cluster 상세 선택 동기화는 `useRouteResourceSync`, 화면별
+렌더링과 page props 연결은 `ConsoleViewHost`가 담당한다. 각 page는 URL이나 session 구현을 직접 알지 않는다.

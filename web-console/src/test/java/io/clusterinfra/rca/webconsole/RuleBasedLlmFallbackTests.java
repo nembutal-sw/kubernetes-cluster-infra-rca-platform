@@ -9,11 +9,18 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.analysis.ConfidenceScorer;
+import io.clusterinfra.rca.webconsole.analysis.CollectorEvidenceAdapter;
 import io.clusterinfra.rca.webconsole.analysis.EvidenceQualityAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.ImpactScopeAnalyzer;
 import io.clusterinfra.rca.webconsole.analysis.RootCauseCandidateBuilder;
 import io.clusterinfra.rca.webconsole.analysis.SignalDetectionEngine;
 import io.clusterinfra.rca.webconsole.analysis.detector.DiskPressureDetector;
+import io.clusterinfra.rca.webconsole.analysis.pipeline.EvidencePreprocessingStage;
+import io.clusterinfra.rca.webconsole.analysis.pipeline.LlmEnrichmentStage;
+import io.clusterinfra.rca.webconsole.analysis.pipeline.RcaQualityGateEvaluator;
+import io.clusterinfra.rca.webconsole.analysis.pipeline.ReportAssemblyStage;
+import io.clusterinfra.rca.webconsole.analysis.pipeline.RuleAnalysisStage;
+import io.clusterinfra.rca.webconsole.catalog.OperationalCatalogService;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceBundle;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
@@ -99,17 +106,32 @@ class RuleBasedLlmFallbackTests {
         when(topology.enrichScope(anyString(), anyString(), anyMap()))
             .thenAnswer(invocation -> invocation.getArgument(2));
 
+        PolicyEngine policyEngine = new PolicyEngine();
+        EvidenceQualityAnalyzer evidenceQuality = new EvidenceQualityAnalyzer(
+            agents,
+            mock(AgentHealthService.class),
+            properties
+        );
+        RcaQualityGateEvaluator qualityGate = new RcaQualityGateEvaluator(evidenceQuality);
         return new RuleBasedRcaAnalyzer(
-            new PolicyEngine(),
-            llm,
-            properties,
-            objectMapper,
-            new SignalDetectionEngine(List.of(new DiskPressureDetector()), properties, objectMapper),
-            confidenceScorer,
-            new RootCauseCandidateBuilder(confidenceScorer),
-            new ImpactScopeAnalyzer(),
-            topology,
-            new EvidenceQualityAnalyzer(agents, mock(AgentHealthService.class), properties)
+            new EvidencePreprocessingStage(
+                new CollectorEvidenceAdapter(objectMapper),
+                new SignalDetectionEngine(List.of(new DiskPressureDetector()), properties, objectMapper),
+                evidenceQuality
+            ),
+            new RuleAnalysisStage(
+                policyEngine,
+                new RootCauseCandidateBuilder(confidenceScorer),
+                OperationalCatalogService.defaultService(),
+                qualityGate
+            ),
+            new LlmEnrichmentStage(llm, policyEngine, evidenceQuality, qualityGate),
+            new ReportAssemblyStage(
+                confidenceScorer,
+                evidenceQuality,
+                new ImpactScopeAnalyzer(),
+                topology
+            )
         );
     }
 }

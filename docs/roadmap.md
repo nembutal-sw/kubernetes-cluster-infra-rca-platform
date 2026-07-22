@@ -52,10 +52,13 @@
 
 ### Frontend Workflow Decomposition
 
-- `App.tsx`를 URL routing, 인증 상태, page 조합 중심으로 축소
+- `App.tsx`를 인증 상태, 공통 hook, shell과 전역 dialog 조합 중심으로 축소
 - Cluster, Action, Incident, Export, Audit, Settings workflow를 domain hook으로 분리
+- URL 정규화·권한 redirect를 `useConsoleNavigation`으로 분리
+- 상세 resource route 동기화를 `useRouteResourceSync`로 분리
+- 화면 선택과 page props 연결을 `ConsoleViewHost`로 분리
 - 공통 API, 알림, 번역 함수 타입 경계를 명시
-- Cluster 생성과 승인 요청 workflow 회귀 테스트 추가
+- Cluster 생성, 승인 요청, 상세 route workflow 회귀 테스트 추가
 
 ### Database Compatibility CI Gate
 
@@ -488,8 +491,20 @@ enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 �
 - cluster 삭제와 report retention에 연결된 outbox 정리
 - 원자적 rollback, 동시 claim, lease 회수, 재시도·영구 실패 회귀 테스트
 
-다음 코드 개선은 RCA 분석 pipeline 단계 분리와 Frontend orchestration 축소입니다. 이후 실제
-비식별 장애 corpus 확장과 Maven/Frontend build lifecycle 분리를 순차 진행합니다.
+## Phase 26. Analysis And Console Orchestration Decomposition
+
+구현 및 검증 완료:
+
+- `EvidencePreprocessingStage`, `RuleAnalysisStage`, `LlmEnrichmentStage`, `ReportAssemblyStage` 분리
+- 단계 사이의 불변 `RcaAnalysisPipelineContext` record 계약
+- quality gate 계산을 `RcaQualityGateEvaluator`로 단일화
+- `RuleBasedRcaAnalyzer`를 네 단계 실행 facade로 축소
+- LLM 후보의 낮은 신뢰도와 Policy Engine 재분류 계약 유지
+- `App.tsx`에서 navigation, resource route sync, active view rendering 분리
+- Backend 단계 순서와 Frontend 상세 URL 상태 회귀 테스트 추가
+
+다음 개선은 실제 비식별 장애 corpus 확장입니다. 그 다음 Maven과 Frontend build lifecycle을 분리해
+Java 전용 개발·검증이 npm registry 상태에 직접 의존하지 않도록 정리합니다.
 
 ## Positioning
 

@@ -1,42 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./styles.css";
 
 import { requestCurrentUser } from "./api/client";
 import { ActionDialog, BootScreen, DeleteClusterDialog, LoginPage, Sidebar, Toast, Topbar } from "./components/common";
-import { DataStatusBanner } from "./components/DataStatusBanner";
-import { RouteStatusNotice } from "./components/RouteStatusNotice";
+import { ConsoleViewHost } from "./components/ConsoleViewHost";
 import { NAV_ITEMS } from "./constants";
-import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
 import { useActionWorkflow } from "./hooks/useActionWorkflow";
 import { useAuditSearch } from "./hooks/useAuditSearch";
+import { useAuthenticatedApi } from "./hooks/useAuthenticatedApi";
 import { useClusterDetail } from "./hooks/useClusterDetail";
 import { useClusterOperations } from "./hooks/useClusterOperations";
 import { useConsoleData } from "./hooks/useConsoleData";
 import { useConsoleLocale } from "./hooks/useConsoleLocale";
+import { useConsoleNavigation } from "./hooks/useConsoleNavigation";
 import { useOperationalActions } from "./hooks/useOperationalActions";
 import { useReportDetail } from "./hooks/useReportDetail";
+import { useRouteResourceSync } from "./hooks/useRouteResourceSync";
 import { useSettingsOperations } from "./hooks/useSettingsOperations";
 import { useToast } from "./hooks/useToast";
-import { AuditView } from "./pages/Audit";
-import { ClustersView } from "./pages/Clusters";
-import { IncidentsView } from "./pages/Incidents";
-import { OverviewView } from "./pages/Overview";
-import { PipelineView } from "./pages/Pipeline";
-import { ReportsView } from "./pages/Reports";
-import { SettingsView } from "./pages/Settings";
-import { WebhooksView } from "./pages/Webhooks";
-import { copyText } from "./lib/consoleUtils";
-import { clusterPath, incidentPath, parseConsoleRoute, pathForView, reportPath } from "./routing";
-import type {
-  AuthSession,
-  ClusterView,
-  LoginForm,
-  UserAccount,
-} from "./types";
+import type { AuthSession, LoginForm, UserAccount } from "./types";
 
 function ConsoleApp() {
   const { locale, setLocale, t } = useConsoleLocale();
@@ -44,12 +30,7 @@ function ConsoleApp() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [bootLoading, setBootLoading] = useState(true);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const route = parseConsoleRoute(location.pathname);
-  const requestedNav = NAV_ITEMS.find((item) => item.id === route.view);
-  const routeAllowed = !currentUser || !requestedNav?.roles || requestedNav.roles.includes(currentUser.role);
-  const activeView = routeAllowed ? route.view : "overview";
+  const navigation = useConsoleNavigation(currentUser);
 
   const handleUnauthorized = useCallback(() => {
     setSession(null);
@@ -58,50 +39,9 @@ function ConsoleApp() {
   }, [notify, t]);
 
   const { callApi, downloadApi } = useAuthenticatedApi(session, handleUnauthorized);
-  const {
-    loadingData,
-    lastUpdatedAt,
-    lastCompleteRefreshAt,
-    loadStates,
-    activeLoadStates,
-    overviewSummary,
-    clusters,
-    actionRequests,
-    agentHealth,
-    auditEvents,
-    notificationHistory,
-    catalogOverrideDrafts,
-    demoScenarios,
-    platformInfo,
-    catalogDetail,
-    llmDiagnostics,
-    llmSetupGuide,
-    setAuditEvents,
-    setNotificationHistory,
-    setCatalogOverrideDrafts,
-    setLlmDiagnostics,
-    setLlmSetupGuide,
-    loadConsoleData,
-  } = useConsoleData(callApi, currentUser, activeView);
-  const {
-    selectedCluster,
-    setSelectedCluster,
-    clusterDetail,
-    setClusterDetail,
-    installCommand,
-    setInstallCommand,
-    generateInstallCommand,
-    loadClusterDetail,
-    clearClusterDetail,
-  } = useClusterDetail(callApi);
-  const {
-    selectedReportId,
-    setSelectedReportId,
-    reportDetail,
-    reportMissing,
-    setReportDetail,
-    loadReportDetail,
-  } = useReportDetail(callApi, currentUser, notify, t);
+  const data = useConsoleData(callApi, currentUser, navigation.activeView);
+  const clusterDetail = useClusterDetail(callApi);
+  const reportDetail = useReportDetail(callApi, currentUser, notify, t);
 
   useEffect(() => {
     let mounted = true;
@@ -124,74 +64,85 @@ function ConsoleApp() {
   }, []);
 
   useEffect(() => {
-    if (!route.valid || location.pathname !== route.canonicalPath) {
-      navigate(route.canonicalPath, { replace: true });
-    }
-  }, [location.pathname, navigate, route.canonicalPath, route.valid]);
-
-  useEffect(() => {
-    if (currentUser && !routeAllowed) {
-      navigate("/overview", { replace: true });
-    }
-  }, [currentUser, navigate, routeAllowed]);
-
-  useEffect(() => {
     if (currentUser) {
-      void loadConsoleData(true);
+      void data.loadConsoleData(true);
     }
-  }, [currentUser, loadConsoleData]);
+  }, [currentUser, data.loadConsoleData]);
 
   useEffect(() => {
     if (!currentUser) return undefined;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        void loadConsoleData(true);
+        void data.loadConsoleData(true);
       }
     }, 30000);
     return () => window.clearInterval(timer);
-  }, [currentUser, loadConsoleData]);
+  }, [currentUser, data.loadConsoleData]);
 
-  useEffect(() => {
-    if (!currentUser || activeView !== "reports") return;
-    if (route.reportId) {
-      if (selectedReportId !== route.reportId) setSelectedReportId(route.reportId);
-      return;
-    }
-    if (selectedReportId) {
-      setSelectedReportId(null);
-      setReportDetail(null);
-    }
-  }, [activeView, currentUser, route.reportId, selectedReportId, setReportDetail, setSelectedReportId]);
+  useRouteResourceSync({
+    currentUser: Boolean(currentUser),
+    activeView: navigation.activeView,
+    route: navigation.route,
+    clusters: data.clusters,
+    selectedCluster: clusterDetail.selectedCluster,
+    clearClusterDetail: clusterDetail.clearClusterDetail,
+    loadClusterDetail: clusterDetail.loadClusterDetail,
+    selectedReportId: reportDetail.selectedReportId,
+    setSelectedReportId: reportDetail.setSelectedReportId,
+    setReportDetail: reportDetail.setReportDetail,
+  });
 
-  useEffect(() => {
-    if (!currentUser || activeView !== "clusters") return;
-    if (!route.clusterId) {
-      if (selectedCluster) clearClusterDetail();
-      return;
-    }
-    const cluster = clusters.find((item) => item.cluster_id === route.clusterId);
-    if (cluster && selectedCluster?.cluster_id !== cluster.cluster_id) {
-      void loadClusterDetail(cluster);
-    }
-  }, [activeView, clearClusterDetail, clusters, currentUser, loadClusterDetail, route.clusterId, selectedCluster]);
+  const clusterOperations = useClusterOperations({
+    callApi,
+    notify,
+    t,
+    routeClusterId: navigation.route.clusterId,
+    navigateToCluster: navigation.navigateToCluster,
+    navigateToClusterList: navigation.navigateToClusterList,
+    loadConsoleData: data.loadConsoleData,
+    loadClusterDetail: clusterDetail.loadClusterDetail,
+    generateInstallCommand: clusterDetail.generateInstallCommand,
+    setSelectedCluster: clusterDetail.setSelectedCluster,
+    setClusterDetail: clusterDetail.setClusterDetail,
+    setInstallCommand: clusterDetail.setInstallCommand,
+  });
 
-  const navigateToView = useCallback((view: string) => {
-    navigate(pathForView(view));
-  }, [navigate]);
+  const actionWorkflow = useActionWorkflow({
+    callApi,
+    notify,
+    t,
+    loadReportDetail: reportDetail.loadReportDetail,
+    loadConsoleData: data.loadConsoleData,
+  });
 
-  const openClusterDetail = useCallback(async (cluster: ClusterView | null) => {
-    if (!cluster) return;
-    navigate(clusterPath(cluster.cluster_id));
-    await loadClusterDetail(cluster);
-  }, [loadClusterDetail, navigate]);
+  const operationalActions = useOperationalActions({
+    callApi,
+    downloadApi,
+    notify,
+    t,
+    loadConsoleData: data.loadConsoleData,
+  });
 
-  const openReport = useCallback((reportId: string) => {
-    if (reportId) navigate(reportPath(reportId));
-  }, [navigate]);
+  const auditSearch = useAuditSearch({
+    callApi,
+    downloadApi,
+    notify,
+    t,
+    setAuditEvents: data.setAuditEvents,
+  });
 
-  const openIncident = useCallback((incidentId: string) => {
-    if (incidentId) navigate(incidentPath(incidentId));
-  }, [navigate]);
+  const settingsOperations = useSettingsOperations({
+    callApi,
+    currentUser,
+    setCurrentUser,
+    setSession,
+    setNotificationHistory: data.setNotificationHistory,
+    setAuditEvents: data.setAuditEvents,
+    setCatalogOverrideDrafts: data.setCatalogOverrideDrafts,
+    setLlmDiagnostics: data.setLlmDiagnostics,
+    notify,
+    t,
+  });
 
   async function login(form: LoginForm) {
     try {
@@ -214,109 +165,14 @@ function ConsoleApp() {
     } finally {
       setSession(null);
       setCurrentUser(null);
-      navigate("/overview", { replace: true });
-      setSelectedReportId(null);
-      setReportDetail(null);
-      setLlmDiagnostics(null);
-      setLlmSetupGuide(null);
-      clearClusterDetail();
+      navigation.resetToOverview();
+      reportDetail.setSelectedReportId(null);
+      reportDetail.setReportDetail(null);
+      data.setLlmDiagnostics(null);
+      data.setLlmSetupGuide(null);
+      clusterDetail.clearClusterDetail();
     }
   }
-
-  const navigateToCluster = useCallback((clusterId: string) => {
-    navigate(clusterPath(clusterId));
-  }, [navigate]);
-
-  const navigateToClusterList = useCallback(() => {
-    navigate("/clusters", { replace: true });
-  }, [navigate]);
-
-  const {
-    deleteDialog,
-    setDeleteDialog,
-    createCluster,
-    deleteCluster,
-    rotateAgentToken,
-    startCollection,
-    updateClusterThresholds,
-    clearClusterThresholds,
-  } = useClusterOperations({
-    callApi,
-    notify,
-    t,
-    routeClusterId: route.clusterId,
-    navigateToCluster,
-    navigateToClusterList,
-    loadConsoleData,
-    loadClusterDetail,
-    generateInstallCommand,
-    setSelectedCluster,
-    setClusterDetail,
-    setInstallCommand,
-  });
-
-  const {
-    actionDialog,
-    setActionDialog,
-    executeRecommendedAction,
-    decideActionRequest,
-    completeManualAction,
-  } = useActionWorkflow({
-    callApi,
-    notify,
-    t,
-    loadReportDetail,
-    loadConsoleData,
-  });
-
-  const {
-    changeIncidentStatus,
-    retryAnalysisTask,
-    runDemoScenario,
-    exportReports,
-    exportReport,
-    exportEvidenceBundle,
-  } = useOperationalActions({
-    callApi,
-    downloadApi,
-    notify,
-    t,
-    loadConsoleData,
-  });
-
-  const { searchAudit, exportAudit } = useAuditSearch({
-    callApi,
-    downloadApi,
-    notify,
-    t,
-    setAuditEvents,
-  });
-
-  const {
-    changePassword,
-    changeLoginId,
-    testNotificationDelivery,
-    testLlmConnection,
-    previewCatalogOverride,
-    createCatalogOverrideDraft,
-    decideCatalogOverrideDraft,
-    loadCatalogOverrideHandoff,
-    createCatalogGitOpsChange,
-    loadCatalogGitOpsChanges,
-    retryGitOpsChange,
-    updateGitOpsOutcome,
-  } = useSettingsOperations({
-    callApi,
-    currentUser,
-    setCurrentUser,
-    setSession,
-    setNotificationHistory,
-    setAuditEvents,
-    setCatalogOverrideDrafts,
-    setLlmDiagnostics,
-    notify,
-    t,
-  });
 
   if (bootLoading) {
     return <BootScreen t={t} />;
@@ -327,172 +183,56 @@ function ConsoleApp() {
   }
 
   const visibleNav = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(currentUser.role));
-  const webhookEndpoint = `${window.location.origin.replace(/\/$/, "")}/api/webhooks/alertmanager`;
-  const routeResourceMissing = activeView === "reports" && route.reportId
-    ? reportMissing
-    : activeView === "clusters" && route.clusterId && loadStates.clusters.loadedAt && !loadStates.clusters.error
-      ? !clusters.some((item) => item.cluster_id === route.clusterId)
-      : false;
-  const routeResourceId = route.clusterId || route.reportId || route.incidentId || "";
 
   return (
     <div className="console-shell">
-      <Sidebar items={visibleNav} activeView={activeView} onNavigate={navigateToView} t={t} />
+      <Sidebar items={visibleNav} activeView={navigation.activeView} onNavigate={navigation.navigateToView} t={t} />
       <div className="console-main">
         <Topbar
           user={currentUser}
           locale={locale}
           setLocale={setLocale}
-          onRefresh={() => loadConsoleData(false)}
+          onRefresh={() => data.loadConsoleData(false)}
           onLogout={logout}
-          loading={loadingData}
-          degraded={Object.values(activeLoadStates).some((state) => Boolean(state.error))}
-          lastUpdatedAt={lastUpdatedAt}
+          loading={data.loadingData}
+          degraded={Object.values(data.activeLoadStates).some((state) => Boolean(state.error))}
+          lastUpdatedAt={data.lastUpdatedAt}
           t={t}
         />
-        <main className="console-content" data-testid={`view-${activeView}`}>
-          <DataStatusBanner
-            states={activeLoadStates}
-            lastCompleteRefreshAt={lastCompleteRefreshAt}
-            onRetry={() => loadConsoleData(false)}
+        <main className="console-content" data-testid={`view-${navigation.activeView}`}>
+          <ConsoleViewHost
+            callApi={callApi}
+            currentUser={currentUser}
+            locale={locale}
+            setLocale={setLocale}
             t={t}
+            notify={notify}
+            data={data}
+            clusterDetail={clusterDetail}
+            clusterOperations={clusterOperations}
+            reportDetail={reportDetail}
+            actionWorkflow={actionWorkflow}
+            operationalActions={operationalActions}
+            auditSearch={auditSearch}
+            settingsOperations={settingsOperations}
+            navigation={navigation}
           />
-          {routeResourceMissing && (
-            <RouteStatusNotice
-              resourceId={routeResourceId}
-              onReturn={() => navigate(pathForView(activeView), { replace: true })}
-              t={t}
-            />
-          )}
-          {activeView === "overview" && (
-            <OverviewView
-              summary={overviewSummary}
-              onNavigate={navigateToView}
-              onOpenReport={openReport}
-              onOpenCluster={openClusterDetail}
-              webhookEndpoint={webhookEndpoint}
-              t={t}
-            />
-          )}
-          {activeView === "clusters" && (
-            <ClustersView
-              clusters={clusters}
-              selectedCluster={selectedCluster}
-              clusterDetail={clusterDetail}
-              agentHealth={agentHealth}
-              installCommand={installCommand}
-              currentUser={currentUser}
-              onCreate={createCluster}
-              onSelect={openClusterDetail}
-              onGenerateInstall={generateInstallCommand}
-              onStartCollection={startCollection}
-              onUpdateThresholds={updateClusterThresholds}
-              onClearThresholds={clearClusterThresholds}
-              onDelete={(cluster: ClusterView) => setDeleteDialog({ cluster })}
-              onRotateToken={rotateAgentToken}
-              onCopy={(text: string) => copyText(text, notify)}
-              t={t}
-            />
-          )}
-          {activeView === "reports" && (
-            <ReportsView
-              callApi={callApi}
-              clusters={clusters}
-              refreshToken={lastUpdatedAt}
-              selectedReportId={selectedReportId}
-              setSelectedReportId={openReport}
-              detail={reportDetail}
-              currentUser={currentUser}
-              onPrepareAction={(report, action, index) => setActionDialog({ report, action, index })}
-              onDecideAction={decideActionRequest}
-              onCompleteManual={completeManualAction}
-              onExportReport={exportReport}
-              onExportBundle={exportEvidenceBundle}
-              onExportAll={() => exportReports()}
-              platformInfo={platformInfo}
-              onCopy={(text: string) => copyText(text, notify)}
-              t={t}
-            />
-          )}
-          {activeView === "incidents" && (
-            <IncidentsView
-              callApi={callApi}
-              clusters={clusters}
-              refreshToken={lastUpdatedAt}
-              selectedIncidentId={route.incidentId}
-              onSelectIncident={openIncident}
-              onOpenReport={openReport}
-              onChangeStatus={changeIncidentStatus}
-              currentUser={currentUser}
-              t={t}
-            />
-          )}
-          {activeView === "pipeline" && (
-            <PipelineView
-              callApi={callApi}
-              refreshToken={lastUpdatedAt}
-              summary={overviewSummary}
-              actionRequests={actionRequests}
-              demoScenarios={demoScenarios}
-              clusters={clusters}
-              onRetry={retryAnalysisTask}
-              onRunDemo={runDemoScenario}
-              t={t}
-            />
-          )}
-          {activeView === "audit" && (
-            <AuditView
-              events={auditEvents}
-              onSearch={searchAudit}
-              onExport={exportAudit}
-              t={t}
-            />
-          )}
-          {activeView === "webhooks" && (
-            <WebhooksView endpoint={webhookEndpoint} onCopy={(text: string) => copyText(text, notify)} t={t} />
-          )}
-          {activeView === "settings" && (
-            <SettingsView
-              locale={locale}
-              setLocale={setLocale}
-              platformInfo={platformInfo}
-              catalogDetail={catalogDetail}
-              catalogOverrideDrafts={catalogOverrideDrafts}
-              llmDiagnostics={llmDiagnostics}
-              llmSetupGuide={llmSetupGuide}
-              notificationHistory={notificationHistory}
-              currentUser={currentUser}
-              onChangeLoginId={changeLoginId}
-              onChangePassword={changePassword}
-              onTestNotification={testNotificationDelivery}
-              onTestLlm={testLlmConnection}
-              onPreviewCatalogOverride={previewCatalogOverride}
-              onCreateCatalogOverrideDraft={createCatalogOverrideDraft}
-              onDecideCatalogOverrideDraft={decideCatalogOverrideDraft}
-              onLoadCatalogOverrideHandoff={loadCatalogOverrideHandoff}
-              onCreateCatalogGitOpsChange={createCatalogGitOpsChange}
-              onLoadCatalogGitOpsChanges={loadCatalogGitOpsChanges}
-              onRetryGitOpsChange={retryGitOpsChange}
-              onUpdateGitOpsOutcome={updateGitOpsOutcome}
-              t={t}
-            />
-          )}
         </main>
       </div>
       {toast && <Toast tone={toast.tone} message={toast.message} />}
-      {actionDialog && (
+      {actionWorkflow.actionDialog && (
         <ActionDialog
-          state={actionDialog}
-          onClose={() => setActionDialog(null)}
-          onConfirm={executeRecommendedAction}
+          state={actionWorkflow.actionDialog}
+          onClose={() => actionWorkflow.setActionDialog(null)}
+          onConfirm={actionWorkflow.executeRecommendedAction}
           t={t}
         />
       )}
-      {deleteDialog && (
+      {clusterOperations.deleteDialog && (
         <DeleteClusterDialog
-          state={deleteDialog}
-          onClose={() => setDeleteDialog(null)}
-          onConfirm={deleteCluster}
+          state={clusterOperations.deleteDialog}
+          onClose={() => clusterOperations.setDeleteDialog(null)}
+          onConfirm={clusterOperations.deleteCluster}
           t={t}
         />
       )}

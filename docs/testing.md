@@ -26,6 +26,12 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
   '-Dtest=RuleBasedRegressionFixtureTests,RuleBasedScenarioTests,PolicyEngineTests' test
 ```
 
+분석 stage 실행 순서와 facade 위임 계약은 아래 테스트가 검증합니다.
+
+```text
+RuleBasedRcaAnalyzerPipelineTests
+```
+
 ### Python Agent
 
 ```bash
@@ -39,7 +45,11 @@ pytest
 cd web-console/frontend
 npm ci
 npm run build
+npm test
 ```
+
+`useRouteResourceSync.test.ts`는 Report/Cluster 상세 URL 진입과 목록 복귀 시 선택 상태가 올바르게
+설정·정리되는지 검증합니다.
 
 ### Helm
 
