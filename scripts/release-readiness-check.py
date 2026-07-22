@@ -625,6 +625,25 @@ def main() -> int:
             "Collector evidence is normalized through a versioned typed contract and golden scenarios enforce quality metrics.",
         ),
         check(
+            "production-like-evidence-corpus",
+            exists(
+                "web-console/src/test/resources/analysis/production-like-evidence-corpus.json"
+            )
+            and exists(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/ProductionLikeEvidenceCorpusTests.java"
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "production-like-evidence-corpus-report.json",
+            )
+            and contains(
+                "docs/evidence-schema-and-quality.md",
+                "sanitized_production_like_reproduction",
+                "실운영 정확도",
+            ),
+            "Sanitized production-like evidence scenarios enforce positive, negative, boundary, compound, degraded, temporal, and runtime-variant gates.",
+        ),
+        check(
             "gitops-change-tracking",
             exists("web-console/src/main/resources/db/migration/V18__gitops_change_tracking.sql")
             and exists("web-console/src/main/java/io/clusterinfra/rca/webconsole/gitops/GitHubGitOpsProvider.java")

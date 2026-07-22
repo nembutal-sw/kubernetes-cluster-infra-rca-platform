@@ -63,12 +63,14 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress verify
       - name: Require PostgreSQL and MariaDB compatibility tests
         run: python3 scripts/verify_database_compatibility_report.py
-      - name: Upload rule-analysis quality report
+      - name: Upload RCA analysis quality reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: rule-analysis-quality
-          path: web-console/target/analysis-quality-report.json
+          path: |
+            web-console/target/analysis-quality-report.json
+            web-console/target/production-like-evidence-corpus-report.json
           if-no-files-found: error
           retention-days: 30
 

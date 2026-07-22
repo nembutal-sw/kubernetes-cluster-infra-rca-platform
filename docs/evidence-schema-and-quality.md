@@ -80,3 +80,44 @@ mvn -Dtest=RuleAnalysisQualityTests test
 
 Detector 또는 fixture를 변경할 때는 예상 신호를 함께 검토합니다. 단순히 gate를 낮추는 방식으로
 회귀를 숨기지 않고, false positive와 false negative가 발생한 시나리오를 report에서 확인합니다.
+
+## Production-Like Corpus Gate
+
+운영 형태 회귀 데이터는 golden fixture와 분리합니다.
+
+```text
+web-console/src/test/resources/analysis/production-like-evidence-corpus.json
+```
+
+이 corpus는 저장소에 보관된 Agent E2E 산출물의 collector 필드 구조를 바탕으로 작성한
+`sanitized_production_like_reproduction`입니다. 실제 클러스터 식별자, 주소, 시각, 로그 원문을
+포함하지 않으며 `example.invalid`, 문서용 IP 대역, 합성 로그를 사용합니다.
+
+현재 13개 시나리오가 다음 변형을 검증합니다.
+
+- 정상 containerd 및 CRI-O 음성 사례
+- 기본 threshold 바로 아래와 정확히 일치하는 경계값
+- 디스크 장애 전파, conntrack/DNS, etcd/API Server 복합 장애
+- containerd, CRI-O, K3s embedded runtime 및 file collector 차이
+- journal 접근 저하와 file fallback
+- 잘린 로그와 순서가 뒤바뀐 kernel/eBPF event
+
+`ProductionLikeEvidenceCorpusTests`는 실제 `SignalDetectionEngine`과 Evidence 품질 평가를 실행하고
+다음 gate를 적용합니다.
+
+| Metric | Minimum |
+| --- | ---: |
+| Micro precision | 0.95 |
+| Micro recall | 0.95 |
+| Positive scenario pass rate | 1.00 |
+| Negative scenario pass rate | 1.00 |
+
+결과 파일:
+
+```text
+web-console/target/production-like-evidence-corpus-report.json
+```
+
+이 수치는 비식별 재현 corpus에 대한 회귀 성능입니다. 실운영 정확도를 의미하지 않습니다. 실제
+Precision과 Recall은 비식별 장애 corpus, 정상 negative 표본, 복합 장애, blind evaluation set,
+managed Kubernetes canary를 별도로 축적한 뒤 평가합니다.

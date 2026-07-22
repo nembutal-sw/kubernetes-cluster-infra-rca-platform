@@ -222,7 +222,7 @@ public class EvidenceQualityAnalyzer {
         if (List.of("ok", "healthy", "success", "available", "ready").contains(status)) {
             return false;
         }
-        if (List.of("unsupported", "disabled", "limited", "unavailable", "timeout").contains(status)) {
+        if (List.of("unsupported", "disabled", "degraded", "limited", "unavailable", "timeout").contains(status)) {
             return true;
         }
         if ("error".equals(status)) {

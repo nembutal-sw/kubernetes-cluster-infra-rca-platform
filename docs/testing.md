@@ -26,6 +26,14 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
   '-Dtest=RuleBasedRegressionFixtureTests,RuleBasedScenarioTests,PolicyEngineTests' test
 ```
 
+Golden 및 production-like detector 품질 gate만 실행:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
+.\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd -f web-console/pom.xml `
+  '-Dtest=RuleAnalysisQualityTests,ProductionLikeEvidenceCorpusTests' test
+```
+
 분석 stage 실행 순서와 facade 위임 계약은 아래 테스트가 검증합니다.
 
 ```text
@@ -97,6 +105,21 @@ RuleBasedRegressionFixtureTests
 ```
 
 새 장애 유형을 추가할 때는 detector만 추가하지 말고 fixture도 같이 추가해야 합니다. 그래야 LLM, UI, 정책 엔진이 바뀌어도 RCA 품질 기준을 유지할 수 있습니다.
+
+운영 형태와 플랫폼 차이는 아래의 별도 corpus에 추가합니다.
+
+```text
+web-console/src/test/resources/analysis/production-like-evidence-corpus.json
+```
+
+`ProductionLikeEvidenceCorpusTests`는 정상 음성, threshold 경계, 복합 장애, degraded collector,
+시간 역전, containerd/CRI-O/K3s 차이를 검증하고
+`web-console/target/production-like-evidence-corpus-report.json`을 생성합니다. Fixture에는 실제 토큰,
+인증 헤더, 고객 식별자, 운영 주소를 넣지 않습니다. CI의 `rule-analysis-quality` artifact에는 golden과
+production-like 보고서가 함께 보존됩니다.
+
+두 fixture의 통과율은 규칙 회귀 성능이며 실운영 정확도가 아닙니다. 실제 정확도 평가는 원인을 숨긴
+blind evaluation set과 managed cluster canary 결과를 별도 표본으로 관리합니다.
 
 ## Runtime Smoke
 

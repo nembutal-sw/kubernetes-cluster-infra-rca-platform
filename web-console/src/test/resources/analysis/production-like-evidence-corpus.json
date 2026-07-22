@@ -1,0 +1,251 @@
+{
+  "schema_version": "rca-production-like-corpus/v1",
+  "provenance": {
+    "classification": "sanitized_production_like_reproduction",
+    "contains_raw_customer_data": false,
+    "basis": [
+      "validation-results/real-cluster-agent-e2e/rca-canary-amd64-20260721-022551/e2e/report.json",
+      "validation-results/pytest-phase17-final/test_collect_local_evidence_wr0/local-evidence.json"
+    ],
+    "notes": "Collector shapes are derived from repository validation artifacts. Identifiers, addresses, timestamps, and log contents are synthetic and reserved for testing."
+  },
+  "scenarios": [
+    {
+      "key": "healthy-ubuntu-containerd",
+      "category": "negative",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "alert_name": "ScheduledNodeHealth",
+      "description": "Healthy node using the field layout emitted by the Linux agent.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "worker-a.example.invalid", "platform": "ubuntu", "uptime_seconds": 482311, "load_average": "0.22 0.31 0.28"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}, "DiskPressure": {"status": "False"}, "MemoryPressure": {"status": "False"}, "PIDPressure": {"status": "False"}, "NetworkUnavailable": {"status": "False"}}, "api_server_latency_ms": 84, "api_readyz_failed_check_count": 0, "api_livez_failed_check_count": 0, "api_request_error_count": 0, "etcd_readyz_healthy": true},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "systemd", "failed_units": [], "runtime_units": [{"name": "containerd.service", "status": "active"}], "distribution_units": []},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_exists": true, "runtime_socket_healthy": true, "runtime_socket_latency_ms": 3.2},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true, "collection_mode": "systemd"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false, "blocked_task_detected": false, "read_only_filesystem_detected": false, "kernel_log_excerpt": "audit window complete; no kernel fault markers selected"},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 71.4, "inode_usage_percent": 42.1, "await_ms": 3.8, "root_mount_read_only": false},
+        "inode": {"_schema_version": "1.0", "status": "ok", "root_inode_usage_percent": 42.1},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 61.8, "oom_kill_detected": false},
+        "process": {"_schema_version": "1.0", "status": "ok", "process_count": 286, "zombie_process_count": 0, "pid_max": 4194304, "pid_usage_percent": 0.01},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "nic_link_flap_detected": false, "tcp_retrans_segments": 17, "conntrack_usage_percent": 23.2},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "count": 7602, "max": 32768, "usage_percent": 23.2, "insert_failed": 0, "drop": 0, "early_drop": 0, "table_full_detected": false},
+        "cni": {"_schema_version": "1.0", "status": "ok", "config_dir_exists": true, "config_count": 2, "plugin_types": ["calico"], "mtu_values": [1450]},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameservers": ["192.0.2.53", "192.0.2.54"], "nameserver_count": 2, "dns_lookup_latency_ms": 12}
+      },
+      "expected": {"signals": [], "allowed_signals": [], "forbidden_signals": ["node_not_ready", "disk_usage_high", "container_runtime_unit_unhealthy"]}
+    },
+    {
+      "key": "healthy-rhel-crio",
+      "category": "negative",
+      "platform": "openshift-rhel",
+      "runtime": "crio",
+      "alert_name": "ScheduledNodeHealth",
+      "description": "Healthy CRI-O node must not be treated as a missing containerd service.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "worker-b.example.invalid", "platform": "rhel", "uptime_seconds": 902111},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}, "api_server_latency_ms": 112, "etcd_readyz_healthy": true},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "systemd", "failed_units": [], "runtime_units": [{"name": "crio.service", "status": "active"}]},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "crio", "runtime_name": "CRI-O", "runtime_socket_exists": true, "runtime_socket_healthy": true, "runtime_socket_latency_ms": 4.7},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 58.2, "inode_usage_percent": 31.7, "await_ms": 5.2},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 54.3},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.03},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "conntrack_usage_percent": 19.4},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false, "blocked_task_detected": false}
+      },
+      "expected": {"signals": [], "allowed_signals": [], "forbidden_signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy"]}
+    },
+    {
+      "key": "storage-thresholds-just-below",
+      "category": "boundary",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "alert_name": "DiskPressure",
+      "description": "Values immediately below defaults must not trigger capacity or latency findings.",
+      "collectors": {
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": "84.99%", "inode_usage_percent": 84.99, "await_ms": 19.99, "root_mount_read_only": false},
+        "inode": {"_schema_version": "1.0", "status": "ok", "root_inode_usage_percent": "84.99%"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "kernel_log_excerpt": "filesystem health check completed normally"}
+      },
+      "expected": {"signals": [], "allowed_signals": [], "forbidden_signals": ["disk_usage_high", "inode_usage_high", "disk_io_latency_high"]}
+    },
+    {
+      "key": "storage-thresholds-at-default",
+      "category": "boundary",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "alert_name": "DiskPressure",
+      "description": "Values exactly at defaults must trigger the warning findings.",
+      "collectors": {
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": "85.0%", "inode_usage_percent": 85.0, "await_ms": 20.0, "root_mount_read_only": false},
+        "inode": {"_schema_version": "1.0", "status": "ok", "root_inode_usage_percent": "85.0%"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false}
+      },
+      "expected": {"signals": ["disk_usage_high", "disk_io_latency_high", "inode_usage_high"], "allowed_signals": [], "forbidden_signals": ["disk_usage_critical", "inode_usage_critical"]}
+    },
+    {
+      "key": "storage-cascade-read-only-node",
+      "category": "compound_fault",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "alert_name": "NodeNotReady",
+      "description": "Storage saturation and filesystem errors cascade into kubelet failure and NodeNotReady.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "worker-c.example.invalid", "platform": "ubuntu"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": "Unknown", "node_conditions": {"Ready": {"status": "Unknown", "reason": "NodeStatusUnknown"}, "DiskPressure": {"status": "True", "reason": "KubeletHasDiskPressure"}}},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "systemd", "failed_units": ["kubelet.service failed"], "kubelet_status": "failed"},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "failed", "active": false, "collection_mode": "systemd"},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 96.4, "inode_usage_percent": 98.1, "await_ms": 41.7, "root_mount_read_only": true, "kernel_io_error_detected": true},
+        "inode": {"_schema_version": "1.0", "status": "ok", "root_inode_usage_percent": 98.1},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": true, "read_only_filesystem_detected": true, "kernel_log_excerpt": "2026-07-22T02:14:08Z EXT4-fs error: I/O error while writing journal; remounting filesystem read-only"},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "usage_percent": 22.0}
+      },
+      "expected": {"signals": ["node_not_ready", "node_disk_pressure", "disk_usage_critical", "disk_io_latency_high", "inode_usage_critical", "root_filesystem_read_only", "kubelet_unit_unhealthy", "systemd_failed_units"], "allowed_signals": [], "forbidden_signals": ["container_runtime_unit_unhealthy"]}
+    },
+    {
+      "key": "containerd-socket-and-unit-failure",
+      "category": "single_fault",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "alert_name": "ContainerRuntimeUnhealthy",
+      "description": "Containerd systemd failure and an unresponsive CRI socket use generic and runtime-specific signals.",
+      "collectors": {
+        "runtime": {"_schema_version": "1.0", "status": "failed", "runtime_kind": "containerd", "runtime_socket_exists": true, "runtime_socket_healthy": false, "runtime_socket_latency_ms": 3001, "containerd_socket_healthy": false},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": ["containerd.service failed"], "containerd_status": "failed", "runtime_log_excerpt": "containerd: failed to serve CRI request: context deadline exceeded"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 66.2, "await_ms": 7.1}
+      },
+      "expected": {"signals": ["container_runtime_unit_unhealthy", "containerd_unit_unhealthy", "systemd_failed_units"], "allowed_signals": [], "forbidden_signals": []}
+    },
+    {
+      "key": "crio-unit-failure-rhel",
+      "category": "distro_runtime_variant",
+      "platform": "openshift-rhel",
+      "runtime": "crio",
+      "alert_name": "ContainerRuntimeUnhealthy",
+      "description": "CRI-O failure must produce the generic runtime finding without a false containerd-specific finding.",
+      "collectors": {
+        "runtime": {"_schema_version": "1.0", "status": "failed", "runtime_kind": "crio", "runtime_name": "CRI-O", "runtime_socket_exists": true, "runtime_socket_healthy": false, "runtime_socket_latency_ms": 2504},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": ["crio.service failed"], "runtime_units": [{"name": "crio.service", "status": "failed"}], "runtime_log_excerpt": "crio: runtime service health check failed"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 62.1, "await_ms": 4.1}
+      },
+      "expected": {"signals": ["container_runtime_unit_unhealthy", "systemd_failed_units"], "allowed_signals": [], "forbidden_signals": ["containerd_unit_unhealthy"]}
+    },
+    {
+      "key": "healthy-k3s-file-collector",
+      "category": "distro_runtime_variant",
+      "platform": "k3s-suse",
+      "runtime": "embedded-containerd",
+      "alert_name": "ScheduledNodeHealth",
+      "description": "K3s file-based systemd and kubelet collection remains healthy without standalone unit assumptions.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "edge-a.example.invalid", "platform": "sles"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "node_conditions": {"Ready": {"status": "True"}}},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "host-files", "systemctl_skipped": true, "systemctl_skip_reason": "host systemd bus is not mounted", "failed_units": [], "distribution_units": [{"name": "k3s.service", "status": "active"}], "embedded_kubelet_running": true, "embedded_runtime_running": true},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_name": "k3s embedded containerd", "runtime_socket_exists": true, "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true, "collection_mode": "host-files", "host_log_excerpt": "kubelet health probe completed"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 49.8, "inode_usage_percent": 18.7, "await_ms": 2.9},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 47.1},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.02},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []}
+      },
+      "expected": {"signals": [], "allowed_signals": [], "forbidden_signals": ["kubelet_unit_unhealthy", "container_runtime_unit_unhealthy", "systemd_failed_units"]}
+    },
+    {
+      "key": "conntrack-dns-cascade",
+      "category": "compound_fault",
+      "platform": "managed-kubernetes-linux",
+      "runtime": "containerd",
+      "alert_name": "CoreDNSLatencyHigh",
+      "description": "Conntrack exhaustion is correlated with DNS latency and kernel drop messages.",
+      "collectors": {
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": [], "conntrack_usage_percent": 98.7, "conntrack_insert_failed": 38, "conntrack_drop_total": 121, "conntrack_early_drop_total": 9},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "count": 32342, "max": 32768, "usage_percent": 98.7, "insert_failed": 38, "drop": 121, "early_drop": 9, "table_full_detected": true},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameservers": ["192.0.2.53"], "nameserver_count": 1, "dns_lookup_latency_ms": 1850},
+        "cni": {"_schema_version": "1.0", "status": "ok", "config_dir_exists": true, "config_count": 1, "plugin_types": ["cilium"]},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "coredns_service_observed": true, "coredns_endpoint_count": 2, "coredns_ready_endpoint_count": 2},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "kernel_log_excerpt": "2026-07-22T03:02:11Z nf_conntrack: table full, dropping packet"}
+      },
+      "expected": {"signals": ["conntrack_table_full", "conntrack_insert_failures", "conntrack_packet_drops", "conntrack_near_limit", "dns_latency_high"], "allowed_signals": [], "forbidden_signals": ["dns_unconfigured", "coredns_no_ready_endpoints"]}
+    },
+    {
+      "key": "api-etcd-latency-cascade",
+      "category": "compound_fault",
+      "platform": "kubeadm-control-plane",
+      "runtime": "containerd",
+      "alert_name": "APIServerLatencyHigh",
+      "description": "Etcd fsync latency and readyz failures propagate to API server latency and request errors.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "control-a.example.invalid", "platform": "debian"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": true, "api_server_latency_ms": 2450, "api_readyz_latency_ms": 2310, "api_readyz_failed_checks": ["etcd failed"], "api_readyz_failed_check_count": 1, "api_livez_failed_check_count": 0, "api_request_error_count": 3, "api_timeout_detected": true, "etcd_readyz_healthy": false, "etcd_readyz_message": "etcd check failed"},
+        "etcd": {"_schema_version": "1.0", "status": "ok", "fsync_latency_ms": 820, "readyz_healthy": false},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []},
+        "dns": {"_schema_version": "1.0", "status": "ok", "dns_configured": true, "nameserver_count": 1, "dns_lookup_latency_ms": 23},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": []},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 64.8, "await_ms": 9.8}
+      },
+      "expected": {"signals": ["api_server_latency_high", "api_server_readyz_failed", "api_server_request_errors", "etcd_latency_high", "etcd_readyz_failed"], "allowed_signals": [], "forbidden_signals": ["api_server_livez_failed"]}
+    },
+    {
+      "key": "oom-events-out-of-order",
+      "category": "temporal_anomaly",
+      "platform": "kubeadm-ubuntu",
+      "runtime": "containerd",
+      "alert_name": "OOMKillDetected",
+      "description": "Detection remains stable when kernel and eBPF event timestamps arrive out of order.",
+      "collectors": {
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 94.2, "oom_kill_detected": true, "pressure": {"some_avg10": 62.4, "full_avg10": 19.1}},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "oom_detected": true, "kernel_log_excerpt": "2026-07-22T04:14:08Z Out of memory: Killed process 2410 (java) total-vm:8388608kB; 2026-07-22T04:14:05Z memory cgroup reclaim started"},
+        "ebpf": {"_schema_version": "1.0", "status": "ok", "events": [{"timestamp": "2026-07-22T04:14:08Z", "event_type": "oom_kill", "pid": 2410, "comm": "java"}, {"timestamp": "2026-07-22T04:14:05Z", "event_type": "memory_reclaim", "pid": 2410}]},
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "worker-d.example.invalid"},
+        "process": {"_schema_version": "1.0", "status": "ok", "process_count": 431, "pid_usage_percent": 0.02},
+        "systemd": {"_schema_version": "1.0", "status": "ok", "failed_units": []}
+      },
+      "expected": {"signals": ["memory_pressure_critical", "kernel_oom_detected", "ebpf_oom_kill"], "allowed_signals": [], "forbidden_signals": []}
+    },
+    {
+      "key": "degraded-journal-kubelet-failure",
+      "category": "degraded_evidence",
+      "platform": "containerized-agent-linux",
+      "runtime": "containerd",
+      "alert_name": "KubeletDown",
+      "description": "File fallback still detects a kubelet failure while journal collection is explicitly degraded.",
+      "collectors": {
+        "node": {"_schema_version": "1.0", "status": "ok", "host_name": "worker-e.example.invalid"},
+        "kubernetes": {"_schema_version": "1.0", "status": "ok", "node_ready": "Unknown", "node_conditions": {"Ready": {"status": "Unknown"}}},
+        "systemd": {"_schema_version": "1.0", "status": "degraded", "collector_status": "degraded", "error": "host journal socket is not mounted", "collection_mode": "host-files", "failed_units": []},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "failed", "active": false, "collection_mode": "host-files", "host_log_excerpt": "kubelet health endpoint refused the connection"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "io_error_detected": false, "oom_detected": false},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []},
+        "conntrack": {"_schema_version": "1.0", "status": "ok", "usage_percent": 27.3}
+      },
+      "expected": {"signals": ["node_not_ready", "kubelet_unit_unhealthy"], "allowed_signals": [], "forbidden_signals": ["systemd_failed_units", "container_runtime_unit_unhealthy"], "quality_status": "partial", "degraded_collectors": ["systemd"]}
+    },
+    {
+      "key": "truncated-benign-log-window",
+      "category": "negative",
+      "platform": "generic-linux",
+      "runtime": "containerd",
+      "alert_name": "ScheduledNodeHealth",
+      "description": "Truncated but benign excerpts must not produce substring-based false positives.",
+      "collectors": {
+        "systemd": {"_schema_version": "1.0", "status": "ok", "collection_mode": "host-files", "failed_units": [], "kubelet_log_excerpt": "...health probe completed; previous lines omitted...", "runtime_log_excerpt": "...container runtime ready; output truncated..."},
+        "runtime": {"_schema_version": "1.0", "status": "ok", "runtime_kind": "containerd", "runtime_socket_healthy": true},
+        "kubelet": {"_schema_version": "1.0", "status": "active", "active": true, "collection_mode": "host-files"},
+        "kernel": {"_schema_version": "1.0", "status": "ok", "kernel_log_excerpt": "...boot sequence complete; excerpt truncated...", "io_error_detected": false, "oom_detected": false, "blocked_task_detected": false},
+        "disk": {"_schema_version": "1.0", "status": "ok", "root_usage_percent": 52.0, "inode_usage_percent": 20.0, "await_ms": 2.0},
+        "memory": {"_schema_version": "1.0", "status": "ok", "usage_percent": 45.0},
+        "process": {"_schema_version": "1.0", "status": "ok", "pid_usage_percent": 0.01},
+        "network": {"_schema_version": "1.0", "status": "ok", "interfaces_down": []}
+      },
+      "expected": {"signals": [], "allowed_signals": [], "forbidden_signals": ["kernel_io_error", "kernel_oom_detected", "blocked_task_detected", "systemd_failed_units"]}
+    }
+  ]
+}

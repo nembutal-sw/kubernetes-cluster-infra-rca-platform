@@ -503,8 +503,21 @@ enrollment identity입니다. 현재 static bootstrap Secret은 TTL 만료 후 �
 - `App.tsx`에서 navigation, resource route sync, active view rendering 분리
 - Backend 단계 순서와 Frontend 상세 URL 상태 회귀 테스트 추가
 
-다음 개선은 실제 비식별 장애 corpus 확장입니다. 그 다음 Maven과 Frontend build lifecycle을 분리해
-Java 전용 개발·검증이 npm registry 상태에 직접 의존하지 않도록 정리합니다.
+## Phase 27. Production-Like Evidence Corpus
+
+구현 및 검증 완료:
+
+- 저장소 Agent E2E 산출물의 collector 구조를 기반으로 한 비식별 운영 형태 corpus
+- 정상 음성, threshold 경계, 단일·복합 장애, degraded evidence, 시간 역전 시나리오
+- Ubuntu/containerd, RHEL/CRI-O, K3s embedded containerd/file collector 변형
+- 13개 시나리오와 31개 기대 신호의 독립 Precision/Recall 및 양성·음성 gate
+- `status=degraded` collector가 Evidence 품질 평가에서 누락되던 상태 판정 수정
+- CI artifact와 release-readiness 정적 gate 연결
+- 합성 golden, production-like reproduction, 실운영 정확도의 문서상 구분
+
+다음 개선은 Maven과 Frontend build lifecycle을 분리해 Java 전용 개발·검증이 npm registry 상태에
+직접 의존하지 않도록 정리합니다. 이후 비식별 blind evaluation corpus와 managed Kubernetes 실제
+장애 표본을 지속적으로 확장합니다.
 
 ## Positioning
 
