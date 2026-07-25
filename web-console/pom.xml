@@ -22,7 +22,7 @@
   <properties>
     <java.version>21</java.version>
     <spring-ai.version>1.1.8</spring-ai.version>
-    <google-genai.version>1.61.0</google-genai.version>
+    <google-genai.version>1.63.0</google-genai.version>
     <flyway.version>12.9.0</flyway.version>
     <frontend.node.version>v22.14.0</frontend.node.version>
     <frontend.npm.version>11.3.0</frontend.npm.version>
