@@ -27,7 +27,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
   -> Optional LLM explanation
   -> Policy Engine
   -> Incident correlation
-  -> Report + Notification Outbox (same DB transaction)
+  -> Report + Notification Outbox + Task completion (same DB transaction)
   -> Timeline / Audit / Manual Action Workflow
 ```
 
@@ -54,6 +54,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - Managed canary collector만 익명화하고 2인 독립 판정으로 봉인하는 blind sample intake
 - incident correlation, 장애 전파 timeline, 영향 범위
 - Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
+- Evidence 단위 멱등 처리, stale worker fence와 Analysis/Notification lease heartbeat
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
 - PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate

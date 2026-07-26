@@ -132,6 +132,31 @@ def main() -> int:
             "CI fails when PostgreSQL or MariaDB compatibility tests are missing or skipped.",
         ),
         check(
+            "analysis-idempotency-and-worker-leases",
+            contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/IncidentPersistenceService.java",
+                "saveCorrelatedAndCompleteTask",
+                "AnalysisTaskLeaseLostException",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/AnalysisTaskRepository.java",
+                "attempt_count = ?",
+                "renewLease",
+            )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/LeaseRenewalGuard.java"
+            )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/config/WorkerLeaseConfigurationValidator.java"
+            )
+            and contains(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/AnalysisTaskPersistenceBoundaryTests.java",
+                "auditFailureAfterCommitDoesNotRetryOrDuplicateEvidence",
+                "staleLeaseRollsBackIncidentReportJobAndOutboxPersistence",
+            ),
+            "RCA persistence is task-atomic and both durable workers enforce fenced, renewable leases.",
+        ),
+        check(
             "backend-monitoring",
             contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ScheduledCollectionService.java",

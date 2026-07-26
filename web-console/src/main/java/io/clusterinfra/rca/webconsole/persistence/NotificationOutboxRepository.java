@@ -156,7 +156,7 @@ public class NotificationOutboxRepository {
     }
 
     public boolean markSent(
-        String eventId,
+        NotificationOutboxEvent event,
         String leaseOwner,
         int statusCode,
         Instant deliveredAt
@@ -167,16 +167,37 @@ public class NotificationOutboxRepository {
                 SET status = ?, lease_owner = NULL, lease_expires_at = NULL,
                     last_status_code = ?, last_error = NULL, delivered_at = ?,
                     next_attempt_at = ?, updated_at = ?
-                WHERE event_id = ? AND status = ? AND lease_owner = ?
+                WHERE event_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
                 """,
             NotificationOutboxStatus.sent.name(),
             statusCode,
             timestamp(deliveredAt),
             timestamp(deliveredAt),
             timestamp(deliveredAt),
-            eventId,
+            event.eventId(),
             NotificationOutboxStatus.processing.name(),
-            leaseOwner
+            leaseOwner,
+            event.attemptCount()
+        ) == 1;
+    }
+
+    public boolean renewLease(
+        NotificationOutboxEvent event,
+        String leaseOwner,
+        Instant leaseExpiresAt
+    ) {
+        return jdbc.update(
+            """
+                UPDATE notification_outbox
+                SET lease_expires_at = ?, updated_at = ?
+                WHERE event_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
+                """,
+            timestamp(leaseExpiresAt),
+            timestamp(Instant.now()),
+            event.eventId(),
+            NotificationOutboxStatus.processing.name(),
+            leaseOwner,
+            event.attemptCount()
         ) == 1;
     }
 
@@ -198,7 +219,7 @@ public class NotificationOutboxRepository {
                 UPDATE notification_outbox
                 SET status = ?, lease_owner = NULL, lease_expires_at = NULL,
                     last_status_code = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
-                WHERE event_id = ? AND status = ? AND lease_owner = ?
+                WHERE event_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
                 """,
             status.name(),
             statusCode,
@@ -207,7 +228,8 @@ public class NotificationOutboxRepository {
             timestamp(now),
             event.eventId(),
             NotificationOutboxStatus.processing.name(),
-            leaseOwner
+            leaseOwner,
+            event.attemptCount()
         );
         if (updated != 1) {
             throw new IllegalStateException("notification outbox lease was lost: " + event.eventId());

@@ -245,7 +245,7 @@ public class AnalysisTaskRepository {
     }
 
     public boolean complete(
-        String taskId,
+        AnalysisTask task,
         String leaseOwner,
         AnalysisTaskStatus status,
         String reportId,
@@ -260,16 +260,36 @@ public class AnalysisTaskRepository {
                 UPDATE rca_analysis_tasks
                 SET status = ?, report_id = ?, job_id = ?, lease_owner = NULL, lease_expires_at = NULL,
                     next_attempt_at = ?, completed_at = ?
-                WHERE task_id = ? AND status = ? AND lease_owner = ?
+                WHERE task_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
                 """,
             status.name(),
             reportId,
             jobId,
             timestamp(completedAt),
             timestamp(completedAt),
-            taskId,
+            task.taskId(),
             AnalysisTaskStatus.processing.name(),
-            leaseOwner
+            leaseOwner,
+            task.attemptCount()
+        ) == 1;
+    }
+
+    public boolean renewLease(
+        AnalysisTask task,
+        String leaseOwner,
+        Instant leaseExpiresAt
+    ) {
+        return jdbc.update(
+            """
+                UPDATE rca_analysis_tasks
+                SET lease_expires_at = ?
+                WHERE task_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
+                """,
+            timestamp(leaseExpiresAt),
+            task.taskId(),
+            AnalysisTaskStatus.processing.name(),
+            leaseOwner,
+            task.attemptCount()
         ) == 1;
     }
 
@@ -284,7 +304,7 @@ public class AnalysisTaskRepository {
                 UPDATE rca_analysis_tasks
                 SET status = ?, next_attempt_at = ?, lease_owner = NULL, lease_expires_at = NULL,
                     last_error = ?, completed_at = ?
-                WHERE task_id = ? AND status = ? AND lease_owner = ?
+                WHERE task_id = ? AND status = ? AND lease_owner = ? AND attempt_count = ?
                 """,
             status.name(),
             timestamp(nextAttemptAt),
@@ -292,7 +312,8 @@ public class AnalysisTaskRepository {
             timestamp(completedAt),
             task.taskId(),
             AnalysisTaskStatus.processing.name(),
-            leaseOwner
+            leaseOwner,
+            task.attemptCount()
         ) == 1;
     }
 

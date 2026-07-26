@@ -448,7 +448,7 @@ class DatabaseCompatibilityTests {
             now.plusSeconds(32)
         ).getFirst();
         assertThat(notificationOutbox.markSent(
-            secondNotificationAttempt.eventId(),
+            secondNotificationAttempt,
             "database-notification-worker",
             204,
             now.plusSeconds(3)

@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +31,7 @@ public class NotificationOutboxWorker {
     private final AuditService audit;
     private final RcaMetrics metrics;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ScheduledExecutorService leaseExecutor = Executors.newSingleThreadScheduledExecutor();
     private final String workerId = "notification-worker-" + UUID.randomUUID().toString().substring(0, 8);
 
     public NotificationOutboxWorker(
@@ -77,49 +79,70 @@ public class NotificationOutboxWorker {
     }
 
     private void process(NotificationOutboxEvent event) {
-        IncidentNotificationService.DeliveryAttempt delivery = notifications.deliver(event);
-        if (delivery.succeeded()) {
-            Instant deliveredAt = Instant.now();
-            if (!outbox.markSent(event.eventId(), workerId, delivery.statusCode(), deliveredAt)) {
-                LOGGER.warn("Notification outbox lease was lost before completion: {}", event.eventId());
-                return;
-            }
-            metrics.notification("sent", event.severity());
-            recordAudit(event, "notification.sent", "success", delivery, 0);
-            return;
-        }
-
-        int retrySeconds = retryDelaySeconds(event.attemptCount());
-        String error = safeError(delivery.error());
-        try {
-            NotificationOutboxStatus status = outbox.markFailed(
+        int leaseSeconds = Math.max(15, properties.getNotification().getLeaseSeconds());
+        try (LeaseRenewalGuard lease = LeaseRenewalGuard.start(
+            leaseExecutor,
+            "notification outbox event",
+            event.eventId(),
+            leaseSeconds,
+            () -> outbox.renewLease(
                 event,
                 workerId,
-                delivery.statusCode(),
-                error,
-                Instant.now().plusSeconds(retrySeconds),
-                delivery.retryable()
-            );
-            String result = status == NotificationOutboxStatus.retry_wait
-                ? "retry_scheduled"
-                : "dead_letter";
-            metrics.notification(result, event.severity());
-            recordAudit(
-                event,
-                status == NotificationOutboxStatus.retry_wait
-                    ? "notification.retry_scheduled"
-                    : "notification.dead_lettered",
-                result,
-                new IncidentNotificationService.DeliveryAttempt(
-                    false,
-                    delivery.retryable(),
+                Instant.now().plusSeconds(leaseSeconds)
+            ),
+            LOGGER
+        )) {
+            IncidentNotificationService.DeliveryAttempt delivery = notifications.deliver(event);
+            if (lease.leaseLost()) {
+                LOGGER.warn("Notification outbox lease was lost during delivery: {}", event.eventId());
+                return;
+            }
+            if (delivery.succeeded()) {
+                Instant deliveredAt = Instant.now();
+                if (!outbox.markSent(event, workerId, delivery.statusCode(), deliveredAt)) {
+                    LOGGER.warn("Notification outbox lease was lost before completion: {}", event.eventId());
+                    return;
+                }
+                recordMetric("notification_sent", () -> metrics.notification("sent", event.severity()));
+                recordAudit(event, "notification.sent", "success", delivery, 0);
+                return;
+            }
+
+            int retrySeconds = retryDelaySeconds(event.attemptCount());
+            String error = safeError(delivery.error());
+            try {
+                NotificationOutboxStatus status = outbox.markFailed(
+                    event,
+                    workerId,
                     delivery.statusCode(),
-                    error
-                ),
-                status == NotificationOutboxStatus.retry_wait ? retrySeconds : 0
-            );
-        } catch (IllegalStateException exception) {
-            LOGGER.warn(exception.getMessage());
+                    error,
+                    Instant.now().plusSeconds(retrySeconds),
+                    delivery.retryable()
+                );
+                String result = status == NotificationOutboxStatus.retry_wait
+                    ? "retry_scheduled"
+                    : "dead_letter";
+                recordMetric(
+                    "notification_" + result,
+                    () -> metrics.notification(result, event.severity())
+                );
+                recordAudit(
+                    event,
+                    status == NotificationOutboxStatus.retry_wait
+                        ? "notification.retry_scheduled"
+                        : "notification.dead_lettered",
+                    result,
+                    new IncidentNotificationService.DeliveryAttempt(
+                        false,
+                        delivery.retryable(),
+                        delivery.statusCode(),
+                        error
+                    ),
+                    status == NotificationOutboxStatus.retry_wait ? retrySeconds : 0
+                );
+            } catch (IllegalStateException exception) {
+                LOGGER.warn(exception.getMessage());
+            }
         }
     }
 
@@ -167,6 +190,14 @@ public class NotificationOutboxWorker {
         return (int) Math.min(maximum, base * multiplier);
     }
 
+    private void recordMetric(String operation, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Failed to record notification worker metric: {}", operation, exception);
+        }
+    }
+
     private String safeError(String error) {
         String value = error == null || error.isBlank() ? "unknown notification failure" : error;
         String redacted = SensitiveDataRedactor.redactText(value);
@@ -176,5 +207,6 @@ public class NotificationOutboxWorker {
     @PreDestroy
     public void shutdown() {
         executor.close();
+        leaseExecutor.close();
     }
 }

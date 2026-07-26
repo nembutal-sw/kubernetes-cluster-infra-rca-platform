@@ -13,10 +13,14 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AnalysisPipelineService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AnalysisPipelineService.class);
+
     private final EvidenceRepository evidence;
     private final IncidentPersistenceService persistence;
     private final RuleBasedRcaAnalyzer analyzer;
@@ -43,7 +47,7 @@ public class AnalysisPipelineService {
         this.topology = topology;
     }
 
-    public RcaJob processAnalysisTask(AnalysisTask task) {
+    public RcaJob processAnalysisTask(AnalysisTask task, String leaseOwner) {
         EvidenceBundle evidence = this.evidence.find(task.evidenceId()).orElse(null);
         if (evidence == null) {
             throw new IllegalStateException("analysis evidence not found: " + task.evidenceId());
@@ -52,15 +56,23 @@ public class AnalysisPipelineService {
         if (task.skipIfHealthy() && !analyzer.hasActionableSignals(evidence.clusterId(), evidence.collectors())) {
             return null;
         }
-        return createCompletedJob(evidence);
+        return createCompletedJob(task, evidence, leaseOwner);
     }
 
-    private RcaJob createCompletedJob(EvidenceBundle evidence) {
+    private RcaJob createCompletedJob(
+        AnalysisTask task,
+        EvidenceBundle evidence,
+        String leaseOwner
+    ) {
         Instant startedAt = Instant.now();
+        RcaReport report;
+        RcaJob job;
+        CorrelationDecision decision;
+        PersistedIncident persisted;
         try {
             String reportId = id("report");
-            RcaReport report = analyzer.analyze(reportId, evidence);
-            RcaJob job = new RcaJob(
+            report = analyzer.analyze(reportId, evidence);
+            job = new RcaJob(
                 id("job"),
                 evidence.clusterId(),
                 evidence.alertName(),
@@ -70,8 +82,8 @@ public class AnalysisPipelineService {
                 evidence.evidenceId(),
                 Instant.now()
             );
-            CorrelationDecision decision = correlation.decide(report, evidence);
-            PersistedIncident persisted = persistence.saveCorrelated(
+            decision = correlation.decide(report, evidence);
+            persisted = persistence.saveCorrelatedAndCompleteTask(
                 report,
                 job,
                 decision.dedupKey(),
@@ -79,40 +91,65 @@ public class AnalysisPipelineService {
                 decision.promoteRootCause(),
                 decision.recurrenceOfIncidentId(),
                 decision.recurrenceSequence(),
-                evidence
+                evidence,
+                task,
+                leaseOwner
             );
-            RcaJob saved = persisted.job();
-            boolean duplicate = persisted.duplicate();
-            String savedIncidentId = persisted.report().incidentId();
-            boolean promoted = decision.matched()
-                && decision.promoteRootCause()
-                && !duplicate
-                && decision.matchedIncidentId().equals(savedIncidentId);
-            String correlationResult = decision.recurrence()
-                ? "recurred"
-                : promoted
-                ? "root_cause_promoted"
-                : duplicate ? "correlated" : "created";
-            metrics.incident(correlationResult);
-            Map<String, Object> auditDetails = new LinkedHashMap<>();
-            auditDetails.put("cluster_id", evidence.clusterId());
-            auditDetails.put("node_name", evidence.nodeName());
-            auditDetails.put("alert_name", evidence.alertName());
-            auditDetails.put("evidence_id", evidence.evidenceId());
-            auditDetails.put("report_id", saved.reportId());
-            auditDetails.put("correlation_rule", decision.ruleId());
-            auditDetails.put("correlation_relationship", decision.relationship());
-            auditDetails.put("correlation_score", decision.score());
-            auditDetails.put("signal_family", decision.primaryFamily());
-            auditDetails.put("cross_node", decision.crossNode());
-            auditDetails.put("topology_rule", decision.topologyRule());
-            auditDetails.put("shared_services", decision.sharedServices());
-            auditDetails.put("notification_events_queued", persisted.notificationEvents().size());
-            if (decision.recurrence()) {
-                auditDetails.put("recurrence_of_incident_id", decision.recurrenceOfIncidentId());
-                auditDetails.put("recurrence_sequence", decision.recurrenceSequence());
-            }
-            audit.system(
+        } catch (RuntimeException exception) {
+            safeMetric(
+                "report_generation_failed",
+                () -> metrics.reportGenerated("failed", Duration.between(startedAt, Instant.now()))
+            );
+            throw exception;
+        }
+        safePostCommit(
+            "pipeline_observability",
+            () -> recordPostCommitObservability(evidence, decision, persisted, startedAt)
+        );
+        return persisted.job();
+    }
+
+    private void recordPostCommitObservability(
+        EvidenceBundle evidence,
+        CorrelationDecision decision,
+        PersistedIncident persisted,
+        Instant startedAt
+    ) {
+        RcaJob saved = persisted.job();
+        boolean duplicate = persisted.duplicate();
+        String savedIncidentId = persisted.report().incidentId();
+        boolean promoted = decision.matched()
+            && decision.promoteRootCause()
+            && !duplicate
+            && decision.matchedIncidentId().equals(savedIncidentId);
+        String correlationResult = decision.recurrence()
+            ? "recurred"
+            : promoted
+            ? "root_cause_promoted"
+            : duplicate ? "correlated" : "created";
+        safeMetric("incident_" + correlationResult, () -> metrics.incident(correlationResult));
+
+        Map<String, Object> auditDetails = new LinkedHashMap<>();
+        auditDetails.put("cluster_id", evidence.clusterId());
+        auditDetails.put("node_name", evidence.nodeName());
+        auditDetails.put("alert_name", evidence.alertName());
+        auditDetails.put("evidence_id", evidence.evidenceId());
+        auditDetails.put("report_id", saved.reportId());
+        auditDetails.put("correlation_rule", decision.ruleId());
+        auditDetails.put("correlation_relationship", decision.relationship());
+        auditDetails.put("correlation_score", decision.score());
+        auditDetails.put("signal_family", decision.primaryFamily());
+        auditDetails.put("cross_node", decision.crossNode());
+        auditDetails.put("topology_rule", decision.topologyRule());
+        auditDetails.put("shared_services", decision.sharedServices());
+        auditDetails.put("notification_events_queued", persisted.notificationEvents().size());
+        if (decision.recurrence()) {
+            auditDetails.put("recurrence_of_incident_id", decision.recurrenceOfIncidentId());
+            auditDetails.put("recurrence_sequence", decision.recurrenceSequence());
+        }
+        safePostCommit(
+            "incident_audit",
+            () -> audit.system(
                 "rca-pipeline",
                 decision.recurrence()
                     ? "incident.recurred"
@@ -127,18 +164,40 @@ public class AnalysisPipelineService {
                     ? "canonical_report_replaced"
                     : duplicate ? "suppressed_duplicate_report" : "report_created",
                 auditDetails
-            );
-            persisted.notificationEvents().forEach(event ->
-                metrics.notification("queued", event.severity())
-            );
-            metrics.reportGenerated(
+            )
+        );
+        persisted.notificationEvents().forEach(event ->
+            safeMetric(
+                "notification_queued",
+                () -> metrics.notification("queued", event.severity())
+            )
+        );
+        safeMetric(
+            "report_generation_" + correlationResult,
+            () -> metrics.reportGenerated(
                 correlationResult,
                 Duration.between(startedAt, Instant.now())
-            );
-            return saved;
+            )
+        );
+    }
+
+    private void safePostCommit(String operation, Runnable action) {
+        try {
+            action.run();
         } catch (RuntimeException exception) {
-            metrics.reportGenerated("failed", Duration.between(startedAt, Instant.now()));
-            throw exception;
+            LOGGER.warn("RCA post-commit operation failed: {}", operation, exception);
+            safeMetric(
+                "post_commit_" + operation,
+                () -> metrics.postCommitFailure(operation)
+            );
+        }
+    }
+
+    private void safeMetric(String operation, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException exception) {
+            LOGGER.warn("RCA metric recording failed: {}", operation, exception);
         }
     }
 

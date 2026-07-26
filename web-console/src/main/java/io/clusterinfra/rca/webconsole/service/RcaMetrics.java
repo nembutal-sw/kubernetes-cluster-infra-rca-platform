@@ -163,6 +163,16 @@ public class RcaMetrics {
         );
     }
 
+    public void postCommitFailure(String operation) {
+        increment(
+            "rca.pipeline.post.commit.failure",
+            "Best-effort RCA post-commit operations that failed after durable persistence",
+            1,
+            "operation",
+            operation
+        );
+    }
+
     public void incidentLifecycle(String result, int count) {
         increment(
             "rca.incident.lifecycle",

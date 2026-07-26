@@ -118,6 +118,10 @@ Incident와 알림 event는 같은 DB transaction에 저장됩니다. 별도 wor
 최대 시도 횟수를 소진한 event는 `dead_letter`로 이동합니다. 일반 webhook 요청에는
 `Idempotency-Key` 헤더가 포함됩니다.
 
+알림 전송 중에는 lease를 1/3 주기로 갱신합니다. 시작 시
+`RCA_NOTIFICATION_LEASE_SECONDS > RCA_NOTIFICATION_TIMEOUT_SECONDS + 15` 관계를 강제하며,
+조건을 만족하지 않으면 중복 전송 위험이 있는 잘못된 설정으로 판단해 기동을 중단합니다.
+
 `ADMIN`, `OPERATOR`, `AUDITOR`는 `GET /api/notifications/outbox`에서 payload를 제외한 상태를
 확인할 수 있습니다. `ADMIN` 또는 `OPERATOR`는 확인 요청과 함께
 `POST /api/notifications/outbox/{eventId}/retry`를 호출해 dead-letter event를 다시 queue에 넣을 수 있습니다.

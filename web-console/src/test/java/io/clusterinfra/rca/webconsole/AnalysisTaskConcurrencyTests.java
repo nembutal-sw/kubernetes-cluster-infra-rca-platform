@@ -190,6 +190,54 @@ class AnalysisTaskConcurrencyTests {
         assertThat(tasks.retry(queued.taskId()).orElseThrow().status().name()).isEqualTo("queued");
     }
 
+    @Test
+    void leaseRenewalPreventsReclaimAfterOriginalExpiry() {
+        var cluster = clusters.create(new ClusterCreateRequest("analysis-renew-test", "test", null));
+        evidence.saveAndEnqueue(
+            new EvidenceBundle(
+                null,
+                cluster.clusterId(),
+                "worker-a",
+                "DiskPressure",
+                Instant.now(),
+                Map.of("disk", Map.of("root_usage_percent", 96))
+            ),
+            "lease_renewal_test",
+            false,
+            3
+        );
+        Instant claimAt = Instant.now();
+        AnalysisTask claimed = tasks.claim(
+            "worker-a",
+            1,
+            claimAt,
+            claimAt.plusSeconds(30)
+        ).getFirst();
+
+        assertThat(tasks.renewLease(
+            claimed,
+            "worker-a",
+            claimAt.plusSeconds(90)
+        )).isTrue();
+        assertThat(tasks.renewLease(
+            claimed,
+            "wrong-worker",
+            claimAt.plusSeconds(120)
+        )).isFalse();
+        assertThat(tasks.claim(
+            "worker-b",
+            1,
+            claimAt.plusSeconds(31),
+            claimAt.plusSeconds(61)
+        )).isEmpty();
+        assertThat(tasks.claim(
+            "worker-b",
+            1,
+            claimAt.plusSeconds(91),
+            claimAt.plusSeconds(121)
+        )).hasSize(1);
+    }
+
     private Callable<List<AnalysisTask>> workerClaim(
         String leaseOwner,
         CyclicBarrier barrier,

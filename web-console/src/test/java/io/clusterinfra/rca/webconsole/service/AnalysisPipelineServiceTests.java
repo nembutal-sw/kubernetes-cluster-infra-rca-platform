@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTask;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
@@ -75,7 +76,7 @@ class AnalysisPipelineServiceTests {
         AnalysisTask task = task("missing-evidence", false);
         when(evidenceRepository.find("missing-evidence")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.processAnalysisTask(task))
+        assertThatThrownBy(() -> service.processAnalysisTask(task, "worker-test"))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("analysis evidence not found");
     }
@@ -87,7 +88,7 @@ class AnalysisPipelineServiceTests {
         when(evidenceRepository.find(evidence.evidenceId())).thenReturn(Optional.of(evidence));
         when(analyzer.hasActionableSignals(evidence.clusterId(), evidence.collectors())).thenReturn(false);
 
-        assertThat(service.processAnalysisTask(task)).isNull();
+        assertThat(service.processAnalysisTask(task, "worker-test")).isNull();
 
         verify(topology).observe(evidence);
         verify(analyzer).hasActionableSignals(evidence.clusterId(), evidence.collectors());
@@ -116,7 +117,7 @@ class AnalysisPipelineServiceTests {
             "",
             List.of()
         ));
-        when(persistence.saveCorrelated(
+        when(persistence.saveCorrelatedAndCompleteTask(
             any(),
             any(),
             eq("cluster-1:worker-a:disk"),
@@ -124,7 +125,9 @@ class AnalysisPipelineServiceTests {
             eq(false),
             eq(null),
             eq(0),
-            eq(evidence)
+            eq(evidence),
+            eq(task),
+            eq("worker-test")
         )).thenAnswer(invocation -> {
             RcaJob savedJob = invocation.getArgument(1);
             return new PersistedIncident(
@@ -135,13 +138,13 @@ class AnalysisPipelineServiceTests {
             );
         });
 
-        RcaJob result = service.processAnalysisTask(task);
+        RcaJob result = service.processAnalysisTask(task, "worker-test");
 
         assertThat(result.reportId()).startsWith("report-");
         verify(topology).observe(evidence);
         verify(metrics).incident("created");
         verify(metrics).reportGenerated(eq("created"), any());
-        verify(persistence).saveCorrelated(
+        verify(persistence).saveCorrelatedAndCompleteTask(
             any(RcaReport.class),
             any(RcaJob.class),
             eq("cluster-1:worker-a:disk"),
@@ -149,7 +152,9 @@ class AnalysisPipelineServiceTests {
             eq(false),
             eq(null),
             eq(0),
-            eq(evidence)
+            eq(evidence),
+            eq(task),
+            eq("worker-test")
         );
 
         ArgumentCaptor<Map<String, Object>> auditDetails = ArgumentCaptor.forClass(Map.class);
@@ -167,6 +172,57 @@ class AnalysisPipelineServiceTests {
             .containsEntry("alert_name", "DiskPressure")
             .containsEntry("report_id", result.reportId())
             .containsEntry("correlation_rule", "new_incident");
+    }
+
+    @Test
+    void auditFailureAfterPersistenceDoesNotFailCompletedAnalysis() {
+        EvidenceBundle evidence = evidence(Map.of("disk", Map.of("disk_usage_percent", 97)));
+        AnalysisTask task = task(evidence.evidenceId(), false);
+        when(evidenceRepository.find(evidence.evidenceId())).thenReturn(Optional.of(evidence));
+        RcaReport analyzedReport = report("generated-report", null);
+        when(analyzer.analyze(any(), eq(evidence))).thenReturn(analyzedReport);
+        when(correlation.decide(analyzedReport, evidence)).thenReturn(new CorrelationDecision(
+            "cluster-1:worker-a:disk",
+            null,
+            "new_incident",
+            "new incident",
+            100,
+            false,
+            "disk",
+            null,
+            0,
+            false,
+            "",
+            List.of()
+        ));
+        when(persistence.saveCorrelatedAndCompleteTask(
+            any(),
+            any(),
+            any(),
+            any(),
+            eq(false),
+            any(),
+            eq(0),
+            eq(evidence),
+            eq(task),
+            eq("worker-test")
+        )).thenAnswer(invocation -> {
+            RcaJob savedJob = invocation.getArgument(1);
+            return new PersistedIncident(
+                savedJob,
+                report(savedJob.reportId(), "incident-1"),
+                false,
+                List.of()
+            );
+        });
+        doThrow(new IllegalStateException("audit unavailable"))
+            .when(audit)
+            .system(any(), any(), any(), any(), any(), any());
+
+        RcaJob result = service.processAnalysisTask(task, "worker-test");
+
+        assertThat(result).isNotNull();
+        verify(metrics).postCommitFailure("incident_audit");
     }
 
     private AnalysisTask task(String evidenceId, boolean skipIfHealthy) {

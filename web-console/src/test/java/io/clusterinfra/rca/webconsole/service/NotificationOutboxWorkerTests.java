@@ -64,11 +64,11 @@ class NotificationOutboxWorkerTests {
         when(outbox.claim(anyString(), eq(4), any(), any())).thenReturn(List.of(event));
         when(notifications.deliver(event))
             .thenReturn(new IncidentNotificationService.DeliveryAttempt(true, false, 202, ""));
-        when(outbox.markSent(eq(event.eventId()), anyString(), eq(202), any())).thenReturn(true);
+        when(outbox.markSent(eq(event), anyString(), eq(202), any())).thenReturn(true);
 
         assertThat(worker.processAvailableEvents()).isEqualTo(1);
 
-        verify(outbox).markSent(eq(event.eventId()), anyString(), eq(202), any());
+        verify(outbox).markSent(eq(event), anyString(), eq(202), any());
         verify(outbox, never()).markFailed(any(), anyString(), any(), anyString(), any(), anyBoolean());
         verify(audit).system(
             anyString(),

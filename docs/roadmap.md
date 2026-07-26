@@ -585,6 +585,22 @@ enrollment identity를 ServiceAccount TokenReview 또는 node-bound mTLS로 전�
 설정 audience를 수락하는지 canary로 확인한 뒤 strict mode를 적용합니다. 다음 우선순위는 승인된
 managed cluster에서 TokenReview enrollment와 실제 장애 표본 intake를 함께 검증하는 것입니다.
 
+## Phase 32. RCA Persistence Idempotency And Worker Lease Safety
+
+구현 및 검증 완료:
+
+- Incident, Report, Job, Notification Outbox와 Analysis Task 완료의 단일 transaction 경계
+- V3 `evidence_id` 고유 제약과 `lease_owner + attempt_count` fence 기반 중복 반영 차단
+- stale worker 완료 실패 시 Incident occurrence를 포함한 전체 저장 rollback
+- commit 이후 Audit·Metrics 실패의 best-effort 격리와 후처리 실패 metric
+- Analysis와 Notification worker의 처리 중 lease heartbeat
+- Notification timeout, LLM 최대 시도 시간과 lease 관계의 startup fail-fast 검증
+- Audit 저장 장애, stale lease, 다중 worker reclaim과 renewal 회귀 테스트
+- release-readiness 정적 계약에 멱등성·lease 안전 장치 연결
+
+다음 우선순위는 기계용 opaque Agent token hash를 사용자 password hash와 분리하고, Agent의
+주기적 node token rotation을 실제 실행 경로에 연결하는 것입니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

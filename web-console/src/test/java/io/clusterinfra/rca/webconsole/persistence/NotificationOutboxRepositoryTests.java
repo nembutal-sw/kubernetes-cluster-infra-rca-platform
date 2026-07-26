@@ -77,7 +77,7 @@ class NotificationOutboxRepositoryTests {
         ).getFirst();
 
         assertThat(reclaimed.attemptCount()).isEqualTo(first.attemptCount() + 1);
-        assertThat(outbox.markSent("event-lease", "worker-b", 204, NOW.plusSeconds(32))).isTrue();
+        assertThat(outbox.markSent(reclaimed, "worker-b", 204, NOW.plusSeconds(32))).isTrue();
         NotificationOutboxEvent sent = outbox.find("event-lease").orElseThrow();
         assertThat(sent.status()).isEqualTo(NotificationOutboxStatus.sent);
         assertThat(sent.lastStatusCode()).isEqualTo(204);
@@ -149,6 +149,32 @@ class NotificationOutboxRepositoryTests {
 
         assertThat(status).isEqualTo(NotificationOutboxStatus.dead_letter);
         assertThat(outbox.find("event-permanent").orElseThrow().attemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    void leaseRenewalPreventsReclaimAfterOriginalExpiry() {
+        outbox.enqueue(event("event-renew", 3));
+        NotificationOutboxEvent claimed = outbox.claim(
+            "worker-a",
+            1,
+            NOW,
+            NOW.plusSeconds(30)
+        ).getFirst();
+
+        assertThat(outbox.renewLease(claimed, "worker-a", NOW.plusSeconds(90))).isTrue();
+        assertThat(outbox.renewLease(claimed, "wrong-worker", NOW.plusSeconds(120))).isFalse();
+        assertThat(outbox.claim(
+            "worker-b",
+            1,
+            NOW.plusSeconds(31),
+            NOW.plusSeconds(61)
+        )).isEmpty();
+        assertThat(outbox.claim(
+            "worker-b",
+            1,
+            NOW.plusSeconds(91),
+            NOW.plusSeconds(121)
+        )).hasSize(1);
     }
 
     private List<NotificationOutboxEvent> claimAfterBarrier(CyclicBarrier barrier, String worker) {

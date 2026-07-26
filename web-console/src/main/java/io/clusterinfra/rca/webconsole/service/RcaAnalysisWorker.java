@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,6 +32,7 @@ public class RcaAnalysisWorker {
     private final AuditService audit;
     private final RcaMetrics metrics;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ScheduledExecutorService leaseExecutor = Executors.newSingleThreadScheduledExecutor();
     private final String workerId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
 
     public RcaAnalysisWorker(
@@ -62,7 +64,7 @@ public class RcaAnalysisWorker {
             now,
             now.plusSeconds(Math.max(30, properties.getPipeline().getLeaseSeconds()))
         );
-        metrics.analysisClaimed(claimedTasks.size());
+        recordMetric("analysis_claimed", () -> metrics.analysisClaimed(claimedTasks.size()));
         List<Future<?>> futures = new ArrayList<>();
         for (AnalysisTask task : claimedTasks) {
             futures.add(executor.submit(() -> process(task)));
@@ -78,38 +80,58 @@ public class RcaAnalysisWorker {
     }
 
     private void process(AnalysisTask task) {
+        RcaJob job;
+        AnalysisTaskStatus status;
+        Instant completedAt;
+        int leaseSeconds = Math.max(30, properties.getPipeline().getLeaseSeconds());
         try {
-            RcaJob job = pipeline.processAnalysisTask(task);
-            Instant completedAt = Instant.now();
-            AnalysisTaskStatus status = job == null
-                ? AnalysisTaskStatus.skipped
-                : AnalysisTaskStatus.completed;
-            boolean updated = tasks.complete(
+            try (LeaseRenewalGuard lease = LeaseRenewalGuard.start(
+                leaseExecutor,
+                "analysis task",
                 task.taskId(),
-                workerId,
-                status,
-                job == null ? null : job.reportId(),
-                job == null ? null : job.jobId(),
-                completedAt
-            );
-            if (!updated) {
-                LOGGER.warn("Analysis task lease was lost before completion: {}", task.taskId());
-                return;
+                leaseSeconds,
+                () -> tasks.renewLease(
+                    task,
+                    workerId,
+                    Instant.now().plusSeconds(leaseSeconds)
+                ),
+                LOGGER
+            )) {
+                job = pipeline.processAnalysisTask(task, workerId);
+                completedAt = Instant.now();
+                status = job == null
+                    ? AnalysisTaskStatus.skipped
+                    : AnalysisTaskStatus.completed;
+                if (job == null && !tasks.complete(
+                    task,
+                    workerId,
+                    status,
+                    null,
+                    null,
+                    completedAt
+                )) {
+                    LOGGER.warn("Analysis task lease was lost before completion: {}", task.taskId());
+                    return;
+                }
             }
-            metrics.analysisCompleted(status, Duration.between(task.createdAt(), completedAt));
-            recordAudit(
-                task,
-                "analysis.task_completed",
-                status,
-                Map.of(
-                    "evidence_id", task.evidenceId(),
-                    "attempt", task.attemptCount(),
-                    "report_id", job == null ? "" : job.reportId()
-                )
-            );
         } catch (Exception exception) {
             fail(task, exception);
+            return;
         }
+        recordMetric(
+            "analysis_completed",
+            () -> metrics.analysisCompleted(status, Duration.between(task.createdAt(), completedAt))
+        );
+        recordAudit(
+            task,
+            "analysis.task_completed",
+            status,
+            Map.of(
+                "evidence_id", task.evidenceId(),
+                "attempt", task.attemptCount(),
+                "report_id", job == null ? "" : job.reportId()
+            )
+        );
     }
 
     private void fail(AnalysisTask task, Exception exception) {
@@ -128,7 +150,7 @@ public class RcaAnalysisWorker {
         AnalysisTaskStatus status = task.attemptCount() >= task.maxAttempts()
             ? AnalysisTaskStatus.dead_letter
             : AnalysisTaskStatus.retry_wait;
-        metrics.analysisFailed(status);
+        recordMetric("analysis_failed", () -> metrics.analysisFailed(status));
         recordAudit(
             task,
             "analysis.task_failed",
@@ -171,6 +193,14 @@ public class RcaAnalysisWorker {
         }
     }
 
+    private void recordMetric(String operation, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Failed to record RCA worker metric: {}", operation, exception);
+        }
+    }
+
     private int retryDelaySeconds(int attemptCount) {
         int base = Math.max(1, properties.getPipeline().getRetryBaseSeconds());
         int maximum = Math.max(base, properties.getPipeline().getRetryMaxSeconds());
@@ -189,5 +219,6 @@ public class RcaAnalysisWorker {
     @PreDestroy
     public void shutdown() {
         executor.close();
+        leaseExecutor.close();
     }
 }
