@@ -185,6 +185,7 @@ public final class RcaModels {
         @Size(max = 255) String expectedDaemonSetUid,
         Map<String, String> requiredPodLabels,
         @Size(max = 71) String allowedImageDigest,
+        Instant legacyUnboundTokenGraceUntil,
         Boolean bootstrapFallbackAllowed
     ) {
         public AgentEnrollmentProfileUpdateRequest(
@@ -198,13 +199,44 @@ public final class RcaModels {
         ) {
             this(
                 mode, apiServerUrl, caBundlePem, audience, namespace, serviceAccount,
-                null, null, null, null, null, null, bootstrapFallbackAllowed
+                null, null, null, null, null, null, null, bootstrapFallbackAllowed
+            );
+        }
+
+        public AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode mode,
+            String apiServerUrl,
+            String caBundlePem,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            String reviewerTokenPath,
+            String expectedServiceAccountUid,
+            String expectedDaemonSetName,
+            String expectedDaemonSetUid,
+            Map<String, String> requiredPodLabels,
+            String allowedImageDigest,
+            Boolean bootstrapFallbackAllowed
+        ) {
+            this(
+                mode, apiServerUrl, caBundlePem, audience, namespace, serviceAccount,
+                reviewerTokenPath, expectedServiceAccountUid, expectedDaemonSetName,
+                expectedDaemonSetUid, requiredPodLabels, allowedImageDigest, null,
+                bootstrapFallbackAllowed
             );
         }
 
         public boolean fallbackAllowedOrDefault() {
             return bootstrapFallbackAllowed == null || bootstrapFallbackAllowed;
         }
+    }
+
+    public record LegacyUnboundAgent(
+        String nodeName,
+        AgentStatus status,
+        Instant lastHeartbeatAt,
+        boolean tokenRevoked
+    ) {
     }
 
     public record AgentEnrollmentProfile(
@@ -226,12 +258,47 @@ public final class RcaModels {
         boolean workloadIdentityReady,
         boolean bootstrapFallbackAllowed,
         boolean bootstrapTokenRotationRequired,
+        Instant legacyUnboundTokenGraceUntil,
+        List<LegacyUnboundAgent> legacyUnboundAgents,
         Instant updatedAt
     ) {
         public AgentEnrollmentProfile {
             requiredPodLabels = requiredPodLabels == null
                 ? Map.of()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(requiredPodLabels));
+            legacyUnboundAgents = legacyUnboundAgents == null
+                ? List.of()
+                : List.copyOf(legacyUnboundAgents);
+        }
+
+        public AgentEnrollmentProfile(
+            String clusterId,
+            AgentEnrollmentMode mode,
+            boolean configured,
+            String apiServerUrl,
+            String caSha256,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            long profileVersion,
+            String reviewerTokenPath,
+            String expectedServiceAccountUid,
+            String expectedDaemonSetName,
+            String expectedDaemonSetUid,
+            Map<String, String> requiredPodLabels,
+            String allowedImageDigest,
+            boolean workloadIdentityReady,
+            boolean bootstrapFallbackAllowed,
+            boolean bootstrapTokenRotationRequired,
+            Instant updatedAt
+        ) {
+            this(
+                clusterId, mode, configured, apiServerUrl, caSha256, audience, namespace,
+                serviceAccount, profileVersion, reviewerTokenPath, expectedServiceAccountUid,
+                expectedDaemonSetName, expectedDaemonSetUid, requiredPodLabels,
+                allowedImageDigest, workloadIdentityReady, bootstrapFallbackAllowed,
+                bootstrapTokenRotationRequired, null, List.of(), updatedAt
+            );
         }
 
         public static AgentEnrollmentProfile bootstrap(
@@ -257,6 +324,8 @@ public final class RcaModels {
                 false,
                 true,
                 bootstrapTokenRotationRequired,
+                null,
+                List.of(),
                 null
             );
         }

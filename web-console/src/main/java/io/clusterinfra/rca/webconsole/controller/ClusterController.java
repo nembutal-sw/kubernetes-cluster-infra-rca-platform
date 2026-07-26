@@ -167,6 +167,14 @@ public class ClusterController {
             details.put("expected_daemonset_name", profile.expectedDaemonSetName());
             details.put("expected_daemonset_uid", profile.expectedDaemonSetUid());
             details.put("allowed_image_digest", profile.allowedImageDigest());
+            details.put(
+                "legacy_unbound_token_grace_until",
+                profile.legacyUnboundTokenGraceUntil()
+            );
+            details.put(
+                "legacy_unbound_agent_count",
+                profile.legacyUnboundAgents().size()
+            );
         }
         audit.user(
             user,

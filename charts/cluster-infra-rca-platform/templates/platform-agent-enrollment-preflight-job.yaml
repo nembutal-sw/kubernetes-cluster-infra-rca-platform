@@ -1,0 +1,78 @@
+{{- if .Values.platform.agentEnrollmentPreflight.enabled }}
+{{- $mode := lower .Values.platform.agentEnrollmentPreflight.mode }}
+{{- if not (has $mode (list "audit" "apply")) }}
+{{- fail "platform.agentEnrollmentPreflight.mode must be audit or apply" }}
+{{- end }}
+{{- if empty .Values.platform.config.kubernetesApiAudiences }}
+{{- fail "platform.config.kubernetesApiAudiences must list every Kubernetes API audience" }}
+{{- end }}
+{{- if has .Values.platform.agentEnrollmentPreflight.targetAudience .Values.platform.config.kubernetesApiAudiences }}
+{{- fail "platform.agentEnrollmentPreflight.targetAudience must not be a Kubernetes API audience" }}
+{{- end }}
+{{- if eq $mode "apply" }}
+{{- if ne .Values.platform.agentEnrollmentPreflight.confirm "APPLY_AGENT_ENROLLMENT_AUDIENCE_MIGRATION" }}
+{{- fail "platform.agentEnrollmentPreflight apply mode requires the exact confirmation string" }}
+{{- end }}
+{{- if empty .Values.platform.agentEnrollmentPreflight.clusters }}
+{{- fail "platform.agentEnrollmentPreflight apply mode requires an explicit cluster allowlist" }}
+{{- end }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-agent-enrollment-preflight" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-enrollment-preflight
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ int .Values.platform.agentEnrollmentPreflight.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "cluster-infra-rca-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent-enrollment-preflight
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: preflight
+          image: {{ include "cluster-infra-rca-platform.platformImage" . | quote }}
+          imagePullPolicy: {{ .Values.platform.image.pullPolicy }}
+          command:
+            - java
+          args:
+            - -Dloader.main=io.clusterinfra.rca.webconsole.maintenance.AgentEnrollmentMigrationCli
+            - -cp
+            - /app/platform.jar
+            - org.springframework.boot.loader.launch.PropertiesLauncher
+          envFrom:
+            - secretRef:
+                name: {{ include "cluster-infra-rca-platform.secretName" . }}
+          env:
+            - name: RCA_AGENT_ENROLLMENT_MIGRATION_MODE
+              value: {{ $mode | quote }}
+            - name: RCA_AGENT_ENROLLMENT_MIGRATION_TARGET_AUDIENCE
+              value: {{ .Values.platform.agentEnrollmentPreflight.targetAudience | quote }}
+            - name: RCA_AGENT_ENROLLMENT_MIGRATION_CLUSTERS
+              value: {{ join "," .Values.platform.agentEnrollmentPreflight.clusters | quote }}
+            - name: RCA_AGENT_ENROLLMENT_MIGRATION_CONFIRM
+              value: {{ .Values.platform.agentEnrollmentPreflight.confirm | quote }}
+            - name: RCA_KUBERNETES_API_AUDIENCES
+              value: {{ join "," .Values.platform.config.kubernetesApiAudiences | quote }}
+          {{- with .Values.platform.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.platform.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

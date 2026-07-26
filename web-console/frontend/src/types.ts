@@ -217,6 +217,13 @@ export interface ClusterDetailState {
 
 export type AgentEnrollmentMode = "bootstrap_token" | "kubernetes_token_review";
 
+export interface LegacyUnboundAgent {
+  node_name: string;
+  status: string;
+  last_heartbeat_at?: string | null;
+  token_revoked: boolean;
+}
+
 export interface AgentEnrollmentProfile {
   cluster_id: string;
   mode: AgentEnrollmentMode;
@@ -236,6 +243,8 @@ export interface AgentEnrollmentProfile {
   workload_identity_ready: boolean;
   bootstrap_fallback_allowed: boolean;
   bootstrap_token_rotation_required: boolean;
+  legacy_unbound_token_grace_until?: string | null;
+  legacy_unbound_agents?: LegacyUnboundAgent[];
   updated_at?: string | null;
 }
 
@@ -252,6 +261,7 @@ export interface AgentEnrollmentUpdate {
   expected_daemon_set_uid?: string;
   required_pod_labels?: Record<string, string>;
   allowed_image_digest?: string;
+  legacy_unbound_token_grace_until?: string | null;
   bootstrap_fallback_allowed?: boolean;
 }
 

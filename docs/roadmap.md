@@ -675,6 +675,24 @@ Kubernetes 공식 ServiceAccount 지침에 따라 애플리케이션이 수락�
 Server audience와 분리한다. 다음 우선순위는 Helm과 Web Console manifest의 구조적 object diff,
 외부 cluster reviewer credential 수명주기, 승인 기반 Agent identity rebind다.
 
+## Phase 37. Agent Enrollment Upgrade Safety
+
+구현 및 검증 완료:
+
+- 기존 Kubernetes API audience profile을 찾는 read-only migration audit CLI
+- 정확한 확인 문자열과 cluster allowlist가 필요한 transaction 기반 apply mode
+- audience 변경과 profile version 증가, 기존 node token 폐기의 단일 DB transaction
+- 기본 audit Helm pre-upgrade hook과 위험 profile 발견 시 upgrade 차단
+- Flyway V25 cluster별 legacy unbound token grace와 전역 유예 설정 기동 거부
+- Web Console의 cluster별 만료 시각, profile 미결합 Agent와 token 상태 표시
+- 실제 Kind API Server에서 전용 audience token의 API 접근 401 및 TokenReview 성공 검증
+- Agent 선배포, canary 전환, 검증과 복구를 포함한 운영 runbook
+
+전용 audience 전환은 Agent chart를 먼저 배포한 뒤 cluster allowlist 단위로 수행한다. 유예는 기존
+V24 미결합 token의 순차 재등록에만 사용하며, 완료 즉시 제거한다. 다음 우선순위는 Helm과 Web
+Console manifest의 구조적 object diff, 외부 reviewer credential 수명주기, 승인 기반 identity
+rebind다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

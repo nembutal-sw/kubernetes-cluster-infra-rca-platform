@@ -345,6 +345,9 @@ function AgentEnrollmentSettings({
   ));
   const [caBundlePem, setCaBundlePem] = useState("");
   const [fallbackAllowed, setFallbackAllowed] = useState(profile?.bootstrap_fallback_allowed ?? true);
+  const [legacyGraceUntil, setLegacyGraceUntil] = useState(
+    datetimeLocalValue(profile?.legacy_unbound_token_grace_until),
+  );
   const [validationError, setValidationError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -368,6 +371,7 @@ function AgentEnrollmentSettings({
       2,
     ));
     setFallbackAllowed(profile?.bootstrap_fallback_allowed ?? true);
+    setLegacyGraceUntil(datetimeLocalValue(profile?.legacy_unbound_token_grace_until));
     setCaBundlePem("");
     setValidationError("");
   }, [cluster.cluster_id, profile?.updated_at, profile?.mode]);
@@ -405,6 +409,9 @@ function AgentEnrollmentSettings({
         expected_daemon_set_uid: expectedDaemonSetUid.trim(),
         required_pod_labels: parsedLabels,
         allowed_image_digest: allowedImageDigest.trim(),
+        legacy_unbound_token_grace_until: legacyGraceUntil
+          ? new Date(legacyGraceUntil).toISOString()
+          : null,
         bootstrap_fallback_allowed: fallbackAllowed,
       });
       setCaBundlePem("");
@@ -425,6 +432,8 @@ function AgentEnrollmentSettings({
         <div><span>{t("CA fingerprint")}</span><strong className="fingerprint">{profile?.ca_sha256 || "n/a"}</strong></div>
         <div><span>{t("Profile version")}</span><strong>{profile?.profile_version || "n/a"}</strong></div>
         <div><span>{t("Workload identity")}</span><strong>{profile?.workload_identity_ready ? t("Ready") : t("Binding required")}</strong></div>
+        <div><span>{t("Legacy unbound agents")}</span><strong>{profile?.legacy_unbound_agents?.length || 0}</strong></div>
+        <div><span>{t("Legacy grace expires")}</span><strong>{profile?.legacy_unbound_token_grace_until ? relativeTime(profile.legacy_unbound_token_grace_until) : t("Disabled")}</strong></div>
       </div>
       {mode === "kubernetes_token_review" && !profile?.workload_identity_ready && (
         <div className="enrollment-token-status">
@@ -442,6 +451,24 @@ function AgentEnrollmentSettings({
         <div className="enrollment-token-status">
           <Icon name="arrow-repeat" />
           <strong>{t("Bootstrap token rotation required")}</strong>
+        </div>
+      )}
+      {!!profile?.legacy_unbound_agents?.length && (
+        <div className="enrollment-legacy-agents">
+          <div className="enrollment-token-status">
+            <Icon name="exclamation-triangle" />
+            <strong>{t("These agents must re-register before the cluster grace expires.")}</strong>
+          </div>
+          <ResponsiveTable
+            empty={t("No legacy unbound agents.")}
+            columns={[t("Node"), t("Status"), t("Last heartbeat"), t("Token state")]}
+            rows={profile.legacy_unbound_agents.map((agent) => [
+              agent.node_name,
+              <StatusBadge value={agent.status} tone={agent.token_revoked ? "red" : "amber"} t={t} />,
+              relativeTime(agent.last_heartbeat_at),
+              agent.token_revoked ? t("Revoked") : t("Active"),
+            ])}
+          />
         </div>
       )}
       {canAdmin && (
@@ -464,6 +491,16 @@ function AgentEnrollmentSettings({
               <label>{t("Expected DaemonSet name")}<input className="form-control font-monospace" value={expectedDaemonSetName} disabled={busy} onChange={(event) => setExpectedDaemonSetName(event.target.value)} /></label>
               <label>{t("Expected DaemonSet UID")}<input className="form-control font-monospace" value={expectedDaemonSetUid} disabled={busy} onChange={(event) => setExpectedDaemonSetUid(event.target.value)} /></label>
               <label>{t("Allowed Agent image digest")}<input className="form-control font-monospace" value={allowedImageDigest} disabled={busy} placeholder="sha256:..." onChange={(event) => setAllowedImageDigest(event.target.value)} /></label>
+              <label>
+                {t("Legacy grace expires")}
+                <input
+                  className="form-control"
+                  type="datetime-local"
+                  value={legacyGraceUntil}
+                  disabled={busy}
+                  onChange={(event) => setLegacyGraceUntil(event.target.value)}
+                />
+              </label>
               <label className="wide">
                 {t("Required Pod labels")}
                 <textarea className="form-control enrollment-ca" rows={5} required value={requiredLabels} disabled={busy} onChange={(event) => setRequiredLabels(event.target.value)} />
@@ -492,6 +529,18 @@ function AgentEnrollmentSettings({
 
 function enrollmentModeLabel(mode: AgentEnrollmentProfile["mode"] | undefined, t: TFunction): string {
   return mode === "kubernetes_token_review" ? t("Kubernetes TokenReview") : t("Bootstrap token");
+}
+
+function datetimeLocalValue(value?: string | null): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function AgentTable({ agents, t }: { agents: AgentHealthView[]; t: TFunction }) {

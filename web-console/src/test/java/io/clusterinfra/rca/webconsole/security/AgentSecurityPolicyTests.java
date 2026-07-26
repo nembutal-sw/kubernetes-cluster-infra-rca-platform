@@ -24,14 +24,16 @@ class AgentSecurityPolicyTests {
     }
 
     @Test
-    void legacyUnboundTokensRequireAnExplicitUnexpiredGraceDeadline() {
+    void deprecatedGlobalGraceRemainsDetectableForStartupRejection() {
         RcaConsoleProperties properties = new RcaConsoleProperties();
-        assertThat(policy(properties).allowsLegacyUnboundAgentToken()).isFalse();
+        assertThat(policy(properties).legacyUnboundTokenGraceUntil())
+            .isEqualTo(Instant.EPOCH);
 
         properties.getSecurity().setLegacyUnboundAgentTokenGraceUntil(
             "2026-07-28T00:00:00Z"
         );
-        assertThat(policy(properties).allowsLegacyUnboundAgentToken()).isTrue();
+        assertThat(policy(properties).legacyUnboundTokenGraceUntil())
+            .isEqualTo(Instant.parse("2026-07-28T00:00:00Z"));
     }
 
     @Test

@@ -36,6 +36,12 @@ The chart can render:
 
 ```yaml
 platform:
+  agentEnrollmentPreflight:
+    enabled: true
+    mode: audit
+    targetAudience: cluster-infra-rca-agent-enrollment
+    clusters: []
+    confirm: ""
   kubernetesReviewer:
     enabled: false
     rbacCreate: true
@@ -121,9 +127,14 @@ ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여�
 
 Reviewer audience는 `platform.config.kubernetesApiAudiences`에도 포함되어야 하며 누락하면 Helm
 렌더링이 실패한다. Backend는 이 목록과 동일한 audience를 Agent enrollment profile에 저장하지
-못하게 한다. V24 이전 node token을 순차 재등록해야 한다면
-`platform.config.legacyUnboundAgentTokenGraceUntil`에 ISO-8601 UTC 종료 시각을 지정한다. 빈 값은
-즉시 차단이며 현재 시각 기준 최대 30일까지만 허용된다.
+못하게 한다.
+
+`platform.agentEnrollmentPreflight`는 Helm `pre-upgrade` Job이다. 기본 `audit` mode는 기존 DB에
+Kubernetes API audience를 사용하는 profile이 있으면 upgrade를 중단한다. `apply` mode는 정확한
+확인 문자열과 cluster allowlist가 모두 있어야 렌더링되며, 선택한 profile의 audience와 version을
+변경하고 기존 node token을 폐기한다. cluster별 V24 이전 token 유예는 upgrade 후 Web Console에서
+최대 30일로 설정한다. 전체 순서는 [Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를
+따른다.
 
 opaque token pepper는 한 번에 교체하지 않습니다. 운영에서는 기존 Secret에 current/previous
 key를 함께 저장하고 `opaqueTokenKeyRingRevision`을 단계마다 변경해 Pod rollout을 강제합니다.

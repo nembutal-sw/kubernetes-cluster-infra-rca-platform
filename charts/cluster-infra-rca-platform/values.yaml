@@ -53,6 +53,13 @@ platform:
   replicaCount: 1
   revisionHistoryLimit: 3
   terminationGracePeriodSeconds: 30
+  agentEnrollmentPreflight:
+    enabled: true
+    mode: audit
+    targetAudience: cluster-infra-rca-agent-enrollment
+    clusters: []
+    confirm: ""
+    backoffLimit: 0
   serviceAccount:
     create: true
     name: ""
@@ -150,9 +157,6 @@ platform:
     kubernetesApiAudiences:
       - https://kubernetes.default.svc
       - https://kubernetes.default.svc.cluster.local
-    # Optional ISO-8601 UTC deadline, capped at 30 days. Empty rejects legacy
-    # node tokens that are not bound to an enrollment profile immediately.
-    legacyUnboundAgentTokenGraceUntil: ""
     agentOfflineAfterSeconds: 180
     agentExpectedVersion: ""
     agentMinimumSupportedVersion: "0.1.0"

@@ -162,8 +162,11 @@ HTTPS.
 Agent enrollment profile은 `bootstrap_token`과 `kubernetes_token_review` mode를 선택합니다. 조회
 응답은 CA 원문을 제외하고 fingerprint만 반환하며 변경은 `ADMIN` 전용입니다. TokenReview profile은
 `profile_version`, Backend reviewer token path, 예상 ServiceAccount/DaemonSet UID, 필수 Pod label,
-허용 image digest와 `workload_identity_ready`를 포함합니다. 보안 계약 변경은 기존 node token을
-폐기합니다. 자세한 설정은 [Agent Enrollment](agent-enrollment.md)을 참고합니다.
+허용 image digest와 `workload_identity_ready`를 포함합니다. V25 응답은 cluster별
+`legacy_unbound_token_grace_until`과 profile 미결합 node의 이름, 상태, 마지막 heartbeat,
+token 폐기 여부를 함께 반환합니다. 보안 계약 변경은 기존 node token을 폐기하지만 grace 변경만으로
+이미 profile에 결합된 token을 폐기하지는 않습니다. 자세한 설정은
+[Agent Enrollment](agent-enrollment.md)을 참고합니다.
 
 Evidence request lists support `node_name`, `status`, `before`, and `limit` filters.
 The default limit is 100 and the maximum is 200.

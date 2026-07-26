@@ -61,6 +61,26 @@ class AgentEnrollmentSecurityStartupValidatorTests {
             .doesNotThrowAnyException();
     }
 
+    @Test
+    void rejectsDeprecatedPlatformWideLegacyGraceConfiguration() {
+        MockEnvironment environment = new MockEnvironment();
+        AgentEnrollmentRepository repository = mock(AgentEnrollmentRepository.class);
+        RcaConsoleProperties properties = new RcaConsoleProperties();
+        properties.getSecurity().setLegacyUnboundAgentTokenGraceUntil(
+            Instant.now().plusSeconds(3600).toString()
+        );
+        AgentEnrollmentSecurityStartupValidator validator =
+            new AgentEnrollmentSecurityStartupValidator(
+                environment,
+                repository,
+                new AgentSecurityPolicy(properties)
+            );
+
+        assertThatThrownBy(() -> validator.run(mock(ApplicationArguments.class)))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("each enrollment profile");
+    }
+
     private AgentEnrollmentConfiguration configuration(
         String clusterId,
         String audience

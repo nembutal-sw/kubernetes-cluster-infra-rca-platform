@@ -494,6 +494,7 @@ class AgentRepositoryTests {
     @Test
     void legacyUnboundNodeTokenIsAcceptedOnlyDuringExplicitGracePeriod() {
         var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var otherCluster = clusters.create(new ClusterCreateRequest("prod-b", "prod", null));
         var registered = agents.register(new NodeAgentRegisterRequest(
             cluster.clusterId(),
             "node-a",
@@ -503,26 +504,39 @@ class AgentRepositoryTests {
             List.of("node"),
             Map.of()
         ));
+        var otherRegistered = agents.register(new NodeAgentRegisterRequest(
+            otherCluster.clusterId(),
+            "node-b",
+            otherCluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("node"),
+            Map.of()
+        ));
         insertEnrollmentProfile(cluster.clusterId(), 1);
-        RcaConsoleProperties properties = new RcaConsoleProperties();
-        properties.getSecurity().setLegacyUnboundAgentTokenGraceUntil(
-            Instant.now().plus(java.time.Duration.ofHours(1)).toString()
-        );
-        AgentRepository graceRepository = new AgentRepository(
-            jdbc,
-            objectMapper(),
-            tokenGenerator(),
-            opaqueTokenHasher(),
-            passwordHasher(),
-            clusters,
-            new AgentSecurityPolicy(properties)
+        insertEnrollmentProfile(otherCluster.clusterId(), 1);
+        jdbc.update(
+            "UPDATE agent_enrollment_profiles SET legacy_token_grace_until = ? WHERE cluster_id = ?",
+            Timestamp.from(Instant.now().plus(java.time.Duration.ofHours(1))),
+            cluster.clusterId()
         );
 
-        assertThat(graceRepository.verifyNodeToken(
+        assertThat(agents.verifyNodeToken(
             cluster.clusterId(),
             "node-a",
             registered.nodeToken()
         )).isTrue();
+        assertThat(agents.verifyNodeToken(
+            otherCluster.clusterId(),
+            "node-b",
+            otherRegistered.nodeToken()
+        )).isFalse();
+        assertThat(agents.legacyUnboundAgents(cluster.clusterId()))
+            .singleElement()
+            .satisfies(agent -> {
+                assertThat(agent.nodeName()).isEqualTo("node-a");
+                assertThat(agent.tokenRevoked()).isFalse();
+            });
     }
 
     private Map<String, Object> trustedIdentity(long version, String podUid, String daemonSetUid) {

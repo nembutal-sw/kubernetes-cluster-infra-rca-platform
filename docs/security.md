@@ -75,7 +75,7 @@ Human passwords use PBKDF2-HMAC-SHA256. Random 256-bit bootstrap and node creden
 
 The Agent requests node-token rotation every 30 days by default. It durably stages the pending value, proves it with a heartbeat, and then commits it locally. Restart, transient API failure, and rejected-pending rollback are covered without reusing the bootstrap credential.
 
-Enrollment profiles carry a monotonically increasing version. Security-contract changes revoke existing node credentials, and node authentication requires the stored version to match the current profile. Pre-V24 unbound credentials are rejected by default and can only be accepted until an explicitly configured UTC deadline no more than 30 days ahead. An active Kubernetes identity cannot be replaced by a different Pod UID until an administrator explicitly revokes the node credential.
+Enrollment profiles carry a monotonically increasing version. Security-contract changes revoke existing node credentials, and node authentication requires the stored version to match the current profile. Pre-V24 unbound credentials are rejected by default and can only be accepted by a cluster-scoped UTC deadline no more than 30 days ahead. A platform-wide grace setting is rejected at startup. An active Kubernetes identity cannot be replaced by a different Pod UID until an administrator explicitly revokes the node credential.
 
 Strict TokenReview mode revokes the cluster bootstrap credential and disables fallback. Switching back to bootstrap mode does not silently mint a replacement; the Console reports that explicit token rotation is required.
 

@@ -277,9 +277,11 @@ TokenReview profile은 배포 전 staged 상태로 저장한 뒤 ServiceAccount/
 권한과 canary 절차는 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
 
 Agent audience와 Kubernetes API audience가 같으면 profile 저장과 운영 기동, Agent Helm 렌더링이
-거부됩니다. V24 이전의 profile 미결합 node token은 기본적으로 거부하며, 무중단 재등록이 필요한
-경우에만 `RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL`에 최대 30일 이내의 UTC 종료 시각을
-명시합니다.
+거부됩니다. Platform Helm upgrade는 기본 `audit` pre-upgrade hook으로 기존 DB의 위험 profile을
+먼저 검사하며, 발견하면 배포를 중단합니다. 대상 cluster를 명시한 migration을 수행한 뒤 다시
+upgrade해야 합니다. V24 이전 profile 미결합 node token은 기본적으로 거부하며, 필요한 cluster에만
+Web Console에서 최대 30일의 재등록 유예를 설정할 수 있습니다. 자세한 절차는
+[Agent Enrollment Upgrade](docs/agent-enrollment-upgrade.md)를 확인합니다.
 
 Node token은 기본 30일마다 자동 교체합니다. 새 token은 로컬 state에 원자적으로 보관하고 heartbeat 인증이 성공한 뒤 활성화합니다. 재시작이나 일시적 통신 실패가 발생해도 이전 token으로 복구하며, 주기와 재시도 간격은 `nodeTokenRotationDays`, `nodeTokenRotationRetrySeconds`로 조정합니다.
 

@@ -134,18 +134,18 @@ profile의 보안 필드가 바뀌면 `profile_version`이 증가하고 기존 n
 node token 검증 시 등록 당시 profile version과 현재 version도 비교한다.
 
 V24 이전에 발급되어 `enrollment_profile_version`이 비어 있는 node token은 현재 profile이
-존재하면 기본 거부된다. 순차 재등록을 위한 유예가 필요할 때만 아래처럼 절대 종료 시각을 지정한다.
-
-```bash
-export RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL='2026-07-28T00:00:00Z'
-```
-
-유예는 현재 시각 기준 최대 30일이며, 종료 후 기존 token은 자동으로 인증되지 않는다. 운영자는
-유예 안에 Agent를 재등록해 profile version, ServiceAccount UID, DaemonSet UID를 결합해야 한다.
+존재하면 기본 거부된다. 순차 재등록 유예는 Web Console의 cluster별 enrollment profile에서만
+설정한다. 유예는 현재 시각 기준 최대 30일이며, 종료 후 기존 token은 자동으로 인증되지 않는다.
+화면에는 해당 cluster의 profile 미결합 Agent와 마지막 heartbeat, token 폐기 상태가 함께 표시된다.
+운영자는 유예 안에 Agent를 재등록해 profile version, ServiceAccount UID, DaemonSet UID를
+결합해야 한다. 과거 전역 설정 `RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL`이 남아 있으면
+Platform은 기동을 거부한다.
 
 같은 node 이름에 활성 identity가 있으면 다른 Pod UID가 등록 정보를 덮어쓸 수 없다. DaemonSet을
 재생성하거나 Agent state를 잃은 경우 관리자가 해당 node token을 명시적으로 revoke한 뒤
 재등록한다. 같은 profile version에서는 ServiceAccount UID와 DaemonSet UID 연속성도 유지해야 한다.
+
+기존 DB의 audience 전환 절차는 [Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를 따른다.
 
 ## Strict Mode Recovery
 

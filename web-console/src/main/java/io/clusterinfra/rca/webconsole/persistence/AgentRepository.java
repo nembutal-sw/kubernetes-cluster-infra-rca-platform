@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.LegacyUnboundAgent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
@@ -351,7 +352,8 @@ public class AgentRepository {
                     SELECT n.node_token_hash, n.node_token_revoked_at,
                            n.next_node_token_hash, n.next_node_token_expires_at,
                            n.enrollment_profile_version,
-                           p.profile_version AS current_profile_version
+                           p.profile_version AS current_profile_version,
+                           p.legacy_token_grace_until
                     FROM node_agents n
                     LEFT JOIN agent_enrollment_profiles p ON p.cluster_id = n.cluster_id
                     WHERE n.cluster_id = ? AND n.node_name = ?
@@ -362,7 +364,8 @@ public class AgentRepository {
                     resultSet.getString("next_node_token_hash"),
                     instant(resultSet, "next_node_token_expires_at"),
                     nullableLong(resultSet, "enrollment_profile_version"),
-                    nullableLong(resultSet, "current_profile_version")
+                    nullableLong(resultSet, "current_profile_version"),
+                    instant(resultSet, "legacy_token_grace_until")
                 ),
                 clusterId,
                 normalizedNodeName(nodeName)
@@ -457,7 +460,8 @@ public class AgentRepository {
                     SELECT n.node_token_hash, n.node_token_revoked_at,
                            n.next_node_token_hash, n.next_node_token_expires_at,
                            n.enrollment_profile_version,
-                           p.profile_version AS current_profile_version
+                           p.profile_version AS current_profile_version,
+                           p.legacy_token_grace_until
                     FROM node_agents n
                     LEFT JOIN agent_enrollment_profiles p ON p.cluster_id = n.cluster_id
                     WHERE n.cluster_id = ? AND n.node_name = ?
@@ -468,7 +472,8 @@ public class AgentRepository {
                     resultSet.getString("next_node_token_hash"),
                     instant(resultSet, "next_node_token_expires_at"),
                     nullableLong(resultSet, "enrollment_profile_version"),
-                    nullableLong(resultSet, "current_profile_version")
+                    nullableLong(resultSet, "current_profile_version"),
+                    instant(resultSet, "legacy_token_grace_until")
                 ),
                 clusterId,
                 normalizedNodeName(nodeName)
@@ -520,6 +525,24 @@ public class AgentRepository {
                 WHERE cluster_id = ? AND node_token_revoked_at IS NULL
                 """,
             timestamp(Instant.now()),
+            clusterId
+        );
+    }
+
+    public List<LegacyUnboundAgent> legacyUnboundAgents(String clusterId) {
+        return jdbc.query(
+            """
+                SELECT node_name, status, last_heartbeat_at, node_token_revoked_at
+                FROM node_agents
+                WHERE cluster_id = ? AND enrollment_profile_version IS NULL
+                ORDER BY node_name
+                """,
+            (resultSet, rowNumber) -> new LegacyUnboundAgent(
+                resultSet.getString("node_name"),
+                AgentStatus.valueOf(resultSet.getString("status")),
+                instant(resultSet, "last_heartbeat_at"),
+                instant(resultSet, "node_token_revoked_at") != null
+            ),
             clusterId
         );
     }
@@ -598,7 +621,8 @@ public class AgentRepository {
             return row.enrollmentProfileVersion() == null;
         }
         if (row.enrollmentProfileVersion() == null) {
-            return securityPolicy.allowsLegacyUnboundAgentToken();
+            return row.legacyTokenGraceUntil() != null
+                && Instant.now().isBefore(row.legacyTokenGraceUntil());
         }
         return Objects.equals(
             row.enrollmentProfileVersion(),
@@ -612,7 +636,8 @@ public class AgentRepository {
         String nextHash,
         Instant nextExpiresAt,
         Long enrollmentProfileVersion,
-        Long currentProfileVersion
+        Long currentProfileVersion,
+        Instant legacyTokenGraceUntil
     ) {
     }
 

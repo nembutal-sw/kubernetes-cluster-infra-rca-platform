@@ -235,7 +235,13 @@ jobs:
           grep -q 'resources: \["pods"\]' <<< "${reviewer}"
           grep -q 'name: kubernetes-reviewer-token' <<< "${reviewer}"
           grep -q 'name: RCA_KUBERNETES_API_AUDIENCES' <<< "${reviewer}"
-          grep -q 'name: RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL' <<< "${reviewer}"
+          grep -q 'helm.sh/hook: pre-upgrade' <<< "${reviewer}"
+          grep -q 'name: RCA_AGENT_ENROLLMENT_MIGRATION_MODE' <<< "${reviewer}"
+          grep -q 'value: "audit"' <<< "${reviewer}"
+          if grep -q 'name: RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL' <<< "${reviewer}"; then
+            echo "platform-wide legacy Agent grace must not be rendered" >&2
+            exit 1
+          fi
           if helm template rca charts/cluster-infra-rca-platform \
             --set platform.kubernetesReviewer.enabled=true \
             --set-json 'platform.config.kubernetesApiAudiences=["https://other.example"]' \
@@ -243,6 +249,20 @@ jobs:
             echo "reviewer audience must be declared as a Kubernetes API audience" >&2
             exit 1
           fi
+          if helm template rca charts/cluster-infra-rca-platform \
+            --set platform.agentEnrollmentPreflight.mode=apply \
+            --set-json 'platform.agentEnrollmentPreflight.clusters=["cluster-a"]' \
+            >/dev/null 2>&1; then
+            echo "Agent enrollment migration apply must require explicit confirmation" >&2
+            exit 1
+          fi
+          migration_apply="$(helm template rca charts/cluster-infra-rca-platform \
+            --show-only templates/platform-agent-enrollment-preflight-job.yaml \
+            --set platform.agentEnrollmentPreflight.mode=apply \
+            --set-string platform.agentEnrollmentPreflight.confirm=APPLY_AGENT_ENROLLMENT_AUDIENCE_MIGRATION \
+            --set-json 'platform.agentEnrollmentPreflight.clusters=["cluster-a"]')"
+          grep -q 'value: "apply"' <<< "${migration_apply}"
+          grep -q 'value: "cluster-a"' <<< "${migration_apply}"
       - name: Evaluate rendered LLM alert rules
         run: python3 scripts/llm_prometheus_rule_test.py --helm helm --promtool promtool
       - name: Test Prometheus Alertmanager webhook delivery

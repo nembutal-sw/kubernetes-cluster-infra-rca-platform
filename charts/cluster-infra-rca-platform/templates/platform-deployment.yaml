@@ -110,8 +110,6 @@ spec:
               value: {{ .Values.platform.config.agentMtlsRequired | quote }}
             - name: RCA_KUBERNETES_API_AUDIENCES
               value: {{ join "," .Values.platform.config.kubernetesApiAudiences | quote }}
-            - name: RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL
-              value: {{ .Values.platform.config.legacyUnboundAgentTokenGraceUntil | quote }}
             - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
             - name: RCA_AGENT_EXPECTED_VERSION

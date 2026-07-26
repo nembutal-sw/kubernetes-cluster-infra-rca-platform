@@ -30,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AgentEnrollmentService {
+    private static final Duration MAX_LEGACY_UNBOUND_TOKEN_GRACE = Duration.ofDays(30);
     private static final Pattern DNS_LABEL = Pattern.compile("[a-z0-9](?:[-a-z0-9]*[a-z0-9])?");
     private static final Pattern SERVICE_ACCOUNT = Pattern.compile(
         "[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?"
@@ -147,6 +148,10 @@ public class AgentEnrollmentService {
             previous == null ? null : previous.allowedImageDigest()
         );
         Instant now = Instant.now();
+        Instant legacyUnboundTokenGraceUntil = legacyUnboundTokenGraceUntil(
+            request.legacyUnboundTokenGraceUntil(),
+            now
+        );
         AgentEnrollmentConfiguration candidate = new AgentEnrollmentConfiguration(
             clusterId,
             AgentEnrollmentMode.kubernetes_token_review,
@@ -163,6 +168,7 @@ public class AgentEnrollmentService {
             expectedDaemonSetUid,
             requiredPodLabels,
             allowedImageDigest,
+            legacyUnboundTokenGraceUntil,
             request.fallbackAllowedOrDefault(),
             previous == null ? now : previous.createdAt(),
             now
@@ -204,6 +210,8 @@ public class AgentEnrollmentService {
             profile.workloadIdentityReady(),
             profile.bootstrapFallbackAllowed(),
             bootstrapTokenRequiresRotation(clusterId),
+            profile.legacyUnboundTokenGraceUntil(),
+            agents.legacyUnboundAgents(clusterId),
             profile.updatedAt()
         );
     }
@@ -383,6 +391,23 @@ public class AgentEnrollmentService {
         return selected;
     }
 
+    private Instant legacyUnboundTokenGraceUntil(Instant requested, Instant now) {
+        if (requested == null) {
+            return null;
+        }
+        if (!requested.isAfter(now)) {
+            throw invalid("legacy_unbound_token_grace_until must be in the future");
+        }
+        if (requested.isAfter(now.plus(MAX_LEGACY_UNBOUND_TOKEN_GRACE))) {
+            throw invalid(
+                "legacy_unbound_token_grace_until must be no more than "
+                    + MAX_LEGACY_UNBOUND_TOKEN_GRACE.toDays()
+                    + " days in the future"
+            );
+        }
+        return requested;
+    }
+
     private boolean sameSecurityContract(
         AgentEnrollmentConfiguration previous,
         AgentEnrollmentConfiguration candidate
@@ -421,6 +446,7 @@ public class AgentEnrollmentService {
             value.expectedDaemonSetUid(),
             value.requiredPodLabels(),
             value.allowedImageDigest(),
+            value.legacyUnboundTokenGraceUntil(),
             value.bootstrapFallbackAllowed(),
             value.createdAt(),
             value.updatedAt()

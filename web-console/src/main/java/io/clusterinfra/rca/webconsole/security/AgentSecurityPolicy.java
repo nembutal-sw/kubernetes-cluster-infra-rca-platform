@@ -40,10 +40,6 @@ public class AgentSecurityPolicy {
         return audience != null && kubernetesApiAudiences.contains(audience.trim());
     }
 
-    public boolean allowsLegacyUnboundAgentToken() {
-        return clock.instant().isBefore(legacyUnboundTokenGraceUntil);
-    }
-
     public Set<String> kubernetesApiAudiences() {
         return kubernetesApiAudiences;
     }

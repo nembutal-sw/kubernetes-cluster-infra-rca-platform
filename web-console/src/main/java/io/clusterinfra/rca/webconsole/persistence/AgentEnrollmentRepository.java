@@ -81,8 +81,9 @@ public class AgentEnrollmentRepository {
                              profile_version, reviewer_token_path, expected_service_account_uid,
                              expected_daemonset_name, expected_daemonset_uid,
                              required_pod_labels_json, allowed_image_digest,
+                             legacy_token_grace_until,
                              bootstrap_fallback_allowed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     configuration.clusterId(),
                     configuration.mode().name(),
@@ -99,6 +100,7 @@ public class AgentEnrollmentRepository {
                     configuration.expectedDaemonSetUid(),
                     json(configuration.requiredPodLabels()),
                     configuration.allowedImageDigest(),
+                    timestamp(configuration.legacyUnboundTokenGraceUntil()),
                     configuration.bootstrapFallbackAllowed(),
                     timestamp(configuration.createdAt()),
                     timestamp(configuration.updatedAt())
@@ -123,7 +125,8 @@ public class AgentEnrollmentRepository {
                     profile_version = ?, reviewer_token_path = ?,
                     expected_service_account_uid = ?, expected_daemonset_name = ?,
                     expected_daemonset_uid = ?, required_pod_labels_json = ?,
-                    allowed_image_digest = ?, bootstrap_fallback_allowed = ?, updated_at = ?
+                    allowed_image_digest = ?, legacy_token_grace_until = ?,
+                    bootstrap_fallback_allowed = ?, updated_at = ?
                 WHERE cluster_id = ?
                 """,
             configuration.mode().name(),
@@ -140,6 +143,7 @@ public class AgentEnrollmentRepository {
             configuration.expectedDaemonSetUid(),
             json(configuration.requiredPodLabels()),
             configuration.allowedImageDigest(),
+            timestamp(configuration.legacyUnboundTokenGraceUntil()),
             configuration.bootstrapFallbackAllowed(),
             timestamp(configuration.updatedAt()),
             configuration.clusterId()
@@ -163,6 +167,7 @@ public class AgentEnrollmentRepository {
             resultSet.getString("expected_daemonset_uid"),
             labels(resultSet.getString("required_pod_labels_json")),
             resultSet.getString("allowed_image_digest"),
+            instant(resultSet, "legacy_token_grace_until"),
             resultSet.getBoolean("bootstrap_fallback_allowed"),
             instant(resultSet, "created_at"),
             instant(resultSet, "updated_at")
@@ -213,6 +218,7 @@ public class AgentEnrollmentRepository {
         String expectedDaemonSetUid,
         Map<String, String> requiredPodLabels,
         String allowedImageDigest,
+        Instant legacyUnboundTokenGraceUntil,
         boolean bootstrapFallbackAllowed,
         Instant createdAt,
         Instant updatedAt
@@ -233,7 +239,35 @@ public class AgentEnrollmentRepository {
             this(
                 clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
                 serviceAccount, 1, null, null, null, null, Map.of(), null,
-                bootstrapFallbackAllowed, createdAt, updatedAt
+                null, bootstrapFallbackAllowed, createdAt, updatedAt
+            );
+        }
+
+        public AgentEnrollmentConfiguration(
+            String clusterId,
+            AgentEnrollmentMode mode,
+            String apiServerUrl,
+            String caBundlePem,
+            String caSha256,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            long profileVersion,
+            String reviewerTokenPath,
+            String expectedServiceAccountUid,
+            String expectedDaemonSetName,
+            String expectedDaemonSetUid,
+            Map<String, String> requiredPodLabels,
+            String allowedImageDigest,
+            boolean bootstrapFallbackAllowed,
+            Instant createdAt,
+            Instant updatedAt
+        ) {
+            this(
+                clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
+                serviceAccount, profileVersion, reviewerTokenPath, expectedServiceAccountUid,
+                expectedDaemonSetName, expectedDaemonSetUid, requiredPodLabels,
+                allowedImageDigest, null, bootstrapFallbackAllowed, createdAt, updatedAt
             );
         }
 
@@ -270,6 +304,8 @@ public class AgentEnrollmentRepository {
                 workloadIdentityReady(),
                 bootstrapFallbackAllowed,
                 false,
+                legacyUnboundTokenGraceUntil,
+                List.of(),
                 updatedAt
             );
         }

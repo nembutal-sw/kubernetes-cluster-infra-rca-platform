@@ -89,6 +89,7 @@ def main() -> int:
             "agent-tokenreview-enrollment",
             exists("web-console/src/main/resources/db/migration/V23__agent_enrollment_profiles.sql")
             and exists("web-console/src/main/resources/db/migration/V24__agent_workload_identity.sql")
+            and exists("web-console/src/main/resources/db/migration/V25__cluster_scoped_agent_legacy_grace.sql")
             and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/AgentSecurityPolicy.java"
             )
@@ -130,11 +131,32 @@ def main() -> int:
                 "Agent enrollment audience must not match a Kubernetes API audience",
                 "enrollment.audience=cluster-infra-rca-agent-enrollment",
                 "agent-manifest-parity.py",
+                "Agent enrollment migration apply must require explicit confirmation",
             )
             and contains(
                 "docker-compose.yml",
                 "RCA_KUBERNETES_API_AUDIENCES",
+            )
+            and excludes(
+                "docker-compose.yml",
                 "RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/persistence/AgentRepository.java",
+                "legacyTokenGraceUntil",
+                "legacyUnboundAgents",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-agent-enrollment-preflight-job.yaml",
+                "helm.sh/hook: pre-upgrade",
+                "RCA_AGENT_ENROLLMENT_MIGRATION_CONFIRM",
+                "RCA_AGENT_ENROLLMENT_MIGRATION_CLUSTERS",
+            )
+            and contains(
+                "scripts/kind-smoke.sh",
+                "validate_audience_boundary",
+                "enrollment_token_rejected_as_api_credential",
+                "enrollment_token_authenticated_by_token_review",
             ),
             "Agent enrollment uses a dedicated audience, binds workload identity, and fences legacy profile-unbound tokens.",
         ),

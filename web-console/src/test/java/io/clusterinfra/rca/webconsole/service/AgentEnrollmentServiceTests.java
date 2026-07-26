@@ -241,6 +241,55 @@ class AgentEnrollmentServiceTests {
         verify(agents, times(2)).revokeNodeTokensForEnrollmentChange("cluster-1");
     }
 
+    @Test
+    void legacyGraceIsClusterScopedAndLimitedToThirtyDays() {
+        saveReturnsInput();
+        Instant graceUntil = Instant.now().plus(java.time.Duration.ofDays(7));
+        AgentEnrollmentProfileUpdateRequest allowed = new AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            TEST_CA,
+            "cluster-infra-rca-agent-enrollment",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "service-account-uid",
+            "cluster-infra-rca-agent",
+            "daemonset-uid",
+            java.util.Map.of(
+                "app.kubernetes.io/name", "cluster-infra-rca-agent",
+                "cluster-infra-rca.io/cluster-id", "cluster-1"
+            ),
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            graceUntil,
+            true
+        );
+
+        assertThat(service.update("cluster-1", allowed).legacyUnboundTokenGraceUntil())
+            .isEqualTo(graceUntil);
+
+        AgentEnrollmentProfileUpdateRequest excessive = new AgentEnrollmentProfileUpdateRequest(
+            allowed.mode(),
+            allowed.apiServerUrl(),
+            allowed.caBundlePem(),
+            allowed.audience(),
+            allowed.namespace(),
+            allowed.serviceAccount(),
+            allowed.reviewerTokenPath(),
+            allowed.expectedServiceAccountUid(),
+            allowed.expectedDaemonSetName(),
+            allowed.expectedDaemonSetUid(),
+            allowed.requiredPodLabels(),
+            allowed.allowedImageDigest(),
+            Instant.now().plus(java.time.Duration.ofDays(31)),
+            allowed.bootstrapFallbackAllowed()
+        );
+
+        assertThatThrownBy(() -> service.update("cluster-1", excessive))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("no more than 30 days");
+    }
+
     private AgentEnrollmentProfileUpdateRequest request(boolean fallback, String ca) {
         return new AgentEnrollmentProfileUpdateRequest(
             AgentEnrollmentMode.kubernetes_token_review,

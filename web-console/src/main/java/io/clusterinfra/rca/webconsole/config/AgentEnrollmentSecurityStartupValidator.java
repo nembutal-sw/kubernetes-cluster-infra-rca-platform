@@ -2,6 +2,7 @@ package io.clusterinfra.rca.webconsole.config;
 
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository;
 import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -30,6 +31,12 @@ public class AgentEnrollmentSecurityStartupValidator implements ApplicationRunne
 
     @Override
     public void run(ApplicationArguments args) {
+        if (!Instant.EPOCH.equals(securityPolicy.legacyUnboundTokenGraceUntil())) {
+            throw new IllegalStateException(
+                "RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL is no longer supported; "
+                    + "configure legacy_unbound_token_grace_until on each enrollment profile"
+            );
+        }
         if (!environment.acceptsProfiles(Profiles.of("prod", "production"))) {
             return;
         }

@@ -10,6 +10,8 @@ agent_soak_output_dir="${RCA_AGENT_SOAK_OUTPUT_DIR:-validation-results/kind-agen
 port_forward_pid=""
 test_succeeded="false"
 curl_command=(curl -fsS --retry 5 --retry-delay 1 --retry-connrefused --retry-all-errors)
+audience_api_status=""
+audience_token_review_status=""
 
 case "${agent_soak_profile}" in
   smoke|standard|extended) ;;
@@ -39,6 +41,96 @@ trap cleanup EXIT
 if ! kind get clusters | grep -Fxq "${cluster_name}"; then
   kind create cluster --name "${cluster_name}"
 fi
+
+validate_audience_boundary() {
+  local namespace="rca-audience-boundary"
+  local enrollment_audience="cluster-infra-rca-agent-enrollment"
+  local ca_file
+  local api_server
+  local enrollment_token
+  local reviewer_token
+  local review_response
+  local review_payload
+
+  kubectl create namespace "${namespace}" --dry-run=client -o yaml \
+    | kubectl apply -f - >/dev/null
+  cat <<'YAML' | kubectl -n "${namespace}" apply -f - >/dev/null
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: enrollment-subject
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: token-reviewer
+YAML
+  cat <<YAML | kubectl apply -f - >/dev/null
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rca-audience-boundary-reviewer
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rca-audience-boundary-reviewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rca-audience-boundary-reviewer
+subjects:
+  - kind: ServiceAccount
+    name: token-reviewer
+    namespace: ${namespace}
+YAML
+
+  enrollment_token="$(kubectl -n "${namespace}" create token enrollment-subject \
+    --audience="${enrollment_audience}" --duration=10m)"
+  reviewer_token="$(kubectl -n "${namespace}" create token token-reviewer --duration=10m)"
+  api_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+  ca_file="$(mktemp)"
+  kubectl config view --raw --minify \
+    -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' \
+    | base64 --decode > "${ca_file}"
+
+  audience_api_status="$(curl -sS --cacert "${ca_file}" \
+    -H "Authorization: Bearer ${enrollment_token}" \
+    -o /tmp/rca-enrollment-api-response.json \
+    -w '%{http_code}' \
+    "${api_server}/api")"
+  test "${audience_api_status}" = "401"
+
+  review_payload="$(jq -nc \
+    --arg token "${enrollment_token}" \
+    --arg audience "${enrollment_audience}" \
+    '{
+      apiVersion:"authentication.k8s.io/v1",
+      kind:"TokenReview",
+      spec:{token:$token,audiences:[$audience]}
+    }')"
+  review_response="$(mktemp)"
+  audience_token_review_status="$(curl -sS --cacert "${ca_file}" \
+    -H "Authorization: Bearer ${reviewer_token}" \
+    -H 'Content-Type: application/json' \
+    -d "${review_payload}" \
+    -o "${review_response}" \
+    -w '%{http_code}' \
+    "${api_server}/apis/authentication.k8s.io/v1/tokenreviews")"
+  test "${audience_token_review_status}" = "201"
+  jq -e \
+    --arg audience "${enrollment_audience}" \
+    '.status.authenticated == true and (.status.audiences | index($audience) != null)' \
+    "${review_response}" >/dev/null
+
+  rm -f "${ca_file}" "${review_response}" /tmp/rca-enrollment-api-response.json
+}
+
+validate_audience_boundary
 
 docker build -q -f Dockerfile.web-console -t rca-platform:smoke .
 docker build -q -f Dockerfile.agent -t rca-agent:smoke .
@@ -143,7 +235,19 @@ python3 scripts/agent-soak-validation.py \
   --require-runtime-observation \
   --health-url "http://127.0.0.1:${port}/health/ready" \
   --output-dir "${agent_soak_output_dir}"
+mkdir -p "${agent_soak_output_dir}"
+jq -n \
+  --arg enrollment_audience "cluster-infra-rca-agent-enrollment" \
+  --arg kubernetes_api_status "${audience_api_status}" \
+  --arg token_review_status "${audience_token_review_status}" \
+  '{
+    enrollment_audience:$enrollment_audience,
+    kubernetes_api_access_status:($kubernetes_api_status | tonumber),
+    token_review_status:($token_review_status | tonumber),
+    enrollment_token_rejected_as_api_credential:($kubernetes_api_status == "401"),
+    enrollment_token_authenticated_by_token_review:($token_review_status == "201")
+  }' > "${agent_soak_output_dir}/audience-boundary.json"
 unset RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN
 
 test_succeeded="true"
-echo "Kind multi-node platform, DaemonSet Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."
+echo "Kind audience isolation, TokenReview, multi-node platform, DaemonSet Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."
