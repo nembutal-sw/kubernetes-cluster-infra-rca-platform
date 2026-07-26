@@ -1,12 +1,17 @@
 package io.clusterinfra.rca.webconsole.persistence;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentMode;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentProfile;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -14,10 +19,20 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class AgentEnrollmentRepository {
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
+    };
+
     private final JdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
+
+    @Autowired
+    public AgentEnrollmentRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+        this.jdbc = jdbc;
+        this.objectMapper = objectMapper;
+    }
 
     public AgentEnrollmentRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this(jdbc, new ObjectMapper());
     }
 
     public Optional<AgentEnrollmentConfiguration> findConfiguration(String clusterId) {
@@ -30,6 +45,14 @@ public class AgentEnrollmentRepository {
         } catch (EmptyResultDataAccessException exception) {
             return Optional.empty();
         }
+    }
+
+    public void lockCluster(String clusterId) {
+        jdbc.queryForObject(
+            "SELECT cluster_id FROM clusters WHERE cluster_id = ? FOR UPDATE",
+            String.class,
+            clusterId
+        );
     }
 
     public AgentEnrollmentProfile view(String clusterId) {
@@ -47,8 +70,11 @@ public class AgentEnrollmentRepository {
                         INSERT INTO agent_enrollment_profiles
                             (cluster_id, mode, api_server_url, ca_bundle_pem, ca_sha256, audience,
                              service_account_namespace, service_account_name,
+                             profile_version, reviewer_token_path, expected_service_account_uid,
+                             expected_daemonset_name, expected_daemonset_uid,
+                             required_pod_labels_json, allowed_image_digest,
                              bootstrap_fallback_allowed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     configuration.clusterId(),
                     configuration.mode().name(),
@@ -58,6 +84,13 @@ public class AgentEnrollmentRepository {
                     configuration.audience(),
                     configuration.namespace(),
                     configuration.serviceAccount(),
+                    configuration.profileVersion(),
+                    configuration.reviewerTokenPath(),
+                    configuration.expectedServiceAccountUid(),
+                    configuration.expectedDaemonSetName(),
+                    configuration.expectedDaemonSetUid(),
+                    json(configuration.requiredPodLabels()),
+                    configuration.allowedImageDigest(),
                     configuration.bootstrapFallbackAllowed(),
                     timestamp(configuration.createdAt()),
                     timestamp(configuration.updatedAt())
@@ -79,7 +112,10 @@ public class AgentEnrollmentRepository {
                 UPDATE agent_enrollment_profiles
                 SET mode = ?, api_server_url = ?, ca_bundle_pem = ?, ca_sha256 = ?, audience = ?,
                     service_account_namespace = ?, service_account_name = ?,
-                    bootstrap_fallback_allowed = ?, updated_at = ?
+                    profile_version = ?, reviewer_token_path = ?,
+                    expected_service_account_uid = ?, expected_daemonset_name = ?,
+                    expected_daemonset_uid = ?, required_pod_labels_json = ?,
+                    allowed_image_digest = ?, bootstrap_fallback_allowed = ?, updated_at = ?
                 WHERE cluster_id = ?
                 """,
             configuration.mode().name(),
@@ -89,6 +125,13 @@ public class AgentEnrollmentRepository {
             configuration.audience(),
             configuration.namespace(),
             configuration.serviceAccount(),
+            configuration.profileVersion(),
+            configuration.reviewerTokenPath(),
+            configuration.expectedServiceAccountUid(),
+            configuration.expectedDaemonSetName(),
+            configuration.expectedDaemonSetUid(),
+            json(configuration.requiredPodLabels()),
+            configuration.allowedImageDigest(),
             configuration.bootstrapFallbackAllowed(),
             timestamp(configuration.updatedAt()),
             configuration.clusterId()
@@ -105,6 +148,13 @@ public class AgentEnrollmentRepository {
             resultSet.getString("audience"),
             resultSet.getString("service_account_namespace"),
             resultSet.getString("service_account_name"),
+            resultSet.getLong("profile_version"),
+            resultSet.getString("reviewer_token_path"),
+            resultSet.getString("expected_service_account_uid"),
+            resultSet.getString("expected_daemonset_name"),
+            resultSet.getString("expected_daemonset_uid"),
+            labels(resultSet.getString("required_pod_labels_json")),
+            resultSet.getString("allowed_image_digest"),
             resultSet.getBoolean("bootstrap_fallback_allowed"),
             instant(resultSet, "created_at"),
             instant(resultSet, "updated_at")
@@ -120,6 +170,25 @@ public class AgentEnrollmentRepository {
         return value == null ? null : Timestamp.from(value);
     }
 
+    private String json(Map<String, String> value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? Map.of() : value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("agent enrollment labels could not be serialized", exception);
+        }
+    }
+
+    private Map<String, String> labels(String value) {
+        try {
+            if (value == null || value.isBlank()) {
+                return Map.of();
+            }
+            return Map.copyOf(objectMapper.readValue(value, STRING_MAP));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("stored agent enrollment labels are invalid", exception);
+        }
+    }
+
     public record AgentEnrollmentConfiguration(
         String clusterId,
         AgentEnrollmentMode mode,
@@ -129,10 +198,50 @@ public class AgentEnrollmentRepository {
         String audience,
         String namespace,
         String serviceAccount,
+        long profileVersion,
+        String reviewerTokenPath,
+        String expectedServiceAccountUid,
+        String expectedDaemonSetName,
+        String expectedDaemonSetUid,
+        Map<String, String> requiredPodLabels,
+        String allowedImageDigest,
         boolean bootstrapFallbackAllowed,
         Instant createdAt,
         Instant updatedAt
     ) {
+        public AgentEnrollmentConfiguration(
+            String clusterId,
+            AgentEnrollmentMode mode,
+            String apiServerUrl,
+            String caBundlePem,
+            String caSha256,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            boolean bootstrapFallbackAllowed,
+            Instant createdAt,
+            Instant updatedAt
+        ) {
+            this(
+                clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
+                serviceAccount, 1, null, null, null, null, Map.of(), null,
+                bootstrapFallbackAllowed, createdAt, updatedAt
+            );
+        }
+
+        public AgentEnrollmentConfiguration {
+            requiredPodLabels = requiredPodLabels == null ? Map.of() : Map.copyOf(requiredPodLabels);
+        }
+
+        public boolean workloadIdentityReady() {
+            return reviewerTokenPath != null && !reviewerTokenPath.isBlank()
+                && expectedServiceAccountUid != null && !expectedServiceAccountUid.isBlank()
+                && expectedDaemonSetName != null && !expectedDaemonSetName.isBlank()
+                && expectedDaemonSetUid != null && !expectedDaemonSetUid.isBlank()
+                && !requiredPodLabels.isEmpty()
+                && allowedImageDigest != null && !allowedImageDigest.isBlank();
+        }
+
         public AgentEnrollmentProfile view() {
             return new AgentEnrollmentProfile(
                 clusterId,
@@ -143,6 +252,14 @@ public class AgentEnrollmentRepository {
                 audience,
                 namespace,
                 serviceAccount,
+                profileVersion,
+                reviewerTokenPath,
+                expectedServiceAccountUid,
+                expectedDaemonSetName,
+                expectedDaemonSetUid,
+                requiredPodLabels,
+                allowedImageDigest,
+                workloadIdentityReady(),
                 bootstrapFallbackAllowed,
                 false,
                 updatedAt

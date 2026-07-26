@@ -24,6 +24,11 @@ def contains(path: str, *needles: str) -> bool:
     return all(needle in text for needle in needles)
 
 
+def excludes(path: str, *needles: str) -> bool:
+    text = read(path)
+    return all(needle not in text for needle in needles)
+
+
 def check(name: str, ok: bool, detail: str) -> dict[str, object]:
     return {"name": name, "ok": ok, "detail": detail}
 
@@ -83,26 +88,46 @@ def main() -> int:
         check(
             "agent-tokenreview-enrollment",
             exists("web-console/src/main/resources/db/migration/V23__agent_enrollment_profiles.sql")
+            and exists("web-console/src/main/resources/db/migration/V24__agent_workload_identity.sql")
             and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/KubernetesTokenReviewService.java"
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/HttpKubernetesApiTransport.java",
+                "reviewerToken(configuration)",
+                "configuration.reviewerTokenPath()",
             )
             and contains(
                 "charts/cluster-infra-rca-agent/templates/daemonset.yaml",
                 "kubernetes-token-review",
                 "serviceAccountToken:",
                 "AGENT_IDENTITY_TOKEN_PATH",
+                "cluster-infra-rca.io/cluster-id",
             )
             and contains(
                 "charts/cluster-infra-rca-agent/templates/rbac.yaml",
+                'resources: ["daemonsets"]',
+                'verbs: ["get", "list"]',
+            )
+            and excludes(
+                "charts/cluster-infra-rca-agent/templates/rbac.yaml",
+                'resources: ["tokenreviews"]',
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-reviewer-rbac.yaml",
                 'resources: ["tokenreviews"]',
                 'verbs: ["create"]',
+                'resources: ["pods"]',
+                'verbs: ["get"]',
             )
             and contains(
                 ".github/workflows/ci.yml",
+                "Agent RBAC must not create TokenReview requests",
                 "TokenReview enrollment must not render a bootstrap token Secret key",
                 "enrollment.audience=https://kubernetes.default.svc",
+                "agent-manifest-parity.py",
             ),
-            "Agent enrollment supports projected Kubernetes identity with TokenReview and no rendered bootstrap secret.",
+            "Agent enrollment binds projected workload identity while only the platform reviewer can create TokenReviews.",
         ),
         check(
             "readiness-health",

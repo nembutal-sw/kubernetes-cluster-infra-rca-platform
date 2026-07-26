@@ -24,8 +24,9 @@ RCA_DB_PASSWORD=change-me
 
 Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니다.
 
-현재 스키마는 Flyway version 23입니다. 주요 최근 변경은 bootstrap/node token lifecycle(`V21`),
-notification outbox(`V22`), 클러스터별 Agent enrollment profile(`V23`)입니다. PostgreSQL,
+현재 스키마는 Flyway version 24입니다. 주요 최근 변경은 bootstrap/node token lifecycle(`V21`),
+notification outbox(`V22`), 클러스터별 Agent enrollment profile(`V23`), workload identity와
+profile-version-bound node token(`V24`)입니다. PostgreSQL,
 MariaDB, H2에서 동일한 migration 순서를 사용합니다.
 
 기계용 bootstrap/node token은 별도 schema 변경 없이 `hmac_sha256$v1$...` 형식으로 저장합니다. 기존 PBKDF2 token hash는 첫 인증 성공 시 조건부 UPDATE로 점진 전환하며, 동시에 회전·폐기가 발생하면 최신 credential을 다시 확인해 오래된 token을 승인하지 않습니다. 사용자 비밀번호의 PBKDF2 형식은 그대로 유지합니다.

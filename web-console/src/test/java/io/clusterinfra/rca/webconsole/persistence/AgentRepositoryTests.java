@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.clusterinfra.rca.webconsole.TestSecurity.opaqueTokenHasher;
 import static io.clusterinfra.rca.webconsole.TestSecurity.passwordHasher;
 import static io.clusterinfra.rca.webconsole.TestSecurity.tokenGenerator;
@@ -279,6 +280,7 @@ class AgentRepositoryTests {
     @Test
     void trustedEnrollmentMetadataOverridesAgentInputWithoutRejectingNullMetadataValues() {
         var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        insertEnrollmentProfile(cluster.clusterId(), 1);
         Map<String, Object> supplied = new LinkedHashMap<>();
         supplied.put("optional_runtime", null);
         supplied.put("_enrollment", Map.of("method", "forged"));
@@ -293,14 +295,112 @@ class AgentRepositoryTests {
             supplied
         ), Map.of(
             "method", "kubernetes_token_review",
+            "profile_version", 1,
+            "service_account_uid", "service-account-uid",
+            "daemonset_uid", "daemonset-uid-1",
             "pod_uid", "pod-uid-1"
         ));
 
         assertThat(registered.metadata()).containsEntry("optional_runtime", null);
         assertThat(registered.metadata().get("_enrollment"))
-            .isEqualTo(Map.of("method", "kubernetes_token_review", "pod_uid", "pod-uid-1"));
+            .isEqualTo(Map.of(
+                "method", "kubernetes_token_review",
+                "profile_version", 1,
+                "service_account_uid", "service-account-uid",
+                "daemonset_uid", "daemonset-uid-1",
+                "pod_uid", "pod-uid-1"
+            ));
         assertThat(agents.find(cluster.clusterId(), "node-a").orElseThrow().metadata())
             .containsEntry("optional_runtime", null);
+    }
+
+    @Test
+    void activeKubernetesIdentityRejectsReplacementPodUntilAdminRevokesIt() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        insertEnrollmentProfile(cluster.clusterId(), 1);
+        var request = new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            null,
+            "0.1.0",
+            "2",
+            List.of("node"),
+            Map.of()
+        );
+
+        var first = agents.register(request, trustedIdentity(1, "pod-uid-1", "daemonset-uid-1"));
+
+        assertThatThrownBy(() -> agents.register(
+            request,
+            trustedIdentity(1, "pod-uid-2", "daemonset-uid-1")
+        ))
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+            .hasMessageContaining("409")
+            .hasMessageContaining("revoke");
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", first.nodeToken())).isTrue();
+
+        assertThat(agents.revokeNodeToken(cluster.clusterId(), "node-a")).isTrue();
+        var replacement = agents.register(
+            request,
+            trustedIdentity(1, "pod-uid-2", "daemonset-uid-1")
+        );
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", replacement.nodeToken())).isTrue();
+    }
+
+    @Test
+    void nodeTokenStopsAuthenticatingWhenEnrollmentProfileVersionChanges() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        insertEnrollmentProfile(cluster.clusterId(), 1);
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            null,
+            "0.1.0",
+            "2",
+            List.of("node"),
+            Map.of()
+        ), trustedIdentity(1, "pod-uid-1", "daemonset-uid-1"));
+
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isTrue();
+        jdbc.update(
+            "UPDATE agent_enrollment_profiles SET profile_version = 2 WHERE cluster_id = ?",
+            cluster.clusterId()
+        );
+
+        assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isFalse();
+    }
+
+    private Map<String, Object> trustedIdentity(long version, String podUid, String daemonSetUid) {
+        return Map.of(
+            "method", "kubernetes_token_review",
+            "profile_version", version,
+            "service_account_uid", "service-account-uid",
+            "daemonset_uid", daemonSetUid,
+            "pod_uid", podUid
+        );
+    }
+
+    private void insertEnrollmentProfile(String clusterId, long version) {
+        jdbc.update(
+            """
+                INSERT INTO agent_enrollment_profiles
+                    (cluster_id, mode, api_server_url, ca_bundle_pem, ca_sha256, audience,
+                     service_account_namespace, service_account_name, profile_version,
+                     reviewer_token_path, expected_service_account_uid,
+                     expected_daemonset_name, expected_daemonset_uid,
+                     required_pod_labels_json, allowed_image_digest,
+                     bootstrap_fallback_allowed, created_at, updated_at)
+                VALUES (?, 'kubernetes_token_review', 'https://kubernetes.example:6443',
+                        'test-ca', 'test-ca-sha', 'https://kubernetes.default.svc',
+                        'rca-system', 'cluster-infra-rca-agent', ?,
+                        '/var/run/secrets/kubernetes.io/serviceaccount/token',
+                        'service-account-uid', 'cluster-infra-rca-agent', 'daemonset-uid-1',
+                        '{}', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                        FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+            clusterId,
+            version
+        );
     }
 
     private String storedNodeTokenHash(String clusterId, String nodeName) {

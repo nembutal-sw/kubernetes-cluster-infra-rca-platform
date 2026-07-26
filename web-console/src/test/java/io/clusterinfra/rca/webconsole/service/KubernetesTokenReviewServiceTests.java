@@ -13,6 +13,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 class KubernetesTokenReviewServiceTests {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String IMAGE_DIGEST =
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     @Test
     void acceptsAudienceServiceAccountAndCurrentPodNodeBinding() throws Exception {
@@ -70,6 +72,66 @@ class KubernetesTokenReviewServiceTests {
         assertUnauthorized(() -> service.verify(configuration(), "projected-token", "worker-1"), "Pod binding");
     }
 
+    @Test
+    void rejectsUnexpectedServiceAccountUidBeforePodLookup() throws Exception {
+        JsonNode review = review("rca-agent", "pod-uid-1");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) review.path("status").path("user"))
+            .put("uid", "replacement-service-account-uid");
+        FakeTransport transport = new FakeTransport(review, pod("worker-1", false));
+        KubernetesTokenReviewService service = new KubernetesTokenReviewService(transport);
+
+        assertUnauthorized(() -> service.verify(configuration(), "projected-token", "worker-1"), "UID");
+        assertThat(transport.podLookups).isZero();
+    }
+
+    @Test
+    void rejectsPodWithoutRequiredClusterLabel() throws Exception {
+        JsonNode pod = pod("worker-1", false);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) pod.path("metadata").path("labels"))
+            .remove("cluster-infra-rca.io/cluster-id");
+        KubernetesTokenReviewService service = new KubernetesTokenReviewService(
+            new FakeTransport(review("rca-agent", "pod-uid-1"), pod)
+        );
+
+        assertUnauthorized(
+            () -> service.verify(configuration(), "projected-token", "worker-1"),
+            "labels"
+        );
+    }
+
+    @Test
+    void rejectsPodOwnedByDifferentDaemonSetUid() throws Exception {
+        JsonNode pod = pod("worker-1", false);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) pod.path("metadata")
+            .path("ownerReferences").get(0)).put("uid", "forged-daemonset-uid");
+        KubernetesTokenReviewService service = new KubernetesTokenReviewService(
+            new FakeTransport(review("rca-agent", "pod-uid-1"), pod)
+        );
+
+        assertUnauthorized(
+            () -> service.verify(configuration(), "projected-token", "worker-1"),
+            "DaemonSet"
+        );
+    }
+
+    @Test
+    void rejectsPodWithUnexpectedImageDigest() throws Exception {
+        JsonNode pod = pod("worker-1", false);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) pod.path("status")
+            .path("containerStatuses").get(0)).put(
+                "imageID",
+                "containerd://sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            );
+        KubernetesTokenReviewService service = new KubernetesTokenReviewService(
+            new FakeTransport(review("rca-agent", "pod-uid-1"), pod)
+        );
+
+        assertUnauthorized(
+            () -> service.verify(configuration(), "projected-token", "worker-1"),
+            "image digest"
+        );
+    }
+
     private static AgentEnrollmentConfiguration configuration() {
         Instant now = Instant.parse("2026-07-22T00:00:00Z");
         return new AgentEnrollmentConfiguration(
@@ -81,6 +143,16 @@ class KubernetesTokenReviewServiceTests {
             "https://kubernetes.default.svc",
             "rca-system",
             "cluster-infra-rca-agent",
+            3,
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "service-account-uid",
+            "cluster-infra-rca-agent",
+            "daemonset-uid",
+            java.util.Map.of(
+                "app.kubernetes.io/name", "cluster-infra-rca-agent",
+                "cluster-infra-rca.io/cluster-id", "cluster-1"
+            ),
+            IMAGE_DIGEST,
             false,
             now,
             now
@@ -117,16 +189,36 @@ class KubernetesTokenReviewServiceTests {
               "metadata": {
                 "name": "rca-agent",
                 "namespace": "rca-system",
-                "uid": "pod-uid-1"%s
+                "uid": "pod-uid-1",
+                "labels": {
+                  "app.kubernetes.io/name": "cluster-infra-rca-agent",
+                  "cluster-infra-rca.io/cluster-id": "cluster-1"
+                },
+                "ownerReferences": [{
+                  "apiVersion": "apps/v1",
+                  "kind": "DaemonSet",
+                  "name": "cluster-infra-rca-agent",
+                  "uid": "daemonset-uid",
+                  "controller": true
+                }]%s
               },
               "spec": {
                 "serviceAccountName": "cluster-infra-rca-agent",
                 "nodeName": "%s"
+              },
+              "status": {
+                "phase": "Running",
+                "containerStatuses": [{
+                  "name": "agent",
+                  "imageID": "containerd://%s",
+                  "state": {"running": {"startedAt": "2026-07-22T00:00:00Z"}}
+                }]
               }
             }
             """.formatted(
                 terminating ? ",\n\"deletionTimestamp\": \"2026-07-22T00:00:00Z\"" : "",
-                nodeName
+                nodeName,
+                IMAGE_DIGEST
             ));
     }
 
@@ -159,7 +251,6 @@ class KubernetesTokenReviewServiceTests {
         @Override
         public JsonNode pod(
             AgentEnrollmentConfiguration configuration,
-            String token,
             String namespace,
             String podName
         ) {

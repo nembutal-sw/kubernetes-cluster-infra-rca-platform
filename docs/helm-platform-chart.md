@@ -36,6 +36,12 @@ The chart can render:
 
 ```yaml
 platform:
+  kubernetesReviewer:
+    enabled: false
+    rbacCreate: true
+    audience: https://kubernetes.default.svc
+    tokenExpirationSeconds: 3600
+    tokenMountPath: /var/run/secrets/kubernetes.io/serviceaccount
   service:
     type: ClusterIP
     port: 8080
@@ -101,6 +107,11 @@ platform:
     geminiApiKey: ""
     ollamaBaseUrl: ""
 ```
+
+`platform.kubernetesReviewer.enabled=true`는 Platform과 같은 cluster의 Agent TokenReview를 검증할
+때만 사용한다. 전용 projected token과 `tokenreviews.create`, `pods.get` RBAC를 Platform
+ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여하지 않는다. 외부 cluster는
+별도 reviewer credential을 `/var/run/secrets/cluster-infra-rca-reviewers/` 하위에 mount한다.
 
 `gitopsProvider`는 `github`, `gitlab`, `gitea`만 허용됩니다. GitLab subgroup을 사용할 때 `gitopsRepository`는 `group/subgroup/repository` 형식으로 지정합니다. Gitea는 `gitopsApiBaseUrl`을 반드시 지정하며, 누락하거나 지원하지 않는 provider를 입력하면 Helm template 단계에서 실패합니다.
 

@@ -1,54 +1,105 @@
 # Agent Enrollment
 
-Agent protocol v2는 최초 등록 identity와 등록 후 node credential을 분리합니다. 등록이 끝나면
-heartbeat, evidence, realtime event는 항상 node-scoped Bearer token만 사용합니다.
+Agent protocol v2는 최초 등록 identity와 등록 후 node credential을 분리한다. 등록이 끝나면
+heartbeat, evidence, realtime event는 node-scoped Bearer token만 사용한다.
 
 ## Modes
 
 | Mode | 용도 | 등록 credential |
 | --- | --- | --- |
-| `bootstrap_token` | 기존 설치와 rolling upgrade | 짧은 TTL의 cluster bootstrap token |
+| `bootstrap_token` | 초기 설치와 호환 배포 | 짧은 TTL의 cluster bootstrap token |
 | `kubernetes_token_review` | Kubernetes workload identity 검증 | projected ServiceAccount token |
 
-기본값은 호환성을 위한 `bootstrap_token`입니다. 운영 전환은 Web Console의 **Clusters > Agent
-enrollment**에서 설정합니다. CA 원문은 저장되지만 조회 API와 audit에는 노출하지 않고 SHA-256
-fingerprint만 표시합니다.
+운영 환경은 `kubernetes_token_review`와 `bootstrap_fallback_allowed=false`를 권장한다.
 
-## TokenReview Trust Flow
+## Trust Boundary
 
-1. Agent가 projected token 파일을 등록 요청마다 다시 읽습니다.
-2. Platform은 관리자가 저장한 HTTPS API Server URL과 전용 CA만 사용합니다.
-3. Agent token으로 `TokenReview`를 호출하고 audience, subject, UID, group을 검증합니다.
-4. token의 Pod name/UID를 사용해 같은 API Server에서 Pod를 다시 조회합니다.
-5. Pod UID, namespace, ServiceAccount, node name, 삭제 상태가 모두 일치할 때만 등록합니다.
-6. 신뢰된 identity metadata는 Platform이 생성해 Agent metadata를 덮어씁니다.
+TokenReview mode에서는 Agent token을 Kubernetes API 호출 인증에 재사용하지 않는다.
 
-Kubernetes가 token extra에 넣은 node metadata는 그 자체로 신뢰하지 않습니다. Platform의 Pod
-재조회 결과만 node binding의 근거로 사용합니다.
+1. Agent가 전용 audience의 projected token을 Platform에 제출한다.
+2. Platform은 Backend에 마운트된 별도 reviewer token으로 TokenReview를 호출한다.
+3. audience, ServiceAccount subject/UID, 인증 group을 검증한다.
+4. TokenReview의 Pod name/UID로 Pod를 다시 조회한다.
+5. Pod가 `Running`이고 삭제 중이 아닌지 확인한다.
+6. namespace, ServiceAccount, node name, 필수 label을 확인한다.
+7. controller owner가 예상 DaemonSet name/UID와 일치하는지 확인한다.
+8. 실행 중인 `agent` container의 `imageID` digest를 허용 digest와 비교한다.
 
-## Configure The Profile
+Agent가 보낸 API URL, CA, node metadata, `_enrollment` 값은 신뢰하지 않는다. 검증을 통과한
+identity만 Platform이 생성해 저장한다.
 
-`PUT /api/clusters/{clusterId}/agent-enrollment`은 `ADMIN`만 호출할 수 있습니다.
+## Backend Reviewer
+
+Platform과 대상 cluster가 같다면 Platform chart의 reviewer를 활성화한다.
+
+```bash
+helm upgrade --install rca charts/cluster-infra-rca-platform \
+  --namespace rca-system \
+  --set platform.kubernetesReviewer.enabled=true
+```
+
+이 옵션은 Platform ServiceAccount에 `tokenreviews.create`와 `pods.get`만 추가하고, 회전되는
+projected token을 `/var/run/secrets/kubernetes.io/serviceaccount/token`에 mount한다. Agent
+ServiceAccount에는 TokenReview 생성 권한을 부여하지 않는다.
+
+외부 cluster를 검증하는 경우 해당 cluster의 전용 reviewer credential을 Backend container의
+`/var/run/secrets/cluster-infra-rca-reviewers/<cluster>/token`에 mount한다. 일반 파일 경로나
+Agent projected token은 reviewer credential로 사용할 수 없다.
+
+## Two-Step Binding
+
+Kubernetes object UID는 배포 후에 생성되므로 profile을 두 단계로 저장한다.
+
+### 1. Staged profile
+
+Web Console의 **Clusters > Agent enrollment**에서 API Server, CA, audience, namespace,
+ServiceAccount, reviewer token path를 저장한다. immutable UID와 digest가 비어 있으면
+`workload_identity_ready=false`이며 Agent 등록은 차단된다.
 
 ```json
 {
   "mode": "kubernetes_token_review",
-  "api_server_url": "https://api.example.internal:6443",
+  "api_server_url": "https://kubernetes.default.svc",
   "ca_bundle_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
   "audience": "https://kubernetes.default.svc",
   "namespace": "rca-system",
   "service_account": "cluster-infra-rca-agent",
+  "reviewer_token_path": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+  "expected_daemon_set_name": "cluster-infra-rca-agent",
+  "required_pod_labels": {
+    "app.kubernetes.io/name": "cluster-infra-rca-agent",
+    "cluster-infra-rca.io/cluster-id": "<cluster-id>"
+  },
   "bootstrap_fallback_allowed": false
 }
 ```
 
-기존 profile 수정 시 `ca_bundle_pem`을 비우면 저장된 CA를 유지합니다. URL은 path, query,
-userinfo가 없는 HTTPS origin이어야 합니다. audience는 대상 API Server가 인증 대상으로 수락하는
-값이어야 합니다. 그렇지 않으면 Agent token이 정상이어도 TokenReview가 거부됩니다.
+기존 profile 수정 시 `ca_bundle_pem`을 생략하면 저장된 CA를 유지한다.
+
+### 2. Bind immutable identity
+
+Agent manifest를 적용한 뒤 UID와 digest를 확인한다.
+
+```bash
+kubectl -n rca-system get serviceaccount cluster-infra-rca-agent \
+  -o jsonpath='{.metadata.uid}'
+
+kubectl -n rca-system get daemonset cluster-infra-rca-agent \
+  -o jsonpath='{.metadata.uid}'
+
+kubectl -n rca-system get pods \
+  -l cluster-infra-rca.io/cluster-id=<cluster-id> \
+  -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="agent")].imageID}'
+```
+
+Web Console에 `expected_service_account_uid`, `expected_daemon_set_uid`,
+`allowed_image_digest`를 저장한다. digest는 `sha256:<64 lowercase hex>` 형식이다.
+모든 필드가 채워지면 `workload_identity_ready=true`가 되고 Agent 등록이 허용된다.
 
 ## Helm Install
 
-먼저 cluster ID만 포함한 Secret을 준비합니다. TokenReview mode에는 `agent-token`이 없습니다.
+TokenReview mode에서는 `agent-token` Secret key를 만들지 않는다. `clusterId`는 workload
+identity label에 사용되므로 반드시 별도로 지정한다.
 
 ```bash
 kubectl -n rca-system create secret generic cluster-infra-rca-agent \
@@ -58,36 +109,32 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --namespace rca-system \
   --create-namespace \
+  --set fullnameOverride=cluster-infra-rca-agent \
   --set backendUrl=https://rca.example.com \
+  --set clusterId='<cluster-id>' \
   --set enrollment.mode=kubernetes-token-review \
   --set enrollment.audience=https://kubernetes.default.svc \
   --set secret.existingSecret.name=cluster-infra-rca-agent
 ```
 
-Chart는 audience와 600~86400초의 token lifetime을 검증하고 projected ServiceAccount token을
-mount합니다. TokenReview mode에서만 Agent ServiceAccount에 `tokenreviews.create`를 추가합니다.
-Pod 재검증에는 기존 read-only Pod `get/list` 권한을 사용합니다.
+## Rotation And Re-Enrollment
 
-## Strict Mode And Recovery
+profile의 보안 필드가 바뀌면 `profile_version`이 증가하고 기존 node token은 모두 폐기된다.
+node token 검증 시 등록 당시 profile version과 현재 version도 비교한다.
 
-`bootstrap_fallback_allowed=false`로 저장하면 같은 DB transaction에서 기존 bootstrap token을
-폐기합니다. 이후 bootstrap header나 body credential은 등록에 사용할 수 없습니다.
+같은 node 이름에 활성 identity가 있으면 다른 Pod UID가 등록 정보를 덮어쓸 수 없다. DaemonSet을
+재생성하거나 Agent state를 잃은 경우 관리자가 해당 node token을 명시적으로 revoke한 뒤
+재등록한다. 같은 profile version에서는 ServiceAccount UID와 DaemonSet UID 연속성도 유지해야 한다.
 
-bootstrap mode로 되돌릴 때 token을 자동 생성하지 않습니다. 응답의
-`bootstrap_token_rotation_required=true`를 확인하고 Web Console에서 token을 명시적으로 회전한
-후 Agent Secret을 갱신합니다. 이 동작은 의도하지 않은 장기 credential 생성을 막기 위한 것입니다.
+## Strict Mode Recovery
 
-## Security Boundaries
-
-- token과 CA 원문을 로그, audit, profile 응답에 기록하지 않습니다.
-- target API Server redirect를 따르지 않고 응답 크기와 timeout을 제한합니다.
-- Agent가 보낸 API URL, CA, `_enrollment` metadata를 신뢰하지 않습니다.
-- node credential 거부 시 bootstrap으로 자동 재등록하지 않습니다.
-- ServiceAccount token file은 kubelet rotation을 반영하도록 요청 시점에 읽습니다.
+`bootstrap_fallback_allowed=false`로 저장하면 기존 bootstrap token을 폐기한다. bootstrap mode로
+되돌릴 때 새 token을 자동 발급하지 않으며, Web Console에서 명시적으로 회전해야 한다.
 
 ## References
 
-- [TokenReview v1 API](https://kubernetes.io/docs/reference/kubernetes-api/definitions/token-review-v1-authentication/)
-- [ServiceAccount token projection](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/)
-- [Projected volumes](https://kubernetes.io/docs/concepts/storage/projected-volumes/)
-- [ServiceAccount administration and bound token claims](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/)
+- [Kubernetes Service Accounts](https://kubernetes.io/docs/concepts/security/service-accounts/)
+- [ServiceAccount administration and TokenReview](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/)
+- [Authentication and TokenReview](https://kubernetes.io/docs/reference/access-authn-authz/authentication/)
+- [Owners and dependents](https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/)
+- [RBAC good practices](https://kubernetes.io/docs/concepts/security/rbac-good-practices/)

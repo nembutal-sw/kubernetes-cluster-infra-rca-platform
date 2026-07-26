@@ -19,12 +19,15 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Repository
 public class AgentRepository {
@@ -68,6 +71,13 @@ public class AgentRepository {
     ) {
         String nodeName = normalizedNodeName(request.nodeName());
         Optional<NodeAgent> existing = find(request.clusterId(), nodeName);
+        RegistrationIdentity enrollmentIdentity = registrationIdentity(trustedEnrollmentMetadata);
+        requireCurrentEnrollmentProfile(request.clusterId(), enrollmentIdentity);
+        existing.ifPresent(agent -> requireRegistrationContinuity(
+            agent,
+            registrationState(request.clusterId(), nodeName),
+            enrollmentIdentity
+        ));
         String nodeToken = tokenGenerator.generate();
         Instant now = Instant.now();
         NodeAgent agent = new NodeAgent(
@@ -91,7 +101,8 @@ public class AgentRepository {
                         next_node_token_hash = NULL, next_node_token_expires_at = NULL,
                         agent_protocol_version = ?, status = ?,
                         supported_collectors_json = ?, metadata_json = ?, health_json = ?,
-                        registered_at = ?, last_heartbeat_at = ?
+                        enrollment_profile_version = ?, enrollment_service_account_uid = ?,
+                        enrollment_daemonset_uid = ?, registered_at = ?, last_heartbeat_at = ?
                     WHERE agent_id = ?
                     """,
                 opaqueTokens.hash(nodeToken),
@@ -102,6 +113,9 @@ public class AgentRepository {
                 json(agent.supportedCollectors()),
                 json(agent.metadata()),
                 json(agent.health()),
+                enrollmentIdentity.profileVersion(),
+                enrollmentIdentity.serviceAccountUid(),
+                enrollmentIdentity.daemonSetUid(),
                 timestamp(agent.registeredAt()),
                 timestamp(agent.lastHeartbeatAt()),
                 agent.agentId()
@@ -113,8 +127,10 @@ public class AgentRepository {
                         (agent_id, cluster_id, node_name, node_token_hash, agent_version,
                          node_token_rotated_at, node_token_revoked_at,
                          agent_protocol_version, status,
-                         supported_collectors_json, metadata_json, health_json, registered_at, last_heartbeat_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         supported_collectors_json, metadata_json, health_json,
+                         enrollment_profile_version, enrollment_service_account_uid,
+                         enrollment_daemonset_uid, registered_at, last_heartbeat_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 agent.agentId(),
                 agent.clusterId(),
@@ -128,6 +144,9 @@ public class AgentRepository {
                 json(agent.supportedCollectors()),
                 json(agent.metadata()),
                 json(agent.health()),
+                enrollmentIdentity.profileVersion(),
+                enrollmentIdentity.serviceAccountUid(),
+                enrollmentIdentity.daemonSetUid(),
                 timestamp(agent.registeredAt()),
                 timestamp(agent.lastHeartbeatAt())
             );
@@ -162,6 +181,104 @@ public class AgentRepository {
             );
         }
         return Collections.unmodifiableMap(metadata);
+    }
+
+    private RegistrationIdentity registrationIdentity(Map<String, Object> metadata) {
+        if (metadata == null || metadata.isEmpty()) {
+            return RegistrationIdentity.bootstrap();
+        }
+        Object rawVersion = metadata.get("profile_version");
+        Long profileVersion = rawVersion instanceof Number number
+            ? number.longValue()
+            : null;
+        RegistrationIdentity identity = new RegistrationIdentity(
+            stringValue(metadata.get("method")),
+            profileVersion,
+            stringValue(metadata.get("service_account_uid")),
+            stringValue(metadata.get("daemonset_uid")),
+            stringValue(metadata.get("pod_uid"))
+        );
+        if (identity.kubernetesTokenReview() && !identity.complete()) {
+            throw new IllegalArgumentException("trusted Kubernetes enrollment identity is incomplete");
+        }
+        return identity;
+    }
+
+    private void requireCurrentEnrollmentProfile(
+        String clusterId,
+        RegistrationIdentity identity
+    ) {
+        if (!identity.kubernetesTokenReview()) {
+            return;
+        }
+        Long currentVersion = optionalQuery(
+            "SELECT profile_version FROM agent_enrollment_profiles WHERE cluster_id = ?",
+            (resultSet, rowNumber) -> resultSet.getLong("profile_version"),
+            clusterId
+        ).orElse(null);
+        if (!Objects.equals(currentVersion, identity.profileVersion())) {
+            throw conflict("agent enrollment profile changed while the workload identity was verified");
+        }
+    }
+
+    private void requireRegistrationContinuity(
+        NodeAgent existing,
+        RegistrationState stored,
+        RegistrationIdentity incoming
+    ) {
+        RegistrationIdentity previous = registrationIdentity(enrollmentMetadata(existing.metadata()));
+        if (!incoming.kubernetesTokenReview()) {
+            if (previous.kubernetesTokenReview() && stored.revokedAt() == null) {
+                throw conflict("an active Kubernetes workload identity cannot be replaced by bootstrap enrollment");
+            }
+            return;
+        }
+        if (stored.profileVersion() != null
+            && incoming.profileVersion() != null
+            && incoming.profileVersion() < stored.profileVersion()) {
+            throw conflict("agent enrollment profile version is older than the registered identity");
+        }
+        if (stored.revokedAt() == null) {
+            if (!previous.samePod(incoming)) {
+                throw conflict(
+                    "agent identity already exists; revoke its node token before binding a replacement Pod"
+                );
+            }
+            return;
+        }
+        if (stored.profileVersion() != null
+            && Objects.equals(stored.profileVersion(), incoming.profileVersion())
+            && !stored.sameWorkload(incoming)) {
+            throw conflict("revoked agent identity does not match the approved workload binding");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> enrollmentMetadata(Map<String, Object> metadata) {
+        Object value = metadata == null ? null : metadata.get("_enrollment");
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : value.toString().trim();
+    }
+
+    private RegistrationState registrationState(String clusterId, String nodeName) {
+        return jdbc.queryForObject(
+            """
+                SELECT node_token_revoked_at, enrollment_profile_version,
+                       enrollment_service_account_uid, enrollment_daemonset_uid
+                FROM node_agents WHERE cluster_id = ? AND node_name = ?
+                """,
+            (resultSet, rowNumber) -> new RegistrationState(
+                instant(resultSet, "node_token_revoked_at"),
+                nullableLong(resultSet, "enrollment_profile_version"),
+                resultSet.getString("enrollment_service_account_uid"),
+                resultSet.getString("enrollment_daemonset_uid")
+            ),
+            clusterId,
+            nodeName
+        );
     }
 
     @Transactional
@@ -227,20 +344,26 @@ public class AgentRepository {
         try {
             NodeTokenRow row = jdbc.queryForObject(
                 """
-                    SELECT node_token_hash, node_token_revoked_at,
-                           next_node_token_hash, next_node_token_expires_at
-                    FROM node_agents WHERE cluster_id = ? AND node_name = ?
+                    SELECT n.node_token_hash, n.node_token_revoked_at,
+                           n.next_node_token_hash, n.next_node_token_expires_at,
+                           n.enrollment_profile_version,
+                           p.profile_version AS current_profile_version
+                    FROM node_agents n
+                    LEFT JOIN agent_enrollment_profiles p ON p.cluster_id = n.cluster_id
+                    WHERE n.cluster_id = ? AND n.node_name = ?
                     """,
                 (resultSet, rowNumber) -> new NodeTokenRow(
                     resultSet.getString("node_token_hash"),
                     instant(resultSet, "node_token_revoked_at"),
                     resultSet.getString("next_node_token_hash"),
-                    instant(resultSet, "next_node_token_expires_at")
+                    instant(resultSet, "next_node_token_expires_at"),
+                    nullableLong(resultSet, "enrollment_profile_version"),
+                    nullableLong(resultSet, "current_profile_version")
                 ),
                 clusterId,
                 normalizedNodeName(nodeName)
             );
-            if (row == null || row.revokedAt() != null) {
+            if (row == null || row.revokedAt() != null || !row.currentProfile()) {
                 return false;
             }
             if (matchesCurrentToken(clusterId, nodeName, nodeToken, row.hash())) {
@@ -320,21 +443,28 @@ public class AgentRepository {
         try {
             NodeTokenRow latest = jdbc.queryForObject(
                 """
-                    SELECT node_token_hash, node_token_revoked_at,
-                           next_node_token_hash, next_node_token_expires_at
-                    FROM node_agents WHERE cluster_id = ? AND node_name = ?
+                    SELECT n.node_token_hash, n.node_token_revoked_at,
+                           n.next_node_token_hash, n.next_node_token_expires_at,
+                           n.enrollment_profile_version,
+                           p.profile_version AS current_profile_version
+                    FROM node_agents n
+                    LEFT JOIN agent_enrollment_profiles p ON p.cluster_id = n.cluster_id
+                    WHERE n.cluster_id = ? AND n.node_name = ?
                     """,
                 (resultSet, rowNumber) -> new NodeTokenRow(
                     resultSet.getString("node_token_hash"),
                     instant(resultSet, "node_token_revoked_at"),
                     resultSet.getString("next_node_token_hash"),
-                    instant(resultSet, "next_node_token_expires_at")
+                    instant(resultSet, "next_node_token_expires_at"),
+                    nullableLong(resultSet, "enrollment_profile_version"),
+                    nullableLong(resultSet, "current_profile_version")
                 ),
                 clusterId,
                 normalizedNodeName(nodeName)
             );
             return latest != null
                 && latest.revokedAt() == null
+                && latest.currentProfile()
                 && opaqueTokens.matches(token, latest.hash());
         } catch (EmptyResultDataAccessException exception) {
             return false;
@@ -357,6 +487,18 @@ public class AgentRepository {
             clusterId,
             normalizedNodeName(nodeName)
         ) == 1;
+    }
+
+    public int revokeNodeTokensForEnrollmentChange(String clusterId) {
+        return jdbc.update(
+            """
+                UPDATE node_agents SET node_token_revoked_at = ?,
+                    next_node_token_hash = NULL, next_node_token_expires_at = NULL
+                WHERE cluster_id = ? AND node_token_revoked_at IS NULL
+                """,
+            timestamp(Instant.now()),
+            clusterId
+        );
     }
 
     private NodeAgent mapAgent(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -411,6 +553,11 @@ public class AgentRepository {
         return value == null ? null : value.toInstant();
     }
 
+    private Long nullableLong(ResultSet resultSet, String column) throws SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
     private Timestamp timestamp(Instant value) {
         return value == null ? null : Timestamp.from(value);
     }
@@ -427,7 +574,66 @@ public class AgentRepository {
         String hash,
         Instant revokedAt,
         String nextHash,
-        Instant nextExpiresAt
+        Instant nextExpiresAt,
+        Long enrollmentProfileVersion,
+        Long currentProfileVersion
     ) {
+        private boolean currentProfile() {
+            return enrollmentProfileVersion == null
+                || Objects.equals(enrollmentProfileVersion, currentProfileVersion);
+        }
+    }
+
+    private record RegistrationState(
+        Instant revokedAt,
+        Long profileVersion,
+        String serviceAccountUid,
+        String daemonSetUid
+    ) {
+        private boolean sameWorkload(RegistrationIdentity identity) {
+            return identity != null
+                && Objects.equals(profileVersion, identity.profileVersion())
+                && Objects.equals(serviceAccountUid, identity.serviceAccountUid())
+                && Objects.equals(daemonSetUid, identity.daemonSetUid());
+        }
+    }
+
+    private record RegistrationIdentity(
+        String method,
+        Long profileVersion,
+        String serviceAccountUid,
+        String daemonSetUid,
+        String podUid
+    ) {
+        private static RegistrationIdentity bootstrap() {
+            return new RegistrationIdentity("bootstrap_token", null, null, null, null);
+        }
+
+        private boolean kubernetesTokenReview() {
+            return "kubernetes_token_review".equals(method);
+        }
+
+        private boolean complete() {
+            return profileVersion != null
+                && profileVersion > 0
+                && serviceAccountUid != null && !serviceAccountUid.isBlank()
+                && daemonSetUid != null && !daemonSetUid.isBlank()
+                && podUid != null && !podUid.isBlank();
+        }
+
+        private boolean sameWorkload(RegistrationIdentity other) {
+            return other != null
+                && Objects.equals(profileVersion, other.profileVersion)
+                && Objects.equals(serviceAccountUid, other.serviceAccountUid)
+                && Objects.equals(daemonSetUid, other.daemonSetUid);
+        }
+
+        private boolean samePod(RegistrationIdentity other) {
+            return sameWorkload(other) && Objects.equals(podUid, other.podUid);
+        }
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 }

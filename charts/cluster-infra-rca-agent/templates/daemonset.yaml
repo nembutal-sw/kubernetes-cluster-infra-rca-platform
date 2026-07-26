@@ -8,9 +8,13 @@
 {{- end -}}
 {{- if eq $enrollmentMode "kubernetes-token-review" -}}
 {{- required "enrollment.audience is required for kubernetes-token-review" .Values.enrollment.audience -}}
+{{- required "clusterId is required for kubernetes-token-review workload binding" .Values.clusterId -}}
 {{- if or (lt (int .Values.enrollment.tokenExpirationSeconds) 600) (gt (int .Values.enrollment.tokenExpirationSeconds) 86400) -}}
 {{- fail "enrollment.tokenExpirationSeconds must be between 600 and 86400" -}}
 {{- end -}}
+{{- end -}}
+{{- if or (hasKey .Values.podLabels "app.kubernetes.io/name") (hasKey .Values.podLabels "app.kubernetes.io/instance") (hasKey .Values.podLabels "cluster-infra-rca.io/cluster-id") -}}
+{{- fail "podLabels must not override reserved Agent identity labels" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
@@ -23,10 +27,16 @@ spec:
   selector:
     matchLabels:
       {{- include "cluster-infra-rca-agent.selectorLabels" . | nindent 6 }}
+      {{- if .Values.clusterId }}
+      cluster-infra-rca.io/cluster-id: {{ .Values.clusterId | quote }}
+      {{- end }}
   template:
     metadata:
       labels:
         {{- include "cluster-infra-rca-agent.labels" . | nindent 8 }}
+        {{- if .Values.clusterId }}
+        cluster-infra-rca.io/cluster-id: {{ .Values.clusterId | quote }}
+        {{- end }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

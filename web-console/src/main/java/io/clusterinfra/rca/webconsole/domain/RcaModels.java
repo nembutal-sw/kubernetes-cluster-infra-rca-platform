@@ -179,8 +179,29 @@ public final class RcaModels {
         @Size(max = 255) String audience,
         @Size(max = 63) String namespace,
         @Size(max = 253) String serviceAccount,
+        @Size(max = 4096) String reviewerTokenPath,
+        @Size(max = 255) String expectedServiceAccountUid,
+        @Size(max = 253) String expectedDaemonSetName,
+        @Size(max = 255) String expectedDaemonSetUid,
+        Map<String, String> requiredPodLabels,
+        @Size(max = 71) String allowedImageDigest,
         Boolean bootstrapFallbackAllowed
     ) {
+        public AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode mode,
+            String apiServerUrl,
+            String caBundlePem,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            Boolean bootstrapFallbackAllowed
+        ) {
+            this(
+                mode, apiServerUrl, caBundlePem, audience, namespace, serviceAccount,
+                null, null, null, null, null, null, bootstrapFallbackAllowed
+            );
+        }
+
         public boolean fallbackAllowedOrDefault() {
             return bootstrapFallbackAllowed == null || bootstrapFallbackAllowed;
         }
@@ -195,10 +216,24 @@ public final class RcaModels {
         String audience,
         String namespace,
         String serviceAccount,
+        long profileVersion,
+        String reviewerTokenPath,
+        String expectedServiceAccountUid,
+        String expectedDaemonSetName,
+        String expectedDaemonSetUid,
+        Map<String, String> requiredPodLabels,
+        String allowedImageDigest,
+        boolean workloadIdentityReady,
         boolean bootstrapFallbackAllowed,
         boolean bootstrapTokenRotationRequired,
         Instant updatedAt
     ) {
+        public AgentEnrollmentProfile {
+            requiredPodLabels = requiredPodLabels == null
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(requiredPodLabels));
+        }
+
         public static AgentEnrollmentProfile bootstrap(
             String clusterId,
             boolean bootstrapTokenRotationRequired
@@ -212,6 +247,14 @@ public final class RcaModels {
                 null,
                 null,
                 null,
+                0,
+                null,
+                null,
+                null,
+                null,
+                Map.of(),
+                null,
+                false,
                 true,
                 bootstrapTokenRotationRequired,
                 null
@@ -226,8 +269,27 @@ public final class RcaModels {
         String namespace,
         String serviceAccount,
         String podName,
-        String podUid
+        String podUid,
+        String daemonSetName,
+        String daemonSetUid,
+        String imageDigest,
+        Long profileVersion
     ) {
+        public AgentEnrollmentIdentity(
+            String method,
+            String subject,
+            String serviceAccountUid,
+            String namespace,
+            String serviceAccount,
+            String podName,
+            String podUid
+        ) {
+            this(
+                method, subject, serviceAccountUid, namespace, serviceAccount, podName, podUid,
+                null, null, null, null
+            );
+        }
+
         public Map<String, Object> metadata() {
             Map<String, Object> values = new LinkedHashMap<>();
             values.put("method", method);
@@ -237,6 +299,12 @@ public final class RcaModels {
             putIfPresent(values, "service_account", serviceAccount);
             putIfPresent(values, "pod_name", podName);
             putIfPresent(values, "pod_uid", podUid);
+            putIfPresent(values, "daemonset_name", daemonSetName);
+            putIfPresent(values, "daemonset_uid", daemonSetUid);
+            putIfPresent(values, "image_digest", imageDigest);
+            if (profileVersion != null) {
+                values.put("profile_version", profileVersion);
+            }
             return Collections.unmodifiableMap(values);
         }
 

@@ -18,6 +18,11 @@
 {{- if not .Values.platform.podDisruptionBudget.enabled }}{{ fail "production requires platform.podDisruptionBudget.enabled=true" }}{{- end }}
 {{- if empty .Values.platform.topologySpreadConstraints }}{{ fail "production requires topologySpreadConstraints" }}{{- end }}
 {{- end }}
+{{- if .Values.platform.kubernetesReviewer.enabled }}
+{{- if or (lt (int .Values.platform.kubernetesReviewer.tokenExpirationSeconds) 600) (gt (int .Values.platform.kubernetesReviewer.tokenExpirationSeconds) 86400) }}
+{{- fail "platform.kubernetesReviewer.tokenExpirationSeconds must be between 600 and 86400" }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -297,16 +302,35 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.platform.tmpDir.enabled }}
+          {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled }}
           volumeMounts:
+            {{- if .Values.platform.tmpDir.enabled }}
             - name: tmp
               mountPath: /tmp
+            {{- end }}
+            {{- if .Values.platform.kubernetesReviewer.enabled }}
+            - name: kubernetes-reviewer-token
+              mountPath: {{ .Values.platform.kubernetesReviewer.tokenMountPath | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if .Values.platform.tmpDir.enabled }}
+      {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled }}
       volumes:
+        {{- if .Values.platform.tmpDir.enabled }}
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.platform.tmpDir.sizeLimit }}
+        {{- end }}
+        {{- if .Values.platform.kubernetesReviewer.enabled }}
+        - name: kubernetes-reviewer-token
+          projected:
+            defaultMode: 0400
+            sources:
+              - serviceAccountToken:
+                  audience: {{ required "platform.kubernetesReviewer.audience is required" .Values.platform.kubernetesReviewer.audience | quote }}
+                  expirationSeconds: {{ int .Values.platform.kubernetesReviewer.tokenExpirationSeconds }}
+                  path: token
+        {{- end }}
       {{- end }}
       {{- with .Values.platform.nodeSelector }}
       nodeSelector:

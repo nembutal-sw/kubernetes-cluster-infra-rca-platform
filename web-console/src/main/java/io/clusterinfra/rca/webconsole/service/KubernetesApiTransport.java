@@ -8,7 +8,6 @@ public interface KubernetesApiTransport {
 
     JsonNode pod(
         AgentEnrollmentConfiguration configuration,
-        String token,
         String namespace,
         String podName
     );

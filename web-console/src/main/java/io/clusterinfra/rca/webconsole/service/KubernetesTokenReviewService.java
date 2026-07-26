@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentIdentity;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,7 @@ public class KubernetesTokenReviewService {
     private static final Pattern POD_NAME = Pattern.compile(
         "[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?"
     );
+    private static final Pattern SHA256_DIGEST = Pattern.compile("sha256:[a-f0-9]{64}");
 
     private final KubernetesApiTransport transport;
 
@@ -30,6 +33,9 @@ public class KubernetesTokenReviewService {
         String token,
         String requestedNodeName
     ) {
+        if (!configuration.workloadIdentityReady()) {
+            throw unauthorized("Kubernetes workload identity binding is incomplete");
+        }
         if (token == null || token.isBlank() || token.length() > MAX_TOKEN_LENGTH) {
             throw unauthorized("Kubernetes enrollment token is missing or invalid");
         }
@@ -54,6 +60,9 @@ public class KubernetesTokenReviewService {
             255,
             "TokenReview ServiceAccount UID is invalid"
         );
+        if (!configuration.expectedServiceAccountUid().equals(serviceAccountUid)) {
+            throw unauthorized("Kubernetes enrollment ServiceAccount UID did not match");
+        }
         Set<String> groups = textSet(user.path("groups"));
         if (!groups.contains("system:authenticated")
             || !groups.contains("system:serviceaccounts")
@@ -68,8 +77,8 @@ public class KubernetesTokenReviewService {
             throw unauthorized("TokenReview Pod name is invalid");
         }
         podUid = bounded(podUid, 255, "TokenReview Pod UID is invalid");
-        JsonNode pod = transport.pod(configuration, token, configuration.namespace(), podName);
-        verifyPod(configuration, pod, podName, podUid, requestedNodeName);
+        JsonNode pod = transport.pod(configuration, configuration.namespace(), podName);
+        String imageDigest = verifyPod(configuration, pod, podName, podUid, requestedNodeName);
         return new AgentEnrollmentIdentity(
             "kubernetes_token_review",
             subject,
@@ -77,11 +86,15 @@ public class KubernetesTokenReviewService {
             configuration.namespace(),
             configuration.serviceAccount(),
             podName,
-            podUid
+            podUid,
+            configuration.expectedDaemonSetName(),
+            configuration.expectedDaemonSetUid(),
+            imageDigest,
+            configuration.profileVersion()
         );
     }
 
-    private void verifyPod(
+    private String verifyPod(
         AgentEnrollmentConfiguration configuration,
         JsonNode pod,
         String expectedPodName,
@@ -90,14 +103,61 @@ public class KubernetesTokenReviewService {
     ) {
         JsonNode metadata = pod.path("metadata");
         JsonNode spec = pod.path("spec");
+        JsonNode status = pod.path("status");
         if (!expectedPodName.equals(metadata.path("name").asText())
             || !configuration.namespace().equals(metadata.path("namespace").asText())
             || !expectedPodUid.equals(metadata.path("uid").asText())
             || (metadata.has("deletionTimestamp") && !metadata.path("deletionTimestamp").isNull())
             || !configuration.serviceAccount().equals(spec.path("serviceAccountName").asText())
-            || !expectedNodeName.equals(spec.path("nodeName").asText())) {
+            || !expectedNodeName.equals(spec.path("nodeName").asText())
+            || !"Running".equals(status.path("phase").asText())) {
             throw unauthorized("Kubernetes Pod binding did not match the agent registration");
         }
+        verifyLabels(configuration.requiredPodLabels(), metadata.path("labels"));
+        verifyDaemonSetOwner(configuration, metadata.path("ownerReferences"));
+        return verifyImageDigest(configuration.allowedImageDigest(), status.path("containerStatuses"));
+    }
+
+    private void verifyLabels(Map<String, String> expected, JsonNode actual) {
+        for (Map.Entry<String, String> label : expected.entrySet()) {
+            if (!label.getValue().equals(actual.path(label.getKey()).asText(null))) {
+                throw unauthorized("Kubernetes Pod required labels did not match");
+            }
+        }
+    }
+
+    private void verifyDaemonSetOwner(
+        AgentEnrollmentConfiguration configuration,
+        JsonNode ownerReferences
+    ) {
+        if (ownerReferences.isArray()) {
+            for (JsonNode owner : ownerReferences) {
+                if ("apps/v1".equals(owner.path("apiVersion").asText())
+                    && "DaemonSet".equals(owner.path("kind").asText())
+                    && owner.path("controller").asBoolean(false)
+                    && configuration.expectedDaemonSetName().equals(owner.path("name").asText())
+                    && configuration.expectedDaemonSetUid().equals(owner.path("uid").asText())) {
+                    return;
+                }
+            }
+        }
+        throw unauthorized("Kubernetes Pod DaemonSet owner identity did not match");
+    }
+
+    private String verifyImageDigest(String expectedDigest, JsonNode containerStatuses) {
+        if (containerStatuses.isArray()) {
+            for (JsonNode container : containerStatuses) {
+                if (!"agent".equals(container.path("name").asText())
+                    || !container.path("state").path("running").isObject()) {
+                    continue;
+                }
+                Matcher matcher = SHA256_DIGEST.matcher(container.path("imageID").asText(""));
+                if (matcher.find() && expectedDigest.equals(matcher.group())) {
+                    return matcher.group();
+                }
+            }
+        }
+        throw unauthorized("Kubernetes Agent container image digest did not match");
     }
 
     private String requiredText(JsonNode object, String field, String message) {

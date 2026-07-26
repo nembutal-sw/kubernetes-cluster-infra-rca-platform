@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "daemonSetName": "cluster-infra-rca-agent",
+  "containerName": "agent",
+  "identityLabels": [
+    "app.kubernetes.io/name",
+    "cluster-infra-rca.io/cluster-id"
+  ],
+  "agentRbac": {
+    "requiredResources": [
+      "daemonsets"
+    ],
+    "forbiddenResources": [
+      "tokenreviews"
+    ]
+  },
+  "capabilities": {
+    "safe": [],
+    "node-diagnostics": [
+      "SYSLOG"
+    ],
+    "ebpf": [
+      "SYSLOG",
+      "BPF",
+      "PERFMON",
+      "NET_ADMIN",
+      "SYS_RESOURCE"
+    ]
+  }
+}

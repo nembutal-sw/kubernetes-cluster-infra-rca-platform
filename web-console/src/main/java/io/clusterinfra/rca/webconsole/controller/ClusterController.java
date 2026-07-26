@@ -161,6 +161,12 @@ public class ClusterController {
             details.put("audience", profile.audience());
             details.put("namespace", profile.namespace());
             details.put("service_account", profile.serviceAccount());
+            details.put("profile_version", profile.profileVersion());
+            details.put("workload_identity_ready", profile.workloadIdentityReady());
+            details.put("expected_service_account_uid", profile.expectedServiceAccountUid());
+            details.put("expected_daemonset_name", profile.expectedDaemonSetName());
+            details.put("expected_daemonset_uid", profile.expectedDaemonSetUid());
+            details.put("allowed_image_digest", profile.allowedImageDigest());
         }
         audit.user(
             user,

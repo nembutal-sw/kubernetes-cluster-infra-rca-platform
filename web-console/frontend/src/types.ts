@@ -226,6 +226,14 @@ export interface AgentEnrollmentProfile {
   audience?: string | null;
   namespace?: string | null;
   service_account?: string | null;
+  profile_version: number;
+  reviewer_token_path?: string | null;
+  expected_service_account_uid?: string | null;
+  expected_daemon_set_name?: string | null;
+  expected_daemon_set_uid?: string | null;
+  required_pod_labels: Record<string, string>;
+  allowed_image_digest?: string | null;
+  workload_identity_ready: boolean;
   bootstrap_fallback_allowed: boolean;
   bootstrap_token_rotation_required: boolean;
   updated_at?: string | null;
@@ -238,6 +246,12 @@ export interface AgentEnrollmentUpdate {
   audience?: string;
   namespace?: string;
   service_account?: string;
+  reviewer_token_path?: string;
+  expected_service_account_uid?: string;
+  expected_daemon_set_name?: string;
+  expected_daemon_set_uid?: string;
+  required_pod_labels?: Record<string, string>;
+  allowed_image_digest?: string;
   bootstrap_fallback_allowed?: boolean;
 }
 

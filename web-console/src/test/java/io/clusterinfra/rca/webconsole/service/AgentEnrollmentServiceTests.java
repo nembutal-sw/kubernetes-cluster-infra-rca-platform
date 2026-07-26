@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,9 +15,11 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterStatus;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
+import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,13 +55,16 @@ class AgentEnrollmentServiceTests {
     private AgentEnrollmentRepository enrollments;
 
     @Mock
+    private AgentRepository agents;
+
+    @Mock
     private ClusterRepository clusters;
 
     private AgentEnrollmentService service;
 
     @BeforeEach
     void setUp() {
-        service = new AgentEnrollmentService(enrollments, clusters, new RcaConsoleProperties());
+        service = new AgentEnrollmentService(enrollments, agents, clusters, new RcaConsoleProperties());
         when(clusters.find("cluster-1")).thenReturn(Optional.of(new Cluster(
             "cluster-1",
             "production",
@@ -79,7 +85,9 @@ class AgentEnrollmentServiceTests {
         assertThat(profile.mode()).isEqualTo(AgentEnrollmentMode.kubernetes_token_review);
         assertThat(profile.caSha256()).hasSize(64);
         assertThat(profile.bootstrapFallbackAllowed()).isFalse();
+        assertThat(profile.workloadIdentityReady()).isFalse();
         verify(clusters).revokeBootstrapToken("cluster-1");
+        verify(agents).revokeNodeTokensForEnrollmentChange("cluster-1");
 
         ArgumentCaptor<AgentEnrollmentConfiguration> saved = ArgumentCaptor.forClass(
             AgentEnrollmentConfiguration.class
@@ -162,6 +170,51 @@ class AgentEnrollmentServiceTests {
         assertThat(profile.bootstrapTokenRotationRequired()).isTrue();
     }
 
+    @Test
+    void completeWorkloadIdentityContractBecomesReady() {
+        saveReturnsInput();
+        AgentEnrollmentProfileUpdateRequest complete = completeRequest(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+
+        var profile = service.update("cluster-1", complete);
+
+        assertThat(profile.workloadIdentityReady()).isTrue();
+        assertThat(profile.profileVersion()).isEqualTo(1);
+        assertThat(profile.requiredPodLabels())
+            .containsEntry("cluster-infra-rca.io/cluster-id", "cluster-1");
+    }
+
+    @Test
+    void onlySecurityContractChangesIncrementTheVersionAndRevokeNodeTokens() {
+        AtomicReference<AgentEnrollmentConfiguration> stored = new AtomicReference<>();
+        when(enrollments.findConfiguration("cluster-1"))
+            .thenAnswer(invocation -> Optional.ofNullable(stored.get()));
+        when(enrollments.save(any())).thenAnswer(invocation -> {
+            AgentEnrollmentConfiguration configuration = invocation.getArgument(0);
+            stored.set(configuration);
+            return configuration;
+        });
+
+        var initial = service.update(
+            "cluster-1",
+            completeRequest("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        var unchanged = service.update(
+            "cluster-1",
+            completeRequest("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        var changed = service.update(
+            "cluster-1",
+            completeRequest("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+
+        assertThat(initial.profileVersion()).isEqualTo(1);
+        assertThat(unchanged.profileVersion()).isEqualTo(1);
+        assertThat(changed.profileVersion()).isEqualTo(2);
+        verify(agents, times(2)).revokeNodeTokensForEnrollmentChange("cluster-1");
+    }
+
     private AgentEnrollmentProfileUpdateRequest request(boolean fallback, String ca) {
         return new AgentEnrollmentProfileUpdateRequest(
             AgentEnrollmentMode.kubernetes_token_review,
@@ -171,6 +224,27 @@ class AgentEnrollmentServiceTests {
             "rca-system",
             "cluster-infra-rca-agent",
             fallback
+        );
+    }
+
+    private AgentEnrollmentProfileUpdateRequest completeRequest(String imageDigest) {
+        return new AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            TEST_CA,
+            "https://kubernetes.default.svc",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "service-account-uid",
+            "cluster-infra-rca-agent",
+            "daemonset-uid",
+            java.util.Map.of(
+                "app.kubernetes.io/name", "cluster-infra-rca-agent",
+                "cluster-infra-rca.io/cluster-id", "cluster-1"
+            ),
+            imageDigest,
+            true
         );
     }
 

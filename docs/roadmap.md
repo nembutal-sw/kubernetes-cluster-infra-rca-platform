@@ -620,6 +620,26 @@ managed cluster에서 TokenReview enrollment와 실제 장애 표본 intake를 �
 rolling upgrade가 가능하지만, 배포 전 모든 Platform replica에 동일한 pepper를 먼저 제공해야 합니다.
 다음 우선순위는 trusted proxy 기반 audit client IP 판정과 destination version이 고정된 outbox 전달입니다.
 
+## Phase 34. Kubernetes Agent Workload Identity And Manifest Parity
+
+구현 및 검증 완료:
+
+- Agent projected token과 Backend reviewer credential의 Kubernetes API 인증 경계 분리
+- Platform chart의 opt-in reviewer projected token과 최소 `tokenreviews.create`, `pods.get` RBAC
+- ServiceAccount UID, Running Pod, 필수 cluster label, DaemonSet controller UID, image digest 검증
+- UID를 배포 후 바인딩할 수 있는 staged profile과 `workload_identity_ready` 상태
+- Flyway V24 profile version, workload identity, node binding schema
+- profile 보안 필드 변경 시 기존 node token 폐기와 인증 시 profile version 비교
+- 활성 node identity를 다른 Pod UID가 덮어쓰지 못하는 명시적 revoke 기반 재등록
+- Agent RBAC의 TokenReview 권한 제거와 DaemonSet read parity 수정
+- Web manifest와 Helm의 reserved label, capability, RBAC 공통 golden contract
+- Web Console workload identity 입력, readiness, profile version 표시
+
+현재 owner reference 검증은 DaemonSet name/UID 연속성을 강화하지만, Pod 생성 권한 자체를 admission
+경계로 대체하지는 않는다. 운영 환경은 Agent namespace의 Pod 생성 권한을 제한하고 admission policy,
+image digest pinning을 함께 적용해야 한다. 다음 우선순위는 trusted proxy 기반 audit IP 판정,
+versioned notification destination, worker별 lease renewal scheduler 분리다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

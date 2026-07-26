@@ -5,12 +5,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentEnrollmentMode;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterStatus;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import java.time.Instant;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,8 +56,10 @@ class AgentManifestServiceTests {
             .contains("AGENT_IDENTITY_TOKEN_PATH")
             .contains("serviceAccountToken")
             .contains("https://kubernetes.default.svc")
-            .contains("tokenreviews")
+            .contains("daemonsets")
+            .contains("\"cluster-infra-rca.io/cluster-id\":\"cluster-1\"")
             .contains("custom-rca-agent")
+            .doesNotContain("tokenreviews")
             .doesNotContain("agent-token")
             .doesNotContain("AGENT_TOKEN");
     }
@@ -108,6 +113,33 @@ class AgentManifestServiceTests {
             .contains("manifest_token=one-time-manifest-token")
             .doesNotContain("agent-token")
             .doesNotContain("ROTATE_AGENT_TOKEN");
+    }
+
+    @Test
+    void generatedManifestMatchesTheSharedIdentityAndRbacContract() throws Exception {
+        Cluster cluster = cluster(null);
+        when(enrollments.configuration(cluster.clusterId())).thenReturn(configuration());
+        ObjectMapper json = new ObjectMapper();
+        Path contractPath = Path.of("..", "config", "agent-manifest-contract.json");
+        if (!Files.exists(contractPath)) {
+            contractPath = Path.of("config", "agent-manifest-contract.json");
+        }
+        JsonNode contract = json.readTree(Files.readString(contractPath));
+        String rendered = json.writeValueAsString(manifests.manifest(cluster, options("rca-system")));
+
+        contract.path("identityLabels").forEach(label ->
+            assertThat(rendered).contains("\"" + label.asText() + "\"")
+        );
+        contract.path("agentRbac").path("requiredResources").forEach(resource ->
+            assertThat(rendered).contains("\"" + resource.asText() + "\"")
+        );
+        contract.path("agentRbac").path("forbiddenResources").forEach(resource ->
+            assertThat(rendered).doesNotContain("\"" + resource.asText() + "\"")
+        );
+        assertThat(rendered)
+            .contains("\"drop\":[\"ALL\"]")
+            .contains("\"name\":\"" + contract.path("containerName").asText() + "\"")
+            .contains("\"name\":\"" + contract.path("daemonSetName").asText() + "\"");
     }
 
     private Cluster cluster(String bootstrapToken) {

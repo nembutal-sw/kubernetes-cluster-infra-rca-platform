@@ -62,10 +62,12 @@ URL만 override되며 인증은 기존 ServiceAccount token과 CA bundle을 계�
 
 ## Enrollment Token Permission
 
-`enrollment.mode=kubernetes-token-review`는 일반 Kubernetes API 수집 token과 같은 ServiceAccount의
-별도 projected token을 지정 audience로 mount합니다. Agent는 이 파일을 등록할 때마다 다시 읽습니다.
-Chart는 해당 mode에서만 `authentication.k8s.io/tokenreviews`의 `create` 권한을 추가합니다.
+`enrollment.mode=kubernetes-token-review`는 일반 Kubernetes API 수집 token과 분리된 projected
+token을 지정 audience로 mount한다. Agent는 이 파일을 등록할 때마다 다시 읽지만 Kubernetes API
+호출에는 사용하지 않는다.
 
-TokenReview 결과만으로 node identity를 확정하지 않습니다. Platform이 신뢰한 API Server에서 bound
-Pod를 다시 조회해 Pod UID, ServiceAccount, node name과 삭제 상태를 검증합니다. 자세한 설정은
-[Agent Enrollment](agent-enrollment.md)를 참고합니다.
+TokenReview와 Pod 조회는 Platform에 별도로 mount한 reviewer credential이 수행한다. 따라서 Agent
+ClusterRole에는 `tokenreviews.create`가 없고, reviewer 역할에만 `tokenreviews.create`와
+`pods.get`을 부여한다. Platform은 Pod UID와 node binding 외에도 ServiceAccount UID, `Running`
+상태, 필수 label, DaemonSet controller UID, Agent image digest를 검증한다. 자세한 설정은
+[Agent Enrollment](agent-enrollment.md)를 참고한다.

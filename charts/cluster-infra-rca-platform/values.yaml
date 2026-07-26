@@ -57,6 +57,12 @@ platform:
     create: true
     name: ""
     automountServiceAccountToken: false
+  kubernetesReviewer:
+    enabled: false
+    rbacCreate: true
+    audience: https://kubernetes.default.svc
+    tokenExpirationSeconds: 3600
+    tokenMountPath: /var/run/secrets/kubernetes.io/serviceaccount
   image:
     repository: ghcr.io/example/cluster-infra-rca-web-console
     tag: latest

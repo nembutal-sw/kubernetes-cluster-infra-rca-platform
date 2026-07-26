@@ -326,8 +326,24 @@ function AgentEnrollmentSettings({
   const [audience, setAudience] = useState(profile?.audience || "");
   const [namespace, setNamespace] = useState(profile?.namespace || "rca-system");
   const [serviceAccount, setServiceAccount] = useState(profile?.service_account || "cluster-infra-rca-agent");
+  const [reviewerTokenPath, setReviewerTokenPath] = useState(
+    profile?.reviewer_token_path || "/var/run/secrets/kubernetes.io/serviceaccount/token",
+  );
+  const [expectedServiceAccountUid, setExpectedServiceAccountUid] = useState(profile?.expected_service_account_uid || "");
+  const [expectedDaemonSetName, setExpectedDaemonSetName] = useState(profile?.expected_daemon_set_name || "cluster-infra-rca-agent");
+  const [expectedDaemonSetUid, setExpectedDaemonSetUid] = useState(profile?.expected_daemon_set_uid || "");
+  const [allowedImageDigest, setAllowedImageDigest] = useState(profile?.allowed_image_digest || "");
+  const [requiredLabels, setRequiredLabels] = useState(JSON.stringify(
+    profile?.required_pod_labels || {
+      "app.kubernetes.io/name": "cluster-infra-rca-agent",
+      "cluster-infra-rca.io/cluster-id": cluster.cluster_id,
+    },
+    null,
+    2,
+  ));
   const [caBundlePem, setCaBundlePem] = useState("");
   const [fallbackAllowed, setFallbackAllowed] = useState(profile?.bootstrap_fallback_allowed ?? true);
+  const [validationError, setValidationError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -336,8 +352,22 @@ function AgentEnrollmentSettings({
     setAudience(profile?.audience || "");
     setNamespace(profile?.namespace || "rca-system");
     setServiceAccount(profile?.service_account || "cluster-infra-rca-agent");
+    setReviewerTokenPath(profile?.reviewer_token_path || "/var/run/secrets/kubernetes.io/serviceaccount/token");
+    setExpectedServiceAccountUid(profile?.expected_service_account_uid || "");
+    setExpectedDaemonSetName(profile?.expected_daemon_set_name || "cluster-infra-rca-agent");
+    setExpectedDaemonSetUid(profile?.expected_daemon_set_uid || "");
+    setAllowedImageDigest(profile?.allowed_image_digest || "");
+    setRequiredLabels(JSON.stringify(
+      profile?.required_pod_labels || {
+        "app.kubernetes.io/name": "cluster-infra-rca-agent",
+        "cluster-infra-rca.io/cluster-id": cluster.cluster_id,
+      },
+      null,
+      2,
+    ));
     setFallbackAllowed(profile?.bootstrap_fallback_allowed ?? true);
     setCaBundlePem("");
+    setValidationError("");
   }, [cluster.cluster_id, profile?.updated_at, profile?.mode]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -350,6 +380,16 @@ function AgentEnrollmentSettings({
     }
     setBusy(true);
     try {
+      let parsedLabels: Record<string, string> | undefined;
+      if (mode === "kubernetes_token_review") {
+        const parsed = JSON.parse(requiredLabels) as unknown;
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== "object"
+          || Object.values(parsed).some((value) => typeof value !== "string")) {
+          throw new Error(t("Required Pod labels must be a JSON object with string values."));
+        }
+        parsedLabels = parsed as Record<string, string>;
+      }
+      setValidationError("");
       await onUpdate(cluster, mode === "bootstrap_token" ? { mode } : {
         mode,
         api_server_url: apiServerUrl.trim(),
@@ -357,9 +397,17 @@ function AgentEnrollmentSettings({
         audience: audience.trim(),
         namespace: namespace.trim(),
         service_account: serviceAccount.trim(),
+        reviewer_token_path: reviewerTokenPath.trim(),
+        expected_service_account_uid: expectedServiceAccountUid.trim(),
+        expected_daemon_set_name: expectedDaemonSetName.trim(),
+        expected_daemon_set_uid: expectedDaemonSetUid.trim(),
+        required_pod_labels: parsedLabels,
+        allowed_image_digest: allowedImageDigest.trim(),
         bootstrap_fallback_allowed: fallbackAllowed,
       });
       setCaBundlePem("");
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : t("Enrollment validation failed."));
     } finally {
       setBusy(false);
     }
@@ -373,7 +421,15 @@ function AgentEnrollmentSettings({
         <div><span>{t("Service account")}</span><strong>{profile?.service_account || "n/a"}</strong></div>
         <div><span>{t("Audience")}</span><strong>{profile?.audience || "n/a"}</strong></div>
         <div><span>{t("CA fingerprint")}</span><strong className="fingerprint">{profile?.ca_sha256 || "n/a"}</strong></div>
+        <div><span>{t("Profile version")}</span><strong>{profile?.profile_version || "n/a"}</strong></div>
+        <div><span>{t("Workload identity")}</span><strong>{profile?.workload_identity_ready ? t("Ready") : t("Binding required")}</strong></div>
       </div>
+      {mode === "kubernetes_token_review" && !profile?.workload_identity_ready && (
+        <div className="enrollment-token-status">
+          <Icon name="shield-lock" />
+          <strong>{t("Agent registration stays blocked until all workload identity fields are bound.")}</strong>
+        </div>
+      )}
       {strict && (
         <div className="enrollment-strict-status">
           <Icon name="shield-lock" />
@@ -401,6 +457,15 @@ function AgentEnrollmentSettings({
               <label>{t("Audience")}<input className="form-control" required value={audience} disabled={busy} onChange={(event) => setAudience(event.target.value)} /></label>
               <label>{t("Namespace")}<input className="form-control" required value={namespace} disabled={busy} onChange={(event) => setNamespace(event.target.value)} /></label>
               <label>{t("Service account")}<input className="form-control" required value={serviceAccount} disabled={busy} onChange={(event) => setServiceAccount(event.target.value)} /></label>
+              <label className="wide">{t("Backend reviewer token path")}<input className="form-control font-monospace" required value={reviewerTokenPath} disabled={busy} onChange={(event) => setReviewerTokenPath(event.target.value)} /></label>
+              <label>{t("Expected ServiceAccount UID")}<input className="form-control font-monospace" value={expectedServiceAccountUid} disabled={busy} onChange={(event) => setExpectedServiceAccountUid(event.target.value)} /></label>
+              <label>{t("Expected DaemonSet name")}<input className="form-control font-monospace" value={expectedDaemonSetName} disabled={busy} onChange={(event) => setExpectedDaemonSetName(event.target.value)} /></label>
+              <label>{t("Expected DaemonSet UID")}<input className="form-control font-monospace" value={expectedDaemonSetUid} disabled={busy} onChange={(event) => setExpectedDaemonSetUid(event.target.value)} /></label>
+              <label>{t("Allowed Agent image digest")}<input className="form-control font-monospace" value={allowedImageDigest} disabled={busy} placeholder="sha256:..." onChange={(event) => setAllowedImageDigest(event.target.value)} /></label>
+              <label className="wide">
+                {t("Required Pod labels")}
+                <textarea className="form-control enrollment-ca" rows={5} required value={requiredLabels} disabled={busy} onChange={(event) => setRequiredLabels(event.target.value)} />
+              </label>
               <label className="wide">
                 {t("CA bundle PEM")}
                 <textarea className="form-control enrollment-ca" rows={5} required={!profile?.configured} value={caBundlePem} disabled={busy} placeholder={profile?.configured ? t("Leave blank to keep the current CA bundle") : "-----BEGIN CERTIFICATE-----"} onChange={(event) => setCaBundlePem(event.target.value)} />
@@ -411,6 +476,7 @@ function AgentEnrollmentSettings({
               </label>
             </>
           )}
+          {validationError && <div className="wide alert alert-danger mb-0">{validationError}</div>}
           <div className="wide enrollment-actions">
             <button className="btn btn-primary icon-button" disabled={busy}>
               <Icon name="save" /><span>{busy ? "..." : t("Save enrollment")}</span>

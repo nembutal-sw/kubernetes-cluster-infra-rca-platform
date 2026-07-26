@@ -99,8 +99,36 @@ public class AgentManifestService {
             cluster.clusterId(),
             validatedNamespace,
             List.copyOf(commands),
-            enrollment == null ? notesWithTokenGuidance(notes, cluster) : notes
+            enrollment == null
+                ? notesWithTokenGuidance(notes, cluster)
+                : tokenReviewBindingNotes(notes, enrollment, validatedNamespace)
         );
+    }
+
+    private List<String> tokenReviewBindingNotes(
+        List<String> notes,
+        AgentEnrollmentConfiguration enrollment,
+        String namespace
+    ) {
+        List<String> updated = new ArrayList<>(notes);
+        updated.add(
+            "ServiceAccount UID: kubectl -n " + namespace + " get serviceaccount "
+                + enrollment.serviceAccount() + " -o jsonpath='{.metadata.uid}'"
+        );
+        updated.add(
+            "DaemonSet UID: kubectl -n " + namespace + " get daemonset "
+                + defaultIfBlank(enrollment.expectedDaemonSetName(), APP_NAME)
+                + " -o jsonpath='{.metadata.uid}'"
+        );
+        updated.add(
+            "Agent image digest: kubectl -n " + namespace
+                + " get pods -l cluster-infra-rca.io/cluster-id=" + enrollment.clusterId()
+                + " -o jsonpath='{.items[0].status.containerStatuses[?(@.name==\"agent\")].imageID}'"
+        );
+        updated.add(
+            "Save these immutable identities in Agent enrollment before registration is allowed."
+        );
+        return List.copyOf(updated);
     }
 
     public Map<String, Object> manifest(Cluster cluster, ManifestOptions requested) {
@@ -160,7 +188,7 @@ public class AgentManifestService {
             )
         ));
         items.add(secret(cluster, options.namespace(), enrollment));
-        items.add(daemonSet(options, configMapName, enrollment, serviceAccount));
+        items.add(daemonSet(cluster, options, configMapName, enrollment, serviceAccount));
         return map("apiVersion", "v1", "kind", "List", "items", items);
     }
 
@@ -216,17 +244,15 @@ public class AgentManifestService {
                 "resources", List.of("endpointslices"),
                 "verbs", List.of("get", "list")
             ),
+            map(
+                "apiGroups", List.of("apps"),
+                "resources", List.of("daemonsets"),
+                "verbs", List.of("get", "list")
+            ),
             map("apiGroups", List.of("coordination.k8s.io"), "resources", List.of("leases"), "verbs", List.of("get", "list")),
             map("apiGroups", List.of("metrics.k8s.io"), "resources", List.of("nodes", "pods"), "verbs", List.of("get", "list")),
             map("nonResourceURLs", List.of("/readyz", "/readyz/*", "/livez", "/livez/*"), "verbs", List.of("get"))
         ));
-        if (enrollment != null) {
-            rules.add(map(
-                "apiGroups", List.of("authentication.k8s.io"),
-                "resources", List.of("tokenreviews"),
-                "verbs", List.of("create")
-            ));
-        }
         return map(
             "apiVersion", "rbac.authorization.k8s.io/v1",
             "kind", "ClusterRole",
@@ -250,15 +276,20 @@ public class AgentManifestService {
     }
 
     private Map<String, Object> daemonSet(
+        Cluster cluster,
         ManifestOptions options,
         String configMapName,
         AgentEnrollmentConfiguration enrollment,
         String serviceAccount
     ) {
-        Map<String, Object> selector = map("app.kubernetes.io/name", APP_NAME);
+        Map<String, Object> selector = map(
+            "app.kubernetes.io/name", APP_NAME,
+            "cluster-infra-rca.io/cluster-id", cluster.clusterId()
+        );
         Map<String, Object> labels = map(
             "app.kubernetes.io/name", APP_NAME,
-            "app.kubernetes.io/part-of", "cluster-infra-rca"
+            "app.kubernetes.io/part-of", "cluster-infra-rca",
+            "cluster-infra-rca.io/cluster-id", cluster.clusterId()
         );
         boolean diagnostics = !"safe".equals(options.agentMode());
         boolean ebpf = "ebpf".equals(options.agentMode());
@@ -267,7 +298,11 @@ public class AgentManifestService {
                 "runAsUser", 0,
                 "runAsGroup", 0,
                 "readOnlyRootFilesystem", true,
-                "allowPrivilegeEscalation", false
+                "allowPrivilegeEscalation", false,
+                "capabilities", map(
+                    "drop", List.of("ALL"),
+                    "add", List.of("SYSLOG")
+                )
             )
             : map(
                 "runAsNonRoot", true,
@@ -280,7 +315,10 @@ public class AgentManifestService {
         if (ebpf) {
             securityContext.put(
                 "capabilities",
-                map("add", List.of("BPF", "PERFMON", "NET_ADMIN", "SYS_RESOURCE"))
+                map(
+                    "drop", List.of("ALL"),
+                    "add", List.of("SYSLOG", "BPF", "PERFMON", "NET_ADMIN", "SYS_RESOURCE")
+                )
             );
         }
         Map<String, Object> container = map(

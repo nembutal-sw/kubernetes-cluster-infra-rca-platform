@@ -12,6 +12,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -57,7 +59,7 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
             HttpRequest request = requestBuilder(
                 configuration,
                 "/apis/authentication.k8s.io/v1/tokenreviews",
-                token
+                reviewerToken(configuration)
             )
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
@@ -73,13 +75,29 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
     @Override
     public JsonNode pod(
         AgentEnrollmentConfiguration configuration,
-        String token,
         String namespace,
         String podName
     ) {
         String path = "/api/v1/namespaces/" + segment(namespace) + "/pods/" + segment(podName);
-        HttpRequest request = requestBuilder(configuration, path, token).GET().build();
+        HttpRequest request = requestBuilder(configuration, path, reviewerToken(configuration)).GET().build();
         return send(configuration, request, "Pod lookup");
+    }
+
+    private String reviewerToken(AgentEnrollmentConfiguration configuration) {
+        try (InputStream input = Files.newInputStream(Path.of(configuration.reviewerTokenPath()))) {
+            String token = new String(
+                readBounded(input, 32768, "Kubernetes reviewer token"),
+                StandardCharsets.UTF_8
+            ).trim();
+            if (token.isEmpty() || token.chars().anyMatch(Character::isWhitespace)) {
+                throw unavailable("Kubernetes reviewer token file is empty or invalid", null);
+            }
+            return token;
+        } catch (ResponseStatusException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw unavailable("Kubernetes reviewer token file could not be read", exception);
+        }
     }
 
     private HttpRequest.Builder requestBuilder(

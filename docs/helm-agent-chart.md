@@ -30,6 +30,7 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `image.repository` | `ghcr.io/example/cluster-infra-rca-agent` | agent 이미지 repository |
 | `image.tag` | `latest` | agent 이미지 tag |
 | `backendUrl` | `""` | backend API URL |
+| `clusterId` | `""` | TokenReview workload label에 사용하는 cluster ID |
 | `enrollment.mode` | `bootstrap-token` | `bootstrap-token` 또는 `kubernetes-token-review` |
 | `enrollment.audience` | `""` | TokenReview와 projected token audience |
 | `enrollment.tokenExpirationSeconds` | `3600` | projected token lifetime, 600~86400초 |
@@ -55,15 +56,19 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --namespace rca-system \
   --create-namespace \
+  --set fullnameOverride=cluster-infra-rca-agent \
   --set backendUrl=https://rca.example.com \
+  --set clusterId=<cluster-id> \
   --set enrollment.mode=kubernetes-token-review \
   --set enrollment.audience=https://kubernetes.default.svc \
   --set secret.existingSecret.name=cluster-infra-rca-agent
 ```
 
-이 mode에서는 `agent-token` Secret key를 렌더링하지 않습니다. audience는 대상 API Server가
-수락하는 값이어야 하며, Agent ServiceAccount에는 TokenReview 생성 권한이 추가됩니다. 세부 보안
-경계는 [Agent Enrollment](agent-enrollment.md)를 참고합니다.
+이 mode에서는 `agent-token` Secret key를 렌더링하지 않는다. audience는 대상 API Server가
+수락하는 값이어야 한다. Agent ServiceAccount에는 TokenReview 생성 권한을 추가하지 않으며,
+Platform의 별도 reviewer credential이 TokenReview와 Pod 조회를 수행한다. 설치 후
+ServiceAccount UID, DaemonSet UID, 실행 이미지 digest를 profile에 저장해야 등록이 열린다.
+세부 절차는 [Agent Enrollment](agent-enrollment.md)를 참고한다.
 
 ## Canary 설치
 

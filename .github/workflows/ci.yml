@@ -218,6 +218,11 @@ jobs:
           grep -q '/api/webhooks/alertmanager' <<< "$alertmanager_delivery"
           grep -q 'authorization:' <<< "$alertmanager_delivery"
           grep -q 'RCA_WEBHOOK_TOKEN' <<< "$alertmanager_delivery"
+          reviewer="$(helm template rca charts/cluster-infra-rca-platform \
+            --set platform.kubernetesReviewer.enabled=true)"
+          grep -q 'resources: \["tokenreviews"\]' <<< "${reviewer}"
+          grep -q 'resources: \["pods"\]' <<< "${reviewer}"
+          grep -q 'name: kubernetes-reviewer-token' <<< "${reviewer}"
       - name: Evaluate rendered LLM alert rules
         run: python3 scripts/llm_prometheus_rule_test.py --helm helm --promtool promtool
       - name: Test Prometheus Alertmanager webhook delivery
@@ -243,6 +248,7 @@ jobs:
             --set backendUrl=https://rca.example.com \
             --set secret.create=true \
             --set secret.clusterId=cluster-token-review \
+            --set clusterId=cluster-token-review \
             --set enrollment.mode=kubernetes-token-review \
             --set-string enrollment.audience=https://kubernetes.default.svc)"
           grep -q 'name: AGENT_ENROLLMENT_MODE' <<< "${token_review}"
@@ -250,7 +256,12 @@ jobs:
           grep -q 'name: AGENT_IDENTITY_TOKEN_PATH' <<< "${token_review}"
           grep -q 'serviceAccountToken:' <<< "${token_review}"
           grep -q 'audience: "https://kubernetes.default.svc"' <<< "${token_review}"
-          grep -q 'resources: \["tokenreviews"\]' <<< "${token_review}"
+          grep -q 'cluster-infra-rca.io/cluster-id: "cluster-token-review"' <<< "${token_review}"
+          grep -q 'resources: \["daemonsets"\]' <<< "${token_review}"
+          if grep -q 'resources: \["tokenreviews"\]' <<< "${token_review}"; then
+            echo "Agent RBAC must not create TokenReview requests" >&2
+            exit 1
+          fi
           if grep -q 'agent-token:' <<< "${token_review}"; then
             echo "TokenReview enrollment must not render a bootstrap token Secret key" >&2
             exit 1
@@ -303,6 +314,8 @@ jobs:
           grep -q 'hostPID: true' <<< "${aks_system}"
           grep -q 'path: "/var/log"' <<< "${aks_system}"
           grep -q 'readOnly: true' <<< "${aks_system}"
+      - name: Verify Agent manifest parity contract
+        run: python3 scripts/agent-manifest-parity.py --helm helm
 
   prometheus-operator-delivery-e2e:
     needs: helm-validate
