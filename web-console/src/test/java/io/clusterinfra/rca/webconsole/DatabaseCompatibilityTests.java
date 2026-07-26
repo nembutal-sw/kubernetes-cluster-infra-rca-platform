@@ -81,7 +81,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
-    private static final int FLYWAY_MIGRATION_COUNT = 23;
+    private static final int FLYWAY_MIGRATION_COUNT = 24;
     private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
