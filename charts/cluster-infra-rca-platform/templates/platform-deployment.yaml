@@ -22,6 +22,12 @@
 {{- if or (lt (int .Values.platform.kubernetesReviewer.tokenExpirationSeconds) 600) (gt (int .Values.platform.kubernetesReviewer.tokenExpirationSeconds) 86400) }}
 {{- fail "platform.kubernetesReviewer.tokenExpirationSeconds must be between 600 and 86400" }}
 {{- end }}
+{{- if empty .Values.platform.config.kubernetesApiAudiences }}
+{{- fail "platform.config.kubernetesApiAudiences must list every Kubernetes API audience" }}
+{{- end }}
+{{- if not (has .Values.platform.kubernetesReviewer.audience .Values.platform.config.kubernetesApiAudiences) }}
+{{- fail "platform.kubernetesReviewer.audience must be listed in platform.config.kubernetesApiAudiences" }}
+{{- end }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -102,6 +108,10 @@ spec:
               value: {{ .Values.platform.config.agentBootstrapTokenTtlSeconds | quote }}
             - name: RCA_AGENT_MTLS_REQUIRED
               value: {{ .Values.platform.config.agentMtlsRequired | quote }}
+            - name: RCA_KUBERNETES_API_AUDIENCES
+              value: {{ join "," .Values.platform.config.kubernetesApiAudiences | quote }}
+            - name: RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL
+              value: {{ .Values.platform.config.legacyUnboundAgentTokenGraceUntil | quote }}
             - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
             - name: RCA_AGENT_EXPECTED_VERSION

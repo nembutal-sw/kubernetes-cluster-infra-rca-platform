@@ -3,6 +3,7 @@ package io.clusterinfra.rca.webconsole;
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.security.OpaqueTokenHasher;
+import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
 import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import io.clusterinfra.rca.webconsole.security.Sha256Digest;
 import io.clusterinfra.rca.webconsole.security.TokenGenerator;
@@ -25,6 +26,10 @@ public final class TestSecurity {
 
     public static Sha256Digest sha256Digest() {
         return new Sha256Digest();
+    }
+
+    public static AgentSecurityPolicy agentSecurityPolicy() {
+        return new AgentSecurityPolicy(new RcaConsoleProperties());
     }
 
     public static OpaqueTokenHasher opaqueTokenHasher() {

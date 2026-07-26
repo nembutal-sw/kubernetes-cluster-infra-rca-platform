@@ -28,10 +28,12 @@ clusterId: ""
 
 enrollment:
   mode: bootstrap-token
-  # Must be accepted by the target Kubernetes API server. The Agent presents
-  # this token to the Platform; a separate Backend reviewer credential submits
-  # TokenReview and Pod lookup requests.
-  audience: ""
+  # Dedicated audience for the Platform enrollment endpoint. It must not match
+  # any Kubernetes API audience accepted by the target cluster.
+  audience: cluster-infra-rca-agent-enrollment
+  kubernetesApiAudiences:
+    - https://kubernetes.default.svc
+    - https://kubernetes.default.svc.cluster.local
   tokenExpirationSeconds: 3600
   tokenPath: /var/run/secrets/cluster-infra-rca/enrollment/token
 

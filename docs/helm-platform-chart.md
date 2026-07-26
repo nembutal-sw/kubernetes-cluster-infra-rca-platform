@@ -119,6 +119,12 @@ platform:
 ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여하지 않는다. 외부 cluster는
 별도 reviewer credential을 `/var/run/secrets/cluster-infra-rca-reviewers/` 하위에 mount한다.
 
+Reviewer audience는 `platform.config.kubernetesApiAudiences`에도 포함되어야 하며 누락하면 Helm
+렌더링이 실패한다. Backend는 이 목록과 동일한 audience를 Agent enrollment profile에 저장하지
+못하게 한다. V24 이전 node token을 순차 재등록해야 한다면
+`platform.config.legacyUnboundAgentTokenGraceUntil`에 ISO-8601 UTC 종료 시각을 지정한다. 빈 값은
+즉시 차단이며 현재 시각 기준 최대 30일까지만 허용된다.
+
 opaque token pepper는 한 번에 교체하지 않습니다. 운영에서는 기존 Secret에 current/previous
 key를 함께 저장하고 `opaqueTokenKeyRingRevision`을 단계마다 변경해 Pod rollout을 강제합니다.
 상세 순서는 [Opaque Token Pepper Rotation](opaque-token-key-rotation.md)을 따릅니다.

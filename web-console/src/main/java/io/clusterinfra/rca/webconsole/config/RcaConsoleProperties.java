@@ -719,6 +719,9 @@ public class RcaConsoleProperties {
         private int manifestTokenTtlSeconds = 300;
         private int agentBootstrapTokenTtlSeconds = 1800;
         private boolean agentMtlsRequired;
+        private String kubernetesApiAudiences =
+            "https://kubernetes.default.svc,https://kubernetes.default.svc.cluster.local";
+        private String legacyUnboundAgentTokenGraceUntil = "";
 
         public String getEncryptionSecret() {
             return encryptionSecret;
@@ -814,6 +817,26 @@ public class RcaConsoleProperties {
 
         public void setAgentMtlsRequired(boolean agentMtlsRequired) {
             this.agentMtlsRequired = agentMtlsRequired;
+        }
+
+        public String getKubernetesApiAudiences() {
+            return kubernetesApiAudiences;
+        }
+
+        public void setKubernetesApiAudiences(String kubernetesApiAudiences) {
+            this.kubernetesApiAudiences = kubernetesApiAudiences;
+        }
+
+        public String getLegacyUnboundAgentTokenGraceUntil() {
+            return legacyUnboundAgentTokenGraceUntil == null
+                ? ""
+                : legacyUnboundAgentTokenGraceUntil.trim();
+        }
+
+        public void setLegacyUnboundAgentTokenGraceUntil(
+            String legacyUnboundAgentTokenGraceUntil
+        ) {
+            this.legacyUnboundAgentTokenGraceUntil = legacyUnboundAgentTokenGraceUntil;
         }
     }
 

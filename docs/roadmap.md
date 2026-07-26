@@ -655,8 +655,25 @@ versioned notification destination, worker별 lease renewal scheduler 분리다.
 - Compose, `.env.example`, release-readiness 정적 계약과 3단계 운영 runbook
 
 key rotation은 단일 Secret 교체가 아니라 reader 준비, writer 전환, lazy rehash의 세 단계로 수행한다.
-이전 key 제거 전 비활성 node credential을 회전하거나 재등록해야 한다. 다음 우선순위는 trusted proxy
-기반 audit IP 판정과 notification destination configuration version 고정이다.
+이전 key 제거 전 비활성 node credential을 회전하거나 재등록해야 한다. 후속 Agent enrollment
+audience 분리와 legacy profile binding 정책은 Phase 36에서 처리한다.
+
+## Phase 36. Dedicated Agent Audience And Legacy Profile Fencing
+
+구현 및 검증 완료:
+
+- Agent projected token의 기본 audience를 `cluster-infra-rca-agent-enrollment`로 분리
+- Backend의 Kubernetes API audience 목록과 겹치는 enrollment profile 저장 거부
+- 운영 기동 시 DB에 남은 위험 audience profile을 cluster ID와 함께 fail-fast
+- Agent Helm chart의 API audience 목록 필수화와 audience overlap 렌더링 거부
+- Platform reviewer audience가 Backend API audience 목록에 포함되는지 Helm 검증
+- V24 이전 `enrollment_profile_version IS NULL` node token의 기본 인증 차단
+- ISO-8601 UTC 절대 시각 기반 최대 30일 재등록 유예와 만료 후 자동 차단
+- Web Console 전용 audience 기본값, Backend·Helm·Frontend 회귀 테스트
+
+Kubernetes 공식 ServiceAccount 지침에 따라 애플리케이션이 수락하는 audience를 명시하고 API
+Server audience와 분리한다. 다음 우선순위는 Helm과 Web Console manifest의 구조적 object diff,
+외부 cluster reviewer credential 수명주기, 승인 기반 Agent identity rebind다.
 
 ## Positioning
 

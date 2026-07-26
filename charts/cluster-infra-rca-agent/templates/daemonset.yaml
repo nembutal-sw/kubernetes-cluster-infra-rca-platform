@@ -7,7 +7,13 @@
 {{- fail "enrollment.mode must be one of: bootstrap-token, kubernetes-token-review" -}}
 {{- end -}}
 {{- if eq $enrollmentMode "kubernetes-token-review" -}}
-{{- required "enrollment.audience is required for kubernetes-token-review" .Values.enrollment.audience -}}
+{{- $enrollmentAudience := required "enrollment.audience is required for kubernetes-token-review" .Values.enrollment.audience -}}
+{{- if empty .Values.enrollment.kubernetesApiAudiences -}}
+{{- fail "enrollment.kubernetesApiAudiences must list every Kubernetes API audience" -}}
+{{- end -}}
+{{- if has $enrollmentAudience .Values.enrollment.kubernetesApiAudiences -}}
+{{- fail "enrollment.audience must be dedicated and must not match a Kubernetes API audience" -}}
+{{- end -}}
 {{- required "clusterId is required for kubernetes-token-review workload binding" .Values.clusterId -}}
 {{- if or (lt (int .Values.enrollment.tokenExpirationSeconds) 600) (gt (int .Values.enrollment.tokenExpirationSeconds) 86400) -}}
 {{- fail "enrollment.tokenExpirationSeconds must be between 600 and 86400" -}}

@@ -28,6 +28,17 @@ TokenReview mode에서는 Agent token을 Kubernetes API 호출 인증에 재사�
 Agent가 보낸 API URL, CA, node metadata, `_enrollment` 값은 신뢰하지 않는다. 검증을 통과한
 identity만 Platform이 생성해 저장한다.
 
+Agent용 audience는 Kubernetes API audience와 분리한다.
+
+```text
+Agent projected token audience: cluster-infra-rca-agent-enrollment
+Platform reviewer audience:     https://kubernetes.default.svc
+```
+
+`RCA_KUBERNETES_API_AUDIENCES`에는 대상 API Server가 인증용으로 수락하는 audience를 모두
+쉼표로 구분해 설정한다. Agent enrollment profile의 audience가 이 목록과 같으면 저장이
+거부되고, 운영 profile은 기존 DB에 위험한 설정이 남아 있어도 시작하지 않는다.
+
 ## Backend Reviewer
 
 Platform과 대상 cluster가 같다면 Platform chart의 reviewer를 활성화한다.
@@ -61,7 +72,7 @@ ServiceAccount, reviewer token path를 저장한다. immutable UID와 digest가 
   "mode": "kubernetes_token_review",
   "api_server_url": "https://kubernetes.default.svc",
   "ca_bundle_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-  "audience": "https://kubernetes.default.svc",
+  "audience": "cluster-infra-rca-agent-enrollment",
   "namespace": "rca-system",
   "service_account": "cluster-infra-rca-agent",
   "reviewer_token_path": "/var/run/secrets/kubernetes.io/serviceaccount/token",
@@ -113,7 +124,7 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set backendUrl=https://rca.example.com \
   --set clusterId='<cluster-id>' \
   --set enrollment.mode=kubernetes-token-review \
-  --set enrollment.audience=https://kubernetes.default.svc \
+  --set enrollment.audience=cluster-infra-rca-agent-enrollment \
   --set secret.existingSecret.name=cluster-infra-rca-agent
 ```
 
@@ -121,6 +132,16 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
 
 profile의 보안 필드가 바뀌면 `profile_version`이 증가하고 기존 node token은 모두 폐기된다.
 node token 검증 시 등록 당시 profile version과 현재 version도 비교한다.
+
+V24 이전에 발급되어 `enrollment_profile_version`이 비어 있는 node token은 현재 profile이
+존재하면 기본 거부된다. 순차 재등록을 위한 유예가 필요할 때만 아래처럼 절대 종료 시각을 지정한다.
+
+```bash
+export RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL='2026-07-28T00:00:00Z'
+```
+
+유예는 현재 시각 기준 최대 30일이며, 종료 후 기존 token은 자동으로 인증되지 않는다. 운영자는
+유예 안에 Agent를 재등록해 profile version, ServiceAccount UID, DaemonSet UID를 결합해야 한다.
 
 같은 node 이름에 활성 identity가 있으면 다른 Pod UID가 등록 정보를 덮어쓸 수 없다. DaemonSet을
 재생성하거나 Agent state를 잃은 경우 관리자가 해당 node token을 명시적으로 revoke한 뒤

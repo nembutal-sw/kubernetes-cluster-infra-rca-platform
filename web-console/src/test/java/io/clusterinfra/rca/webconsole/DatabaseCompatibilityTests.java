@@ -202,7 +202,7 @@ class DatabaseCompatibilityTests {
             "https://kubernetes.example:6443",
             "test-ca-pem",
             "test-ca-sha256",
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             false,
@@ -779,7 +779,8 @@ class DatabaseCompatibilityTests {
             tokenGenerator(),
             opaqueTokenHasher(),
             passwordHasher(),
-            clusterRepository(dataSource)
+            clusterRepository(dataSource),
+            io.clusterinfra.rca.webconsole.TestSecurity.agentSecurityPolicy()
         );
     }
 

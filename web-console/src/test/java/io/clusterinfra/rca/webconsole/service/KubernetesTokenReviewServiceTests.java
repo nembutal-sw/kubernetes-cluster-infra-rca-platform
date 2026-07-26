@@ -140,7 +140,7 @@ class KubernetesTokenReviewServiceTests {
             "https://kubernetes.example:6443",
             "test-ca",
             "ca-sha",
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             3,
@@ -164,7 +164,7 @@ class KubernetesTokenReviewServiceTests {
             {
               "status": {
                 "authenticated": true,
-                "audiences": ["https://kubernetes.default.svc"],
+                "audiences": ["cluster-infra-rca-agent-enrollment"],
                 "user": {
                   "username": "system:serviceaccount:rca-system:cluster-infra-rca-agent",
                   "uid": "service-account-uid",

@@ -59,7 +59,7 @@ Examples:
 
 Agent protocol v2 supports two registration identities. `bootstrap-token` uses a short-lived cluster credential. `kubernetes-token-review` uses a projected ServiceAccount token and validates it against an administrator-configured API Server and CA. After either registration path succeeds, the platform issues a node-specific credential.
 
-TokenReview enrollment uses the Agent projected token only as the object being reviewed. TokenReview and Pod lookup authenticate with a separate Backend reviewer credential. The expected audience, ServiceAccount subject and UID, groups, Pod UID, namespace, requested node, Running state, required labels, DaemonSet controller UID, and Agent image digest must all match. Agent-provided API URLs, CA bundles, and enrollment metadata are never trusted. Raw identity tokens and CA contents are excluded from API responses and audit details.
+TokenReview enrollment uses the Agent projected token only as the object being reviewed. Its dedicated enrollment audience must not match any configured Kubernetes API audience. TokenReview and Pod lookup authenticate with a separate Backend reviewer credential. The expected audience, ServiceAccount subject and UID, groups, Pod UID, namespace, requested node, Running state, required labels, DaemonSet controller UID, and Agent image digest must all match. Agent-provided API URLs, CA bundles, and enrollment metadata are never trusted. Raw identity tokens and CA contents are excluded from API responses and audit details.
 
 Subsequent agent calls must identify:
 
@@ -75,7 +75,7 @@ Human passwords use PBKDF2-HMAC-SHA256. Random 256-bit bootstrap and node creden
 
 The Agent requests node-token rotation every 30 days by default. It durably stages the pending value, proves it with a heartbeat, and then commits it locally. Restart, transient API failure, and rejected-pending rollback are covered without reusing the bootstrap credential.
 
-Enrollment profiles carry a monotonically increasing version. Security-contract changes revoke existing node credentials, and node authentication requires the stored version to match the current profile. An active Kubernetes identity cannot be replaced by a different Pod UID until an administrator explicitly revokes the node credential.
+Enrollment profiles carry a monotonically increasing version. Security-contract changes revoke existing node credentials, and node authentication requires the stored version to match the current profile. Pre-V24 unbound credentials are rejected by default and can only be accepted until an explicitly configured UTC deadline no more than 30 days ahead. An active Kubernetes identity cannot be replaced by a different Pod UID until an administrator explicitly revokes the node credential.
 
 Strict TokenReview mode revokes the cluster bootstrap credential and disables fallback. Switching back to bootstrap mode does not silently mint a replacement; the Console reports that explicit token rotation is required.
 

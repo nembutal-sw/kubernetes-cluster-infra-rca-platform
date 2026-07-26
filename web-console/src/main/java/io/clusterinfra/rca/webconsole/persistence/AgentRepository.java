@@ -11,6 +11,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegistrationResp
 import io.clusterinfra.rca.webconsole.security.OpaqueTokenHasher;
 import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import io.clusterinfra.rca.webconsole.security.TokenGenerator;
+import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -42,6 +43,7 @@ public class AgentRepository {
     private final OpaqueTokenHasher opaqueTokens;
     private final PasswordHasher legacyPasswords;
     private final ClusterRepository clusters;
+    private final AgentSecurityPolicy securityPolicy;
 
     public AgentRepository(
         JdbcTemplate jdbc,
@@ -49,7 +51,8 @@ public class AgentRepository {
         TokenGenerator tokenGenerator,
         OpaqueTokenHasher opaqueTokens,
         PasswordHasher legacyPasswords,
-        ClusterRepository clusters
+        ClusterRepository clusters,
+        AgentSecurityPolicy securityPolicy
     ) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -57,6 +60,7 @@ public class AgentRepository {
         this.opaqueTokens = opaqueTokens;
         this.legacyPasswords = legacyPasswords;
         this.clusters = clusters;
+        this.securityPolicy = securityPolicy;
     }
 
     @Transactional
@@ -363,7 +367,7 @@ public class AgentRepository {
                 clusterId,
                 normalizedNodeName(nodeName)
             );
-            if (row == null || row.revokedAt() != null || !row.currentProfile()) {
+            if (row == null || row.revokedAt() != null || !currentProfile(row)) {
                 return false;
             }
             if (matchesCurrentToken(clusterId, nodeName, nodeToken, row.hash())) {
@@ -471,7 +475,7 @@ public class AgentRepository {
             );
             return latest != null
                 && latest.revokedAt() == null
-                && latest.currentProfile()
+                && currentProfile(latest)
                 && opaqueTokens.matches(token, latest.hash());
         } catch (EmptyResultDataAccessException exception) {
             return false;
@@ -589,6 +593,19 @@ public class AgentRepository {
         return nodeName == null ? null : nodeName.trim();
     }
 
+    private boolean currentProfile(NodeTokenRow row) {
+        if (row.currentProfileVersion() == null) {
+            return row.enrollmentProfileVersion() == null;
+        }
+        if (row.enrollmentProfileVersion() == null) {
+            return securityPolicy.allowsLegacyUnboundAgentToken();
+        }
+        return Objects.equals(
+            row.enrollmentProfileVersion(),
+            row.currentProfileVersion()
+        );
+    }
+
     private record NodeTokenRow(
         String hash,
         Instant revokedAt,
@@ -597,10 +614,6 @@ public class AgentRepository {
         Long enrollmentProfileVersion,
         Long currentProfileVersion
     ) {
-        private boolean currentProfile() {
-            return enrollmentProfileVersion == null
-                || Objects.equals(enrollmentProfileVersion, currentProfileVersion);
-        }
     }
 
     private record StoredTokenVerification(

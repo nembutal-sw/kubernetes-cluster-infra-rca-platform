@@ -5,14 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.clusterinfra.rca.webconsole.TestSecurity.opaqueTokenHasher;
 import static io.clusterinfra.rca.webconsole.TestSecurity.passwordHasher;
 import static io.clusterinfra.rca.webconsole.TestSecurity.tokenGenerator;
+import static io.clusterinfra.rca.webconsole.TestSecurity.agentSecurityPolicy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
 import io.clusterinfra.rca.webconsole.security.PasswordHasher;
+import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
+import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -54,7 +58,8 @@ class AgentRepositoryTests {
             tokenGenerator(),
             opaqueTokenHasher(),
             passwordHasher(),
-            clusters
+            clusters,
+            agentSecurityPolicy()
         );
     }
 
@@ -247,7 +252,8 @@ class AgentRepositoryTests {
             tokenGenerator(),
             oldHasher,
             passwordHasher(),
-            oldClusters
+            oldClusters,
+            agentSecurityPolicy()
         );
         var cluster = oldClusters.create(
             new ClusterCreateRequest("prod-a", "prod", null)
@@ -274,7 +280,8 @@ class AgentRepositoryTests {
             tokenGenerator(),
             rotatingHasher,
             passwordHasher(),
-            oldClusters
+            oldClusters,
+            agentSecurityPolicy()
         );
 
         assertThat(rotatingAgents.verifyNodeToken(
@@ -298,7 +305,8 @@ class AgentRepositoryTests {
             tokenGenerator(),
             preparedOldHasher,
             passwordHasher(),
-            oldClusters
+            oldClusters,
+            agentSecurityPolicy()
         );
         assertThat(preparedOldAgents.verifyNodeToken(
             cluster.clusterId(),
@@ -346,7 +354,8 @@ class AgentRepositoryTests {
             tokenGenerator(),
             opaqueTokenHasher(),
             blocking,
-            clusters
+            clusters,
+            agentSecurityPolicy()
         );
 
         CompletableFuture<Boolean> verification = CompletableFuture.supplyAsync(
@@ -461,6 +470,61 @@ class AgentRepositoryTests {
         assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isFalse();
     }
 
+    @Test
+    void legacyUnboundNodeTokenIsRejectedWhenAnEnrollmentProfileExists() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("node"),
+            Map.of()
+        ));
+        insertEnrollmentProfile(cluster.clusterId(), 1);
+
+        assertThat(agents.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            registered.nodeToken()
+        )).isFalse();
+    }
+
+    @Test
+    void legacyUnboundNodeTokenIsAcceptedOnlyDuringExplicitGracePeriod() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("node"),
+            Map.of()
+        ));
+        insertEnrollmentProfile(cluster.clusterId(), 1);
+        RcaConsoleProperties properties = new RcaConsoleProperties();
+        properties.getSecurity().setLegacyUnboundAgentTokenGraceUntil(
+            Instant.now().plus(java.time.Duration.ofHours(1)).toString()
+        );
+        AgentRepository graceRepository = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            passwordHasher(),
+            clusters,
+            new AgentSecurityPolicy(properties)
+        );
+
+        assertThat(graceRepository.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            registered.nodeToken()
+        )).isTrue();
+    }
+
     private Map<String, Object> trustedIdentity(long version, String podUid, String daemonSetUid) {
         return Map.of(
             "method", "kubernetes_token_review",
@@ -482,7 +546,7 @@ class AgentRepositoryTests {
                      required_pod_labels_json, allowed_image_digest,
                      bootstrap_fallback_allowed, created_at, updated_at)
                 VALUES (?, 'kubernetes_token_review', 'https://kubernetes.example:6443',
-                        'test-ca', 'test-ca-sha', 'https://kubernetes.default.svc',
+                        'test-ca', 'test-ca-sha', 'cluster-infra-rca-agent-enrollment',
                         'rca-system', 'cluster-infra-rca-agent', ?,
                         '/var/run/secrets/kubernetes.io/serviceaccount/token',
                         'service-account-uid', 'cluster-infra-rca-agent', 'daemonset-uid-1',

@@ -114,7 +114,7 @@ class AccessServiceEnrollmentTests {
             "https://kubernetes.example:6443",
             "test-ca",
             "ca-sha",
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             fallback,

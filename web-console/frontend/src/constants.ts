@@ -150,6 +150,7 @@ export const KO: Record<string, string> = {
   Mode: "방식",
   "Service account": "서비스 계정",
   Audience: "Audience",
+  "Dedicated enrollment audience": "전용 등록 Audience",
   "CA fingerprint": "CA 지문",
   "API Server URL": "API Server URL",
   Namespace: "네임스페이스",

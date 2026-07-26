@@ -55,7 +55,7 @@ class AgentManifestServiceTests {
             .contains("kubernetes-token-review")
             .contains("AGENT_IDENTITY_TOKEN_PATH")
             .contains("serviceAccountToken")
-            .contains("https://kubernetes.default.svc")
+            .contains("cluster-infra-rca-agent-enrollment")
             .contains("daemonsets")
             .contains("\"cluster-infra-rca.io/cluster-id\":\"cluster-1\"")
             .contains("custom-rca-agent")
@@ -163,7 +163,7 @@ class AgentManifestServiceTests {
             "https://kubernetes.example:6443",
             "test-ca",
             "test-ca-sha",
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "custom-rca-agent",
             false,

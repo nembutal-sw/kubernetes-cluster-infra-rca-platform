@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -45,6 +46,13 @@ public class AgentEnrollmentRepository {
         } catch (EmptyResultDataAccessException exception) {
             return Optional.empty();
         }
+    }
+
+    public List<AgentEnrollmentConfiguration> findAllConfigurations() {
+        return jdbc.query(
+            "SELECT * FROM agent_enrollment_profiles ORDER BY cluster_id",
+            this::mapConfiguration
+        );
     }
 
     public void lockCluster(String clusterId) {

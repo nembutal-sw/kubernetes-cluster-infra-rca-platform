@@ -269,12 +269,17 @@ Mode별 추가 옵션:
 Agent protocol v2는 등록 후 모든 요청을 node-scoped Bearer token으로 인증합니다. 등록 identity는 다음 두 방식 중 하나를 사용합니다.
 
 - `bootstrap-token`: 기본 호환 모드입니다. 등록 전용 token은 기본 30분 후 만료되며 회전·폐기할 수 있습니다.
-- `kubernetes-token-review`: Agent projected token은 검증 대상으로만 사용하고, Platform의 별도 reviewer credential이 TokenReview와 Pod 조회를 수행합니다. ServiceAccount UID, Running Pod, cluster label, DaemonSet UID, image digest까지 일치해야 등록됩니다.
+- `kubernetes-token-review`: Agent projected token은 `cluster-infra-rca-agent-enrollment` 같은 전용 audience를 사용합니다. Platform의 별도 Kubernetes API audience reviewer credential이 TokenReview와 Pod 조회를 수행하며, ServiceAccount UID, Running Pod, cluster label, DaemonSet UID, image digest까지 일치해야 등록됩니다.
 
 TokenReview profile은 배포 전 staged 상태로 저장한 뒤 ServiceAccount/DaemonSet UID와 image digest를
 바인딩하는 2단계 방식입니다. profile이 바뀌면 기존 node token을 폐기하고, 활성 node identity는
 명시적 revoke 없이 다른 Pod가 덮어쓸 수 없습니다. 설정 순서는 [Agent Enrollment](docs/agent-enrollment.md),
 권한과 canary 절차는 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
+
+Agent audience와 Kubernetes API audience가 같으면 profile 저장과 운영 기동, Agent Helm 렌더링이
+거부됩니다. V24 이전의 profile 미결합 node token은 기본적으로 거부하며, 무중단 재등록이 필요한
+경우에만 `RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL`에 최대 30일 이내의 UTC 종료 시각을
+명시합니다.
 
 Node token은 기본 30일마다 자동 교체합니다. 새 token은 로컬 state에 원자적으로 보관하고 heartbeat 인증이 성공한 뒤 활성화합니다. 재시작이나 일시적 통신 실패가 발생해도 이전 token으로 복구하며, 주기와 재시도 간격은 `nodeTokenRotationDays`, `nodeTokenRotationRetrySeconds`로 조정합니다.
 

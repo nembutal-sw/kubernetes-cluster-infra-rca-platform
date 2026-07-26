@@ -8,6 +8,7 @@ import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -51,17 +52,20 @@ public class AgentEnrollmentService {
     private final AgentRepository agents;
     private final ClusterRepository clusters;
     private final RcaConsoleProperties properties;
+    private final AgentSecurityPolicy securityPolicy;
 
     public AgentEnrollmentService(
         AgentEnrollmentRepository enrollments,
         AgentRepository agents,
         ClusterRepository clusters,
-        RcaConsoleProperties properties
+        RcaConsoleProperties properties,
+        AgentSecurityPolicy securityPolicy
     ) {
         this.enrollments = enrollments;
         this.agents = agents;
         this.clusters = clusters;
         this.properties = properties;
+        this.securityPolicy = securityPolicy;
     }
 
     public AgentEnrollmentProfile profile(String clusterId) {
@@ -98,6 +102,11 @@ public class AgentEnrollmentService {
         if (audience.chars().anyMatch(Character::isWhitespace)
             || audience.chars().anyMatch(Character::isISOControl)) {
             throw invalid("audience must not contain whitespace or control characters");
+        }
+        if (securityPolicy.isKubernetesApiAudience(audience)) {
+            throw invalid(
+                "audience must be dedicated to Agent enrollment and must not be a Kubernetes API audience"
+            );
         }
         String namespace = kubernetesName(request.namespace(), 63, DNS_LABEL, "namespace");
         String serviceAccount = kubernetesName(

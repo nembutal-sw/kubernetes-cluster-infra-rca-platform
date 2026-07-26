@@ -17,6 +17,7 @@ import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository;
 import io.clusterinfra.rca.webconsole.persistence.AgentEnrollmentRepository.AgentEnrollmentConfiguration;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
+import io.clusterinfra.rca.webconsole.security.AgentSecurityPolicy;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -64,7 +65,14 @@ class AgentEnrollmentServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new AgentEnrollmentService(enrollments, agents, clusters, new RcaConsoleProperties());
+        RcaConsoleProperties properties = new RcaConsoleProperties();
+        service = new AgentEnrollmentService(
+            enrollments,
+            agents,
+            clusters,
+            properties,
+            new AgentSecurityPolicy(properties)
+        );
         when(clusters.find("cluster-1")).thenReturn(Optional.of(new Cluster(
             "cluster-1",
             "production",
@@ -116,7 +124,7 @@ class AgentEnrollmentServiceTests {
                 "https://kubernetes.example:6443",
                 TEST_CA,
                 "old-sha",
-                "https://kubernetes.default.svc",
+                "cluster-infra-rca-agent-enrollment",
                 "rca-system",
                 "cluster-infra-rca-agent",
                 true,
@@ -137,7 +145,7 @@ class AgentEnrollmentServiceTests {
             AgentEnrollmentMode.kubernetes_token_review,
             "https://kubernetes.example:6443/proxy",
             TEST_CA,
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             false
@@ -168,6 +176,24 @@ class AgentEnrollmentServiceTests {
         verify(enrollments).delete("cluster-1");
         assertThat(profile.mode()).isEqualTo(AgentEnrollmentMode.bootstrap_token);
         assertThat(profile.bootstrapTokenRotationRequired()).isTrue();
+    }
+
+    @Test
+    void rejectsKubernetesApiAudienceBeforeSaving() {
+        AgentEnrollmentProfileUpdateRequest invalid = new AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            TEST_CA,
+            "https://kubernetes.default.svc",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            false
+        );
+
+        assertThatThrownBy(() -> service.update("cluster-1", invalid))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("dedicated to Agent enrollment");
+        verify(enrollments, never()).save(any());
     }
 
     @Test
@@ -220,7 +246,7 @@ class AgentEnrollmentServiceTests {
             AgentEnrollmentMode.kubernetes_token_review,
             "https://kubernetes.example:6443",
             ca,
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             fallback
@@ -232,7 +258,7 @@ class AgentEnrollmentServiceTests {
             AgentEnrollmentMode.kubernetes_token_review,
             "https://kubernetes.example:6443",
             TEST_CA,
-            "https://kubernetes.default.svc",
+            "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
             "/var/run/secrets/kubernetes.io/serviceaccount/token",

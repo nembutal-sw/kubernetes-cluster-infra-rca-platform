@@ -90,6 +90,9 @@ def main() -> int:
             exists("web-console/src/main/resources/db/migration/V23__agent_enrollment_profiles.sql")
             and exists("web-console/src/main/resources/db/migration/V24__agent_workload_identity.sql")
             and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/AgentSecurityPolicy.java"
+            )
+            and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/KubernetesTokenReviewService.java"
             )
             and contains(
@@ -124,10 +127,16 @@ def main() -> int:
                 ".github/workflows/ci.yml",
                 "Agent RBAC must not create TokenReview requests",
                 "TokenReview enrollment must not render a bootstrap token Secret key",
-                "enrollment.audience=https://kubernetes.default.svc",
+                "Agent enrollment audience must not match a Kubernetes API audience",
+                "enrollment.audience=cluster-infra-rca-agent-enrollment",
                 "agent-manifest-parity.py",
+            )
+            and contains(
+                "docker-compose.yml",
+                "RCA_KUBERNETES_API_AUDIENCES",
+                "RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL",
             ),
-            "Agent enrollment binds projected workload identity while only the platform reviewer can create TokenReviews.",
+            "Agent enrollment uses a dedicated audience, binds workload identity, and fences legacy profile-unbound tokens.",
         ),
         check(
             "readiness-health",

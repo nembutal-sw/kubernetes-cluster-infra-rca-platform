@@ -323,7 +323,9 @@ function AgentEnrollmentSettings({
 }) {
   const [mode, setMode] = useState<AgentEnrollmentUpdate["mode"]>(profile?.mode || "bootstrap_token");
   const [apiServerUrl, setApiServerUrl] = useState(profile?.api_server_url || "");
-  const [audience, setAudience] = useState(profile?.audience || "");
+  const [audience, setAudience] = useState(
+    profile?.audience || "cluster-infra-rca-agent-enrollment",
+  );
   const [namespace, setNamespace] = useState(profile?.namespace || "rca-system");
   const [serviceAccount, setServiceAccount] = useState(profile?.service_account || "cluster-infra-rca-agent");
   const [reviewerTokenPath, setReviewerTokenPath] = useState(
@@ -349,7 +351,7 @@ function AgentEnrollmentSettings({
   useEffect(() => {
     setMode(profile?.mode || "bootstrap_token");
     setApiServerUrl(profile?.api_server_url || "");
-    setAudience(profile?.audience || "");
+    setAudience(profile?.audience || "cluster-infra-rca-agent-enrollment");
     setNamespace(profile?.namespace || "rca-system");
     setServiceAccount(profile?.service_account || "cluster-infra-rca-agent");
     setReviewerTokenPath(profile?.reviewer_token_path || "/var/run/secrets/kubernetes.io/serviceaccount/token");
@@ -454,7 +456,7 @@ function AgentEnrollmentSettings({
           {mode === "kubernetes_token_review" && (
             <>
               <label className="wide">{t("API Server URL")}<input className="form-control" type="url" required value={apiServerUrl} disabled={busy} onChange={(event) => setApiServerUrl(event.target.value)} /></label>
-              <label>{t("Audience")}<input className="form-control" required value={audience} disabled={busy} onChange={(event) => setAudience(event.target.value)} /></label>
+              <label>{t("Dedicated enrollment audience")}<input className="form-control" required value={audience} disabled={busy} onChange={(event) => setAudience(event.target.value)} /></label>
               <label>{t("Namespace")}<input className="form-control" required value={namespace} disabled={busy} onChange={(event) => setNamespace(event.target.value)} /></label>
               <label>{t("Service account")}<input className="form-control" required value={serviceAccount} disabled={busy} onChange={(event) => setServiceAccount(event.target.value)} /></label>
               <label className="wide">{t("Backend reviewer token path")}<input className="form-control font-monospace" required value={reviewerTokenPath} disabled={busy} onChange={(event) => setReviewerTokenPath(event.target.value)} /></label>

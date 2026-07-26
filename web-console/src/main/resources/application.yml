@@ -156,6 +156,8 @@ rca:
     manifest-token-ttl-seconds: ${RCA_MANIFEST_TOKEN_TTL_SECONDS:300}
     agent-bootstrap-token-ttl-seconds: ${RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS:1800}
     agent-mtls-required: ${RCA_AGENT_MTLS_REQUIRED:false}
+    kubernetes-api-audiences: ${RCA_KUBERNETES_API_AUDIENCES:https://kubernetes.default.svc,https://kubernetes.default.svc.cluster.local}
+    legacy-unbound-agent-token-grace-until: ${RCA_LEGACY_UNBOUND_AGENT_TOKEN_GRACE_UNTIL:}
   demo:
     enabled: ${RCA_DEMO_ENABLED:false}
   export:

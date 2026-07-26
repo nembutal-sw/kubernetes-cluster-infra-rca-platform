@@ -147,6 +147,12 @@ platform:
     manifestTokenTtlSeconds: 300
     agentBootstrapTokenTtlSeconds: 1800
     agentMtlsRequired: false
+    kubernetesApiAudiences:
+      - https://kubernetes.default.svc
+      - https://kubernetes.default.svc.cluster.local
+    # Optional ISO-8601 UTC deadline, capped at 30 days. Empty rejects legacy
+    # node tokens that are not bound to an enrollment profile immediately.
+    legacyUnboundAgentTokenGraceUntil: ""
     agentOfflineAfterSeconds: 180
     agentExpectedVersion: ""
     agentMinimumSupportedVersion: "0.1.0"

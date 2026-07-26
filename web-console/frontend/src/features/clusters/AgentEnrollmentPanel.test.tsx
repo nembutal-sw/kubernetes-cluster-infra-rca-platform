@@ -20,7 +20,7 @@ const detail: ClusterDetailState = {
     configured: true,
     api_server_url: "https://kubernetes.example:6443",
     ca_sha256: "a".repeat(64),
-    audience: "https://kubernetes.default.svc",
+    audience: "cluster-infra-rca-agent-enrollment",
     namespace: "rca-system",
     service_account: "cluster-infra-rca-agent",
     profile_version: 3,
@@ -120,8 +120,8 @@ describe("Agent enrollment panel", () => {
     fireEvent.change(screen.getByLabelText("API Server URL"), {
       target: { value: "https://kubernetes.example:6443" },
     });
-    fireEvent.change(screen.getByLabelText("Audience"), {
-      target: { value: "https://kubernetes.default.svc" },
+    fireEvent.change(screen.getByLabelText("Dedicated enrollment audience"), {
+      target: { value: "cluster-infra-rca-agent-enrollment" },
     });
     fireEvent.change(screen.getByLabelText("CA bundle PEM"), {
       target: { value: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----" },

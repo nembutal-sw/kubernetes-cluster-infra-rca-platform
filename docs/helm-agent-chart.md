@@ -32,7 +32,8 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `backendUrl` | `""` | backend API URL |
 | `clusterId` | `""` | TokenReview workload label에 사용하는 cluster ID |
 | `enrollment.mode` | `bootstrap-token` | `bootstrap-token` 또는 `kubernetes-token-review` |
-| `enrollment.audience` | `""` | TokenReview와 projected token audience |
+| `enrollment.audience` | `cluster-infra-rca-agent-enrollment` | Platform 등록 전용 projected token audience |
+| `enrollment.kubernetesApiAudiences` | Kubernetes service audiences | 대상 API Server가 수락하는 audience 목록 |
 | `enrollment.tokenExpirationSeconds` | `3600` | projected token lifetime, 600~86400초 |
 | `secret.create` | `false` | chart가 agent Secret을 만들지 여부 |
 | `secret.existingSecret.name` | `cluster-infra-rca-agent` | 기존 Secret 이름 |
@@ -60,12 +61,14 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set backendUrl=https://rca.example.com \
   --set clusterId=<cluster-id> \
   --set enrollment.mode=kubernetes-token-review \
-  --set enrollment.audience=https://kubernetes.default.svc \
+  --set enrollment.audience=cluster-infra-rca-agent-enrollment \
   --set secret.existingSecret.name=cluster-infra-rca-agent
 ```
 
-이 mode에서는 `agent-token` Secret key를 렌더링하지 않는다. audience는 대상 API Server가
-수락하는 값이어야 한다. Agent ServiceAccount에는 TokenReview 생성 권한을 추가하지 않으며,
+이 mode에서는 `agent-token` Secret key를 렌더링하지 않는다. Agent audience는 대상 API
+Server의 인증 audience와 달라야 한다. `enrollment.kubernetesApiAudiences`가 비어 있거나
+전용 audience와 겹치면 Helm 렌더링이 실패한다. custom API audience를 사용하는 cluster는
+목록에 해당 값을 추가해야 한다. Agent ServiceAccount에는 TokenReview 생성 권한을 추가하지 않으며,
 Platform의 별도 reviewer credential이 TokenReview와 Pod 조회를 수행한다. 설치 후
 ServiceAccount UID, DaemonSet UID, 실행 이미지 digest를 profile에 저장해야 등록이 열린다.
 세부 절차는 [Agent Enrollment](agent-enrollment.md)를 참고한다.

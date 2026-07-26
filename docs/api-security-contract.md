@@ -73,7 +73,9 @@ python3 scripts/verify-api-contract.py
 - protocol v2의 등록 전용 bootstrap Bearer와 node-scoped Bearer 검증
 - Kubernetes TokenReview의 별도 Backend reviewer 인증, audience, ServiceAccount UID, Running Pod,
   필수 label, DaemonSet UID, image digest와 node binding 검증
+- Agent 전용 audience와 Kubernetes API audience 분리, 운영 기동 및 Helm 렌더링 fail-fast
 - enrollment profile version 변경에 따른 node token 폐기와 활성 node identity 덮어쓰기 차단
+- V24 이전 profile 미결합 node token의 기본 차단과 최대 30일 명시적 재등록 유예
 - protocol v1 body credential 호환 및 header/body 충돌 거부
 - Agent endpoint 인증 선차단
 - Agent manifest의 사용자 인증/1회성 manifest token 검증

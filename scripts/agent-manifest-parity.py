@@ -31,7 +31,7 @@ def render(helm: str, repository: Path, mode: str) -> str:
         "--set-string",
         "enrollment.mode=kubernetes-token-review",
         "--set-string",
-        "enrollment.audience=https://kubernetes.default.svc",
+        "enrollment.audience=cluster-infra-rca-agent-enrollment",
         "--set-string",
         f"mode={mode}",
     ]
