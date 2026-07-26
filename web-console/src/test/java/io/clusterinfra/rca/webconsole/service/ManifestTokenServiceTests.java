@@ -11,6 +11,8 @@ import static org.mockito.Mockito.when;
 
 import io.clusterinfra.rca.webconsole.config.RcaConsoleProperties;
 import io.clusterinfra.rca.webconsole.persistence.ManifestTokenRepository;
+import io.clusterinfra.rca.webconsole.security.Sha256Digest;
+import io.clusterinfra.rca.webconsole.security.TokenGenerator;
 import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -20,7 +22,7 @@ class ManifestTokenServiceTests {
     @Test
     void issueStoresOnlyHashedTokenAndAppliesMinimumTtl() {
         ManifestTokenRepository repository = mock(ManifestTokenRepository.class);
-        ManifestTokenService service = new ManifestTokenService(repository, properties(5));
+        ManifestTokenService service = service(repository, 5);
 
         ManifestTokenService.IssuedManifestToken issued = service.issue("cluster-1", "admin");
 
@@ -45,7 +47,7 @@ class ManifestTokenServiceTests {
     @Test
     void issueAppliesMaximumTtlAndNormalizesBlankCreator() {
         ManifestTokenRepository repository = mock(ManifestTokenRepository.class);
-        ManifestTokenService service = new ManifestTokenService(repository, properties(5_000));
+        ManifestTokenService service = service(repository, 5_000);
 
         service.issue("cluster-1", " ");
 
@@ -65,7 +67,7 @@ class ManifestTokenServiceTests {
     @Test
     void consumeDelegatesHashedTokenAndRejectsBlankToken() {
         ManifestTokenRepository repository = mock(ManifestTokenRepository.class);
-        ManifestTokenService service = new ManifestTokenService(repository, properties(300));
+        ManifestTokenService service = service(repository, 300);
         when(repository.consume(eq("cluster-1"), anyString(), any(Instant.class))).thenReturn(true);
 
         assertThat(service.consume("cluster-1", "manifest-secret")).isTrue();
@@ -75,7 +77,7 @@ class ManifestTokenServiceTests {
         assertThat(hash.getValue()).hasSize(64).isNotEqualTo("manifest-secret");
 
         ManifestTokenRepository unusedRepository = mock(ManifestTokenRepository.class);
-        ManifestTokenService unusedService = new ManifestTokenService(unusedRepository, properties(300));
+        ManifestTokenService unusedService = service(unusedRepository, 300);
         assertThat(unusedService.consume("cluster-1", " ")).isFalse();
         verifyNoInteractions(unusedRepository);
     }
@@ -84,5 +86,14 @@ class ManifestTokenServiceTests {
         RcaConsoleProperties properties = new RcaConsoleProperties();
         properties.getSecurity().setManifestTokenTtlSeconds(ttlSeconds);
         return properties;
+    }
+
+    private ManifestTokenService service(ManifestTokenRepository repository, int ttlSeconds) {
+        return new ManifestTokenService(
+            repository,
+            properties(ttlSeconds),
+            new TokenGenerator(),
+            new Sha256Digest()
+        );
     }
 }

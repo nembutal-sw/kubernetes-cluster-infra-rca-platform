@@ -1,6 +1,7 @@
 package io.clusterinfra.rca.webconsole.config;
 
 import java.net.URI;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -102,6 +103,23 @@ public class ProductionSecurityValidator implements InitializingBean {
             "RCA_ENCRYPTION_SECRET must be a non-default secret",
             violations
         );
+        String opaqueTokenPepper = properties.getSecurity().getOpaqueTokenPepper();
+        rejectUnsafe(
+            opaqueTokenPepper,
+            Set.of("", "development-only-opaque-token-pepper"),
+            "RCA_OPAQUE_TOKEN_PEPPER must be a non-default secret",
+            violations
+        );
+        if (opaqueTokenPepper.length() < 32) {
+            violations.add("RCA_OPAQUE_TOKEN_PEPPER must contain at least 32 characters");
+        }
+        if (MessageDigest.isEqual(
+            opaqueTokenPepper.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            properties.getSecurity().getEncryptionSecret()
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        )) {
+            violations.add("RCA_OPAQUE_TOKEN_PEPPER must be different from RCA_ENCRYPTION_SECRET");
+        }
         if (properties.getSecurity().getStandardRequestMaxBytes() < 1024
             || properties.getSecurity().getEvidenceRequestMaxBytes()
                 < properties.getSecurity().getStandardRequestMaxBytes()) {

@@ -17,7 +17,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.Sha256Digest;
 import io.clusterinfra.rca.webconsole.service.IncidentCorrelationService;
 import io.clusterinfra.rca.webconsole.service.TopologyService;
 import java.time.Instant;
@@ -47,7 +47,7 @@ class IncidentCorrelationServiceTests {
             incidents,
             reports,
             properties,
-            new TokenService(),
+            new Sha256Digest(),
             new IncidentCausalityRules(),
             topology
         );

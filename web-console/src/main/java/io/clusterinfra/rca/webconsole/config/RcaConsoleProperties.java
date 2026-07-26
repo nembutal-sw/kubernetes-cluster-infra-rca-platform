@@ -705,7 +705,11 @@ public class RcaConsoleProperties {
     }
 
     public static class Security {
+        private static final String DEVELOPMENT_OPAQUE_TOKEN_PEPPER =
+            "development-only-opaque-token-pepper";
+
         private String encryptionSecret = "";
+        private String opaqueTokenPepper = DEVELOPMENT_OPAQUE_TOKEN_PEPPER;
         private long standardRequestMaxBytes = 1024 * 1024;
         private long evidenceRequestMaxBytes = 10 * 1024 * 1024;
         private int manifestTokenTtlSeconds = 300;
@@ -718,6 +722,16 @@ public class RcaConsoleProperties {
 
         public void setEncryptionSecret(String encryptionSecret) {
             this.encryptionSecret = encryptionSecret;
+        }
+
+        public String getOpaqueTokenPepper() {
+            return opaqueTokenPepper == null || opaqueTokenPepper.isBlank()
+                ? DEVELOPMENT_OPAQUE_TOKEN_PEPPER
+                : opaqueTokenPepper;
+        }
+
+        public void setOpaqueTokenPepper(String opaqueTokenPepper) {
+            this.opaqueTokenPepper = opaqueTokenPepper;
         }
 
         public long getStandardRequestMaxBytes() {

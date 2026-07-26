@@ -71,6 +71,10 @@ The platform verifies the cluster/node binding and node-scoped Bearer credential
 
 The bootstrap credential expires after `RCA_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS` (default 1800 seconds). Administrators can rotate or revoke it, and can revoke individual node credentials. Nodes can rotate their own credential after authenticating with the current value.
 
+Human passwords use PBKDF2-HMAC-SHA256. Random 256-bit bootstrap and node credentials use HMAC-SHA-256 with `RCA_OPAQUE_TOKEN_PEPPER`, avoiding password-hash CPU cost on every Agent request. Production requires a stable pepper of at least 32 characters that differs from `RCA_ENCRYPTION_SECRET`. Existing PBKDF2 token hashes remain valid and are conditionally upgraded after successful authentication; a concurrent rotation or revocation wins the update race and the stale token is rejected.
+
+The Agent requests node-token rotation every 30 days by default. It durably stages the pending value, proves it with a heartbeat, and then commits it locally. Restart, transient API failure, and rejected-pending rollback are covered without reusing the bootstrap credential.
+
 Strict TokenReview mode revokes the cluster bootstrap credential and disables fallback. Switching back to bootstrap mode does not silently mint a replacement; the Console reports that explicit token rotation is required.
 
 ## Webhook Authentication
@@ -149,7 +153,6 @@ the servlet container or upstream TLS termination configuration.
 
 - tenant-aware access scope
 - permission matrix
-- node-token rotation
 - strict agent protocol mode
 - external SIEM delivery
 - retention policy enforcement

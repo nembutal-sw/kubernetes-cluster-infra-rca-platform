@@ -73,6 +73,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform
 필수 운영 항목은 다음과 같습니다.
 
 - 기본 관리자 계정, webhook token, 암호화 키 교체
+- `RCA_OPAQUE_TOKEN_PEPPER`를 32자 이상의 별도 난수로 설정하고 모든 Platform replica에서 동일하게 유지
 - TLS Ingress와 관리망 접근 제어
 - DB 백업 및 복구 훈련
 - Agent가 접근할 수 있는 `RCA_PUBLIC_API_BASE_URL` 설정

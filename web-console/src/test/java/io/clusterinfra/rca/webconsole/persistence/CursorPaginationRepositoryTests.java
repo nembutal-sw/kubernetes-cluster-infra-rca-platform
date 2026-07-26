@@ -9,7 +9,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.IncidentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import static io.clusterinfra.rca.webconsole.TestSecurity.clusterRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -39,7 +39,7 @@ class CursorPaginationRepositoryTests {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
         objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        clusterId = new ClusterRepository(jdbc, new TokenService())
+        clusterId = clusterRepository(jdbc)
             .create(new ClusterCreateRequest("pagination", "test", null))
             .clusterId();
         reports = new ReportRepository(jdbc, objectMapper);

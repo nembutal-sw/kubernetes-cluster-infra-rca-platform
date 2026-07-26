@@ -46,6 +46,9 @@
 - `/api/**` endpoint 인증 누락 여부
 - Agent/Webhook/Manifest 전용 인증 필터 coverage
 - export, evidence bundle, token rotation, cluster delete 역할 범위
+- 사용자 비밀번호 PBKDF2와 Agent opaque token HMAC 분리
+- `RCA_OPAQUE_TOKEN_PEPPER`의 production fail-fast와 Helm/Compose 전달
+- Agent pending token의 재시작 복구, heartbeat 승격, 거부 시 rollback
 - `/api/v1/platform/info` versioned API 유지
 
 통과 기준:

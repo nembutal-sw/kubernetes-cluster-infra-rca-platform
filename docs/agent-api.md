@@ -207,7 +207,9 @@ Only `completed` and `failed` are valid response states. Submitted evidence may 
 - Node self-rotation: `POST /api/agents/token/rotate` (10분 pending token 발급, 새 token의 첫 인증 성공 시 승격)
 - Admin node revoke: `POST /api/clusters/{cluster_id}/agents/{node_name}/token/revoke`
 
-Node token 인증이 거부되면 Agent는 bootstrap token을 자동 재사용하지 않습니다. 로컬 node identity를 삭제하고 종료하며, 운영자가 bootstrap token을 회전하고 Agent Secret/Pod를 갱신해 명시적으로 재등록해야 합니다.
+Agent는 `AGENT_NODE_TOKEN_ROTATION_DAYS`(기본 30일)가 지나면 self-rotation API를 호출합니다. 실패 시 `AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS`(기본 3600초) 동안 재시도를 제한합니다. 새 token은 state file에 먼저 원자적으로 기록하고, 다음 heartbeat가 성공한 뒤 active token으로 승격합니다. 그 사이 프로세스가 재시작되면 pending token을 우선 사용하며, pending token이 거부되면 기존 active token으로 되돌립니다. `AGENT_NODE_TOKEN_ROTATION_DAYS=0`이면 자동 교체를 비활성화합니다.
+
+검증 중인 pending token만 거부되면 Agent는 이전 active token으로 복구합니다. 현재 active node token 자체가 거부되면 bootstrap token을 자동 재사용하지 않습니다. 이 경우 로컬 node identity를 삭제하고 종료하며, 운영자가 bootstrap token을 회전하고 Agent Secret/Pod를 갱신해 명시적으로 재등록해야 합니다.
 
 ## Deprecated Action Endpoints
 

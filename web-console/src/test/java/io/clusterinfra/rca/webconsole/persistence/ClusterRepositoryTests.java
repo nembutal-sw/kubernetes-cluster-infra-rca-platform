@@ -1,13 +1,21 @@
 package io.clusterinfra.rca.webconsole.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static io.clusterinfra.rca.webconsole.TestSecurity.clusterRepository;
+import static io.clusterinfra.rca.webconsole.TestSecurity.opaqueTokenHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.passwordHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.tokenGenerator;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import java.util.UUID;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.sql.Timestamp;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,7 +36,7 @@ class ClusterRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        repository = new ClusterRepository(jdbc, new TokenService());
+        repository = clusterRepository(jdbc);
     }
 
     @Test
@@ -37,7 +45,7 @@ class ClusterRepositoryTests {
 
         assertThat(cluster.bootstrapToken()).isNotBlank();
         assertThat(storedBootstrapToken(cluster.clusterId())).isBlank();
-        assertThat(storedBootstrapTokenHash(cluster.clusterId())).isNotBlank();
+        assertThat(storedBootstrapTokenHash(cluster.clusterId())).startsWith("hmac_sha256$v1$");
         assertThat(repository.verifyBootstrapToken(cluster.clusterId(), cluster.bootstrapToken())).isTrue();
         assertThat(repository.verifyBootstrapToken(cluster.clusterId(), "wrong-token")).isFalse();
         assertThat(jdbc.queryForObject(
@@ -82,6 +90,65 @@ class ClusterRepositoryTests {
         assertThat(repository.verifyBootstrapToken(
             cluster.clusterId(), rotated.bootstrapToken(), Duration.ofMinutes(30)
         )).isFalse();
+    }
+
+    @Test
+    void legacyPbkdf2BootstrapTokenIsUpgradedWithoutChangingCredentialAge() {
+        var cluster = repository.create(new ClusterCreateRequest("prod-a", "prod", null));
+        Instant rotatedAt = Instant.now()
+            .minus(Duration.ofMinutes(5))
+            .truncatedTo(ChronoUnit.MICROS);
+        jdbc.update(
+            "UPDATE clusters SET bootstrap_token_hash = ?, bootstrap_token_rotated_at = ? WHERE cluster_id = ?",
+            passwordHasher().hash(cluster.bootstrapToken()),
+            Timestamp.from(rotatedAt),
+            cluster.clusterId()
+        );
+
+        assertThat(repository.verifyBootstrapToken(
+            cluster.clusterId(),
+            cluster.bootstrapToken()
+        )).isTrue();
+        assertThat(storedBootstrapTokenHash(cluster.clusterId())).startsWith("hmac_sha256$v1$");
+        assertThat(jdbc.queryForObject(
+            "SELECT bootstrap_token_rotated_at FROM clusters WHERE cluster_id = ?",
+            Timestamp.class,
+            cluster.clusterId()
+        ).toInstant()).isEqualTo(rotatedAt);
+    }
+
+    @Test
+    void legacyBootstrapTokenIsRejectedWhenConcurrentRotationWinsTheUpgradeRace() throws Exception {
+        var cluster = repository.create(new ClusterCreateRequest("prod-a", "prod", null));
+        jdbc.update(
+            "UPDATE clusters SET bootstrap_token_hash = ? WHERE cluster_id = ?",
+            passwordHasher().hash(cluster.bootstrapToken()),
+            cluster.clusterId()
+        );
+        BlockingPasswordHasher blocking = new BlockingPasswordHasher();
+        ClusterRepository racingRepository = new ClusterRepository(
+            jdbc,
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            blocking
+        );
+
+        CompletableFuture<Boolean> verification = CompletableFuture.supplyAsync(
+            () -> racingRepository.verifyBootstrapToken(
+                cluster.clusterId(),
+                cluster.bootstrapToken()
+            )
+        );
+        assertThat(blocking.awaitMatch()).isTrue();
+        jdbc.update(
+            "UPDATE clusters SET bootstrap_token_hash = ?, bootstrap_token_rotated_at = ? WHERE cluster_id = ?",
+            opaqueTokenHasher().hash("replacement-token"),
+            Timestamp.from(Instant.now()),
+            cluster.clusterId()
+        );
+        blocking.release();
+
+        assertThat(verification.get(10, TimeUnit.SECONDS)).isFalse();
     }
 
     @Test
@@ -137,5 +204,33 @@ class ClusterRepositoryTests {
             String.class,
             clusterId
         );
+    }
+
+    private static final class BlockingPasswordHasher extends PasswordHasher {
+        private final CountDownLatch matched = new CountDownLatch(1);
+        private final CountDownLatch released = new CountDownLatch(1);
+
+        @Override
+        public boolean matches(String password, String encodedHash) {
+            boolean result = super.matches(password, encodedHash);
+            matched.countDown();
+            try {
+                if (!released.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("timed out waiting for concurrent token update");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while waiting for concurrent token update", exception);
+            }
+            return result;
+        }
+
+        private boolean awaitMatch() throws InterruptedException {
+            return matched.await(10, TimeUnit.SECONDS);
+        }
+
+        private void release() {
+            released.countDown();
+        }
     }
 }

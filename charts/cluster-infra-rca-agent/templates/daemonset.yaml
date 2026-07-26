@@ -160,6 +160,16 @@ spec:
                 configMapKeyRef:
                   name: {{ include "cluster-infra-rca-agent.configMapName" . }}
                   key: RETRY_MAX_SECONDS
+            - name: AGENT_NODE_TOKEN_ROTATION_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_NODE_TOKEN_ROTATION_DAYS
+            - name: AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "cluster-infra-rca-agent.configMapName" . }}
+                  key: AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS
             - name: AGENT_MAX_SPOOL_FILES
               valueFrom:
                 configMapKeyRef:

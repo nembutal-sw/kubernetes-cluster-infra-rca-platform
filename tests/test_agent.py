@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -1229,6 +1230,151 @@ def test_agent_state_persists_identity_and_spooled_response(tmp_path: Path) -> N
     assert reloaded.pending_responses() == []
     reloaded.clear_node_token()
     assert reloaded.load_node_token() is None
+
+
+def test_agent_state_rotates_node_token_with_crash_safe_pending_identity(tmp_path: Path) -> None:
+    state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    issued_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    requested_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    activated_at = datetime(2026, 7, 1, 0, 1, tzinfo=timezone.utc)
+    state.save_node_token("node-token-1", issued_at=issued_at)
+
+    assert state.node_token_rotation_due(
+        timedelta(days=30),
+        timedelta(hours=1),
+        now=requested_at,
+    ) is True
+    assert state.record_rotation_attempt(requested_at) is True
+    state.stage_node_token_rotation("node-token-2", requested_at=requested_at)
+
+    pending = state.load_node_identity()
+    assert pending is not None
+    assert pending.node_token == "node-token-1"
+    assert pending.preferred_token == "node-token-2"
+    assert state.load_node_token() == "node-token-1"
+    assert state.load_preferred_node_token() == "node-token-2"
+    assert state.is_pending_node_token("node-token-2") is True
+    assert state.node_token_rotation_due(
+        timedelta(days=30),
+        timedelta(hours=1),
+        now=requested_at + timedelta(hours=2),
+    ) is False
+
+    assert state.commit_pending_node_token(activated_at) is True
+    active = state.load_node_identity()
+    assert active is not None
+    assert active.node_token == "node-token-2"
+    assert active.pending_node_token is None
+    assert active.issued_at == activated_at
+
+
+def test_agent_automatic_rotation_survives_restart_and_confirms_new_token(tmp_path: Path) -> None:
+    server = _TestHttpServer({
+        "/api/agents/token/rotate": (200, {"node_token": "node-token-2"}),
+        "/api/agents/heartbeat": (200, {"status": "healthy"}),
+    })
+    try:
+        state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+        state.save_node_token(
+            "node-token-1",
+            issued_at=datetime.now(timezone.utc) - timedelta(days=31),
+        )
+        client = AgentClient(
+            server.url,
+            "cluster-1",
+            "worker-1",
+            None,
+            node_token="node-token-1",
+            timeout_seconds=2,
+        )
+
+        assert agent_main.request_node_token_rotation_if_due(
+            client,
+            state,
+            maximum_age=timedelta(days=30),
+            retry_after=timedelta(hours=1),
+        ) is True
+        assert client.node_token == "node-token-2"
+        assert state.load_preferred_node_token() == "node-token-2"
+
+        restarted = AgentClient(
+            server.url,
+            "cluster-1",
+            "worker-1",
+            None,
+            node_token=state.load_preferred_node_token(),
+            timeout_seconds=2,
+        )
+        restarted.heartbeat("0.1.0", ["node"], {"agent": "running"})
+        assert agent_main.activate_pending_node_token_after_heartbeat(restarted, state) is True
+
+        assert state.load_node_token() == "node-token-2"
+        assert state.load_node_identity().pending_node_token is None  # type: ignore[union-attr]
+        assert server.records[0]["authorization"] == "Bearer node-token-1"
+        assert server.records[1]["authorization"] == "Bearer node-token-2"
+    finally:
+        server.close()
+
+
+def test_agent_rolls_back_rejected_pending_token_without_losing_active_identity(
+    tmp_path: Path,
+) -> None:
+    state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+    state.save_node_token(
+        "node-token-1",
+        issued_at=datetime.now(timezone.utc) - timedelta(days=31),
+    )
+    state.record_rotation_attempt()
+    state.stage_node_token_rotation("node-token-2")
+    client = AgentClient(
+        "http://127.0.0.1:1",
+        "cluster-1",
+        "worker-1",
+        None,
+        node_token="node-token-2",
+    )
+
+    assert agent_main.recover_rejected_pending_node_token(client, state) is True
+    assert client.node_token == "node-token-1"
+    assert state.load_node_token() == "node-token-1"
+    assert state.load_node_identity().pending_node_token is None  # type: ignore[union-attr]
+    assert agent_main.recover_rejected_pending_node_token(client, state) is False
+
+
+def test_agent_rotation_failure_is_durably_throttled(tmp_path: Path) -> None:
+    server = _TestHttpServer({
+        "/api/agents/token/rotate": (503, {"detail": "temporarily unavailable"}),
+    })
+    try:
+        state = AgentStateStore(tmp_path / "state", "cluster-1", "worker-1")
+        state.save_node_token(
+            "node-token-1",
+            issued_at=datetime.now(timezone.utc) - timedelta(days=31),
+        )
+        client = AgentClient(
+            server.url,
+            "cluster-1",
+            "worker-1",
+            None,
+            node_token="node-token-1",
+            timeout_seconds=2,
+        )
+
+        assert agent_main.request_node_token_rotation_if_due(
+            client,
+            state,
+            maximum_age=timedelta(days=30),
+            retry_after=timedelta(hours=1),
+        ) is False
+        assert state.node_token_rotation_due(
+            timedelta(days=30),
+            timedelta(hours=1),
+        ) is False
+        assert client.node_token == "node-token-1"
+        assert state.load_preferred_node_token() == "node-token-1"
+        assert len(server.records) == 1
+    finally:
+        server.close()
 
 
 def test_spooled_response_is_retried_without_recollecting(tmp_path: Path) -> None:

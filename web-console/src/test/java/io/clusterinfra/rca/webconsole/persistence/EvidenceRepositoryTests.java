@@ -10,7 +10,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import static io.clusterinfra.rca.webconsole.TestSecurity.clusterRepository;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,7 +39,7 @@ class EvidenceRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        clusters = new ClusterRepository(jdbc, new TokenService());
+        clusters = clusterRepository(jdbc);
         tasks = new AnalysisTaskRepository(jdbc);
         evidence = new EvidenceRepository(jdbc, objectMapper(), tasks, clusters);
     }

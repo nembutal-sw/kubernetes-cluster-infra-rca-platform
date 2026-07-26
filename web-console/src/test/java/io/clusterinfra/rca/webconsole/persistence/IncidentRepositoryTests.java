@@ -12,7 +12,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaJobStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaSummary;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RootCauseCandidate;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import static io.clusterinfra.rca.webconsole.TestSecurity.clusterRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -39,7 +39,7 @@ class IncidentRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        clusters = new ClusterRepository(jdbc, new TokenService());
+        clusters = clusterRepository(jdbc);
         incidents = new IncidentRepository(jdbc, objectMapper());
     }
 

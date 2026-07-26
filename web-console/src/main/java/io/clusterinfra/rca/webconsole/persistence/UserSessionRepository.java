@@ -3,7 +3,8 @@ package io.clusterinfra.rca.webconsole.persistence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.Sha256Digest;
+import io.clusterinfra.rca.webconsole.security.TokenGenerator;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -17,15 +18,21 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class UserSessionRepository {
     private final JdbcTemplate jdbc;
-    private final TokenService tokens;
+    private final TokenGenerator tokenGenerator;
+    private final Sha256Digest digests;
 
-    public UserSessionRepository(JdbcTemplate jdbc, TokenService tokens) {
+    public UserSessionRepository(
+        JdbcTemplate jdbc,
+        TokenGenerator tokenGenerator,
+        Sha256Digest digests
+    ) {
         this.jdbc = jdbc;
-        this.tokens = tokens;
+        this.tokenGenerator = tokenGenerator;
+        this.digests = digests;
     }
 
     public Optional<UserAccount> findUserByToken(String token) {
-        String tokenHash = tokens.sha256(token);
+        String tokenHash = digests.digest(token);
         try {
             return Optional.ofNullable(jdbc.queryForObject(
                 """
@@ -44,7 +51,7 @@ public class UserSessionRepository {
     }
 
     public String create(String userId, Instant expiresAt) {
-        String token = tokens.generateToken();
+        String token = tokenGenerator.generate();
         jdbc.update(
             """
                 INSERT INTO user_sessions
@@ -53,7 +60,7 @@ public class UserSessionRepository {
                 """,
             id("session"),
             userId,
-            tokens.sha256(token),
+            digests.digest(token),
             timestamp(Instant.now()),
             timestamp(expiresAt),
             null
@@ -65,7 +72,7 @@ public class UserSessionRepository {
         return jdbc.update(
             "UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
             timestamp(Instant.now()),
-            tokens.sha256(token)
+            digests.digest(token)
         ) > 0;
     }
 

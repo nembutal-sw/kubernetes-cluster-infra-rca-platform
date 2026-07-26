@@ -235,6 +235,7 @@ platform:
     webhookToken: ""
     metricsToken: ""
     encryptionSecret: ""
+    opaqueTokenPepper: "development-only-opaque-token-pepper"
     exportSignatureSecret: ""
     slackWebhookUrl: ""
     notificationWebhookUrl: ""

@@ -54,6 +54,8 @@ httpTimeoutSeconds: 10
 commandTimeoutSeconds: 5
 retryInitialSeconds: 2
 retryMaxSeconds: 120
+nodeTokenRotationDays: 30
+nodeTokenRotationRetrySeconds: 3600
 maxSpoolFiles: 1000
 maxSpoolBytes: 268435456
 kubernetesApiTimeoutSeconds: 5

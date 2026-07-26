@@ -1,6 +1,9 @@
 package io.clusterinfra.rca.webconsole.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static io.clusterinfra.rca.webconsole.TestSecurity.opaqueTokenHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.passwordHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.tokenGenerator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -8,12 +11,15 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.AgentStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentHeartbeatRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgentRegisterRequest;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,9 +41,20 @@ class AgentRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        TokenService tokens = new TokenService();
-        clusters = new ClusterRepository(jdbc, tokens);
-        agents = new AgentRepository(jdbc, objectMapper(), tokens, clusters);
+        clusters = new ClusterRepository(
+            jdbc,
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            passwordHasher()
+        );
+        agents = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            passwordHasher(),
+            clusters
+        );
     }
 
     @Test
@@ -55,7 +72,9 @@ class AgentRepositoryTests {
         ));
 
         assertThat(registered.nodeToken()).isNotBlank();
-        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a")).isNotEqualTo(registered.nodeToken());
+        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a"))
+            .startsWith("hmac_sha256$v1$")
+            .isNotEqualTo(registered.nodeToken());
         assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", registered.nodeToken())).isTrue();
         assertThat(agents.verifyNodeToken(cluster.clusterId(), "node-a", "wrong-token")).isFalse();
         assertThat(agents.find(cluster.clusterId(), "node-a")).isPresent();
@@ -182,6 +201,82 @@ class AgentRepositoryTests {
     }
 
     @Test
+    void legacyPbkdf2NodeTokenIsUpgradedAfterSuccessfulVerification() {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("disk"),
+            Map.of()
+        ));
+        PasswordHasher legacy = passwordHasher();
+        jdbc.update(
+            "UPDATE node_agents SET node_token_hash = ? WHERE cluster_id = ? AND node_name = ?",
+            legacy.hash(registered.nodeToken()),
+            cluster.clusterId(),
+            "node-a"
+        );
+
+        assertThat(agents.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            registered.nodeToken()
+        )).isTrue();
+        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a"))
+            .startsWith("hmac_sha256$v1$");
+    }
+
+    @Test
+    void legacyNodeTokenIsRejectedWhenConcurrentRotationWinsTheUpgradeRace() throws Exception {
+        var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
+        var registered = agents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("disk"),
+            Map.of()
+        ));
+        jdbc.update(
+            "UPDATE node_agents SET node_token_hash = ? WHERE cluster_id = ? AND node_name = ?",
+            passwordHasher().hash(registered.nodeToken()),
+            cluster.clusterId(),
+            "node-a"
+        );
+        BlockingPasswordHasher blocking = new BlockingPasswordHasher();
+        AgentRepository racingRepository = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            blocking,
+            clusters
+        );
+
+        CompletableFuture<Boolean> verification = CompletableFuture.supplyAsync(
+            () -> racingRepository.verifyNodeToken(
+                cluster.clusterId(),
+                "node-a",
+                registered.nodeToken()
+            )
+        );
+        assertThat(blocking.awaitMatch()).isTrue();
+        jdbc.update(
+            "UPDATE node_agents SET node_token_hash = ? WHERE cluster_id = ? AND node_name = ?",
+            opaqueTokenHasher().hash("replacement-token"),
+            cluster.clusterId(),
+            "node-a"
+        );
+        blocking.release();
+
+        assertThat(verification.get(10, TimeUnit.SECONDS)).isFalse();
+    }
+
+    @Test
     void trustedEnrollmentMetadataOverridesAgentInputWithoutRejectingNullMetadataValues() {
         var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
         Map<String, Object> supplied = new LinkedHashMap<>();
@@ -222,5 +317,33 @@ class AgentRepositoryTests {
         objectMapper.findAndRegisterModules();
         objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
         return objectMapper;
+    }
+
+    private static final class BlockingPasswordHasher extends PasswordHasher {
+        private final CountDownLatch matched = new CountDownLatch(1);
+        private final CountDownLatch released = new CountDownLatch(1);
+
+        @Override
+        public boolean matches(String password, String encodedHash) {
+            boolean result = super.matches(password, encodedHash);
+            matched.countDown();
+            try {
+                if (!released.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("timed out waiting for concurrent token update");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("interrupted while waiting for concurrent token update", exception);
+            }
+            return result;
+        }
+
+        private boolean awaitMatch() throws InterruptedException {
+            return matched.await(10, TimeUnit.SECONDS);
+        }
+
+        private void release() {
+            released.countDown();
+        }
     }
 }

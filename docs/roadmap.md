@@ -601,6 +601,25 @@ managed cluster에서 TokenReview enrollment와 실제 장애 표본 intake를 �
 다음 우선순위는 기계용 opaque Agent token hash를 사용자 password hash와 분리하고, Agent의
 주기적 node token rotation을 실제 실행 경로에 연결하는 것입니다.
 
+## Phase 33. Opaque Agent Token Hashing And Automatic Rotation
+
+구현 및 검증 완료:
+
+- 사용자 비밀번호 PBKDF2와 256-bit 기계용 token HMAC-SHA-256 처리 분리
+- production 전용 `RCA_OPAQUE_TOKEN_PEPPER` 길이, 기본값, 암호화 키 중복 fail-fast
+- 기존 PBKDF2 bootstrap/node token의 무중단 dual-read와 조건부 lazy upgrade
+- 동시 token 회전·폐기가 legacy upgrade보다 먼저 반영되면 stale token을 거부하는 CAS 재검증
+- Agent node token의 기본 30일 자동 self-rotation과 영속 retry throttle
+- active/pending identity의 원자적 저장, 재시작 복구, heartbeat 확인 후 승격
+- pending token 거부 시 기존 active token rollback과 bootstrap 자동 재사용 금지 유지
+- Helm, 정적 manifest, Compose의 pepper 및 rotation 옵션 연결
+- Java 인증 경계·경쟁 조건과 Python crash/retry lifecycle 회귀 테스트
+- release-readiness 정적 계약에 opaque token lifecycle 연결
+
+이 단계는 DB schema를 변경하지 않습니다. 기존 token hash는 실제 인증 시 점진 전환하므로
+rolling upgrade가 가능하지만, 배포 전 모든 Platform replica에 동일한 pepper를 먼저 제공해야 합니다.
+다음 우선순위는 trusted proxy 기반 audit client IP 판정과 destination version이 고정된 outbox 전달입니다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

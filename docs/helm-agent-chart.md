@@ -35,6 +35,8 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `enrollment.tokenExpirationSeconds` | `3600` | projected token lifetime, 600~86400초 |
 | `secret.create` | `false` | chart가 agent Secret을 만들지 여부 |
 | `secret.existingSecret.name` | `cluster-infra-rca-agent` | 기존 Secret 이름 |
+| `nodeTokenRotationDays` | `30` | node token 자동 교체 주기, `0`이면 비활성화 |
+| `nodeTokenRotationRetrySeconds` | `3600` | rotation 실패 후 최소 재시도 간격 |
 | `runtimeSocketPaths` | `""` | 비표준 CRI socket 경로 override |
 | `hostNetwork` | `true` | API/control-plane probe를 위해 host network 사용 |
 | `hostPID` | `true` | 노드 프로세스 상태 확인용 host PID 사용 |

@@ -9,7 +9,7 @@ import socket
 import sys
 import time
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -255,9 +255,13 @@ def run_agent(args: argparse.Namespace) -> int:
         max_spool_bytes=_positive_int_env("AGENT_MAX_SPOOL_BYTES", 256 * 1024 * 1024, minimum=1024),
     )
     state.initialize()
-    client.node_token = state.load_node_token()
+    client.node_token = state.load_preferred_node_token()
     if client.node_token:
         client.discard_bootstrap_token()
+    if args.node_token_rotation_days < 0:
+        raise ValueError("node token rotation days must not be negative")
+    if args.node_token_rotation_retry_seconds < 60:
+        raise ValueError("node token rotation retry seconds must be at least 60")
     backoff = RetryBackoff(
         initial_seconds=args.retry_initial_seconds,
         maximum_seconds=args.retry_max_seconds,
@@ -290,6 +294,7 @@ def run_agent(args: argparse.Namespace) -> int:
                     "capabilities": capabilities,
                 },
             )
+            activate_pending_node_token_after_heartbeat(client, state)
             processed = process_pending_requests(
                 client=client,
                 paths=paths,
@@ -309,9 +314,17 @@ def run_agent(args: argparse.Namespace) -> int:
                 processed,
                 len(realtime_batch),
             )
+            request_node_token_rotation_if_due(
+                client,
+                state,
+                maximum_age=timedelta(days=args.node_token_rotation_days),
+                retry_after=timedelta(seconds=args.node_token_rotation_retry_seconds),
+            )
             backoff.reset()
         except AgentClientError as exc:
             LOGGER.exception("backend communication failed")
+            if exc.status_code == 401 and recover_rejected_pending_node_token(client, state):
+                continue
             if exc.status_code in {401, 404}:
                 client.node_token = None
                 state.clear_node_token()
@@ -389,6 +402,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=float(os.getenv("RETRY_MAX_SECONDS", "120")),
     )
     parser.add_argument(
+        "--node-token-rotation-days",
+        type=int,
+        default=_non_negative_int_env("AGENT_NODE_TOKEN_ROTATION_DAYS", 30),
+    )
+    parser.add_argument(
+        "--node-token-rotation-retry-seconds",
+        type=int,
+        default=_positive_int_env(
+            "AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS",
+            3600,
+            minimum=60,
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         choices=["debug", "info", "warning", "error"],
         default=os.getenv("LOG_LEVEL", "info").lower(),
@@ -437,6 +464,56 @@ def _register_with_retry(
             time.sleep(backoff.next_delay())
 
 
+def request_node_token_rotation_if_due(
+    client: AgentClient,
+    state: AgentStateStore,
+    *,
+    maximum_age: timedelta,
+    retry_after: timedelta,
+) -> bool:
+    if not state.node_token_rotation_due(maximum_age, retry_after):
+        return False
+    if not state.record_rotation_attempt():
+        return False
+    try:
+        pending_token = client.request_node_token_rotation()
+    except AgentClientError as exc:
+        if exc.status_code in {401, 404}:
+            raise
+        LOGGER.warning("node token rotation request failed and will be retried later: %s", exc)
+        return False
+    state.stage_node_token_rotation(pending_token)
+    client.node_token = pending_token
+    LOGGER.info("staged a pending node token for verification on the next heartbeat")
+    return True
+
+
+def activate_pending_node_token_after_heartbeat(
+    client: AgentClient,
+    state: AgentStateStore,
+) -> bool:
+    if not state.is_pending_node_token(client.node_token):
+        return False
+    if not state.commit_pending_node_token():
+        raise RuntimeError("pending node token disappeared before activation")
+    LOGGER.info("activated the pending node token after backend verification")
+    return True
+
+
+def recover_rejected_pending_node_token(
+    client: AgentClient,
+    state: AgentStateStore,
+) -> bool:
+    if not state.is_pending_node_token(client.node_token):
+        return False
+    fallback_token = state.rollback_pending_node_token()
+    if fallback_token is None:
+        return False
+    client.node_token = fallback_token
+    LOGGER.warning("pending node token was rejected; restored the previous token for retry")
+    return True
+
+
 def _agent_metadata(paths: AgentPaths, runner: CommandRunner) -> dict[str, Any]:
     mode = agent_mode()
     try:
@@ -470,6 +547,20 @@ def _positive_int_env(name: str, default: int, minimum: int = 1) -> int:
     value = int(parsed)
     if value < minimum:
         raise ValueError(f"{name} must be at least {minimum}")
+    return value
+
+
+def _non_negative_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name, str(default)).strip()
+    try:
+        parsed = Decimal(raw_value)
+    except InvalidOperation as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not parsed.is_finite() or parsed != parsed.to_integral_value():
+        raise ValueError(f"{name} must be an integer")
+    value = int(parsed)
+    if value < 0:
+        raise ValueError(f"{name} must not be negative")
     return value
 
 

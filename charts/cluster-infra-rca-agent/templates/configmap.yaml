@@ -13,6 +13,8 @@ data:
   COMMAND_TIMEOUT_SECONDS: {{ .Values.commandTimeoutSeconds | quote }}
   RETRY_INITIAL_SECONDS: {{ .Values.retryInitialSeconds | quote }}
   RETRY_MAX_SECONDS: {{ .Values.retryMaxSeconds | quote }}
+  AGENT_NODE_TOKEN_ROTATION_DAYS: {{ .Values.nodeTokenRotationDays | quote }}
+  AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS: {{ .Values.nodeTokenRotationRetrySeconds | quote }}
   AGENT_MAX_SPOOL_FILES: {{ int64 .Values.maxSpoolFiles | quote }}
   AGENT_MAX_SPOOL_BYTES: {{ int64 .Values.maxSpoolBytes | quote }}
   KUBERNETES_API_TIMEOUT_SECONDS: {{ .Values.kubernetesApiTimeoutSeconds | quote }}

@@ -3,7 +3,9 @@ package io.clusterinfra.rca.webconsole.persistence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.Cluster;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.OpaqueTokenHasher;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
+import io.clusterinfra.rca.webconsole.security.TokenGenerator;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.ResultSet;
@@ -24,16 +26,25 @@ public class ClusterRepository {
     private static final String STORED_BOOTSTRAP_TOKEN_SENTINEL = "";
 
     private final JdbcTemplate jdbc;
-    private final TokenService tokens;
+    private final TokenGenerator tokenGenerator;
+    private final OpaqueTokenHasher opaqueTokens;
+    private final PasswordHasher legacyPasswords;
 
-    public ClusterRepository(JdbcTemplate jdbc, TokenService tokens) {
+    public ClusterRepository(
+        JdbcTemplate jdbc,
+        TokenGenerator tokenGenerator,
+        OpaqueTokenHasher opaqueTokens,
+        PasswordHasher legacyPasswords
+    ) {
         this.jdbc = jdbc;
-        this.tokens = tokens;
+        this.tokenGenerator = tokenGenerator;
+        this.opaqueTokens = opaqueTokens;
+        this.legacyPasswords = legacyPasswords;
     }
 
     public Cluster create(ClusterCreateRequest request) {
         Instant now = Instant.now();
-        String bootstrapToken = tokens.generateToken();
+        String bootstrapToken = tokenGenerator.generate();
         Cluster cluster = new Cluster(
             id("cluster"),
             request.name().trim(),
@@ -57,7 +68,7 @@ public class ClusterRepository {
             cluster.description(),
             cluster.status().name(),
             STORED_BOOTSTRAP_TOKEN_SENTINEL,
-            tokens.hashPassword(bootstrapToken),
+            opaqueTokens.hash(bootstrapToken),
             timestamp(now),
             timestamp(cluster.createdAt()),
             null
@@ -122,7 +133,7 @@ public class ClusterRepository {
     }
 
     public Cluster rotateBootstrapToken(String clusterId) {
-        String token = tokens.generateToken();
+        String token = tokenGenerator.generate();
         Instant now = Instant.now();
         int updated = jdbc.update(
             """
@@ -132,7 +143,7 @@ public class ClusterRepository {
                 WHERE cluster_id = ?
                 """,
             STORED_BOOTSTRAP_TOKEN_SENTINEL,
-            tokens.hashPassword(token),
+            opaqueTokens.hash(token),
             timestamp(now),
             clusterId
         );
@@ -225,21 +236,38 @@ public class ClusterRepository {
             }
             boolean verified = false;
             if (row.hash() != null && !row.hash().isBlank()) {
-                verified = tokens.verifyPassword(token, row.hash());
+                verified = opaqueTokens.matches(token, row.hash())
+                    || (legacyPasswords.supports(row.hash())
+                        && legacyPasswords.matches(token, row.hash()));
+                if (verified && !opaqueTokens.supports(row.hash())) {
+                    int upgraded = jdbc.update(
+                        """
+                            UPDATE clusters SET bootstrap_token_hash = ?
+                            WHERE cluster_id = ? AND bootstrap_token_hash = ?
+                            """,
+                        opaqueTokens.hash(token),
+                        clusterId,
+                        row.hash()
+                    );
+                    verified = upgraded == 1
+                        || matchesLatestBootstrapToken(clusterId, token, maximumAge);
+                }
             } else if (row.legacyPlaintextToken() != null && !row.legacyPlaintextToken().isBlank()) {
                 verified = constantTimeEquals(row.legacyPlaintextToken(), token);
                 if (verified) {
-                    jdbc.update(
+                    int upgraded = jdbc.update(
                         """
                             UPDATE clusters
                             SET bootstrap_token = ?, bootstrap_token_hash = ?, bootstrap_token_rotated_at = ?
                             WHERE cluster_id = ? AND bootstrap_token_hash IS NULL
                             """,
                         STORED_BOOTSTRAP_TOKEN_SENTINEL,
-                        tokens.hashPassword(token),
+                        opaqueTokens.hash(token),
                         timestamp(Instant.now()),
                         clusterId
                     );
+                    verified = upgraded == 1
+                        || matchesLatestBootstrapToken(clusterId, token, maximumAge);
                 }
             }
             if (verified) {
@@ -250,6 +278,39 @@ public class ClusterRepository {
                 );
             }
             return verified;
+        } catch (EmptyResultDataAccessException exception) {
+            return false;
+        }
+    }
+
+    private boolean matchesLatestBootstrapToken(String clusterId, String token, Duration maximumAge) {
+        try {
+            ClusterTokenRow latest = jdbc.queryForObject(
+                """
+                    SELECT bootstrap_token, bootstrap_token_hash, bootstrap_token_revoked_at,
+                           bootstrap_token_rotated_at, created_at
+                    FROM clusters
+                    WHERE cluster_id = ?
+                    """,
+                (resultSet, rowNumber) -> new ClusterTokenRow(
+                    resultSet.getString("bootstrap_token"),
+                    resultSet.getString("bootstrap_token_hash"),
+                    instant(resultSet, "bootstrap_token_revoked_at"),
+                    instant(resultSet, "bootstrap_token_rotated_at"),
+                    instant(resultSet, "created_at")
+                ),
+                clusterId
+            );
+            if (latest == null || latest.revokedAt() != null) {
+                return false;
+            }
+            Instant issuedAt = latest.rotatedAt() == null ? latest.createdAt() : latest.rotatedAt();
+            if (maximumAge != null
+                && (maximumAge.isZero() || maximumAge.isNegative()
+                    || issuedAt == null || !Instant.now().isBefore(issuedAt.plus(maximumAge)))) {
+                return false;
+            }
+            return opaqueTokens.matches(token, latest.hash());
         } catch (EmptyResultDataAccessException exception) {
             return false;
         }

@@ -15,7 +15,10 @@ class ProductionSecurityValidatorTests {
         .withInitializer(context ->
             ((ConfigurableEnvironment) context.getEnvironment()).setActiveProfiles("prod")
         )
-        .withUserConfiguration(ValidatorConfiguration.class);
+        .withUserConfiguration(ValidatorConfiguration.class)
+        .withPropertyValues(
+            "rca.security.opaque-token-pepper=a-distinct-production-opaque-token-pepper"
+        );
 
     @Test
     void unsafeProductionDefaultsFailContextStartup() {
@@ -52,6 +55,53 @@ class ProductionSecurityValidatorTests {
             .run(context -> {
                 assertThat(context).hasNotFailed();
                 assertThat(context).hasSingleBean(ProductionSecurityValidator.class);
+            });
+    }
+
+    @Test
+    void productionRejectsMissingOrReusedOpaqueTokenPepper() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.session-ttl-hours=12",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.audit.enabled=true",
+                "rca.demo.enabled=false",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.security.opaque-token-pepper=development-only-opaque-token-pepper",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_OPAQUE_TOKEN_PEPPER must be a non-default secret");
+            });
+
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.session-ttl-hours=12",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.audit.enabled=true",
+                "rca.demo.enabled=false",
+                "rca.security.encryption-secret=same-secret-value-with-at-least-32-characters",
+                "rca.security.opaque-token-pepper=same-secret-value-with-at-least-32-characters",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining(
+                        "RCA_OPAQUE_TOKEN_PEPPER must be different from RCA_ENCRYPTION_SECRET"
+                    );
             });
     }
 

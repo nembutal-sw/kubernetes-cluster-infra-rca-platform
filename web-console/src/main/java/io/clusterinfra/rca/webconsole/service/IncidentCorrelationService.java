@@ -9,7 +9,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.Incident;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.RcaReport;
 import io.clusterinfra.rca.webconsole.persistence.IncidentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ReportRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.Sha256Digest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
@@ -23,7 +23,7 @@ public class IncidentCorrelationService {
     private final IncidentRepository incidents;
     private final ReportRepository reports;
     private final RcaConsoleProperties properties;
-    private final TokenService tokens;
+    private final Sha256Digest digests;
     private final IncidentCausalityRules causality;
     private final TopologyService topology;
     private static final Set<String> CROSS_NODE_FAMILIES = Set.of(
@@ -43,14 +43,14 @@ public class IncidentCorrelationService {
         IncidentRepository incidents,
         ReportRepository reports,
         RcaConsoleProperties properties,
-        TokenService tokens,
+        Sha256Digest digests,
         IncidentCausalityRules causality,
         TopologyService topology
     ) {
         this.incidents = incidents;
         this.reports = reports;
         this.properties = properties;
-        this.tokens = tokens;
+        this.digests = digests;
         this.causality = causality;
         this.topology = topology;
     }
@@ -110,7 +110,7 @@ public class IncidentCorrelationService {
         }
 
         long bucket = evidence.collectedAt().getEpochSecond() / windowSeconds;
-        String dedupKey = tokens.sha256(String.join(
+        String dedupKey = digests.digest(String.join(
             "|",
             evidence.clusterId(),
             evidence.nodeName(),

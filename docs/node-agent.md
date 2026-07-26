@@ -113,7 +113,10 @@ Default:
 
 Important properties:
 
-- node token is stored locally after registration
+- node token is stored locally after registration with `0600` permissions
+- active and pending node tokens are persisted with atomic write, file `fsync`, rename, and directory `fsync`
+- pending rotation survives restart and is committed only after a successful heartbeat
+- rejected pending credentials roll back to the previous active token
 - evidence responses are spooled before submit
 - successful submit acknowledges and removes spool entry
 - closed requests can be acknowledged and discarded
@@ -128,6 +131,8 @@ AGENT_TOKEN
 NODE_NAME
 AGENT_STATE_DIR
 POLL_INTERVAL_SECONDS
+AGENT_NODE_TOKEN_ROTATION_DAYS
+AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS
 AGENT_MAX_SPOOL_FILES
 AGENT_MAX_SPOOL_BYTES
 AGENT_MODE
@@ -186,6 +191,7 @@ This keeps the agent focused on evidence collection.
 - Use `AGENT_CLIENT_CERT` and `AGENT_CLIENT_KEY` together for mTLS.
 - Do not place bootstrap tokens in logs.
 - Keep state directory permissions restrictive.
+- Keep the Platform `RCA_OPAQUE_TOKEN_PEPPER` stable across replicas and restarts.
 
 ## Portfolio Message
 

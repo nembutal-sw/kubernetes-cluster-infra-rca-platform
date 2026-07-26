@@ -8,7 +8,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxEvent;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NotificationOutboxStatus;
 import io.clusterinfra.rca.webconsole.persistence.NotificationOutboxRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
@@ -44,7 +44,7 @@ class RbacHttpAuthorizationTests {
     private JdbcTemplate jdbc;
 
     @Autowired
-    private TokenService tokens;
+    private PasswordHasher passwords;
 
     @Autowired
     private NotificationOutboxRepository notificationOutbox;
@@ -370,7 +370,7 @@ class RbacHttpAuthorizationTests {
             userId,
             loginId(role),
             "RBAC " + role.name(),
-            tokens.hashPassword(PASSWORD),
+            passwords.hash(PASSWORD),
             role.name(),
             role.name(),
             UserStatus.active.name(),

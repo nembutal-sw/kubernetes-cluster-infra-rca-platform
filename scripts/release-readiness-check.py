@@ -157,6 +157,48 @@ def main() -> int:
             "RCA persistence is task-atomic and both durable workers enforce fenced, renewable leases.",
         ),
         check(
+            "opaque-agent-token-lifecycle",
+            exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/PasswordHasher.java"
+            )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenHasher.java"
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenHasher.java",
+                "HmacSHA256",
+                "hmac_sha256$v1$",
+                "MessageDigest.isEqual",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/config/ProductionSecurityValidator.java",
+                "RCA_OPAQUE_TOKEN_PEPPER must be a non-default secret",
+                "RCA_OPAQUE_TOKEN_PEPPER must be different from RCA_ENCRYPTION_SECRET",
+            )
+            and contains(
+                "node_agent/main.py",
+                "AGENT_NODE_TOKEN_ROTATION_DAYS",
+                "request_node_token_rotation_if_due",
+                "recover_rejected_pending_node_token",
+            )
+            and contains(
+                "node_agent/state.py",
+                "stage_node_token_rotation",
+                "commit_pending_node_token",
+                "rollback_pending_node_token",
+            )
+            and contains(
+                "charts/cluster-infra-rca-agent/templates/configmap.yaml",
+                "AGENT_NODE_TOKEN_ROTATION_DAYS",
+                "AGENT_NODE_TOKEN_ROTATION_RETRY_SECONDS",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
+                "RCA_OPAQUE_TOKEN_PEPPER",
+            ),
+            "Human passwords and opaque Agent credentials use separate hashers, with durable automatic node-token rotation.",
+        ),
+        check(
             "backend-monitoring",
             contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ScheduledCollectionService.java",

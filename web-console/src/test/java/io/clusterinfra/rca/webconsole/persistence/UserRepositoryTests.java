@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
+import io.clusterinfra.rca.webconsole.security.Sha256Digest;
+import io.clusterinfra.rca.webconsole.security.TokenGenerator;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -17,7 +19,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 class UserRepositoryTests {
     private JdbcTemplate jdbc;
-    private TokenService tokens;
+    private PasswordHasher passwords;
     private UserRepository users;
     private UserSessionRepository sessions;
 
@@ -31,9 +33,9 @@ class UserRepositoryTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
-        tokens = new TokenService();
-        users = new UserRepository(jdbc, tokens);
-        sessions = new UserSessionRepository(jdbc, tokens);
+        passwords = new PasswordHasher();
+        users = new UserRepository(jdbc, passwords);
+        sessions = new UserSessionRepository(jdbc, new TokenGenerator(), new Sha256Digest());
     }
 
     @Test
@@ -85,7 +87,7 @@ class UserRepositoryTests {
             userId,
             loginId,
             "Other User",
-            tokens.hashPassword(password),
+            passwords.hash(password),
             UserRole.operator.name(),
             UserRole.operator.name(),
             UserStatus.active.name(),

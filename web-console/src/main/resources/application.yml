@@ -146,6 +146,7 @@ rca:
     report-retention-days: ${RCA_REPORT_RETENTION_DAYS:365}
   security:
     encryption-secret: ${RCA_ENCRYPTION_SECRET:}
+    opaque-token-pepper: ${RCA_OPAQUE_TOKEN_PEPPER:development-only-opaque-token-pepper}
     standard-request-max-bytes: ${RCA_STANDARD_REQUEST_MAX_BYTES:1048576}
     evidence-request-max-bytes: ${RCA_EVIDENCE_REQUEST_MAX_BYTES:10485760}
     manifest-token-ttl-seconds: ${RCA_MANIFEST_TOKEN_TTL_SECONDS:300}

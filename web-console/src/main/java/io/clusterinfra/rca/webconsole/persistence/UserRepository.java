@@ -3,7 +3,7 @@ package io.clusterinfra.rca.webconsole.persistence;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserRole;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserStatus;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import io.clusterinfra.rca.webconsole.security.PasswordHasher;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -17,16 +17,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class UserRepository {
     private final JdbcTemplate jdbc;
-    private final TokenService tokens;
+    private final PasswordHasher passwords;
 
-    public UserRepository(JdbcTemplate jdbc, TokenService tokens) {
+    public UserRepository(JdbcTemplate jdbc, PasswordHasher passwords) {
         this.jdbc = jdbc;
-        this.tokens = tokens;
+        this.passwords = passwords;
     }
 
     public Optional<UserAccount> authenticate(String username, String password) {
         Optional<UserRow> row = findRowByEmail(username);
-        if (row.isEmpty() || !tokens.verifyPassword(password, row.get().passwordHash())) {
+        if (row.isEmpty() || !passwords.matches(password, row.get().passwordHash())) {
             return Optional.empty();
         }
         return Optional.of(row.get().account());
@@ -84,7 +84,7 @@ public class UserRepository {
             "user-admin",
             normalized,
             "Administrator",
-            tokens.hashPassword(password),
+            passwords.hash(password),
             UserRole.admin.name(),
             UserRole.admin.name(),
             UserStatus.active.name(),
@@ -109,12 +109,12 @@ public class UserRepository {
                 String.class,
                 userId
             );
-            if (passwordHash == null || !tokens.verifyPassword(currentPassword, passwordHash)) {
+            if (passwordHash == null || !passwords.matches(currentPassword, passwordHash)) {
                 return false;
             }
             jdbc.update(
                 "UPDATE user_accounts SET password_hash = ? WHERE user_id = ?",
-                tokens.hashPassword(newPassword),
+                passwords.hash(newPassword),
                 userId
             );
             return true;
@@ -132,7 +132,7 @@ public class UserRepository {
                 (resultSet, rowNumber) -> mapUserRow(resultSet),
                 userId
             );
-            if (current == null || !tokens.verifyPassword(currentPassword, current.passwordHash())) {
+            if (current == null || !passwords.matches(currentPassword, current.passwordHash())) {
                 return Optional.empty();
             }
             Optional<UserRow> existing = findRowByEmail(normalized);

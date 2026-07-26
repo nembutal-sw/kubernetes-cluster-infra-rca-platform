@@ -273,6 +273,8 @@ Agent protocol v2는 등록 후 모든 요청을 node-scoped Bearer token으로 
 
 TokenReview mode의 `enrollment.audience`는 대상 API Server가 인증 대상으로 수락하는 값이어야 합니다. 설정과 전환 순서는 [Agent Enrollment](docs/agent-enrollment.md), 권한과 canary 절차는 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
 
+Node token은 기본 30일마다 자동 교체합니다. 새 token은 로컬 state에 원자적으로 보관하고 heartbeat 인증이 성공한 뒤 활성화합니다. 재시작이나 일시적 통신 실패가 발생해도 이전 token으로 복구하며, 주기와 재시도 간격은 `nodeTokenRotationDays`, `nodeTokenRotationRetrySeconds`로 조정합니다.
+
 기존 protocol v1의 body credential은 rolling upgrade를 위해 임시 호환됩니다.
 
 ## Platform Helm 설치
@@ -313,7 +315,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set-string platform.image.digest=sha256:<64-hex-digest>
 ```
 
-기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`을 준비합니다.
+기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`, `RCA_OPAQUE_TOKEN_PEPPER`를 준비합니다. Pepper는 32자 이상의 별도 난수로 만들고 암호화 키와 같은 값을 사용하지 않습니다.
 
 ## 검증 명령
 

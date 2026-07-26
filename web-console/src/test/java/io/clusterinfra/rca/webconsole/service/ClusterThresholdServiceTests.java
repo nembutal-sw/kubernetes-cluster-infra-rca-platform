@@ -13,7 +13,7 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterCreateRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.ClusterThresholdUpdateRequest;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterThresholdRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import static io.clusterinfra.rca.webconsole.TestSecurity.clusterRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,7 +39,7 @@ class ClusterThresholdServiceTests {
         );
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        clusters = new ClusterRepository(jdbc, new TokenService());
+        clusters = clusterRepository(jdbc);
         service = new ClusterThresholdService(new ClusterThresholdRepository(jdbc), properties);
     }
 

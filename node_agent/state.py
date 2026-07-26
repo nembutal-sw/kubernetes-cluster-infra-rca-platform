@@ -3,9 +3,25 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class NodeTokenIdentity:
+    node_token: str
+    issued_at: datetime
+    pending_node_token: str | None = None
+    pending_requested_at: datetime | None = None
+    rotation_attempted_at: datetime | None = None
+
+    @property
+    def preferred_token(self) -> str:
+        return self.pending_node_token or self.node_token
 
 
 class AgentStateStore:
@@ -35,24 +51,141 @@ class AgentStateStore:
             pass
 
     def load_node_token(self) -> str | None:
-        payload = self._read_json(self.state_dir / "identity.json")
+        identity = self.load_node_identity()
+        return identity.node_token if identity is not None else None
+
+    def load_preferred_node_token(self) -> str | None:
+        identity = self.load_node_identity()
+        return identity.preferred_token if identity is not None else None
+
+    def load_node_identity(self) -> NodeTokenIdentity | None:
+        path = self.state_dir / "identity.json"
+        payload = self._read_json(path)
         if not isinstance(payload, dict):
             return None
         if payload.get("cluster_id") != self.cluster_id or payload.get("node_name") != self.node_name:
             return None
         token = payload.get("node_token")
-        return token if isinstance(token, str) and token else None
+        if not isinstance(token, str) or not token:
+            return None
+        issued_at = self._timestamp(payload.get("node_token_issued_at")) or self._file_timestamp(path)
+        pending_token = payload.get("pending_node_token")
+        if not isinstance(pending_token, str) or not pending_token:
+            pending_token = None
+        return NodeTokenIdentity(
+            node_token=token,
+            issued_at=issued_at,
+            pending_node_token=pending_token,
+            pending_requested_at=(
+                self._timestamp(payload.get("pending_requested_at"))
+                if pending_token is not None
+                else None
+            ),
+            rotation_attempted_at=self._timestamp(payload.get("rotation_attempted_at")),
+        )
 
-    def save_node_token(self, node_token: str) -> None:
+    def save_node_token(
+        self,
+        node_token: str,
+        *,
+        issued_at: datetime | None = None,
+    ) -> None:
+        if not node_token:
+            raise ValueError("node token must not be empty")
         self.initialize()
-        self._atomic_write(
-            self.state_dir / "identity.json",
-            {
-                "cluster_id": self.cluster_id,
-                "node_name": self.node_name,
-                "node_token": node_token,
-            },
-            mode=0o600,
+        self._write_identity(
+            NodeTokenIdentity(
+                node_token=node_token,
+                issued_at=self._utc(issued_at),
+            )
+        )
+
+    def record_rotation_attempt(self, attempted_at: datetime | None = None) -> bool:
+        identity = self.load_node_identity()
+        if identity is None or identity.pending_node_token is not None:
+            return False
+        self._write_identity(
+            NodeTokenIdentity(
+                node_token=identity.node_token,
+                issued_at=identity.issued_at,
+                rotation_attempted_at=self._utc(attempted_at),
+            )
+        )
+        return True
+
+    def stage_node_token_rotation(
+        self,
+        pending_node_token: str,
+        *,
+        requested_at: datetime | None = None,
+    ) -> None:
+        if not pending_node_token:
+            raise ValueError("pending node token must not be empty")
+        identity = self.load_node_identity()
+        if identity is None:
+            raise RuntimeError("cannot stage rotation without an active node token")
+        requested = self._utc(requested_at)
+        self._write_identity(
+            NodeTokenIdentity(
+                node_token=identity.node_token,
+                issued_at=identity.issued_at,
+                pending_node_token=pending_node_token,
+                pending_requested_at=requested,
+                rotation_attempted_at=identity.rotation_attempted_at or requested,
+            )
+        )
+
+    def commit_pending_node_token(self, activated_at: datetime | None = None) -> bool:
+        identity = self.load_node_identity()
+        if identity is None or identity.pending_node_token is None:
+            return False
+        self._write_identity(
+            NodeTokenIdentity(
+                node_token=identity.pending_node_token,
+                issued_at=self._utc(activated_at),
+                rotation_attempted_at=identity.rotation_attempted_at,
+            )
+        )
+        return True
+
+    def rollback_pending_node_token(self, attempted_at: datetime | None = None) -> str | None:
+        identity = self.load_node_identity()
+        if identity is None or identity.pending_node_token is None:
+            return None
+        self._write_identity(
+            NodeTokenIdentity(
+                node_token=identity.node_token,
+                issued_at=identity.issued_at,
+                rotation_attempted_at=self._utc(attempted_at),
+            )
+        )
+        return identity.node_token
+
+    def is_pending_node_token(self, candidate: str | None) -> bool:
+        identity = self.load_node_identity()
+        return bool(
+            identity is not None
+            and identity.pending_node_token is not None
+            and candidate is not None
+            and secrets.compare_digest(identity.pending_node_token, candidate)
+        )
+
+    def node_token_rotation_due(
+        self,
+        maximum_age: timedelta,
+        retry_after: timedelta,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        identity = self.load_node_identity()
+        if identity is None or identity.pending_node_token is not None:
+            return False
+        current = self._utc(now)
+        if maximum_age.total_seconds() <= 0 or current < identity.issued_at + maximum_age:
+            return False
+        return (
+            identity.rotation_attempted_at is None
+            or current >= identity.rotation_attempted_at + retry_after
         )
 
     def clear_node_token(self) -> None:
@@ -121,6 +254,7 @@ class AgentStateStore:
             except OSError:
                 pass
             temporary_path.replace(path)
+            self._fsync_directory(path.parent)
         finally:
             try:
                 temporary_path.unlink()
@@ -132,3 +266,62 @@ class AgentStateStore:
             return json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, json.JSONDecodeError):
             return None
+
+    def _write_identity(self, identity: NodeTokenIdentity) -> None:
+        self.initialize()
+        payload: dict[str, Any] = {
+            "version": 2,
+            "cluster_id": self.cluster_id,
+            "node_name": self.node_name,
+            "node_token": identity.node_token,
+            "node_token_issued_at": self._format_timestamp(identity.issued_at),
+        }
+        if identity.pending_node_token is not None:
+            payload["pending_node_token"] = identity.pending_node_token
+            payload["pending_requested_at"] = self._format_timestamp(
+                identity.pending_requested_at or datetime.now(timezone.utc)
+            )
+        if identity.rotation_attempted_at is not None:
+            payload["rotation_attempted_at"] = self._format_timestamp(
+                identity.rotation_attempted_at
+            )
+        self._atomic_write(self.state_dir / "identity.json", payload, mode=0o600)
+
+    def _file_timestamp(self, path: Path) -> datetime:
+        try:
+            return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        except OSError:
+            return datetime.now(timezone.utc)
+
+    def _timestamp(self, value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def _format_timestamp(self, value: datetime) -> str:
+        return self._utc(value).isoformat().replace("+00:00", "Z")
+
+    def _utc(self, value: datetime | None) -> datetime:
+        if value is None:
+            return datetime.now(timezone.utc)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def _fsync_directory(self, directory: Path) -> None:
+        try:
+            descriptor = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            pass
+        finally:
+            os.close(descriptor)

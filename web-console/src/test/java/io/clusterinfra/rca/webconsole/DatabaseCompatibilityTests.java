@@ -45,7 +45,10 @@ import io.clusterinfra.rca.webconsole.persistence.RetentionRepository;
 import io.clusterinfra.rca.webconsole.persistence.RetentionRepository.RetentionCutoffs;
 import io.clusterinfra.rca.webconsole.persistence.UserRepository;
 import io.clusterinfra.rca.webconsole.persistence.UserSessionRepository;
-import io.clusterinfra.rca.webconsole.security.TokenService;
+import static io.clusterinfra.rca.webconsole.TestSecurity.opaqueTokenHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.passwordHasher;
+import static io.clusterinfra.rca.webconsole.TestSecurity.sha256Digest;
+import static io.clusterinfra.rca.webconsole.TestSecurity.tokenGenerator;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -758,18 +761,24 @@ class DatabaseCompatibilityTests {
     }
 
     private UserRepository userRepository(DataSource dataSource) {
-        return new UserRepository(new JdbcTemplate(dataSource), new TokenService());
+        return new UserRepository(new JdbcTemplate(dataSource), passwordHasher());
     }
 
     private UserSessionRepository userSessionRepository(DataSource dataSource) {
-        return new UserSessionRepository(new JdbcTemplate(dataSource), new TokenService());
+        return new UserSessionRepository(
+            new JdbcTemplate(dataSource),
+            tokenGenerator(),
+            sha256Digest()
+        );
     }
 
     private AgentRepository agentRepository(DataSource dataSource) {
         return new AgentRepository(
             new JdbcTemplate(dataSource),
             objectMapper(),
-            new TokenService(),
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            passwordHasher(),
             clusterRepository(dataSource)
         );
     }
@@ -796,7 +805,12 @@ class DatabaseCompatibilityTests {
     }
 
     private ClusterRepository clusterRepository(DataSource dataSource) {
-        return new ClusterRepository(new JdbcTemplate(dataSource), new TokenService());
+        return new ClusterRepository(
+            new JdbcTemplate(dataSource),
+            tokenGenerator(),
+            opaqueTokenHasher(),
+            passwordHasher()
+        );
     }
 
     private ClusterThresholdRepository thresholdRepository(DataSource dataSource) {
