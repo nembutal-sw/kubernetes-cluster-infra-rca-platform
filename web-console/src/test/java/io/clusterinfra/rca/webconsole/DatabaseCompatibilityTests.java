@@ -225,14 +225,23 @@ class DatabaseCompatibilityTests {
             Timestamp.class,
             cluster.clusterId()
         )).isNotNull();
-        NodeAgentRegistrationResponse registration = agents.register(new NodeAgentRegisterRequest(
-            cluster.clusterId(),
-            "worker-a",
-            cluster.bootstrapToken(),
-            "0.1.0",
-            List.of("disk", "inode", "kernel"),
-            Map.of("platform", "testcontainers")
-        ));
+        NodeAgentRegistrationResponse registration = agents.register(
+            new NodeAgentRegisterRequest(
+                cluster.clusterId(),
+                "worker-a",
+                cluster.bootstrapToken(),
+                "0.1.0",
+                List.of("disk", "inode", "kernel"),
+                Map.of("platform", "testcontainers")
+            ),
+            Map.of(
+                "method", "kubernetes_token_review",
+                "profile_version", 1L,
+                "service_account_uid", "test-service-account-uid",
+                "daemonset_uid", "test-daemonset-uid",
+                "pod_uid", "test-pod-uid"
+            )
+        );
         assertThat(agents.verifyNodeToken(
             cluster.clusterId(),
             "worker-a",
