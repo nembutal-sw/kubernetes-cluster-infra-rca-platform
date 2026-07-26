@@ -82,7 +82,22 @@ def main() -> int:
         "security workflow must gate vulnerabilities separately from SARIF generation",
         errors,
     )
-    require("fail-build: true" in security, "Grype SBOM scan must fail the build on blocking findings", errors)
+    require("fail-build: true" in security, "Grype repository scan must fail the build on blocking findings", errors)
+    require(
+        "Scan repository with Grype" in security and "path: ." in security,
+        "Grype must scan the repository path so SARIF findings retain source locations",
+        errors,
+    )
+    require(
+        "github/codeql-action/upload-sarif@v4" in security
+        and "github/codeql-action/init@v4" in security
+        and "github/codeql-action/analyze@v4" in security
+        and "github/codeql-action/upload-sarif@v3" not in security
+        and "github/codeql-action/init@v3" not in security
+        and "github/codeql-action/analyze@v3" not in security,
+        "security workflow must use CodeQL Action v4",
+        errors,
+    )
     require("retention-days:" in security, "security artifacts must declare retention", errors)
 
     require("id-token: write" in release, "release workflow must allow keyless signing OIDC", errors)
