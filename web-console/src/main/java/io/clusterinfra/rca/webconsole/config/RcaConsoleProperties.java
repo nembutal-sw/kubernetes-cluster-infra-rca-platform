@@ -710,6 +710,10 @@ public class RcaConsoleProperties {
 
         private String encryptionSecret = "";
         private String opaqueTokenPepper = DEVELOPMENT_OPAQUE_TOKEN_PEPPER;
+        private String opaqueTokenKeyId = "legacy";
+        private String opaqueTokenPreviousKeys = "";
+        private String opaqueTokenWriteVersion = "v1";
+        private boolean opaqueTokenRehashOnAuthentication;
         private long standardRequestMaxBytes = 1024 * 1024;
         private long evidenceRequestMaxBytes = 10 * 1024 * 1024;
         private int manifestTokenTtlSeconds = 300;
@@ -732,6 +736,44 @@ public class RcaConsoleProperties {
 
         public void setOpaqueTokenPepper(String opaqueTokenPepper) {
             this.opaqueTokenPepper = opaqueTokenPepper;
+        }
+
+        public String getOpaqueTokenKeyId() {
+            return opaqueTokenKeyId == null || opaqueTokenKeyId.isBlank()
+                ? "legacy"
+                : opaqueTokenKeyId.trim();
+        }
+
+        public void setOpaqueTokenKeyId(String opaqueTokenKeyId) {
+            this.opaqueTokenKeyId = opaqueTokenKeyId;
+        }
+
+        public String getOpaqueTokenPreviousKeys() {
+            return opaqueTokenPreviousKeys == null ? "" : opaqueTokenPreviousKeys;
+        }
+
+        public void setOpaqueTokenPreviousKeys(String opaqueTokenPreviousKeys) {
+            this.opaqueTokenPreviousKeys = opaqueTokenPreviousKeys;
+        }
+
+        public String getOpaqueTokenWriteVersion() {
+            return opaqueTokenWriteVersion == null || opaqueTokenWriteVersion.isBlank()
+                ? "v1"
+                : opaqueTokenWriteVersion.trim().toLowerCase(Locale.ROOT);
+        }
+
+        public void setOpaqueTokenWriteVersion(String opaqueTokenWriteVersion) {
+            this.opaqueTokenWriteVersion = opaqueTokenWriteVersion;
+        }
+
+        public boolean isOpaqueTokenRehashOnAuthentication() {
+            return opaqueTokenRehashOnAuthentication;
+        }
+
+        public void setOpaqueTokenRehashOnAuthentication(
+            boolean opaqueTokenRehashOnAuthentication
+        ) {
+            this.opaqueTokenRehashOnAuthentication = opaqueTokenRehashOnAuthentication;
         }
 
         public long getStandardRequestMaxBytes() {

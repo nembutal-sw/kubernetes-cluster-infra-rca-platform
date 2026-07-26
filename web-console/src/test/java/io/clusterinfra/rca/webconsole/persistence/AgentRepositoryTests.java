@@ -231,6 +231,97 @@ class AgentRepositoryTests {
     }
 
     @Test
+    void previousPepperNodeTokenIsProgressivelyRehashedAndRemainsRollingCompatible() {
+        String oldPepper = "old-node-token-pepper-value-with-32-bytes";
+        String newPepper = "new-node-token-pepper-value-with-32-bytes";
+        var oldHasher = opaqueTokenHasher(oldPepper, "key-old", "", "v1", false);
+        ClusterRepository oldClusters = new ClusterRepository(
+            jdbc,
+            tokenGenerator(),
+            oldHasher,
+            passwordHasher()
+        );
+        AgentRepository oldAgents = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            oldHasher,
+            passwordHasher(),
+            oldClusters
+        );
+        var cluster = oldClusters.create(
+            new ClusterCreateRequest("prod-a", "prod", null)
+        );
+        var registered = oldAgents.register(new NodeAgentRegisterRequest(
+            cluster.clusterId(),
+            "node-a",
+            cluster.bootstrapToken(),
+            "0.1.0",
+            "2",
+            List.of("disk"),
+            Map.of()
+        ));
+        var rotatingHasher = opaqueTokenHasher(
+            newPepper,
+            "key-new",
+            "key-old=" + oldPepper,
+            "v2",
+            true
+        );
+        AgentRepository rotatingAgents = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            rotatingHasher,
+            passwordHasher(),
+            oldClusters
+        );
+
+        assertThat(rotatingAgents.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            registered.nodeToken()
+        )).isTrue();
+        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a"))
+            .startsWith("hmac_sha256$v2$key-new$");
+
+        var preparedOldHasher = opaqueTokenHasher(
+            oldPepper,
+            "key-old",
+            "key-new=" + newPepper,
+            "v1",
+            false
+        );
+        AgentRepository preparedOldAgents = new AgentRepository(
+            jdbc,
+            objectMapper(),
+            tokenGenerator(),
+            preparedOldHasher,
+            passwordHasher(),
+            oldClusters
+        );
+        assertThat(preparedOldAgents.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            registered.nodeToken()
+        )).isTrue();
+        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a"))
+            .startsWith("hmac_sha256$v2$key-new$");
+
+        String pendingToken = rotatingAgents.rotateNodeToken(
+            cluster.clusterId(),
+            "node-a"
+        );
+        assertThat(preparedOldAgents.verifyNodeToken(
+            cluster.clusterId(),
+            "node-a",
+            pendingToken
+        )).isTrue();
+        assertThat(storedNodeTokenHash(cluster.clusterId(), "node-a"))
+            .startsWith("hmac_sha256$v2$key-new$");
+    }
+
+    @Test
     void legacyNodeTokenIsRejectedWhenConcurrentRotationWinsTheUpgradeRace() throws Exception {
         var cluster = clusters.create(new ClusterCreateRequest("prod-a", "prod", null));
         var registered = agents.register(new NodeAgentRegisterRequest(

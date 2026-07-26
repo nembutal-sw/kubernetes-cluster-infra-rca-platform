@@ -28,8 +28,24 @@ public final class TestSecurity {
     }
 
     public static OpaqueTokenHasher opaqueTokenHasher() {
+        return opaqueTokenHasher(TEST_PEPPER, "legacy", "", "v1", false);
+    }
+
+    public static OpaqueTokenHasher opaqueTokenHasher(
+        String pepper,
+        String keyId,
+        String previousKeys,
+        String writeVersion,
+        boolean rehashOnAuthentication
+    ) {
         RcaConsoleProperties properties = new RcaConsoleProperties();
-        properties.getSecurity().setOpaqueTokenPepper(TEST_PEPPER);
+        properties.getSecurity().setOpaqueTokenPepper(pepper);
+        properties.getSecurity().setOpaqueTokenKeyId(keyId);
+        properties.getSecurity().setOpaqueTokenPreviousKeys(previousKeys);
+        properties.getSecurity().setOpaqueTokenWriteVersion(writeVersion);
+        properties.getSecurity().setOpaqueTokenRehashOnAuthentication(
+            rehashOnAuthentication
+        );
         return new OpaqueTokenHasher(properties);
     }
 

@@ -137,6 +137,11 @@ platform:
     springProfiles: ""
     publicApiBaseUrl: ""
     sessionTtlHours: 12
+    opaqueTokenKeyId: legacy
+    opaqueTokenWriteVersion: v1
+    opaqueTokenRehashOnAuthentication: false
+    # Change for each key-ring rotation phase to force a rolling restart.
+    opaqueTokenKeyRingRevision: ""
     standardRequestMaxBytes: 1048576
     evidenceRequestMaxBytes: 10485760
     manifestTokenTtlSeconds: 300
@@ -242,6 +247,8 @@ platform:
     metricsToken: ""
     encryptionSecret: ""
     opaqueTokenPepper: "development-only-opaque-token-pepper"
+    # Comma-separated key-id=pepper entries. Keep this value in a Secret.
+    opaqueTokenPreviousKeys: ""
     exportSignatureSecret: ""
     slackWebhookUrl: ""
     notificationWebhookUrl: ""

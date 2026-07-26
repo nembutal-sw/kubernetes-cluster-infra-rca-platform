@@ -53,6 +53,10 @@ platform:
     springProfiles: ""
     publicApiBaseUrl: ""
     sessionTtlHours: 12
+    opaqueTokenKeyId: legacy
+    opaqueTokenWriteVersion: v1
+    opaqueTokenRehashOnAuthentication: false
+    opaqueTokenKeyRingRevision: ""
     agentOfflineAfterSeconds: 180
     agentExpectedVersion: ""
     agentMinimumSupportedVersion: "0.1.0"
@@ -97,6 +101,8 @@ platform:
     webhookToken: dev-webhook-token
     metricsToken: ""
     encryptionSecret: ""
+    opaqueTokenPepper: development-only-opaque-token-pepper
+    opaqueTokenPreviousKeys: ""
     exportSignatureSecret: ""
     slackWebhookUrl: ""
     gitopsToken: ""
@@ -112,6 +118,10 @@ platform:
 때만 사용한다. 전용 projected token과 `tokenreviews.create`, `pods.get` RBAC를 Platform
 ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여하지 않는다. 외부 cluster는
 별도 reviewer credential을 `/var/run/secrets/cluster-infra-rca-reviewers/` 하위에 mount한다.
+
+opaque token pepper는 한 번에 교체하지 않습니다. 운영에서는 기존 Secret에 current/previous
+key를 함께 저장하고 `opaqueTokenKeyRingRevision`을 단계마다 변경해 Pod rollout을 강제합니다.
+상세 순서는 [Opaque Token Pepper Rotation](opaque-token-key-rotation.md)을 따릅니다.
 
 `gitopsProvider`는 `github`, `gitlab`, `gitea`만 허용됩니다. GitLab subgroup을 사용할 때 `gitopsRepository`는 `group/subgroup/repository` 형식으로 지정합니다. Gitea는 `gitopsApiBaseUrl`을 반드시 지정하며, 누락하거나 지원하지 않는 provider를 입력하면 Helm template 단계에서 실패합니다.
 

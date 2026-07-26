@@ -189,16 +189,27 @@ def main() -> int:
             and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenHasher.java"
             )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenKeyRing.java"
+            )
             and contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenHasher.java",
                 "HmacSHA256",
                 "hmac_sha256$v1$",
+                "hmac_sha256$v2$",
                 "MessageDigest.isEqual",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/OpaqueTokenKeyRing.java",
+                "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS",
+                "RCA_OPAQUE_TOKEN_WRITE_VERSION",
+                "RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION",
             )
             and contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/config/ProductionSecurityValidator.java",
                 "RCA_OPAQUE_TOKEN_PEPPER must be a non-default secret",
                 "RCA_OPAQUE_TOKEN_PEPPER must be different from RCA_ENCRYPTION_SECRET",
+                "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS peppers must contain",
             )
             and contains(
                 "node_agent/main.py",
@@ -220,8 +231,15 @@ def main() -> int:
             and contains(
                 "charts/cluster-infra-rca-platform/templates/platform-secret.yaml",
                 "RCA_OPAQUE_TOKEN_PEPPER",
+                "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
+                "RCA_OPAQUE_TOKEN_KEY_ID",
+                "RCA_OPAQUE_TOKEN_WRITE_VERSION",
+                "RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION",
             ),
-            "Human passwords and opaque Agent credentials use separate hashers, with durable automatic node-token rotation.",
+            "Opaque Agent credentials use a versioned HMAC key ring with rolling pepper rotation.",
         ),
         check(
             "backend-monitoring",

@@ -199,6 +199,17 @@ jobs:
             --set-string platform.secret.openaiBaseUrl=http://llm-gateway.rca-system.svc:8000/v1)"
           grep -q 'RCA_LLM_PROVIDER' <<< "$llm_self_hosted"
           grep -q 'SPRING_AI_OPENAI_SDK_BASE_URL' <<< "$llm_self_hosted"
+          token_rotation="$(helm template rca charts/cluster-infra-rca-platform \
+            --set-string platform.config.opaqueTokenKeyId=key-new \
+            --set-string platform.config.opaqueTokenWriteVersion=v2 \
+            --set platform.config.opaqueTokenRehashOnAuthentication=true \
+            --set-string platform.config.opaqueTokenKeyRingRevision=rehash-2026-07 \
+            --set-string platform.secret.opaqueTokenPreviousKeys=key-old=previous-pepper-value-with-at-least-32-characters)"
+          grep -q 'RCA_OPAQUE_TOKEN_PREVIOUS_KEYS' <<< "${token_rotation}"
+          grep -q 'RCA_OPAQUE_TOKEN_KEY_ID' <<< "${token_rotation}"
+          grep -q 'RCA_OPAQUE_TOKEN_WRITE_VERSION' <<< "${token_rotation}"
+          grep -q 'RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION' <<< "${token_rotation}"
+          grep -q 'opaque-token-keyring-revision: "rehash-2026-07"' <<< "${token_rotation}"
           llm_rules="$(helm template rca charts/cluster-infra-rca-platform \
             --set platform.prometheusRule.enabled=true \
             --set platform.prometheusRule.costBudget.enabled=true)"

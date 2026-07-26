@@ -191,7 +191,7 @@ This keeps the agent focused on evidence collection.
 - Use `AGENT_CLIENT_CERT` and `AGENT_CLIENT_KEY` together for mTLS.
 - Do not place bootstrap tokens in logs.
 - Keep state directory permissions restrictive.
-- Keep the Platform `RCA_OPAQUE_TOKEN_PEPPER` stable across replicas and restarts.
+- Keep the Platform opaque-token key ring identical across replicas. Rotate it with the [rolling key runbook](opaque-token-key-rotation.md), never by replacing the pepper in one step.
 
 ## Portfolio Message
 

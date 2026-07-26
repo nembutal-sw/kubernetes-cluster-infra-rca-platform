@@ -44,6 +44,79 @@ class SecurityPrimitiveTests {
     }
 
     @Test
+    void opaqueTokenKeyRingSupportsStagedRollingRotationAndProgressiveRehash() {
+        String oldPepper = "old-unit-test-pepper-value-with-32-bytes";
+        String newPepper = "new-unit-test-pepper-value-with-32-bytes";
+        OpaqueTokenHasher oldWriter = opaqueHasher(
+            oldPepper,
+            "key-old",
+            "key-new=" + newPepper,
+            "v1",
+            false
+        );
+        OpaqueTokenHasher newWriter = opaqueHasher(
+            newPepper,
+            "key-new",
+            "key-old=" + oldPepper,
+            "v2",
+            false
+        );
+
+        String oldHash = oldWriter.hash("machine-token");
+        String newHash = newWriter.hash("machine-token");
+
+        assertThat(oldHash).startsWith("hmac_sha256$v1$");
+        assertThat(newHash).startsWith("hmac_sha256$v2$key-new$");
+        assertThat(oldWriter.verify("machine-token", newHash))
+            .isEqualTo(new OpaqueTokenHasher.Verification(true, false));
+        assertThat(newWriter.verify("machine-token", oldHash))
+            .isEqualTo(new OpaqueTokenHasher.Verification(true, false));
+
+        OpaqueTokenHasher rehashingWriter = opaqueHasher(
+            newPepper,
+            "key-new",
+            "key-old=" + oldPepper,
+            "v2",
+            true
+        );
+        assertThat(rehashingWriter.verify("machine-token", oldHash))
+            .isEqualTo(new OpaqueTokenHasher.Verification(true, true));
+        assertThat(rehashingWriter.verify("machine-token", newHash))
+            .isEqualTo(new OpaqueTokenHasher.Verification(true, false));
+    }
+
+    @Test
+    void opaqueTokenKeyRingRejectsUnsafeStructure() {
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+            opaqueHasher(
+                "current-unit-test-pepper-value-32-bytes",
+                "key-current",
+                "key-current=previous-unit-test-pepper-value-32-bytes",
+                "v2",
+                false
+            )
+        )).hasMessageContaining("must not repeat the current key id");
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+            opaqueHasher(
+                "current-unit-test-pepper-value-32-bytes",
+                "invalid key id",
+                "",
+                "v2",
+                false
+            )
+        )).hasMessageContaining("key ids must match");
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+            opaqueHasher(
+                "current-unit-test-pepper-value-32-bytes",
+                "key-current",
+                "",
+                "v1",
+                true
+            )
+        )).hasMessageContaining("requires RCA_OPAQUE_TOKEN_WRITE_VERSION=v2");
+    }
+
+    @Test
     void blankOpaqueTokenPepperFallsBackToDevelopmentDefault() {
         OpaqueTokenHasher hasher = opaqueHasher(" ");
 
@@ -64,8 +137,24 @@ class SecurityPrimitiveTests {
     }
 
     private OpaqueTokenHasher opaqueHasher(String pepper) {
+        return opaqueHasher(pepper, "legacy", "", "v1", false);
+    }
+
+    private OpaqueTokenHasher opaqueHasher(
+        String pepper,
+        String keyId,
+        String previousKeys,
+        String writeVersion,
+        boolean rehashOnAuthentication
+    ) {
         RcaConsoleProperties properties = new RcaConsoleProperties();
         properties.getSecurity().setOpaqueTokenPepper(pepper);
+        properties.getSecurity().setOpaqueTokenKeyId(keyId);
+        properties.getSecurity().setOpaqueTokenPreviousKeys(previousKeys);
+        properties.getSecurity().setOpaqueTokenWriteVersion(writeVersion);
+        properties.getSecurity().setOpaqueTokenRehashOnAuthentication(
+            rehashOnAuthentication
+        );
         return new OpaqueTokenHasher(properties);
     }
 }

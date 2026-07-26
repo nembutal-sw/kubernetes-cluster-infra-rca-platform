@@ -640,6 +640,24 @@ rolling upgrade가 가능하지만, 배포 전 모든 Platform replica에 동일
 image digest pinning을 함께 적용해야 한다. 다음 우선순위는 trusted proxy 기반 audit IP 판정,
 versioned notification destination, worker별 lease renewal scheduler 분리다.
 
+## Phase 35. Opaque Token Pepper Key Ring And Rolling Rotation
+
+구현 및 검증 완료:
+
+- `hmac_sha256$v2$<key-id>$<digest>` 저장 형식과 기존 v1 dual-read
+- 현재 key와 최대 8개 이전 검증 key를 분리한 bounded key ring
+- key id 형식, 중복 id/key material, pepper 길이와 암호화 key 재사용 startup 검증
+- 첫 코드 배포를 위한 v1 writer 기본값과 명시적인 v2 writer 전환
+- 모든 replica 전환 후에만 활성화하는 인증 기반 lazy rehash
+- bootstrap/node token 저장소의 compare-and-set 재해시와 최신 credential 재검증
+- 준비 단계 replica가 새 v2를 읽고도 이전 v1로 되돌리지 않는 rolling compatibility 테스트
+- Secret hash를 노출하지 않는 Helm key-ring revision rollout trigger
+- Compose, `.env.example`, release-readiness 정적 계약과 3단계 운영 runbook
+
+key rotation은 단일 Secret 교체가 아니라 reader 준비, writer 전환, lazy rehash의 세 단계로 수행한다.
+이전 key 제거 전 비활성 node credential을 회전하거나 재등록해야 한다. 다음 우선순위는 trusted proxy
+기반 audit IP 판정과 notification destination configuration version 고정이다.
+
 ## Positioning
 
 이 프로젝트는 애플리케이션 로그 분석 도구가 아니라 Kubernetes node와 Linux system layer 장애를 근거 기반으로 수집, 분석, 설명하는 RCA 플랫폼이다. 자동 조치는 기본적으로 금지하고, 정책 엔진과 감사 로그를 통해 사람이 승인하고 추적할 수 있는 운영 흐름을 우선한다.

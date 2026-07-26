@@ -236,10 +236,14 @@ public class ClusterRepository {
             }
             boolean verified = false;
             if (row.hash() != null && !row.hash().isBlank()) {
-                verified = opaqueTokens.matches(token, row.hash())
-                    || (legacyPasswords.supports(row.hash())
-                        && legacyPasswords.matches(token, row.hash()));
-                if (verified && !opaqueTokens.supports(row.hash())) {
+                OpaqueTokenHasher.Verification opaqueVerification =
+                    opaqueTokens.verify(token, row.hash());
+                boolean legacyVerified = !opaqueVerification.matched()
+                    && legacyPasswords.supports(row.hash())
+                    && legacyPasswords.matches(token, row.hash());
+                verified = opaqueVerification.matched() || legacyVerified;
+                if (verified
+                    && (legacyVerified || opaqueVerification.rehashRequired())) {
                     int upgraded = jdbc.update(
                         """
                             UPDATE clusters SET bootstrap_token_hash = ?

@@ -1,10 +1,12 @@
 package io.clusterinfra.rca.webconsole.config;
 
+import io.clusterinfra.rca.webconsole.security.OpaqueTokenKeyRing;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.core.env.Environment;
@@ -120,6 +122,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         )) {
             violations.add("RCA_OPAQUE_TOKEN_PEPPER must be different from RCA_ENCRYPTION_SECRET");
         }
+        validateOpaqueTokenKeyRing(violations, opaqueTokenPepper);
         if (properties.getSecurity().getStandardRequestMaxBytes() < 1024
             || properties.getSecurity().getEvidenceRequestMaxBytes()
                 < properties.getSecurity().getStandardRequestMaxBytes()) {
@@ -134,6 +137,62 @@ public class ProductionSecurityValidator implements InitializingBean {
                 "Unsafe production configuration:\n - " + String.join("\n - ", violations)
             );
         }
+    }
+
+    private void validateOpaqueTokenKeyRing(
+        List<String> violations,
+        String currentPepper
+    ) {
+        Map<String, String> previousKeys;
+        try {
+            previousKeys = OpaqueTokenKeyRing.parsePreviousKeys(
+                properties.getSecurity().getOpaqueTokenPreviousKeys()
+            );
+        } catch (IllegalStateException exception) {
+            violations.add(exception.getMessage());
+            return;
+        }
+        try {
+            OpaqueTokenKeyRing.from(properties.getSecurity());
+        } catch (IllegalStateException exception) {
+            violations.add(exception.getMessage());
+        }
+        for (String previousPepper : previousKeys.values()) {
+            if (previousPepper.length() < 32) {
+                violations.add(
+                    "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS peppers must contain "
+                        + "at least 32 characters"
+                );
+            }
+            if (UNSAFE_SECRETS.contains(previousPepper)
+                || "development-only-opaque-token-pepper".equals(previousPepper)) {
+                violations.add(
+                    "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS must not contain default secrets"
+                );
+            }
+            if (constantTimeEqual(
+                previousPepper,
+                properties.getSecurity().getEncryptionSecret()
+            )) {
+                violations.add(
+                    "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS must be different from "
+                        + "RCA_ENCRYPTION_SECRET"
+                );
+            }
+            if (constantTimeEqual(previousPepper, currentPepper)) {
+                violations.add(
+                    "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS must be different from "
+                        + "RCA_OPAQUE_TOKEN_PEPPER"
+                );
+            }
+        }
+    }
+
+    private boolean constantTimeEqual(String first, String second) {
+        return MessageDigest.isEqual(
+            normalized(first).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            normalized(second).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
     }
 
     private void validatePublicBaseUrl(List<String> violations) {

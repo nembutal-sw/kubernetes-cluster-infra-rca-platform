@@ -118,6 +118,40 @@ class ClusterRepositoryTests {
     }
 
     @Test
+    void previousPepperBootstrapTokenIsProgressivelyRehashedToCurrentV2Key() {
+        String oldPepper = "old-bootstrap-token-pepper-value-32-bytes";
+        String newPepper = "new-bootstrap-token-pepper-value-32-bytes";
+        ClusterRepository oldRepository = new ClusterRepository(
+            jdbc,
+            tokenGenerator(),
+            opaqueTokenHasher(oldPepper, "key-old", "", "v1", false),
+            passwordHasher()
+        );
+        var cluster = oldRepository.create(
+            new ClusterCreateRequest("prod-a", "prod", null)
+        );
+        ClusterRepository rotatingRepository = new ClusterRepository(
+            jdbc,
+            tokenGenerator(),
+            opaqueTokenHasher(
+                newPepper,
+                "key-new",
+                "key-old=" + oldPepper,
+                "v2",
+                true
+            ),
+            passwordHasher()
+        );
+
+        assertThat(rotatingRepository.verifyBootstrapToken(
+            cluster.clusterId(),
+            cluster.bootstrapToken()
+        )).isTrue();
+        assertThat(storedBootstrapTokenHash(cluster.clusterId()))
+            .startsWith("hmac_sha256$v2$key-new$");
+    }
+
+    @Test
     void legacyBootstrapTokenIsRejectedWhenConcurrentRotationWinsTheUpgradeRace() throws Exception {
         var cluster = repository.create(new ClusterCreateRequest("prod-a", "prod", null));
         jdbc.update(

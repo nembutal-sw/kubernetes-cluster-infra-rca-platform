@@ -304,6 +304,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
 | LLM PrometheusRule | `--set platform.prometheusRule.enabled=true` |
 | AlertmanagerConfig | `--set platform.alertmanagerConfig.enabled=true`와 `clusterId` |
 | Demo | `--set platform.config.demoEnabled=true` |
+| Token pepper 회전 | [Opaque Token Pepper Rotation](docs/opaque-token-key-rotation.md) |
 
 기본 image repository는 예시 값입니다. 실제 registry로 `platform.image.repository`, `platform.image.tag`, Agent의 `image.repository`, `image.tag`를 지정해야 합니다. 운영 secret은 CLI `--set`보다 기존 Secret 또는 External Secrets를 권장합니다.
 
@@ -318,7 +319,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set-string platform.image.digest=sha256:<64-hex-digest>
 ```
 
-기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`, `RCA_OPAQUE_TOKEN_PEPPER`를 준비합니다. Pepper는 32자 이상의 별도 난수로 만들고 암호화 키와 같은 값을 사용하지 않습니다.
+기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`, `RCA_OPAQUE_TOKEN_PEPPER`를 준비합니다. 회전 중에는 `RCA_OPAQUE_TOKEN_PREVIOUS_KEYS`도 같은 Secret에 둡니다. Pepper는 32자 이상의 별도 난수로 만들고 암호화 키와 같은 값을 사용하지 않습니다. 무중단 교체는 [회전 runbook](docs/opaque-token-key-rotation.md)의 reader 준비, writer 전환, lazy rehash 순서를 따릅니다.
 
 ## 검증 명령
 

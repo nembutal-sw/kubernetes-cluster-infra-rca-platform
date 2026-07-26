@@ -48,9 +48,14 @@ spec:
         {{- with .Values.platform.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.platform.podAnnotations }}
+      {{- if or .Values.platform.config.opaqueTokenKeyRingRevision .Values.platform.podAnnotations }}
       annotations:
+        {{- with .Values.platform.config.opaqueTokenKeyRingRevision }}
+        rca.clusterinfra.io/opaque-token-keyring-revision: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.platform.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       serviceAccountName: {{ include "cluster-infra-rca-platform.serviceAccountName" . }}
@@ -81,6 +86,12 @@ spec:
               value: {{ .Values.platform.config.publicApiBaseUrl | quote }}
             - name: RCA_SESSION_TTL_HOURS
               value: {{ .Values.platform.config.sessionTtlHours | quote }}
+            - name: RCA_OPAQUE_TOKEN_KEY_ID
+              value: {{ .Values.platform.config.opaqueTokenKeyId | quote }}
+            - name: RCA_OPAQUE_TOKEN_WRITE_VERSION
+              value: {{ .Values.platform.config.opaqueTokenWriteVersion | quote }}
+            - name: RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION
+              value: {{ .Values.platform.config.opaqueTokenRehashOnAuthentication | quote }}
             - name: RCA_STANDARD_REQUEST_MAX_BYTES
               value: {{ include "cluster-infra-rca-platform.integerEnv" .Values.platform.config.standardRequestMaxBytes | quote }}
             - name: RCA_EVIDENCE_REQUEST_MAX_BYTES

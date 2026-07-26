@@ -370,11 +370,17 @@ public class AgentRepository {
                 return true;
             }
             if (row.nextHash() == null || row.nextExpiresAt() == null
-                || !Instant.now().isBefore(row.nextExpiresAt())
-                || !matchesStoredToken(nodeToken, row.nextHash())) {
+                || !Instant.now().isBefore(row.nextExpiresAt())) {
                 return false;
             }
-            String promotedHash = opaqueTokens.hash(nodeToken);
+            StoredTokenVerification nextVerification =
+                verifyStoredToken(nodeToken, row.nextHash());
+            if (!nextVerification.matched()) {
+                return false;
+            }
+            String promotedHash = nextVerification.rehashRequired()
+                ? opaqueTokens.hash(nodeToken)
+                : row.nextHash();
             int promoted = jdbc.update(
                 """
                     UPDATE node_agents
@@ -419,10 +425,11 @@ public class AgentRepository {
         String token,
         String storedHash
     ) {
-        if (!matchesStoredToken(token, storedHash)) {
+        StoredTokenVerification verification = verifyStoredToken(token, storedHash);
+        if (!verification.matched()) {
             return false;
         }
-        if (!opaqueTokens.supports(storedHash)) {
+        if (verification.rehashRequired()) {
             int upgraded = jdbc.update(
                 """
                     UPDATE node_agents
@@ -471,9 +478,21 @@ public class AgentRepository {
         }
     }
 
-    private boolean matchesStoredToken(String token, String storedHash) {
-        return opaqueTokens.matches(token, storedHash)
-            || (legacyPasswords.supports(storedHash) && legacyPasswords.matches(token, storedHash));
+    private StoredTokenVerification verifyStoredToken(
+        String token,
+        String storedHash
+    ) {
+        OpaqueTokenHasher.Verification opaqueVerification =
+            opaqueTokens.verify(token, storedHash);
+        if (opaqueVerification.matched()) {
+            return new StoredTokenVerification(
+                true,
+                opaqueVerification.rehashRequired()
+            );
+        }
+        boolean legacyVerified = legacyPasswords.supports(storedHash)
+            && legacyPasswords.matches(token, storedHash);
+        return new StoredTokenVerification(legacyVerified, legacyVerified);
     }
 
     public boolean revokeNodeToken(String clusterId, String nodeName) {
@@ -582,6 +601,12 @@ public class AgentRepository {
             return enrollmentProfileVersion == null
                 || Objects.equals(enrollmentProfileVersion, currentProfileVersion);
         }
+    }
+
+    private record StoredTokenVerification(
+        boolean matched,
+        boolean rehashRequired
+    ) {
     }
 
     private record RegistrationState(

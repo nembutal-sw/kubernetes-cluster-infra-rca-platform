@@ -147,6 +147,10 @@ rca:
   security:
     encryption-secret: ${RCA_ENCRYPTION_SECRET:}
     opaque-token-pepper: ${RCA_OPAQUE_TOKEN_PEPPER:development-only-opaque-token-pepper}
+    opaque-token-key-id: ${RCA_OPAQUE_TOKEN_KEY_ID:legacy}
+    opaque-token-previous-keys: ${RCA_OPAQUE_TOKEN_PREVIOUS_KEYS:}
+    opaque-token-write-version: ${RCA_OPAQUE_TOKEN_WRITE_VERSION:v1}
+    opaque-token-rehash-on-authentication: ${RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION:false}
     standard-request-max-bytes: ${RCA_STANDARD_REQUEST_MAX_BYTES:1048576}
     evidence-request-max-bytes: ${RCA_EVIDENCE_REQUEST_MAX_BYTES:10485760}
     manifest-token-ttl-seconds: ${RCA_MANIFEST_TOKEN_TTL_SECONDS:300}

@@ -29,7 +29,7 @@ notification outbox(`V22`), 클러스터별 Agent enrollment profile(`V23`), wor
 profile-version-bound node token(`V24`)입니다. PostgreSQL,
 MariaDB, H2에서 동일한 migration 순서를 사용합니다.
 
-기계용 bootstrap/node token은 별도 schema 변경 없이 `hmac_sha256$v1$...` 형식으로 저장합니다. 기존 PBKDF2 token hash는 첫 인증 성공 시 조건부 UPDATE로 점진 전환하며, 동시에 회전·폐기가 발생하면 최신 credential을 다시 확인해 오래된 token을 승인하지 않습니다. 사용자 비밀번호의 PBKDF2 형식은 그대로 유지합니다.
+기계용 bootstrap/node token은 별도 schema 변경 없이 기존 `hmac_sha256$v1$...`와 key id를 포함한 `hmac_sha256$v2$<key-id>$...` 형식을 함께 읽습니다. 운영자가 rolling key 전환을 완료하고 lazy rehash를 활성화하면 인증된 token만 조건부 UPDATE로 현재 v2 key에 점진 전환됩니다. 기존 PBKDF2 hash도 같은 비교·재검증 경계를 사용하며, 동시에 회전·폐기가 발생하면 오래된 token을 승인하지 않습니다. 사용자 비밀번호의 PBKDF2 형식은 그대로 유지합니다.
 
 기존 Python/Alembic DB를 연결하면 `baseline-on-migrate`가 기존 스키마를 version 1로 등록합니다. 새 DB에서는 version 1 스키마를 직접 생성합니다. 기존 데이터를 연결하기 전에 DB 백업을 권장합니다.
 

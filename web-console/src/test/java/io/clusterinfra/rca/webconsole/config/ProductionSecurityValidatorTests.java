@@ -106,6 +106,58 @@ class ProductionSecurityValidatorTests {
     }
 
     @Test
+    void productionValidatesOpaqueTokenKeyRingAndRehashMode() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.security.opaque-token-key-id=key-current",
+                "rca.security.opaque-token-previous-keys="
+                    + "key-old=short",
+                "rca.security.opaque-token-write-version=v1",
+                "rca.security.opaque-token-rehash-on-authentication=true",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining(
+                        "RCA_OPAQUE_TOKEN_PREVIOUS_KEYS peppers must contain "
+                            + "at least 32 characters"
+                    )
+                    .hasStackTraceContaining(
+                        "RCA_OPAQUE_TOKEN_REHASH_ON_AUTHENTICATION requires "
+                            + "RCA_OPAQUE_TOKEN_WRITE_VERSION=v2"
+                    );
+            });
+
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.security.opaque-token-pepper="
+                    + "new-production-opaque-token-pepper-value",
+                "rca.security.opaque-token-key-id=key-new",
+                "rca.security.opaque-token-previous-keys="
+                    + "key-old=old-production-opaque-token-pepper-value",
+                "rca.security.opaque-token-write-version=v2",
+                "rca.security.opaque-token-rehash-on-authentication=true",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false"
+            )
+            .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
     void negativeLlmTokenPriceFailsContextStartup() {
         contextRunner
             .withPropertyValues(
