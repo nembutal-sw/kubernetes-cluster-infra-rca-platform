@@ -67,7 +67,7 @@ jobs:
         run: python3 scripts/verify_agent_enrollment_migration_report.py
       - name: Upload RCA analysis quality reports
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rule-analysis-quality
           path: |
@@ -108,7 +108,7 @@ jobs:
         run: npm run e2e
       - name: Upload Playwright diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: console-workflow-e2e
           path: |
@@ -435,7 +435,7 @@ jobs:
             --timeout 300
       - name: Upload Operator delivery diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: prometheus-operator-delivery-e2e
           path: validation-results/prometheus-operator-delivery
