@@ -1,5 +1,8 @@
 # Kubernetes Cluster Infra RCA Platform 개선 및 엔터프라이즈 확장 설계 요청서
 
+> **역사 문서:** 초기 개선 범위를 정의한 입력 문서이며 현재 기능 계약이 아닙니다. 구현 상태와 남은
+> 과제는 [Current State](current-state.md)와 [Roadmap](roadmap.md)을 기준으로 확인합니다.
+
 ## 사용 방법
 
 이 문서는 AI 코딩 도구(Codex, Claude Code, Cursor, GPT 등)에게 프로젝트 개선 방향을 전달하기 위한 Markdown 지시서입니다.

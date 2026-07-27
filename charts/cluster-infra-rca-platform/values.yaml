@@ -55,10 +55,7 @@ platform:
   terminationGracePeriodSeconds: 30
   agentEnrollmentPreflight:
     enabled: true
-    mode: audit
     targetAudience: cluster-infra-rca-agent-enrollment
-    clusters: []
-    confirm: ""
     backoffLimit: 0
   serviceAccount:
     create: true

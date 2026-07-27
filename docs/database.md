@@ -24,7 +24,8 @@ RCA_DB_PASSWORD=change-me
 
 Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니다.
 
-현재 스키마는 Flyway version 25입니다. 주요 최근 변경은 bootstrap/node token lifecycle(`V21`),
+현재 스키마는 Flyway version 25이며 총 25개 migration입니다. SQL migration 24개와 audit outcome을
+확장하는 Java migration `V14` 1개로 구성됩니다. 주요 최근 변경은 bootstrap/node token lifecycle(`V21`),
 notification outbox(`V22`), 클러스터별 Agent enrollment profile(`V23`), workload identity와
 profile-version-bound node token(`V24`), cluster별 legacy token grace(`V25`)입니다. PostgreSQL,
 MariaDB, H2에서 동일한 migration 순서를 사용합니다.

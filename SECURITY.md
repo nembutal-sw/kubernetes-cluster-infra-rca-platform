@@ -10,6 +10,9 @@
 - bootstrap token은 manifest URL에 사용하지 않습니다.
 - bootstrap token은 최초 Agent 등록에만 사용하며 기본 30분 후 만료됩니다.
 - 등록 이후 Agent API는 node-scoped Bearer token만 사용합니다.
+- Kubernetes TokenReview 등록은 Kubernetes API와 겹치지 않는 전용 audience를 사용합니다.
+- TokenReview와 Pod 조회는 Agent가 아닌 Platform의 별도 reviewer credential로 수행합니다.
+- node token은 cluster, node, enrollment profile version에 결합하고 기본 30일마다 회전합니다.
 - manifest 다운로드는 5분 이내 만료되는 1회용 token을 사용합니다.
 - 운영 프로파일의 public/backend URL은 HTTPS만 허용합니다.
 - Agent 기본 설치 모드는 `safe`입니다.

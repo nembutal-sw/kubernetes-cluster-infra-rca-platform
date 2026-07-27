@@ -11,6 +11,9 @@
 - platform chart `helm template`
 - agent chart `helm template`
 - agent manifest에 `Namespace`, `ServiceAccount`, `ClusterRole`, `ClusterRoleBinding`, `ConfigMap`, `Secret`, `DaemonSet` 포함
+- Agent enrollment pre-upgrade hook이 audit-only이고 DB Secret 세 키만 참조하는지 확인
+- Platform과 pre-upgrade Pod의 `rca.clusterinfra.io/database-client=true` label 및 DB NetworkPolicy 확인
+- Apply migration이 Helm values가 아닌 one-shot Job으로만 실행되는지 확인
 - LLM enabled chart variant에서 `RCA_LLM_*`, `SPRING_AI_OPENAI_SDK_API_KEY`, `SPRING_AI_OPENAI_SDK_BASE_URL` 렌더링 확인
 
 실패 기준:
@@ -19,6 +22,7 @@
 - 잘못된 namespace, image, backend URL
 - Agent Secret 누락
 - 운영 모드에서 hostPath, hostNetwork, RBAC 범위가 values와 다르게 렌더링됨
+- pre-upgrade hook에 `envFrom`, apply 확인값 또는 cluster allowlist가 렌더링됨
 
 ## 2. Container
 
@@ -28,6 +32,7 @@
 - agent image build
 - Dockerfile base image digest pinning
 - platform build 과정에서 Maven `verify`
+- fat JAR `PropertiesLauncher` migration CLI의 PostgreSQL·MariaDB Failsafe 통과
 - frontend `npm ci`, TypeScript check, Vite production build
 - Docker Compose LLM env wiring: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`
 
@@ -192,6 +197,7 @@ Node diagnostics mode:
 릴리즈 후보는 아래 조건을 만족해야 한다.
 
 - Helm lint/template 통과
+- `scripts/verify-documentation.py` 통과
 - `scripts/release-readiness-check.py` 통과
 - `scripts/verify-api-contract.py` 통과
 - `scripts/verify-container-pinning.py` 통과

@@ -3,22 +3,27 @@
 ## Components
 
 ```text
-Node Agent
+Alertmanager / Platform Scheduler / Demo Scenario
+  -> Evidence Request
+  -> Node Agent read-only collection
   -> Spring Boot Platform API
+     -> Durable Analysis Task
      -> Evidence Preprocessor
      -> Rule-based Analyzer
      -> Optional Spring AI Analyzer
      -> Policy Engine
-     -> RCA Report
-  -> Web Console
+     -> Incident / Report / Job / Notification Outbox / Task completion
+        in one database transaction
+  -> React Web Console
   -> PostgreSQL or MariaDB
 ```
 
 중앙 플랫폼은 Spring Boot 단일 애플리케이션이다. API, 인증, DB 접근, RCA 분석, Policy Engine,
 React/Vite Web Console을 같은 프로세스에서 제공한다.
 
-Node Agent는 Python으로 유지한다. Agent는 각 노드에서 host evidence를 수집하고, 중앙 플랫폼으로 전송하지
-못한 데이터는 로컬 spool에 보관한다.
+Node Agent는 Python으로 유지한다. Agent는 bootstrap token 또는 Kubernetes TokenReview identity로
+등록한 뒤 node-scoped Bearer token만 사용합니다. 각 노드에서 host evidence를 읽기 전용으로 수집하고,
+중앙 플랫폼으로 전송하지 못한 데이터는 제한된 로컬 spool에 보관합니다.
 
 ## Analysis Order
 
@@ -75,6 +80,10 @@ AuditRepository
 
 DB 호환성은 repository 단위 테스트와 PostgreSQL/MariaDB Testcontainers 테스트로 확인한다. 로컬에 Docker가
 없으면 Testcontainers 테스트는 skip되고, H2 기반 repository 테스트가 기본 검증을 담당한다.
+
+분석 task와 Incident·Report·Job·Notification Outbox 저장, task 완료 처리는 하나의 transaction
+경계에 있습니다. Worker는 attempt fence와 갱신 가능한 lease를 사용해 stale worker의 commit을
+거부합니다. Audit과 metric 후처리 실패는 완료된 분석 task를 재처리하지 않습니다.
 
 ## Rule Detection
 

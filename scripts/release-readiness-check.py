@@ -131,7 +131,8 @@ def main() -> int:
                 "Agent enrollment audience must not match a Kubernetes API audience",
                 "enrollment.audience=cluster-infra-rca-agent-enrollment",
                 "agent-manifest-parity.py",
-                "Agent enrollment migration apply must require explicit confirmation",
+                "Agent enrollment pre-upgrade hook must be audit-only",
+                "Agent enrollment pre-upgrade hook must not receive the full Platform Secret",
             )
             and contains(
                 "docker-compose.yml",
@@ -149,16 +150,65 @@ def main() -> int:
             and contains(
                 "charts/cluster-infra-rca-platform/templates/platform-agent-enrollment-preflight-job.yaml",
                 "helm.sh/hook: pre-upgrade",
+                'value: "audit"',
+                "secretKeyRef:",
+                "app.kubernetes.io/component: platform",
+                "rca.clusterinfra.io/job-role: agent-enrollment-preflight",
+                'rca.clusterinfra.io/database-client: "true"',
+            )
+            and excludes(
+                "charts/cluster-infra-rca-platform/templates/platform-agent-enrollment-preflight-job.yaml",
+                "envFrom:",
                 "RCA_AGENT_ENROLLMENT_MIGRATION_CONFIRM",
                 "RCA_AGENT_ENROLLMENT_MIGRATION_CLUSTERS",
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/networkpolicy.yaml",
+                'rca.clusterinfra.io/database-client: "true"',
+            )
+            and contains(
+                "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
+                'rca.clusterinfra.io/database-client: "true"',
+            )
+            and exists("scripts/render-agent-enrollment-migration-job.py")
+            and contains(
+                "scripts/render-agent-enrollment-migration-job.py",
+                "APPLY_AGENT_ENROLLMENT_AUDIENCE_MIGRATION",
+                '"RCA_AGENT_ENROLLMENT_MIGRATION_MODE"',
+                'choices=("audit", "apply")',
+                '"app.kubernetes.io/component": "platform"',
+                '"app.kubernetes.io/instance": arguments.helm_instance',
+                '"rca.clusterinfra.io/job-role": "agent-enrollment-migration"',
+                '"rca.clusterinfra.io/database-client": "true"',
+                "secretKeyRef",
+            )
+            and exists(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/maintenance/AgentEnrollmentMigrationPackagedJarIT.java"
+            )
+            and exists("scripts/verify_agent_enrollment_migration_report.py")
+            and contains(
+                "web-console/pom.xml",
+                "maven-failsafe-plugin",
+            )
+            and contains(
+                ".github/workflows/ci.yml",
+                "Require packaged enrollment migration tests",
+                "python3 scripts/verify_agent_enrollment_migration_report.py",
             )
             and contains(
                 "scripts/kind-smoke.sh",
                 "validate_audience_boundary",
                 "enrollment_token_rejected_as_api_credential",
                 "enrollment_token_authenticated_by_token_review",
+                "platform.kubernetesReviewer.enabled=true",
+                "preflight_audit_hook_with_network_policy",
+                "preflight_audit_rejected_unsafe_profile",
+                "migration_only_job_completed",
+                "migrated_profile_version",
+                "/agent-enrollment",
+                "platform_tokenreview_enrollment_completed",
             ),
-            "Agent enrollment uses a dedicated audience, binds workload identity, and fences legacy profile-unbound tokens.",
+            "Agent enrollment uses a dedicated audience, an audit-only upgrade gate, and full Kind workload identity validation.",
         ),
         check(
             "readiness-health",
@@ -998,6 +1048,24 @@ def main() -> int:
                 "gh release upload",
             ),
             "Release workflow signs images and publishes SBOM plus image scan reports as release assets.",
+        ),
+        check(
+            "documentation-contract",
+            exists("docs/current-state.md")
+            and exists("scripts/verify-documentation.py")
+            and contains(
+                ".github/workflows/ci.yml",
+                "Validate documentation contracts",
+                "python scripts/verify-documentation.py",
+            )
+            and contains(
+                "docs/current-state.md",
+                "Flyway V25",
+                "총 25개 migration",
+                "kubernetes-token-review",
+                "Current Priorities",
+            ),
+            "Current documentation baseline and its CI contract gate are present.",
         ),
         check(
             "release-readiness-doc",

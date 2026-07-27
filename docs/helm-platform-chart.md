@@ -129,12 +129,17 @@ Reviewer audience는 `platform.config.kubernetesApiAudiences`에도 포함되어
 렌더링이 실패한다. Backend는 이 목록과 동일한 audience를 Agent enrollment profile에 저장하지
 못하게 한다.
 
-`platform.agentEnrollmentPreflight`는 Helm `pre-upgrade` Job이다. 기본 `audit` mode는 기존 DB에
-Kubernetes API audience를 사용하는 profile이 있으면 upgrade를 중단한다. `apply` mode는 정확한
-확인 문자열과 cluster allowlist가 모두 있어야 렌더링되며, 선택한 profile의 audience와 version을
-변경하고 기존 node token을 폐기한다. cluster별 V24 이전 token 유예는 upgrade 후 Web Console에서
-최대 30일로 설정한다. 전체 순서는 [Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를
-따른다.
+`platform.agentEnrollmentPreflight`는 audit 전용 Helm `pre-upgrade` Job이다. 기존 DB에 Kubernetes
+API audience를 사용하는 profile이 있으면 새 Platform rollout 전에 upgrade를 중단한다. Job에는
+Platform Secret 전체가 아니라 DB 접속 키 세 개만 주입하며 Platform Pod와 함께
+`rca.clusterinfra.io/database-client=true` label을 사용한다. Hook과 one-shot Job은 첫 rolling
+upgrade의 기존 DB NetworkPolicy도 통과하도록 기존 Platform selector를 호환 label로 유지하고,
+실제 역할은 `rca.clusterinfra.io/job-role`로 구분한다.
+
+Audience 변경은 Helm values로 실행하지 않는다. `render-agent-enrollment-migration-job.py`가 생성한
+one-shot Job으로 cluster별 canary를 전환하고 최종 unsafe profile 수가 0인지 확인한 뒤 upgrade한다.
+cluster별 V24 이전 token 유예는 upgrade 후 Web Console에서 최대 30일로 설정한다. 전체 순서는
+[Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를 따른다.
 
 opaque token pepper는 한 번에 교체하지 않습니다. 운영에서는 기존 Secret에 current/previous
 key를 함께 저장하고 `opaqueTokenKeyRingRevision`을 단계마다 변경해 Pod rollout을 강제합니다.

@@ -42,6 +42,25 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
 RuleBasedRcaAnalyzerPipelineTests
 ```
 
+### Packaged Migration CLI
+
+`mvn verify`는 실제 fat JAR의 `PropertiesLauncher` 진입점을 PostgreSQL 16과 MariaDB 11.4에
+각각 연결해 apply 후 audit까지 검증합니다. Docker를 사용할 수 없는 환경에서는 Testcontainers가
+테스트를 건너뛸 수 있으므로, CI에서는 아래 검증기를 추가로 실행해 누락과 skip을 실패로 처리합니다.
+
+```bash
+mvn -f web-console/pom.xml verify
+python3 scripts/verify_agent_enrollment_migration_report.py
+```
+
+검증 범위:
+
+- Flyway 전체 migration이 적용된 빈 DB
+- unsafe audience profile의 선택적 전환
+- `profile_version` 증가
+- 기존 node token 폐기와 pending rotation 정리
+- 최종 audit의 `unsafe_profile_count=0`
+
 ### Python Agent
 
 ```bash
@@ -424,6 +443,7 @@ Managed Kubernetes 검증은 `Managed Cluster Canary` workflow에서 먼저 `app
 python3 -m pytest \
   tests/test_managed_canary_attestation.py \
   tests/test_canary_workflows.py
+python3 scripts/verify-documentation.py
 python3 scripts/release-readiness-check.py
 ```
 
@@ -438,8 +458,12 @@ bash scripts/kind-smoke.sh
 검증 범위:
 
 - Platform Helm chart 배포
+- 위험 audience profile에 대한 audit-only pre-upgrade 실패
+- 내장 PostgreSQL NetworkPolicy 상태의 one-shot migration, DB version 확인, 최종 audit 및 rollout
 - Agent Helm chart 배포
-- Agent registration/heartbeat
+- bootstrap Agent registration/heartbeat
+- dedicated audience token의 Kubernetes API `401`과 TokenReview `201`
+- Platform reviewer, Pod·ServiceAccount·DaemonSet UID, image digest를 거친 TokenReview Agent 전체 등록
 - evidence request/response
 - incident 및 RCA report 생성
 

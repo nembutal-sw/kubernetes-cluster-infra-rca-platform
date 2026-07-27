@@ -81,6 +81,13 @@ helm upgrade --install rca charts/cluster-infra-rca-platform
 - LLM API key를 Kubernetes Secret 또는 외부 secret manager로 관리
 - Pipeline의 `retry_wait`, `dead_letter`, lease 상태 모니터링
 
+Agent를 `kubernetes-token-review` mode로 운영할 때는 전용 enrollment audience와 Platform reviewer
+credential을 함께 준비합니다. Platform Helm upgrade는 기존 audience profile을 audit하는 pre-upgrade
+hook을 기본 실행하며 위험 profile이 있으면 upgrade를 중단합니다. Apply는 Helm release와 분리된
+one-shot Job에서만 실행합니다. Agent chart 선배포, 대상 cluster allowlist migration, 최종 audit,
+canary와 rollback 순서는
+[Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를 따릅니다.
+
 ## LLM Provider
 
 LLM은 기본적으로 비활성화되어 있습니다. OpenAI 호환 API 예시는 다음과 같습니다.

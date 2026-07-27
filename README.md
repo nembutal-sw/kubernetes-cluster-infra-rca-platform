@@ -4,6 +4,9 @@ Kubernetes 애플리케이션 로그가 아니라 **클러스터 노드와 Linux
 
 Node Agent가 노드 evidence를 읽기 전용으로 수집하고, Spring Boot Platform이 Rule-based 분석, 선택적 LLM 설명, Policy Engine, incident correlation을 거쳐 RCA 보고서를 만듭니다.
 
+현재 구현 기준과 검증 범위는 [Current State](docs/current-state.md), 문서 전체 목록은
+[Documentation Index](docs/README.md)에서 확인합니다.
+
 ## 진단 범위
 
 - `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
@@ -41,7 +44,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
 | Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
 | Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
 | Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway, 23 migrations | 신규 및 기존 schema 관리 |
+| Migration | Flyway V25, 25 migrations | 신규 및 기존 schema 관리 |
 
 Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
 
@@ -278,9 +281,11 @@ TokenReview profile은 배포 전 staged 상태로 저장한 뒤 ServiceAccount/
 
 Agent audience와 Kubernetes API audience가 같으면 profile 저장과 운영 기동, Agent Helm 렌더링이
 거부됩니다. Platform Helm upgrade는 기본 `audit` pre-upgrade hook으로 기존 DB의 위험 profile을
-먼저 검사하며, 발견하면 배포를 중단합니다. 대상 cluster를 명시한 migration을 수행한 뒤 다시
-upgrade해야 합니다. V24 이전 profile 미결합 node token은 기본적으로 거부하며, 필요한 cluster에만
-Web Console에서 최대 30일의 재등록 유예를 설정할 수 있습니다. 자세한 절차는
+먼저 검사하며, 발견하면 배포를 중단합니다. Apply는 Helm values가 아니라
+`render-agent-enrollment-migration-job.py`로 생성한 one-shot Job에서 cluster별로 수행합니다.
+모든 unsafe profile이 사라진 최종 audit 후에만 Platform을 upgrade합니다. V24 이전 profile 미결합
+node token은 기본적으로 거부하며, 필요한 cluster에만 Web Console에서 최대 30일의 재등록 유예를
+설정할 수 있습니다. 자세한 절차는
 [Agent Enrollment Upgrade](docs/agent-enrollment-upgrade.md)를 확인합니다.
 
 Node token은 기본 30일마다 자동 교체합니다. 새 token은 로컬 state에 원자적으로 보관하고 heartbeat 인증이 성공한 뒤 활성화합니다. 재시작이나 일시적 통신 실패가 발생해도 이전 token으로 복구하며, 주기와 재시도 간격은 `nodeTokenRotationDays`, `nodeTokenRotationRetrySeconds`로 조정합니다.
@@ -346,6 +351,7 @@ python -m pytest -q
 mvn -f web-console/pom.xml verify
 cd web-console/frontend && npm ci && npm test && npm run build
 mvn -f web-console/pom.xml -Pfrontend -DskipTests package
+python3 scripts/verify-documentation.py
 python3 scripts/release-readiness-check.py
 ```
 

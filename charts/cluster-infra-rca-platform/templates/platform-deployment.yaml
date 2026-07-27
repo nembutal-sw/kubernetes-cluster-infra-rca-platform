@@ -51,6 +51,7 @@ spec:
     metadata:
       labels:
         {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 8 }}
+        rca.clusterinfra.io/database-client: "true"
         {{- with .Values.platform.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

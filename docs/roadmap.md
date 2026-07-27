@@ -159,75 +159,42 @@
 
 ## Active Backlog
 
-최신 코드 리뷰를 현재 `main`과 대조한 세부 실행 순서와 완료 기준은
-`code-review-action-plan-2026-07-10.md`를 기준으로 한다.
+현재 기준과 세부 상태는 [Current State](current-state.md)를 우선합니다.
 
-### Editable Catalog Override Workflow
+### P1: Credential Lifecycle
 
-목표:
+- opaque token key별 credential 사용 현황과 old-key 제거 readiness 제공
+- 외부 Kubernetes reviewer credential rotation, 만료 감시, fail-closed 검증
+- 관리자 승인과 audit을 포함한 Agent workload identity rebind
+- fleet migration 완료 후 protocol v1 body credential 제거
 
-- 승인된 catalog override draft를 실제 GitOps 시스템과 연결
-- 변경 티켓, PR URL, 배포 결과, 롤백 결과를 draft에 추적
-- 외부 JSON 파일 배포 runbook을 운영 환경별로 구체화
+### P1: Agent Installation Parity
 
-완료 기준:
+- Web Console manifest와 Agent Helm chart의 Kubernetes object 구조 비교 확대
+- enrollment mode, audience, labels, image digest, security context parity를 CI에서 강제
+- upgrade preflight와 canary 결과를 Console에서 확인할 수 있는 운영 상태 제공
 
-- GitHub/GitLab/Gitea 중 하나 이상 PR 생성 연동
-- PR URL과 deployment outcome 저장
-- rollback handoff와 verification checklist 제공
+### P1: Real Environment Validation
 
-현재 상태:
+- 24시간 Production Fleet burn-in과 resource/spool 추세 검증
+- EKS, AKS, GKE, OpenShift 실제 canary
+- 관리형 플랫폼별 node type, runtime, CNI, 제한 권한 차이 기록
+- 비식별 실제 장애 표본과 복합·누락·시간 역전 corpus 확대
 
-- GitHub/Gitea draft PR과 GitLab draft MR 생성, provider별 webhook 상태 동기화 완료
-- deployment, verification, rollback 결과 저장 및 Settings UI 표시 완료
-- GitHub, GitLab, Gitea provider 지원 완료
+### P2: LLM Operational Readiness
 
-### Agent And Webhook Auth Regression
-
-대상:
-
-- `/api/agents/**`
-- `/api/webhooks/**`
-- `/api/clusters/{cluster_id}/agent-manifest`
-- metrics/export 계열 인증 경계
-
-완료 기준:
-
-- token 없음, 잘못된 token, bearer/header token, one-time manifest token 재사용 검증
-- 인증 실패가 audit event로 남고 민감 token 값은 저장하지 않음
-- 새 endpoint 추가 시 인증 누락을 CI에서 빠르게 감지
-
-### Real Cluster Validation
-
-대상:
-
-- kubeadm, k3s/RKE2, EKS/AKS/GKE, OpenShift 계열
-- 실제 DaemonSet Agent canary
-
-완료 기준:
-
-- canary node에서 Agent register, heartbeat, evidence response 성공
-- disk, inode, memory, pid, network, conntrack, runtime, kubelet, systemd, kernel, cni, dns collector 결과 확인
-- 플랫폼별 차이를 compatibility matrix에 기록
-
-현재 상태:
-
-- 플랫폼/runtime/CNI/architecture fingerprint와 외부 compatibility matrix 구현 완료
-- RKE2 ARM64 canary lifecycle과 read-only collector 검증 완료, 2026-07-21 현재 `main` 재검증 통과
-- RKE2 amd64 canary lifecycle, 14개 collector 요청, RCA 및 evidence bundle 검증 완료
-- K3s openSUSE amd64/containerd/Flannel canary lifecycle 검증 완료
-- kubeadm, EKS, AKS, GKE, OpenShift 판별 fixture 회귀 테스트 완료
-- kubeadm Ubuntu 24.04 amd64/containerd/Flannel Agent real canary 검증 완료
-- 관리형 Kubernetes와 OpenShift 실제 canary 검증 대기
+- 장애 유형별 canonical 표본을 20개 이상으로 확대
+- 세 개 이상의 독립 시간 구간에서 latency/error/token/cost 관찰
+- provider quota와 circuit breaker fault-injection
+- 모델 lifecycle 변화에 따른 설정 검증과 fallback 유지
 
 ## Next Priority
 
-Typed Evidence 품질 평가, LLM Evidence ID/비용·지연 추적, Console 오류 복구와 Agent 상태 시나리오까지 완료했습니다.
-남은 우선순위는 실제 환경이 필요한 운영 검증입니다.
-
-1. 수동 `LLM Burn-in` workflow로 readiness 대상 Gemini 표본을 `1/20`에서 확장하고 실제 시간 구간을 `1/3`에서 확장
-2. EKS/AKS/GKE/OpenShift real canary와 보안 정책 차이 기록
-3. 운영 규모의 장시간 Agent 안정성 및 evidence 품질 표본 수집
+1. 문서 기준선과 코드 계약을 CI로 고정
+2. opaque token key inventory와 제거 readiness 구현
+3. Helm·Web Console Agent manifest 구조 parity 확대
+4. 외부 reviewer credential lifecycle과 승인 기반 identity rebind
+5. Production Fleet 및 managed Kubernetes 실제 canary
 
 Gemini staging smoke는 2026-07-21에 `gemini-3.1-flash-lite`와 provider 호출 예산
 1로 성공했습니다. DiskPressure evidence 기반 report가 완료됐고 LLM root cause
@@ -692,6 +659,30 @@ Server audience와 분리한다. 다음 우선순위는 Helm과 Web Console mani
 V24 미결합 token의 순차 재등록에만 사용하며, 완료 즉시 제거한다. 다음 우선순위는 Helm과 Web
 Console manifest의 구조적 object diff, 외부 reviewer credential 수명주기, 승인 기반 identity
 rebind다.
+
+## Phase 38. Documentation Baseline
+
+구현 및 검증:
+
+- 현재 stack, 인증 경계, DB schema, Agent collector와 검증 범위를 `current-state.md`로 통합
+- README, Agent, 설치, 운영, 보안, threat model, deployment, database 문서 현행화
+- 과거 계획 문서에 역사 문서 표시와 현재 기준 링크 추가
+- local Markdown link, UTF-8, migration 수량, stale 보안 설명을 검사하는 CI gate 추가
+
+문서의 기능 상태와 버전이 충돌하면 `current-state.md`와 실제 코드·설정을 우선한다.
+
+## Phase 39. Enrollment Migration Deployment Boundary
+
+구현:
+
+- Helm pre-upgrade hook을 audit-only로 고정하고 apply 관련 release values 제거
+- Apply와 최종 audit을 release 외부의 one-shot Job으로 생성하는 renderer 추가
+- Platform과 preflight Job의 공통 DB client label 및 내장 DB NetworkPolicy 허용
+- preflight와 one-shot Job에 DB URL·사용자·비밀번호 Secret key만 주입
+- 실제 fat JAR `PropertiesLauncher`를 PostgreSQL·MariaDB에서 실행하는 Failsafe 추가
+- Kind에서 unsafe audit 차단, one-shot migration, 최종 rollout과 Platform TokenReview 전체 등록 경로 추가
+
+로컬 정적·단위 검증 후 PostgreSQL·MariaDB Failsafe와 Kind E2E는 Docker 기반 CI에서 최종 판정한다.
 
 ## Positioning
 

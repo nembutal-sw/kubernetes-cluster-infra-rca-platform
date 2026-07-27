@@ -1,5 +1,8 @@
 # Phase 1: Structure Stabilization
 
+> **역사 문서:** Phase 1 완료 당시의 변경 기록입니다. 현재 아키텍처는
+> [Current State](current-state.md)와 [Architecture](architecture.md)를 기준으로 확인합니다.
+
 ## Changed Areas
 
 - Persistence를 도메인 repository 경계로 분리

@@ -2,17 +2,26 @@
 
 Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 검증 문서입니다. 처음 설치하는 사용자는 아래 권장 순서부터 확인하면 됩니다.
 
+## Current Baseline
+
+- 현재 구현 기준: [current-state.md](current-state.md)
+- 마지막 전체 문서 감사: `2026-07-27`, Phase 38
+- 기능 상태와 버전이 충돌하면 `current-state.md`와 실제 코드·설정을 우선합니다.
+- `code-review-action-plan-*`, `enterprise-improvement-plan`, `phase*`, `stabilization-roadmap`은 당시의
+  의사결정과 완료 과정을 남긴 역사 문서입니다.
+
 ## Start Here
 
 | 순서 | 문서 | 확인 내용 |
 | --- | --- | --- |
-| 1 | [architecture.md](architecture.md) | 전체 컴포넌트와 데이터 흐름 |
-| 2 | [deployment.md](deployment.md) | 실행 환경과 배포 방식 |
-| 3 | [install-flow.md](install-flow.md) | 클러스터 등록과 Agent 설치 순서 |
-| 4 | [node-agent.md](node-agent.md) | Agent 동작, collector, spool |
-| 5 | [web-console.md](web-console.md) | 화면과 운영자 workflow |
-| 6 | [security.md](security.md) | 인증, production 설정, secret |
-| 7 | [testing.md](testing.md) | 로컬, E2E, Helm, 실환경 검증 |
+| 1 | [current-state.md](current-state.md) | 현재 stack, 구현 범위, 검증 상태, 남은 과제 |
+| 2 | [architecture.md](architecture.md) | 전체 컴포넌트와 데이터 흐름 |
+| 3 | [deployment.md](deployment.md) | 실행 환경과 배포 방식 |
+| 4 | [install-flow.md](install-flow.md) | 클러스터 등록과 Agent 설치 순서 |
+| 5 | [node-agent.md](node-agent.md) | Agent 동작, collector, spool |
+| 6 | [web-console.md](web-console.md) | 화면과 운영자 workflow |
+| 7 | [security.md](security.md) | 인증, production 설정, secret |
+| 8 | [testing.md](testing.md) | 로컬, E2E, Helm, 실환경 검증 |
 
 ## Architecture And Scope
 
@@ -51,6 +60,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 | [agent-api.md](agent-api.md) | Agent 등록, heartbeat, evidence 계약 |
 | [agent-enrollment.md](agent-enrollment.md) | bootstrap과 Kubernetes TokenReview 등록 identity |
 | [agent-enrollment-upgrade.md](agent-enrollment-upgrade.md) | 기존 audience profile 점검, 전환, 복구 runbook |
+| [opaque-token-key-rotation.md](opaque-token-key-rotation.md) | opaque token key ring 전환과 이전 key 제거 |
 | [api-security-contract.md](api-security-contract.md) | Endpoint별 인증 필터와 CI guard |
 | [rbac-matrix.md](rbac-matrix.md) | 역할별 조회, 변경, export 권한 |
 | [audit-and-actions.md](audit-and-actions.md) | Audit와 승인/거절/수동 완료 lifecycle |

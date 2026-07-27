@@ -1,5 +1,8 @@
 # Phase 3: Testing and CI
 
+> **역사 문서:** Phase 3 완료 당시의 CI 구성 기록입니다. 현재 검증 명령과 workflow는
+> [Testing](testing.md), [Current State](current-state.md), `.github/workflows`를 기준으로 확인합니다.
+
 Phase 3는 테스트와 배포 산출물이 서로 다른 경로를 사용하지 않도록 검증 흐름을 통합합니다.
 
 ## CI Jobs

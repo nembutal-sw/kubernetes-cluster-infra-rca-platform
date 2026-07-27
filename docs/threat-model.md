@@ -74,7 +74,7 @@ Node Agent의 hostPID, hostNetwork, root, hostPath가 공격면을 확대할 수
 ```text
 Browser -> Platform session/RBAC
 Alertmanager -> Webhook token
-Node Agent registration -> short-lived cluster bootstrap token + optional mTLS
+Node Agent registration -> short-lived bootstrap token or Kubernetes TokenReview + optional mTLS
 Node Agent runtime -> node-scoped token + optional mTLS
 Platform -> PostgreSQL/MariaDB
 Platform -> optional LLM provider
@@ -82,7 +82,13 @@ Platform -> optional LLM provider
 
 ## 잔여 위험
 
-현재 bootstrap credential은 Kubernetes Secret에 정적으로 배포됩니다. TTL 만료 후 autoscaling으로
-추가된 노드는 운영자가 token을 회전하고 Secret을 갱신해야 등록할 수 있습니다. 이 운영 부담과
-Secret 노출면을 제거하려면 향후 Kubernetes ServiceAccount TokenReview 또는 node-bound mTLS
-enrollment identity로 전환해야 합니다.
+- bootstrap mode는 등록 credential이 Kubernetes Secret에 존재하므로 autoscaling 기간과 TTL을
+  함께 설계해야 합니다. 장기 운영 cluster는 TokenReview mode를 권장합니다.
+- TokenReview mode의 Platform reviewer credential은 외부 cluster API에 접근하므로 rotation,
+  최소 RBAC, 만료 감시가 필요합니다.
+- legacy protocol v1 body credential은 rolling upgrade 호환 기간 동안만 허용되므로 제거 시점과
+  Agent version 분포를 운영자가 관리해야 합니다.
+- opaque token pepper의 이전 key를 제거하기 전에 해당 key를 사용하는 비활성 credential을
+  회전하거나 폐기해야 합니다.
+- node workload identity가 바뀌는 재등록은 현재 revoke 후 수행하며, 승인 기반 rebind workflow는
+  남은 과제입니다.

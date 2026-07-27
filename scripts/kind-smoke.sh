@@ -12,6 +12,11 @@ test_succeeded="false"
 curl_command=(curl -fsS --retry 5 --retry-delay 1 --retry-connrefused --retry-all-errors)
 audience_api_status=""
 audience_token_review_status=""
+platform_tokenreview_agent_count="0"
+preflight_upgrade_status="not_run"
+preflight_unsafe_rejection_status="not_run"
+migration_job_status="not_run"
+migration_profile_version="0"
 
 case "${agent_soak_profile}" in
   smoke|standard|extended) ;;
@@ -141,6 +146,9 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set platform.image.repository=rca-platform \
   --set platform.image.tag=smoke \
   --set platform.image.pullPolicy=Never \
+  --set platform.kubernetesReviewer.enabled=true \
+  --set platform.networkPolicy.enabled=true \
+  --set-json 'platform.networkPolicy.ingressFrom=[{"namespaceSelector":{}}]' \
   --set-string platform.secret.defaultAdminUsername=admin \
   --set-string platform.secret.defaultAdminPassword="${admin_password}" \
   --set database.persistence.enabled=false
@@ -161,6 +169,75 @@ access_token="$("${curl_command[@]}" "http://127.0.0.1:${port}/api/auth/login" \
   -H 'Content-Type: application/json' \
   -d "$(jq -nc --arg password "${admin_password}" '{username:"admin",password:$password}')" \
   | jq -r .access_token)"
+tokenreview_cluster_json="$("${curl_command[@]}" \
+  "http://127.0.0.1:${port}/api/clusters" \
+  -H "Authorization: Bearer ${access_token}" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"kind-tokenreview","environment":"ci"}')"
+tokenreview_cluster_id="$(jq -r .cluster_id <<<"${tokenreview_cluster_json}")"
+[[ "${tokenreview_cluster_id}" =~ ^[A-Za-z0-9._-]{1,64}$ ]]
+
+kubectl exec statefulset/rca-db -- \
+  psql -v ON_ERROR_STOP=1 -U rca -d rca -c "
+    INSERT INTO agent_enrollment_profiles (
+      cluster_id, mode, api_server_url, ca_bundle_pem, ca_sha256,
+      audience, service_account_namespace, service_account_name,
+      bootstrap_fallback_allowed, created_at, updated_at
+    ) VALUES (
+      '${tokenreview_cluster_id}', 'kubernetes_token_review',
+      'https://kubernetes.default.svc', 'pre-migration-ca',
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'https://kubernetes.default.svc', 'rca-tokenreview-system',
+      'rca-tokenreview-agent', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    );
+  " >/dev/null
+
+if helm upgrade rca charts/cluster-infra-rca-platform \
+  --reuse-values \
+  --set-string platform.podAnnotations.smoke-revision=migration-verified \
+  --wait \
+  --timeout=5m; then
+  echo "Pre-upgrade audit unexpectedly accepted an unsafe enrollment profile" >&2
+  exit 1
+fi
+kubectl logs job/rca-agent-enrollment-preflight \
+  | grep -q 'unsafe_profile_count=1'
+preflight_unsafe_rejection_status="completed"
+
+migration_job_ref="$(
+  python3 scripts/render-agent-enrollment-migration-job.py \
+    --mode apply \
+    --image rca-platform:smoke \
+    --image-pull-policy Never \
+    --namespace default \
+    --helm-instance rca \
+    --database-secret rca-secret \
+    --cluster "${tokenreview_cluster_id}" \
+    --kubernetes-api-audience https://kubernetes.default.svc \
+    --kubernetes-api-audience https://kubernetes.default.svc.cluster.local \
+    --confirm APPLY_AGENT_ENROLLMENT_AUDIENCE_MIGRATION \
+  | kubectl create -f - -o name
+)"
+kubectl wait --for=condition=complete --timeout=180s "${migration_job_ref}"
+kubectl logs "${migration_job_ref}" \
+  | grep -q 'migration_result=applied'
+migration_profile_state="$(kubectl exec statefulset/rca-db -- \
+  psql -U rca -d rca -tAc "
+    SELECT audience || ':' || profile_version
+    FROM agent_enrollment_profiles
+    WHERE cluster_id = '${tokenreview_cluster_id}';
+  " | tr -d '[:space:]')"
+test "${migration_profile_state}" = "cluster-infra-rca-agent-enrollment:2"
+migration_profile_version="${migration_profile_state##*:}"
+migration_job_status="completed"
+
+helm upgrade rca charts/cluster-infra-rca-platform \
+  --reuse-values \
+  --set-string platform.podAnnotations.smoke-revision=migration-verified \
+  --wait \
+  --timeout=5m
+preflight_upgrade_status="completed"
+
 cluster_json="$("${curl_command[@]}" "http://127.0.0.1:${port}/api/clusters" \
   -H "Authorization: Bearer ${access_token}" \
   -H 'Content-Type: application/json' \
@@ -235,19 +312,149 @@ python3 scripts/agent-soak-validation.py \
   --require-runtime-observation \
   --health-url "http://127.0.0.1:${port}/health/ready" \
   --output-dir "${agent_soak_output_dir}"
+
+tokenreview_namespace="rca-tokenreview-system"
+tokenreview_release="rca-tokenreview-agent"
+tokenreview_name="rca-tokenreview-agent"
+
+helm upgrade --install "${tokenreview_release}" charts/cluster-infra-rca-agent \
+  --namespace "${tokenreview_namespace}" \
+  --create-namespace \
+  --set namespace.name="${tokenreview_namespace}" \
+  --set fullnameOverride="${tokenreview_name}" \
+  --set image.repository=rca-agent \
+  --set image.tag=smoke \
+  --set image.pullPolicy=Never \
+  --set mode=safe \
+  --set backendUrl=http://rca-platform.default.svc.cluster.local:8080 \
+  --set-string clusterId="${tokenreview_cluster_id}" \
+  --set enrollment.mode=kubernetes-token-review \
+  --set enrollment.audience=cluster-infra-rca-agent-enrollment \
+  --set-json 'enrollment.kubernetesApiAudiences=["https://kubernetes.default.svc","https://kubernetes.default.svc.cluster.local"]' \
+  --set secret.create=true \
+  --set-string secret.clusterId="${tokenreview_cluster_id}"
+kubectl -n "${tokenreview_namespace}" rollout status \
+  daemonset/"${tokenreview_name}" --timeout=240s
+
+if kubectl -n "${tokenreview_namespace}" get secret "${tokenreview_name}" -o json \
+  | jq -e '.data["agent-token"] != null' >/dev/null; then
+  echo "TokenReview Agent Secret must not contain agent-token" >&2
+  exit 1
+fi
+
+tokenreview_service_account_uid="$(kubectl -n "${tokenreview_namespace}" \
+  get serviceaccount "${tokenreview_name}" -o jsonpath='{.metadata.uid}')"
+tokenreview_daemonset_uid="$(kubectl -n "${tokenreview_namespace}" \
+  get daemonset "${tokenreview_name}" -o jsonpath='{.metadata.uid}')"
+tokenreview_pod="$(kubectl -n "${tokenreview_namespace}" get pods \
+  -l "cluster-infra-rca.io/cluster-id=${tokenreview_cluster_id}" \
+  -o jsonpath='{.items[0].metadata.name}')"
+tokenreview_image_id="$(kubectl -n "${tokenreview_namespace}" get pod "${tokenreview_pod}" \
+  -o jsonpath='{.status.containerStatuses[?(@.name=="agent")].imageID}')"
+tokenreview_image_digest="$(grep -oE 'sha256:[a-f0-9]{64}' \
+  <<<"${tokenreview_image_id}" | head -n 1)"
+test -n "${tokenreview_service_account_uid}"
+test -n "${tokenreview_daemonset_uid}"
+test -n "${tokenreview_image_digest}"
+
+tokenreview_ca_file="$(mktemp)"
+kubectl -n "${tokenreview_namespace}" get configmap kube-root-ca.crt \
+  -o jsonpath='{.data.ca\.crt}' > "${tokenreview_ca_file}"
+tokenreview_profile_payload="$(jq -nc \
+  --rawfile ca "${tokenreview_ca_file}" \
+  --arg namespace "${tokenreview_namespace}" \
+  --arg service_account "${tokenreview_name}" \
+  --arg service_account_uid "${tokenreview_service_account_uid}" \
+  --arg daemonset "${tokenreview_name}" \
+  --arg daemonset_uid "${tokenreview_daemonset_uid}" \
+  --arg image_digest "${tokenreview_image_digest}" \
+  --arg cluster_id "${tokenreview_cluster_id}" \
+  '{
+    mode:"kubernetes_token_review",
+    api_server_url:"https://kubernetes.default.svc",
+    ca_bundle_pem:$ca,
+    audience:"cluster-infra-rca-agent-enrollment",
+    namespace:$namespace,
+    service_account:$service_account,
+    reviewer_token_path:"/var/run/secrets/kubernetes.io/serviceaccount/token",
+    expected_service_account_uid:$service_account_uid,
+    expected_daemon_set_name:$daemonset,
+    expected_daemon_set_uid:$daemonset_uid,
+    required_pod_labels:{
+      "app.kubernetes.io/name":"cluster-infra-rca-agent",
+      "cluster-infra-rca.io/cluster-id":$cluster_id
+    },
+    allowed_image_digest:$image_digest,
+    bootstrap_fallback_allowed:false
+  }')"
+tokenreview_profile="$("${curl_command[@]}" \
+  -X PUT \
+  "http://127.0.0.1:${port}/api/clusters/${tokenreview_cluster_id}/agent-enrollment" \
+  -H "Authorization: Bearer ${access_token}" \
+  -H 'Content-Type: application/json' \
+  -d "${tokenreview_profile_payload}")"
+rm -f "${tokenreview_ca_file}"
+jq -e \
+  '.mode == "kubernetes_token_review"
+   and .workload_identity_ready == true
+   and .bootstrap_fallback_allowed == false' \
+  <<<"${tokenreview_profile}" >/dev/null
+
+tokenreview_agents="[]"
+for _ in $(seq 1 90); do
+  tokenreview_agents="$("${curl_command[@]}" \
+    -H "Authorization: Bearer ${access_token}" \
+    "http://127.0.0.1:${port}/api/clusters/${tokenreview_cluster_id}/agents")"
+  platform_tokenreview_agent_count="$(jq length <<<"${tokenreview_agents}")"
+  if [[ "${platform_tokenreview_agent_count}" -ge "${expected_agent_count}" ]] \
+    && jq -e \
+      'length > 0
+       and all(.[];
+         .agent_protocol_version == "2"
+         and .status == "healthy"
+         and .metadata._enrollment.method == "kubernetes_token_review"
+         and (.metadata._enrollment.profile_version >= 1)
+       )' <<<"${tokenreview_agents}" >/dev/null; then
+    break
+  fi
+  sleep 2
+done
+test "${platform_tokenreview_agent_count}" -ge "${expected_agent_count}"
+jq -e \
+  'length > 0
+   and all(.[];
+     .agent_protocol_version == "2"
+     and .status == "healthy"
+     and .metadata._enrollment.method == "kubernetes_token_review"
+     and (.metadata._enrollment.profile_version >= 1)
+   )' <<<"${tokenreview_agents}" >/dev/null
+
 mkdir -p "${agent_soak_output_dir}"
 jq -n \
   --arg enrollment_audience "cluster-infra-rca-agent-enrollment" \
   --arg kubernetes_api_status "${audience_api_status}" \
   --arg token_review_status "${audience_token_review_status}" \
+  --arg preflight_upgrade_status "${preflight_upgrade_status}" \
+  --arg preflight_unsafe_rejection_status "${preflight_unsafe_rejection_status}" \
+  --arg migration_job_status "${migration_job_status}" \
+  --arg migration_profile_version "${migration_profile_version}" \
+  --arg platform_tokenreview_agent_count "${platform_tokenreview_agent_count}" \
   '{
     enrollment_audience:$enrollment_audience,
     kubernetes_api_access_status:($kubernetes_api_status | tonumber),
     token_review_status:($token_review_status | tonumber),
     enrollment_token_rejected_as_api_credential:($kubernetes_api_status == "401"),
-    enrollment_token_authenticated_by_token_review:($token_review_status == "201")
+    enrollment_token_authenticated_by_token_review:($token_review_status == "201"),
+    preflight_audit_rejected_unsafe_profile:
+      ($preflight_unsafe_rejection_status == "completed"),
+    migration_only_job_completed:($migration_job_status == "completed"),
+    migrated_profile_version:($migration_profile_version | tonumber),
+    preflight_audit_hook_with_network_policy:($preflight_upgrade_status == "completed"),
+    platform_tokenreview_agent_count:($platform_tokenreview_agent_count | tonumber),
+    platform_tokenreview_enrollment_completed:
+      (($platform_tokenreview_agent_count | tonumber) >= 3)
   }' > "${agent_soak_output_dir}/audience-boundary.json"
 unset RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN
 
 test_succeeded="true"
-echo "Kind audience isolation, TokenReview, multi-node platform, DaemonSet Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."
+echo "Kind migration gate, audience isolation, full Platform TokenReview enrollment, multi-node Agent fleet ${agent_soak_profile} runtime, evidence, incident, and RCA report validation passed."

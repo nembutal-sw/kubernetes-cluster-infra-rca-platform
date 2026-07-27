@@ -1,21 +1,9 @@
 {{- if .Values.platform.agentEnrollmentPreflight.enabled }}
-{{- $mode := lower .Values.platform.agentEnrollmentPreflight.mode }}
-{{- if not (has $mode (list "audit" "apply")) }}
-{{- fail "platform.agentEnrollmentPreflight.mode must be audit or apply" }}
-{{- end }}
 {{- if empty .Values.platform.config.kubernetesApiAudiences }}
 {{- fail "platform.config.kubernetesApiAudiences must list every Kubernetes API audience" }}
 {{- end }}
 {{- if has .Values.platform.agentEnrollmentPreflight.targetAudience .Values.platform.config.kubernetesApiAudiences }}
 {{- fail "platform.agentEnrollmentPreflight.targetAudience must not be a Kubernetes API audience" }}
-{{- end }}
-{{- if eq $mode "apply" }}
-{{- if ne .Values.platform.agentEnrollmentPreflight.confirm "APPLY_AGENT_ENROLLMENT_AUDIENCE_MIGRATION" }}
-{{- fail "platform.agentEnrollmentPreflight apply mode requires the exact confirmation string" }}
-{{- end }}
-{{- if empty .Values.platform.agentEnrollmentPreflight.clusters }}
-{{- fail "platform.agentEnrollmentPreflight apply mode requires an explicit cluster allowlist" }}
-{{- end }}
 {{- end }}
 apiVersion: batch/v1
 kind: Job
@@ -23,7 +11,8 @@ metadata:
   name: {{ printf "%s-agent-enrollment-preflight" (include "cluster-infra-rca-platform.fullname" .) | trunc 63 | trimSuffix "-" }}
   labels:
     {{- include "cluster-infra-rca-platform.labels" . | nindent 4 }}
-    app.kubernetes.io/component: agent-enrollment-preflight
+    app.kubernetes.io/component: platform
+    rca.clusterinfra.io/job-role: agent-enrollment-preflight
   annotations:
     helm.sh/hook: pre-upgrade
     helm.sh/hook-weight: "-20"
@@ -34,7 +23,9 @@ spec:
     metadata:
       labels:
         {{- include "cluster-infra-rca-platform.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: agent-enrollment-preflight
+        app.kubernetes.io/component: platform
+        rca.clusterinfra.io/job-role: agent-enrollment-preflight
+        rca.clusterinfra.io/database-client: "true"
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
@@ -53,18 +44,26 @@ spec:
             - -cp
             - /app/platform.jar
             - org.springframework.boot.loader.launch.PropertiesLauncher
-          envFrom:
-            - secretRef:
-                name: {{ include "cluster-infra-rca-platform.secretName" . }}
           env:
+            - name: RCA_JDBC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.secretName" . }}
+                  key: RCA_JDBC_URL
+            - name: RCA_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.secretName" . }}
+                  key: RCA_DB_USERNAME
+            - name: RCA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cluster-infra-rca-platform.secretName" . }}
+                  key: RCA_DB_PASSWORD
             - name: RCA_AGENT_ENROLLMENT_MIGRATION_MODE
-              value: {{ $mode | quote }}
+              value: "audit"
             - name: RCA_AGENT_ENROLLMENT_MIGRATION_TARGET_AUDIENCE
               value: {{ .Values.platform.agentEnrollmentPreflight.targetAudience | quote }}
-            - name: RCA_AGENT_ENROLLMENT_MIGRATION_CLUSTERS
-              value: {{ join "," .Values.platform.agentEnrollmentPreflight.clusters | quote }}
-            - name: RCA_AGENT_ENROLLMENT_MIGRATION_CONFIRM
-              value: {{ .Values.platform.agentEnrollmentPreflight.confirm | quote }}
             - name: RCA_KUBERNETES_API_AUDIENCES
               value: {{ join "," .Values.platform.config.kubernetesApiAudiences | quote }}
           {{- with .Values.platform.securityContext }}
@@ -75,4 +74,15 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.platform.tmpDir.enabled }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if .Values.platform.tmpDir.enabled }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.platform.tmpDir.sizeLimit }}
+      {{- end }}
 {{- end }}

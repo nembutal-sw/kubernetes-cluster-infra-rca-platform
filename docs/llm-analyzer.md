@@ -224,7 +224,12 @@ python3 scripts/llm-staging-smoke.py \
 
 기본 실행은 report 생성 전에 `POST /api/llm/test`로 실제 provider 연결을 한 번 확인합니다. 무료 tier처럼 호출량이 제한된 환경에서는 Platform의 `RCA_LLM_MAX_ATTEMPTS=1`, `RCA_SPRING_AI_RETRY_MAX_ATTEMPTS=1`과 `--skip-connectivity-test --provider-call-budget 1`을 함께 사용합니다. smoke는 애플리케이션 재시도와 Spring AI 내부 재시도를 곱한 최악의 호출 수가 예산을 넘으면 provider를 호출하기 전에 중단합니다. 비용 상한을 사용하려면 input/output token 단가가 설정되어 있어야 합니다.
 
-Gemini 예시는 현재 안정 모델인 `gemini-3.1-flash-lite`를 사용합니다. 더 높은 품질이 필요하면 프로젝트에서 사용할 수 있는 `gemini-3.5-flash`를 선택할 수 있습니다. `gemini-2.5-flash-lite`는 신규 사용자에게 `404`와 함께 사용할 수 없는 모델로 응답할 수 있으므로 새 설정에 사용하지 않습니다. 실제 모델 제공 여부, 무료 tier, rate limit은 Google AI Studio의 해당 프로젝트 기준으로 확인합니다.
+Gemini 예시는 2026-07-27 기준 Google 공식 model catalog에서 stable로 제공되는
+`gemini-3.1-flash-lite`를 사용합니다. 모델 제공 여부, lifecycle, 무료 tier와 rate limit은
+프로젝트와 시점에 따라 달라질 수 있으므로 배포 전
+[Google Gemini model catalog](https://ai.google.dev/gemini-api/docs/models)와
+[Gemini API changelog](https://ai.google.dev/gemini-api/docs/changelog)를 확인합니다.
+특정 모델의 과거 응답 상태를 영구 호환 계약으로 간주하지 않습니다.
 
 Gemini 연결 오류는 HTTP 상태를 구분해서 확인합니다. `401`은 API key 원문과 인증 방식을, `404`는 모델 ID와 프로젝트 사용 가능 여부를 확인합니다. `429`는 quota/rate limit, `503`은 provider의 일시적 가용성 문제로 보고 제한된 backoff 후 Rule-based RCA fallback을 유지합니다. 이미지에서 API key를 OCR로 옮기지 말고 Secret 또는 환경 변수에 원문을 직접 주입합니다.
 

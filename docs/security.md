@@ -154,9 +154,10 @@ the servlet container or upstream TLS termination configuration.
 ## Future Enterprise Security Work
 
 - tenant-aware access scope
-- permission matrix
-- strict agent protocol mode
 - external SIEM delivery
-- retention policy enforcement
-- external identity provider integration
+- OIDC/SAML external identity provider integration
 - customer-managed encryption key support
+- external Kubernetes reviewer credential rotation and expiry monitoring
+- approved Agent workload identity rebind workflow
+- opaque token key usage inventory and old-key retirement readiness
+- removal of protocol v1 credential compatibility after fleet migration

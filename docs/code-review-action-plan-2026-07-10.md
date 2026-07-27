@@ -1,5 +1,8 @@
 # Code Review Action Plan
 
+> **역사 문서:** 2026-07-10 코드 리뷰 시점의 실행 기록입니다. 현재 구현 상태와 우선순위는
+> [Current State](current-state.md)와 [Roadmap](roadmap.md)을 기준으로 확인합니다.
+
 2026-07-10 코드 리뷰를 현재 `main` 브랜치의 `24d34a4`와 대조해 만든 실행 계획입니다. 리뷰 내용을 그대로 옮기지 않고, 실제 코드 상태와 완료 기준을 기준으로 다시 정리했습니다.
 
 ## Current Baseline

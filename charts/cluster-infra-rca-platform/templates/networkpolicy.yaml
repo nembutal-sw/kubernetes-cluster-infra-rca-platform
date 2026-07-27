@@ -38,7 +38,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              {{- include "cluster-infra-rca-platform.platformSelectorLabels" . | nindent 14 }}
+              rca.clusterinfra.io/database-client: "true"
       ports:
         - protocol: TCP
           port: {{ include "cluster-infra-rca-platform.databasePort" . }}

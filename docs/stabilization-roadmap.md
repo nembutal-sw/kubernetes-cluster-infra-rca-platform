@@ -1,5 +1,8 @@
 # Stabilization Roadmap
 
+> **역사 문서:** 초기 안정화 단계의 완료 기록입니다. 현재 우선순위는
+> [Roadmap](roadmap.md), 현재 구현 기준은 [Current State](current-state.md)를 확인합니다.
+
 운영 안정성, 보안, 유지보수 경계를 먼저 고정한 뒤 기능을 확장한다. 각 phase는 테스트나 정적 검증을 통과한 뒤 다음 단계로 이동한다.
 
 ## Phase 1. Security Hardening

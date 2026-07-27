@@ -33,6 +33,26 @@ def test_agent_fleet_burn_in_is_manual_approval_gated_and_reuses_kind_fleet() ->
     assert "--set mode=node-diagnostics" in kind_script
 
 
+def test_kind_smoke_covers_migration_gate_and_full_tokenreview_enrollment() -> None:
+    script = (ROOT / "scripts" / "kind-smoke.sh").read_text(encoding="utf-8")
+
+    required = (
+        "Pre-upgrade audit unexpectedly accepted an unsafe enrollment profile",
+        "unsafe_profile_count=1",
+        "render-agent-enrollment-migration-job.py",
+        "migration_result=applied",
+        "cluster-infra-rca-agent-enrollment:2",
+        "platform.podAnnotations.smoke-revision=migration-verified",
+        "preflight_audit_rejected_unsafe_profile",
+        "migration_only_job_completed",
+        "platform_tokenreview_enrollment_completed",
+        'enrollment.mode=kubernetes-token-review',
+        ".metadata._enrollment.method == \"kubernetes_token_review\"",
+    )
+    for marker in required:
+        assert marker in script
+
+
 def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -> None:
     workflow = (ROOT / ".github" / "workflows" / "managed-cluster-canary.yml").read_text(encoding="utf-8")
     attestation = (ROOT / "scripts" / "managed-canary-attestation.py").read_text(encoding="utf-8")
