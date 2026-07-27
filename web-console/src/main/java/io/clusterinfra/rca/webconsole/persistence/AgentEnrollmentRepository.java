@@ -79,11 +79,13 @@ public class AgentEnrollmentRepository {
                             (cluster_id, mode, api_server_url, ca_bundle_pem, ca_sha256, audience,
                              service_account_namespace, service_account_name,
                              profile_version, reviewer_token_path, expected_service_account_uid,
+                             reviewer_credential_version, reviewer_previous_token_path,
+                             reviewer_previous_valid_until, reviewer_credential_rotated_at,
                              expected_daemonset_name, expected_daemonset_uid,
                              required_pod_labels_json, allowed_image_digest,
                              legacy_token_grace_until,
                              bootstrap_fallback_allowed, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                     configuration.clusterId(),
                     configuration.mode().name(),
@@ -96,6 +98,10 @@ public class AgentEnrollmentRepository {
                     configuration.profileVersion(),
                     configuration.reviewerTokenPath(),
                     configuration.expectedServiceAccountUid(),
+                    configuration.reviewerCredentialVersion(),
+                    configuration.reviewerPreviousTokenPath(),
+                    timestamp(configuration.reviewerPreviousValidUntil()),
+                    timestamp(configuration.reviewerCredentialRotatedAt()),
                     configuration.expectedDaemonSetName(),
                     configuration.expectedDaemonSetUid(),
                     json(configuration.requiredPodLabels()),
@@ -123,7 +129,9 @@ public class AgentEnrollmentRepository {
                 SET mode = ?, api_server_url = ?, ca_bundle_pem = ?, ca_sha256 = ?, audience = ?,
                     service_account_namespace = ?, service_account_name = ?,
                     profile_version = ?, reviewer_token_path = ?,
-                    expected_service_account_uid = ?, expected_daemonset_name = ?,
+                    expected_service_account_uid = ?, reviewer_credential_version = ?,
+                    reviewer_previous_token_path = ?, reviewer_previous_valid_until = ?,
+                    reviewer_credential_rotated_at = ?, expected_daemonset_name = ?,
                     expected_daemonset_uid = ?, required_pod_labels_json = ?,
                     allowed_image_digest = ?, legacy_token_grace_until = ?,
                     bootstrap_fallback_allowed = ?, updated_at = ?
@@ -139,6 +147,10 @@ public class AgentEnrollmentRepository {
             configuration.profileVersion(),
             configuration.reviewerTokenPath(),
             configuration.expectedServiceAccountUid(),
+            configuration.reviewerCredentialVersion(),
+            configuration.reviewerPreviousTokenPath(),
+            timestamp(configuration.reviewerPreviousValidUntil()),
+            timestamp(configuration.reviewerCredentialRotatedAt()),
             configuration.expectedDaemonSetName(),
             configuration.expectedDaemonSetUid(),
             json(configuration.requiredPodLabels()),
@@ -162,6 +174,10 @@ public class AgentEnrollmentRepository {
             resultSet.getString("service_account_name"),
             resultSet.getLong("profile_version"),
             resultSet.getString("reviewer_token_path"),
+            resultSet.getLong("reviewer_credential_version"),
+            resultSet.getString("reviewer_previous_token_path"),
+            instant(resultSet, "reviewer_previous_valid_until"),
+            instant(resultSet, "reviewer_credential_rotated_at"),
             resultSet.getString("expected_service_account_uid"),
             resultSet.getString("expected_daemonset_name"),
             resultSet.getString("expected_daemonset_uid"),
@@ -213,6 +229,10 @@ public class AgentEnrollmentRepository {
         String serviceAccount,
         long profileVersion,
         String reviewerTokenPath,
+        long reviewerCredentialVersion,
+        String reviewerPreviousTokenPath,
+        Instant reviewerPreviousValidUntil,
+        Instant reviewerCredentialRotatedAt,
         String expectedServiceAccountUid,
         String expectedDaemonSetName,
         String expectedDaemonSetUid,
@@ -238,8 +258,38 @@ public class AgentEnrollmentRepository {
         ) {
             this(
                 clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
-                serviceAccount, 1, null, null, null, null, Map.of(), null,
+                serviceAccount, 1, null, 1, null, null, null, null, null, null, Map.of(), null,
                 null, bootstrapFallbackAllowed, createdAt, updatedAt
+            );
+        }
+
+        public AgentEnrollmentConfiguration(
+            String clusterId,
+            AgentEnrollmentMode mode,
+            String apiServerUrl,
+            String caBundlePem,
+            String caSha256,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            long profileVersion,
+            String reviewerTokenPath,
+            String expectedServiceAccountUid,
+            String expectedDaemonSetName,
+            String expectedDaemonSetUid,
+            Map<String, String> requiredPodLabels,
+            String allowedImageDigest,
+            Instant legacyUnboundTokenGraceUntil,
+            boolean bootstrapFallbackAllowed,
+            Instant createdAt,
+            Instant updatedAt
+        ) {
+            this(
+                clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
+                serviceAccount, profileVersion, reviewerTokenPath, 1, null, null, null,
+                expectedServiceAccountUid, expectedDaemonSetName, expectedDaemonSetUid,
+                requiredPodLabels, allowedImageDigest, legacyUnboundTokenGraceUntil,
+                bootstrapFallbackAllowed, createdAt, updatedAt
             );
         }
 
@@ -265,7 +315,8 @@ public class AgentEnrollmentRepository {
         ) {
             this(
                 clusterId, mode, apiServerUrl, caBundlePem, caSha256, audience, namespace,
-                serviceAccount, profileVersion, reviewerTokenPath, expectedServiceAccountUid,
+                serviceAccount, profileVersion, reviewerTokenPath, 1, null, null, null,
+                expectedServiceAccountUid,
                 expectedDaemonSetName, expectedDaemonSetUid, requiredPodLabels,
                 allowedImageDigest, null, bootstrapFallbackAllowed, createdAt, updatedAt
             );
@@ -296,6 +347,11 @@ public class AgentEnrollmentRepository {
                 serviceAccount,
                 profileVersion,
                 reviewerTokenPath,
+                reviewerCredentialVersion,
+                reviewerPreviousTokenPath,
+                reviewerPreviousValidUntil,
+                reviewerCredentialRotatedAt,
+                null,
                 expectedServiceAccountUid,
                 expectedDaemonSetName,
                 expectedDaemonSetUid,

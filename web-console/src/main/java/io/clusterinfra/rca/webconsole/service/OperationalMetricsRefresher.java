@@ -16,19 +16,22 @@ public class OperationalMetricsRefresher {
     private final NotificationOutboxRepository notificationOutbox;
     private final RcaConsoleProperties properties;
     private final RcaMetrics metrics;
+    private final ReviewerCredentialLifecycleService reviewerCredentials;
 
     public OperationalMetricsRefresher(
         AgentRepository agents,
         AnalysisTaskRepository tasks,
         NotificationOutboxRepository notificationOutbox,
         RcaConsoleProperties properties,
-        RcaMetrics metrics
+        RcaMetrics metrics,
+        ReviewerCredentialLifecycleService reviewerCredentials
     ) {
         this.agents = agents;
         this.tasks = tasks;
         this.notificationOutbox = notificationOutbox;
         this.properties = properties;
         this.metrics = metrics;
+        this.reviewerCredentials = reviewerCredentials;
     }
 
     @Scheduled(
@@ -52,5 +55,6 @@ public class OperationalMetricsRefresher {
                 + notificationOutbox.count(NotificationOutboxStatus.processing),
             notificationOutbox.count(NotificationOutboxStatus.dead_letter)
         );
+        metrics.refreshReviewerCredentialGauges(reviewerCredentials.statuses());
     }
 }

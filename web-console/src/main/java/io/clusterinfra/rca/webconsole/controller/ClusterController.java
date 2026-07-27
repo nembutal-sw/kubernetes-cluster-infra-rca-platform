@@ -18,6 +18,8 @@ import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestCreateRequ
 import io.clusterinfra.rca.webconsole.domain.RcaModels.EvidenceRequestStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.InstallCommandResponse;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ReviewerCredentialRetireRequest;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ReviewerCredentialRotationRequest;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.UserAccount;
 import io.clusterinfra.rca.webconsole.persistence.AgentRepository;
 import io.clusterinfra.rca.webconsole.persistence.ClusterRepository;
@@ -28,6 +30,7 @@ import io.clusterinfra.rca.webconsole.service.AgentEnrollmentService;
 import io.clusterinfra.rca.webconsole.service.AgentManifestService.ManifestOptions;
 import io.clusterinfra.rca.webconsole.service.CollectorSelectionService;
 import io.clusterinfra.rca.webconsole.service.RcaMetrics;
+import io.clusterinfra.rca.webconsole.service.ReviewerCredentialLifecycleService;
 import io.clusterinfra.rca.webconsole.service.AuditService;
 import io.clusterinfra.rca.webconsole.service.ClusterThresholdService;
 import io.clusterinfra.rca.webconsole.service.TopologyService;
@@ -73,6 +76,7 @@ public class ClusterController {
     private final TopologyService topology;
     private final ClusterThresholdService thresholds;
     private final AgentEnrollmentService enrollments;
+    private final ReviewerCredentialLifecycleService reviewerCredentials;
 
     public ClusterController(
         ClusterRepository clusters,
@@ -86,7 +90,8 @@ public class ClusterController {
         RcaMetrics metrics,
         TopologyService topology,
         ClusterThresholdService thresholds,
-        AgentEnrollmentService enrollments
+        AgentEnrollmentService enrollments,
+        ReviewerCredentialLifecycleService reviewerCredentials
     ) {
         this.clusters = clusters;
         this.agents = agents;
@@ -100,6 +105,7 @@ public class ClusterController {
         this.topology = topology;
         this.thresholds = thresholds;
         this.enrollments = enrollments;
+        this.reviewerCredentials = reviewerCredentials;
     }
 
     @PostMapping
@@ -139,7 +145,7 @@ public class ClusterController {
     @GetMapping("/{clusterId}/agent-enrollment")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','VIEWER')")
     public AgentEnrollmentProfile agentEnrollment(@PathVariable String clusterId) {
-        return enrollments.profile(clusterId);
+        return reviewerCredentials.decorate(enrollments.profile(clusterId));
     }
 
     @PutMapping("/{clusterId}/agent-enrollment")
@@ -151,7 +157,9 @@ public class ClusterController {
         HttpServletRequest servletRequest
     ) {
         UserAccount user = access.currentUser(authentication);
-        AgentEnrollmentProfile profile = enrollments.update(clusterId, request);
+        AgentEnrollmentProfile profile = reviewerCredentials.decorate(
+            enrollments.update(clusterId, request)
+        );
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("mode", profile.mode().name());
         details.put("bootstrap_fallback_allowed", profile.bootstrapFallbackAllowed());
@@ -183,6 +191,57 @@ public class ClusterController {
             clusterId,
             "success",
             details,
+            servletRequest
+        );
+        return profile;
+    }
+
+    @PostMapping("/{clusterId}/agent-enrollment/reviewer-credential/rotate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public AgentEnrollmentProfile rotateReviewerCredential(
+        @PathVariable String clusterId,
+        @Valid @RequestBody ReviewerCredentialRotationRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        UserAccount user = access.currentUser(authentication);
+        AgentEnrollmentProfile profile = reviewerCredentials.rotate(clusterId, request);
+        audit.user(
+            user,
+            "cluster.reviewer_credential.rotate",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of(
+                "reviewer_credential_version", profile.reviewerCredentialVersion(),
+                "previous_valid_until", profile.reviewerPreviousValidUntil(),
+                "credential_state", profile.reviewerCredentialStatus().state().name()
+            ),
+            servletRequest
+        );
+        return profile;
+    }
+
+    @PostMapping("/{clusterId}/agent-enrollment/reviewer-credential/retire-previous")
+    @PreAuthorize("hasRole('ADMIN')")
+    public AgentEnrollmentProfile retirePreviousReviewerCredential(
+        @PathVariable String clusterId,
+        @Valid @RequestBody ReviewerCredentialRetireRequest request,
+        Authentication authentication,
+        HttpServletRequest servletRequest
+    ) {
+        UserAccount user = access.currentUser(authentication);
+        AgentEnrollmentProfile profile = reviewerCredentials.retirePrevious(clusterId, request);
+        audit.user(
+            user,
+            "cluster.reviewer_credential.retire_previous",
+            "cluster",
+            clusterId,
+            "success",
+            Map.of(
+                "reviewer_credential_version", profile.reviewerCredentialVersion(),
+                "credential_state", profile.reviewerCredentialStatus().state().name()
+            ),
             servletRequest
         );
         return profile;

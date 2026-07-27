@@ -242,6 +242,56 @@ class AgentEnrollmentServiceTests {
     }
 
     @Test
+    void existingReviewerTokenPathCanOnlyChangeThroughRotationEndpoint() {
+        Instant now = Instant.now();
+        AgentEnrollmentConfiguration existing = new AgentEnrollmentConfiguration(
+            "cluster-1",
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            TEST_CA,
+            "old-sha",
+            "cluster-infra-rca-agent-enrollment",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            1,
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "service-account-uid",
+            "cluster-infra-rca-agent",
+            "daemonset-uid",
+            java.util.Map.of(
+                "app.kubernetes.io/name", "cluster-infra-rca-agent",
+                "cluster-infra-rca.io/cluster-id", "cluster-1"
+            ),
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            true,
+            now,
+            now
+        );
+        when(enrollments.findConfiguration("cluster-1")).thenReturn(Optional.of(existing));
+        AgentEnrollmentProfileUpdateRequest changedPath = new AgentEnrollmentProfileUpdateRequest(
+            AgentEnrollmentMode.kubernetes_token_review,
+            "https://kubernetes.example:6443",
+            TEST_CA,
+            "cluster-infra-rca-agent-enrollment",
+            "rca-system",
+            "cluster-infra-rca-agent",
+            "/var/run/secrets/cluster-infra-rca-reviewers/next/token",
+            "service-account-uid",
+            "cluster-infra-rca-agent",
+            "daemonset-uid",
+            existing.requiredPodLabels(),
+            existing.allowedImageDigest(),
+            true
+        );
+
+        assertThatThrownBy(() -> service.update("cluster-1", changedPath))
+            .isInstanceOf(ResponseStatusException.class)
+            .hasMessageContaining("reviewer credential rotation endpoint");
+        verify(enrollments, never()).save(any());
+        verify(agents, never()).revokeNodeTokensForEnrollmentChange("cluster-1");
+    }
+
+    @Test
     void legacyGraceIsClusterScopedAndLimitedToThirtyDays() {
         saveReturnsInput();
         Instant graceUntil = Instant.now().plus(java.time.Duration.ofDays(7));

@@ -153,6 +153,8 @@ public class RcaConsoleProperties {
         private int pollIntervalSeconds = 30;
         private int httpTimeoutSeconds = 20;
         private int commandTimeoutSeconds = 10;
+        private int reviewerCredentialExpiringSeconds = 300;
+        private int reviewerCredentialMaximumGraceSeconds = 86400;
 
         public String getImage() {
             return image;
@@ -234,6 +236,24 @@ public class RcaConsoleProperties {
 
         public void setCommandTimeoutSeconds(int commandTimeoutSeconds) {
             this.commandTimeoutSeconds = commandTimeoutSeconds;
+        }
+
+        public int getReviewerCredentialExpiringSeconds() {
+            return reviewerCredentialExpiringSeconds;
+        }
+
+        public void setReviewerCredentialExpiringSeconds(int reviewerCredentialExpiringSeconds) {
+            this.reviewerCredentialExpiringSeconds = reviewerCredentialExpiringSeconds;
+        }
+
+        public int getReviewerCredentialMaximumGraceSeconds() {
+            return reviewerCredentialMaximumGraceSeconds;
+        }
+
+        public void setReviewerCredentialMaximumGraceSeconds(
+            int reviewerCredentialMaximumGraceSeconds
+        ) {
+            this.reviewerCredentialMaximumGraceSeconds = reviewerCredentialMaximumGraceSeconds;
         }
     }
 

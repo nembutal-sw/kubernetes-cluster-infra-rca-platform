@@ -7,6 +7,7 @@ import type {
   AgentHealthView,
   AgentEnrollmentProfile,
   AgentEnrollmentUpdate,
+  ReviewerCredentialRotationRequest,
   ClusterCreateForm,
   ClusterDetailState,
   ClusterThresholdSettings,
@@ -52,6 +53,14 @@ interface ClusterDetailProps {
   onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
   onClearThresholds: (cluster: ClusterView) => MaybePromise;
   onUpdateEnrollment: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
+  onRotateReviewerCredential: (
+    cluster: ClusterView,
+    request: ReviewerCredentialRotationRequest,
+  ) => MaybePromise;
+  onRetirePreviousReviewerCredential: (
+    cluster: ClusterView,
+    expectedVersion: number,
+  ) => MaybePromise;
   canOperate: boolean;
   canAdmin: boolean;
   t: TFunction;
@@ -231,6 +240,8 @@ export function ClusterDetail({
   onUpdateThresholds,
   onClearThresholds,
   onUpdateEnrollment,
+  onRotateReviewerCredential,
+  onRetirePreviousReviewerCredential,
   canOperate,
   canAdmin,
   t,
@@ -300,6 +311,8 @@ export function ClusterDetail({
             profile={detail?.enrollment}
             canAdmin={canAdmin}
             onUpdate={onUpdateEnrollment}
+            onRotateReviewerCredential={onRotateReviewerCredential}
+            onRetirePreviousReviewerCredential={onRetirePreviousReviewerCredential}
             t={t}
           />
         )}
@@ -313,12 +326,22 @@ function AgentEnrollmentSettings({
   profile,
   canAdmin,
   onUpdate,
+  onRotateReviewerCredential,
+  onRetirePreviousReviewerCredential,
   t,
 }: {
   cluster: ClusterView;
   profile?: AgentEnrollmentProfile | null;
   canAdmin: boolean;
   onUpdate: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
+  onRotateReviewerCredential: (
+    cluster: ClusterView,
+    request: ReviewerCredentialRotationRequest,
+  ) => MaybePromise;
+  onRetirePreviousReviewerCredential: (
+    cluster: ClusterView,
+    expectedVersion: number,
+  ) => MaybePromise;
   t: TFunction;
 }) {
   const [mode, setMode] = useState<AgentEnrollmentUpdate["mode"]>(profile?.mode || "bootstrap_token");
@@ -348,6 +371,12 @@ function AgentEnrollmentSettings({
   const [legacyGraceUntil, setLegacyGraceUntil] = useState(
     datetimeLocalValue(profile?.legacy_unbound_token_grace_until),
   );
+  const [nextReviewerTokenPath, setNextReviewerTokenPath] = useState(
+    "/var/run/secrets/cluster-infra-rca-reviewers/next/token",
+  );
+  const [reviewerGraceUntil, setReviewerGraceUntil] = useState(
+    defaultReviewerGraceValue(),
+  );
   const [validationError, setValidationError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -372,9 +401,16 @@ function AgentEnrollmentSettings({
     ));
     setFallbackAllowed(profile?.bootstrap_fallback_allowed ?? true);
     setLegacyGraceUntil(datetimeLocalValue(profile?.legacy_unbound_token_grace_until));
+    setNextReviewerTokenPath("/var/run/secrets/cluster-infra-rca-reviewers/next/token");
+    setReviewerGraceUntil(defaultReviewerGraceValue());
     setCaBundlePem("");
     setValidationError("");
-  }, [cluster.cluster_id, profile?.updated_at, profile?.mode]);
+  }, [
+    cluster.cluster_id,
+    profile?.updated_at,
+    profile?.mode,
+    profile?.reviewer_credential_version,
+  ]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -403,7 +439,7 @@ function AgentEnrollmentSettings({
         audience: audience.trim(),
         namespace: namespace.trim(),
         service_account: serviceAccount.trim(),
-        reviewer_token_path: reviewerTokenPath.trim(),
+        reviewer_token_path: profile?.configured ? undefined : reviewerTokenPath.trim(),
         expected_service_account_uid: expectedServiceAccountUid.trim(),
         expected_daemon_set_name: expectedDaemonSetName.trim(),
         expected_daemon_set_uid: expectedDaemonSetUid.trim(),
@@ -422,7 +458,57 @@ function AgentEnrollmentSettings({
     }
   }
 
+  async function rotateReviewerCredential() {
+    const expectedVersion = profile?.reviewer_credential_version
+      || profile?.reviewer_credential_status?.version;
+    if (!expectedVersion || !nextReviewerTokenPath.trim() || !reviewerGraceUntil) {
+      setValidationError(t("Reviewer credential rotation fields are incomplete."));
+      return;
+    }
+    if (!window.confirm(t("Start reviewer credential rotation with bounded fallback?"))) {
+      return;
+    }
+    setBusy(true);
+    setValidationError("");
+    try {
+      await onRotateReviewerCredential(cluster, {
+        next_token_path: nextReviewerTokenPath.trim(),
+        expected_version: expectedVersion,
+        previous_valid_until: new Date(reviewerGraceUntil).toISOString(),
+      });
+    } catch (error) {
+      setValidationError(
+        error instanceof Error ? error.message : t("Reviewer credential rotation failed."),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retirePreviousReviewerCredential() {
+    const expectedVersion = profile?.reviewer_credential_version
+      || profile?.reviewer_credential_status?.version;
+    if (!expectedVersion) {
+      return;
+    }
+    if (!window.confirm(t("Retire the previous reviewer credential now?"))) {
+      return;
+    }
+    setBusy(true);
+    setValidationError("");
+    try {
+      await onRetirePreviousReviewerCredential(cluster, expectedVersion);
+    } catch (error) {
+      setValidationError(
+        error instanceof Error ? error.message : t("Previous reviewer credential retirement failed."),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const strict = profile?.mode === "kubernetes_token_review" && !profile.bootstrap_fallback_allowed;
+  const reviewerStatus = profile?.reviewer_credential_status;
   return (
     <form className="agent-enrollment-settings" onSubmit={submit}>
       <div className="enrollment-status-grid">
@@ -434,7 +520,26 @@ function AgentEnrollmentSettings({
         <div><span>{t("Workload identity")}</span><strong>{profile?.workload_identity_ready ? t("Ready") : t("Binding required")}</strong></div>
         <div><span>{t("Legacy unbound agents")}</span><strong>{profile?.legacy_unbound_agents?.length || 0}</strong></div>
         <div><span>{t("Legacy grace expires")}</span><strong>{profile?.legacy_unbound_token_grace_until ? relativeTime(profile.legacy_unbound_token_grace_until) : t("Disabled")}</strong></div>
+        <div>
+          <span>{t("Reviewer credential")}</span>
+          <strong>
+            <StatusBadge
+              value={reviewerStatus?.state || "not_configured"}
+              tone={reviewerCredentialTone(reviewerStatus?.state)}
+              t={t}
+            />
+          </strong>
+        </div>
+        <div><span>{t("Credential version")}</span><strong>{reviewerStatus?.version || profile?.reviewer_credential_version || "n/a"}</strong></div>
+        <div><span>{t("Current credential expires")}</span><strong>{reviewerStatus?.current_expires_at ? relativeTime(reviewerStatus.current_expires_at) : t("Unknown")}</strong></div>
+        <div><span>{t("Previous credential grace")}</span><strong>{reviewerStatus?.previous_valid_until ? relativeTime(reviewerStatus.previous_valid_until) : t("Disabled")}</strong></div>
       </div>
+      {reviewerStatus && ["missing", "invalid", "expired", "expiring"].includes(reviewerStatus.state) && (
+        <div className="enrollment-token-status reviewer-credential-warning">
+          <Icon name="exclamation-triangle" />
+          <strong>{t("Reviewer credential requires operator attention.")}</strong>
+        </div>
+      )}
       {mode === "kubernetes_token_review" && !profile?.workload_identity_ready && (
         <div className="enrollment-token-status">
           <Icon name="shield-lock" />
@@ -471,6 +576,61 @@ function AgentEnrollmentSettings({
           />
         </div>
       )}
+      {canAdmin && profile?.configured && profile.mode === "kubernetes_token_review" && (
+        <section className="reviewer-credential-panel" aria-label={t("Reviewer credential rotation")}>
+          <div className="reviewer-credential-head">
+            <div>
+              <strong>{t("Reviewer credential rotation")}</strong>
+              <span>{t("The mounted token is validated before the current credential enters bounded grace.")}</span>
+            </div>
+            <span className="font-monospace">v{profile.reviewer_credential_version || 1}</span>
+          </div>
+          <div className="reviewer-credential-fields">
+            <label>
+              {t("Next reviewer token path")}
+              <input
+                className="form-control font-monospace"
+                value={nextReviewerTokenPath}
+                disabled={busy}
+                onChange={(event) => setNextReviewerTokenPath(event.target.value)}
+              />
+            </label>
+            <label>
+              {t("Previous credential grace expires")}
+              <input
+                className="form-control"
+                type="datetime-local"
+                value={reviewerGraceUntil}
+                disabled={busy}
+                onChange={(event) => setReviewerGraceUntil(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="reviewer-credential-actions">
+            {reviewerStatus?.previous_available && (
+              <button
+                className="btn btn-sm btn-outline-danger icon-button"
+                type="button"
+                disabled={busy}
+                onClick={retirePreviousReviewerCredential}
+              >
+                <Icon name="x-circle" />
+                <span>{t("Retire previous")}</span>
+              </button>
+            )}
+            <button
+              className="btn btn-sm btn-outline-primary icon-button"
+              type="button"
+              data-testid="reviewer-credential-rotate"
+              disabled={busy || !nextReviewerTokenPath.trim() || !reviewerGraceUntil}
+              onClick={rotateReviewerCredential}
+            >
+              <Icon name="arrow-repeat" />
+              <span>{t("Rotate reviewer credential")}</span>
+            </button>
+          </div>
+        </section>
+      )}
       {canAdmin && (
         <div className="enrollment-editor">
           <label>
@@ -486,7 +646,19 @@ function AgentEnrollmentSettings({
               <label>{t("Dedicated enrollment audience")}<input className="form-control" required value={audience} disabled={busy} onChange={(event) => setAudience(event.target.value)} /></label>
               <label>{t("Namespace")}<input className="form-control" required value={namespace} disabled={busy} onChange={(event) => setNamespace(event.target.value)} /></label>
               <label>{t("Service account")}<input className="form-control" required value={serviceAccount} disabled={busy} onChange={(event) => setServiceAccount(event.target.value)} /></label>
-              <label className="wide">{t("Backend reviewer token path")}<input className="form-control font-monospace" required value={reviewerTokenPath} disabled={busy} onChange={(event) => setReviewerTokenPath(event.target.value)} /></label>
+              <label className="wide">
+                {t("Backend reviewer token path")}
+                <input
+                  className="form-control font-monospace"
+                  required
+                  value={reviewerTokenPath}
+                  disabled={busy || Boolean(profile?.configured)}
+                  title={profile?.configured
+                    ? t("Use reviewer credential rotation to change this path.")
+                    : undefined}
+                  onChange={(event) => setReviewerTokenPath(event.target.value)}
+                />
+              </label>
               <label>{t("Expected ServiceAccount UID")}<input className="form-control font-monospace" value={expectedServiceAccountUid} disabled={busy} onChange={(event) => setExpectedServiceAccountUid(event.target.value)} /></label>
               <label>{t("Expected DaemonSet name")}<input className="form-control font-monospace" value={expectedDaemonSetName} disabled={busy} onChange={(event) => setExpectedDaemonSetName(event.target.value)} /></label>
               <label>{t("Expected DaemonSet UID")}<input className="form-control font-monospace" value={expectedDaemonSetUid} disabled={busy} onChange={(event) => setExpectedDaemonSetUid(event.target.value)} /></label>
@@ -541,6 +713,18 @@ function datetimeLocalValue(value?: string | null): string {
   }
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+function defaultReviewerGraceValue(): string {
+  return datetimeLocalValue(new Date(Date.now() + 15 * 60_000).toISOString());
+}
+
+function reviewerCredentialTone(state?: string): string {
+  if (state === "ready") return "green";
+  if (state === "rotating" || state === "unknown_expiry") return "blue";
+  if (state === "expiring") return "amber";
+  if (["missing", "invalid", "expired"].includes(state || "")) return "red";
+  return "gray";
 }
 
 function AgentTable({ agents, t }: { agents: AgentHealthView[]; t: TFunction }) {

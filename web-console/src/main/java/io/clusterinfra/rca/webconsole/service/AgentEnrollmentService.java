@@ -43,10 +43,6 @@ public class AgentEnrollmentService {
             + "[a-z0-9](?:[-a-z0-9]*[a-z0-9])?"
     );
     private static final Pattern IMAGE_DIGEST = Pattern.compile("sha256:[a-f0-9]{64}");
-    private static final String DEFAULT_REVIEWER_TOKEN_PATH =
-        "/var/run/secrets/kubernetes.io/serviceaccount/token";
-    private static final String REVIEWER_TOKEN_ROOT =
-        "/var/run/secrets/cluster-infra-rca-reviewers/";
     private static final String DEFAULT_DAEMONSET_NAME = "cluster-infra-rca-agent";
 
     private final AgentEnrollmentRepository enrollments;
@@ -120,9 +116,17 @@ public class AgentEnrollmentService {
             request.reviewerTokenPath(),
             previous == null || previous.reviewerTokenPath() == null
                 || previous.reviewerTokenPath().isBlank()
-                ? DEFAULT_REVIEWER_TOKEN_PATH
+                ? ReviewerCredentialPaths.PLATFORM_SERVICE_ACCOUNT_TOKEN
                 : previous.reviewerTokenPath()
         );
+        if (previous != null
+            && previous.reviewerTokenPath() != null
+            && !previous.reviewerTokenPath().isBlank()
+            && !Objects.equals(previous.reviewerTokenPath(), reviewerTokenPath)) {
+            throw invalid(
+                "reviewer_token_path must be changed through the reviewer credential rotation endpoint"
+            );
+        }
         String expectedServiceAccountUid = optionalIdentity(
             request.expectedServiceAccountUid(),
             previous == null ? null : previous.expectedServiceAccountUid(),
@@ -163,6 +167,10 @@ public class AgentEnrollmentService {
             serviceAccount,
             previous == null ? 1 : previous.profileVersion(),
             reviewerTokenPath,
+            previous == null ? 1 : previous.reviewerCredentialVersion(),
+            previous == null ? null : previous.reviewerPreviousTokenPath(),
+            previous == null ? null : previous.reviewerPreviousValidUntil(),
+            previous == null ? null : previous.reviewerCredentialRotatedAt(),
             expectedServiceAccountUid,
             expectedDaemonSetName,
             expectedDaemonSetUid,
@@ -202,6 +210,11 @@ public class AgentEnrollmentService {
             profile.serviceAccount(),
             profile.profileVersion(),
             profile.reviewerTokenPath(),
+            profile.reviewerCredentialVersion(),
+            profile.reviewerPreviousTokenPath(),
+            profile.reviewerPreviousValidUntil(),
+            profile.reviewerCredentialRotatedAt(),
+            profile.reviewerCredentialStatus(),
             profile.expectedServiceAccountUid(),
             profile.expectedDaemonSetName(),
             profile.expectedDaemonSetUid(),
@@ -301,23 +314,7 @@ public class AgentEnrollmentService {
 
     private String reviewerTokenPath(String value, String previous) {
         String selected = value == null ? previous : value.trim();
-        if (selected == null || selected.isBlank()) {
-            throw invalid("reviewer_token_path is required for kubernetes_token_review");
-        }
-        selected = bounded(selected, 4096, "reviewer_token_path");
-        if (!selected.startsWith("/") || selected.chars().anyMatch(Character::isISOControl)) {
-            throw invalid("reviewer_token_path must be an absolute path without control characters");
-        }
-        if (selected.contains("//")
-            || java.util.Arrays.stream(selected.split("/"))
-                .anyMatch(segment -> ".".equals(segment) || "..".equals(segment))
-            || (!DEFAULT_REVIEWER_TOKEN_PATH.equals(selected)
-                && !selected.startsWith(REVIEWER_TOKEN_ROOT))) {
-            throw invalid(
-                "reviewer_token_path must use the platform ServiceAccount token or the dedicated reviewer root"
-            );
-        }
-        return selected;
+        return ReviewerCredentialPaths.validate(selected, "reviewer_token_path");
     }
 
     private String optionalIdentity(String value, String previous, String field) {
@@ -441,6 +438,10 @@ public class AgentEnrollmentService {
             value.serviceAccount(),
             profileVersion,
             value.reviewerTokenPath(),
+            value.reviewerCredentialVersion(),
+            value.reviewerPreviousTokenPath(),
+            value.reviewerPreviousValidUntil(),
+            value.reviewerCredentialRotatedAt(),
             value.expectedServiceAccountUid(),
             value.expectedDaemonSetName(),
             value.expectedDaemonSetUid(),

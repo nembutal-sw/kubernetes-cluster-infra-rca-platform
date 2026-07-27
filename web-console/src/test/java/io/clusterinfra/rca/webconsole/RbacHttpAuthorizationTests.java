@@ -115,6 +115,33 @@ class RbacHttpAuthorizationTests {
         assertStatus(viewer, HttpMethod.PUT,
             "/api/clusters/cluster-missing/agent-enrollment", Map.of("mode", "bootstrap_token"),
             HttpStatus.FORBIDDEN);
+        Map<String, Object> reviewerRotation = Map.of(
+            "next_token_path",
+            "/var/run/secrets/cluster-infra-rca-reviewers/next/token",
+            "expected_version",
+            1,
+            "previous_valid_until",
+            Instant.now().plusSeconds(600).toString()
+        );
+        String reviewerRotationPath =
+            "/api/clusters/cluster-missing/agent-enrollment/reviewer-credential/rotate";
+        assertStatus(admin, HttpMethod.POST, reviewerRotationPath, reviewerRotation,
+            HttpStatus.NOT_FOUND);
+        assertStatus(operator, HttpMethod.POST, reviewerRotationPath, reviewerRotation,
+            HttpStatus.FORBIDDEN);
+        assertStatus(viewer, HttpMethod.POST, reviewerRotationPath, reviewerRotation,
+            HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.POST, reviewerRotationPath, reviewerRotation,
+            HttpStatus.FORBIDDEN);
+        String reviewerRetirePath =
+            "/api/clusters/cluster-missing/agent-enrollment/reviewer-credential/retire-previous";
+        Map<String, Object> reviewerRetire = Map.of("expected_version", 1);
+        assertStatus(admin, HttpMethod.POST, reviewerRetirePath, reviewerRetire,
+            HttpStatus.NOT_FOUND);
+        assertStatus(operator, HttpMethod.POST, reviewerRetirePath, reviewerRetire,
+            HttpStatus.FORBIDDEN);
+        assertStatus(approver, HttpMethod.POST, reviewerRetirePath, reviewerRetire,
+            HttpStatus.FORBIDDEN);
 
         assertStatus(viewer, HttpMethod.GET, "/api/platform/info", null, HttpStatus.OK);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/catalog", null, HttpStatus.OK);

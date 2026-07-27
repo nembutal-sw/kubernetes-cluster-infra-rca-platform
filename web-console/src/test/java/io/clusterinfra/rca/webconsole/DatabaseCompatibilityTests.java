@@ -81,7 +81,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers(disabledWithoutDocker = true)
 @Execution(ExecutionMode.SAME_THREAD)
 class DatabaseCompatibilityTests {
-    private static final int FLYWAY_MIGRATION_COUNT = 25;
+    private static final int FLYWAY_MIGRATION_COUNT = 26;
     private static final int ALEMBIC_BASELINE_MIGRATION_COUNT = FLYWAY_MIGRATION_COUNT - 1;
     private static final String PYTHON_ADMIN_HASH =
         "pbkdf2_sha256$210000$AAECAwQFBgcICQoLDA0ODw$48lTXWG2pKRFYa2VDSIa1k9iNJ_kpewyX2PSJx1eg5Q";
@@ -196,6 +196,7 @@ class DatabaseCompatibilityTests {
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), cluster.bootstrapToken())).isTrue();
         assertThat(clusters.verifyBootstrapToken(cluster.clusterId(), "wrong-token")).isFalse();
         Instant enrollmentCreatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant reviewerPreviousValidUntil = enrollmentCreatedAt.plusSeconds(900);
         enrollments.save(new AgentEnrollmentConfiguration(
             cluster.clusterId(),
             AgentEnrollmentMode.kubernetes_token_review,
@@ -205,6 +206,18 @@ class DatabaseCompatibilityTests {
             "cluster-infra-rca-agent-enrollment",
             "rca-system",
             "cluster-infra-rca-agent",
+            3,
+            "/var/run/secrets/cluster-infra-rca-reviewers/current/token",
+            8,
+            "/var/run/secrets/cluster-infra-rca-reviewers/previous/token",
+            reviewerPreviousValidUntil,
+            enrollmentCreatedAt,
+            "test-service-account-uid",
+            "cluster-infra-rca-agent",
+            "test-daemonset-uid",
+            Map.of("cluster-infra-rca.io/cluster-id", cluster.clusterId()),
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            null,
             false,
             enrollmentCreatedAt,
             enrollmentCreatedAt
@@ -212,6 +225,14 @@ class DatabaseCompatibilityTests {
         assertThat(enrollments.view(cluster.clusterId()).mode())
             .isEqualTo(AgentEnrollmentMode.kubernetes_token_review);
         assertThat(enrollments.view(cluster.clusterId()).caSha256()).isEqualTo("test-ca-sha256");
+        assertThat(enrollments.findConfiguration(cluster.clusterId()).orElseThrow())
+            .satisfies(configuration -> {
+                assertThat(configuration.reviewerCredentialVersion()).isEqualTo(8);
+                assertThat(configuration.reviewerPreviousTokenPath())
+                    .endsWith("/previous/token");
+                assertThat(configuration.reviewerPreviousValidUntil())
+                    .isEqualTo(reviewerPreviousValidUntil);
+            });
         thresholds.replace(
             cluster.clusterId(),
             Map.of("disk.critical.percent", 95.0),

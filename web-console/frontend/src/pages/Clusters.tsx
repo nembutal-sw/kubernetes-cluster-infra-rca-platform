@@ -3,6 +3,7 @@ import { AgentFleetPanel, ClusterDetail, ClusterForm, ClusterList, InstallComman
 import type {
   AgentHealthView,
   AgentEnrollmentUpdate,
+  ReviewerCredentialRotationRequest,
   ClusterCreateForm,
   ClusterDetailState,
   ClusterView,
@@ -27,6 +28,14 @@ interface ClustersViewProps {
   onUpdateThresholds: (cluster: ClusterView, thresholds: Record<string, number>, reason: string) => MaybePromise;
   onClearThresholds: (cluster: ClusterView) => MaybePromise;
   onUpdateEnrollment: (cluster: ClusterView, update: AgentEnrollmentUpdate) => MaybePromise;
+  onRotateReviewerCredential: (
+    cluster: ClusterView,
+    request: ReviewerCredentialRotationRequest,
+  ) => MaybePromise;
+  onRetirePreviousReviewerCredential: (
+    cluster: ClusterView,
+    expectedVersion: number,
+  ) => MaybePromise;
   onDelete: (cluster: ClusterView) => void;
   onRotateToken: (cluster: ClusterView) => MaybePromise;
   onCopy: (text: string) => MaybePromise;
@@ -47,6 +56,8 @@ export function ClustersView({
   onUpdateThresholds,
   onClearThresholds,
   onUpdateEnrollment,
+  onRotateReviewerCredential,
+  onRetirePreviousReviewerCredential,
   onDelete,
   onRotateToken,
   onCopy,
@@ -87,6 +98,8 @@ export function ClustersView({
             onUpdateThresholds={onUpdateThresholds}
             onClearThresholds={onClearThresholds}
             onUpdateEnrollment={onUpdateEnrollment}
+            onRotateReviewerCredential={onRotateReviewerCredential}
+            onRetirePreviousReviewerCredential={onRetirePreviousReviewerCredential}
             canOperate={canOperate}
             canAdmin={currentUser.role === "admin"}
             t={t}

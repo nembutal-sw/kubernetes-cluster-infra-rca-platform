@@ -67,6 +67,9 @@ platform:
     audience: https://kubernetes.default.svc
     tokenExpirationSeconds: 3600
     tokenMountPath: /var/run/secrets/kubernetes.io/serviceaccount
+    # External cluster credentials are mounted as
+    # /var/run/secrets/cluster-infra-rca-reviewers/<name>/token.
+    externalCredentials: []
   image:
     repository: ghcr.io/example/cluster-infra-rca-web-console
     tag: latest
@@ -155,6 +158,8 @@ platform:
       - https://kubernetes.default.svc
       - https://kubernetes.default.svc.cluster.local
     agentOfflineAfterSeconds: 180
+    reviewerCredentialExpiringSeconds: 300
+    reviewerCredentialMaximumGraceSeconds: 86400
     agentExpectedVersion: ""
     agentMinimumSupportedVersion: "0.1.0"
     agentProtocolVersion: "2"

@@ -5,6 +5,7 @@ import type {
   AgentTokenRotateResponse,
   AgentEnrollmentProfile,
   AgentEnrollmentUpdate,
+  ReviewerCredentialRotationRequest,
   ApiCall,
   ClusterCreateForm,
   ClusterDetailState,
@@ -144,6 +145,30 @@ export function useClusterOperations(options: ClusterOperationsOptions) {
     notify(t("Agent enrollment updated."));
   }, [callApi, notify, setClusterDetail, setInstallCommand, t]);
 
+  const rotateReviewerCredential = useCallback(async (
+    cluster: ClusterView,
+    request: ReviewerCredentialRotationRequest,
+  ) => {
+    const enrollment = await callApi<AgentEnrollmentProfile>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-enrollment/reviewer-credential/rotate`,
+      { method: "POST", body: request },
+    );
+    setClusterDetail((current) => current ? { ...current, enrollment } : current);
+    notify(t("Reviewer credential rotation started."));
+  }, [callApi, notify, setClusterDetail, t]);
+
+  const retirePreviousReviewerCredential = useCallback(async (
+    cluster: ClusterView,
+    expectedVersion: number,
+  ) => {
+    const enrollment = await callApi<AgentEnrollmentProfile>(
+      `/api/clusters/${encodeURIComponent(cluster.cluster_id)}/agent-enrollment/reviewer-credential/retire-previous`,
+      { method: "POST", body: { expected_version: expectedVersion } },
+    );
+    setClusterDetail((current) => current ? { ...current, enrollment } : current);
+    notify(t("Previous reviewer credential retired."));
+  }, [callApi, notify, setClusterDetail, t]);
+
   return {
     deleteDialog,
     setDeleteDialog,
@@ -154,5 +179,7 @@ export function useClusterOperations(options: ClusterOperationsOptions) {
     updateClusterThresholds,
     clearClusterThresholds,
     updateAgentEnrollment,
+    rotateReviewerCredential,
+    retirePreviousReviewerCredential,
   };
 }

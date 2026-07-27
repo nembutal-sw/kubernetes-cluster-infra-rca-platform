@@ -4548,6 +4548,61 @@ code {
   color: var(--amber);
 }
 
+.reviewer-credential-warning {
+  border-left-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.reviewer-credential-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.reviewer-credential-head,
+.reviewer-credential-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reviewer-credential-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.reviewer-credential-head strong {
+  font-size: 0.9rem;
+}
+
+.reviewer-credential-head span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.reviewer-credential-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.reviewer-credential-fields label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.reviewer-credential-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .enrollment-editor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4590,11 +4645,20 @@ code {
 
 @media (max-width: 640px) {
   .enrollment-status-grid,
-  .enrollment-editor {
+  .enrollment-editor,
+  .reviewer-credential-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .enrollment-editor .wide {
     grid-column: auto;
+  }
+
+  .reviewer-credential-head {
+    align-items: flex-start;
+  }
+
+  .reviewer-credential-actions .btn {
+    flex: 1 1 auto;
   }
 }

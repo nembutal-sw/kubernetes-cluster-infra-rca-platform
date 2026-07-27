@@ -2,6 +2,8 @@ package io.clusterinfra.rca.webconsole.service;
 
 import io.clusterinfra.rca.webconsole.domain.RcaModels.AnalysisTaskStatus;
 import io.clusterinfra.rca.webconsole.domain.RcaModels.NodeAgent;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ReviewerCredentialState;
+import io.clusterinfra.rca.webconsole.domain.RcaModels.ReviewerCredentialStatus;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -22,6 +24,9 @@ public class RcaMetrics {
     private final AtomicLong analysisDeadLetterCount = new AtomicLong();
     private final AtomicLong notificationQueueDepth = new AtomicLong();
     private final AtomicLong notificationDeadLetterCount = new AtomicLong();
+    private final AtomicLong reviewerCredentialUnavailableCount = new AtomicLong();
+    private final AtomicLong reviewerCredentialExpiringCount = new AtomicLong();
+    private final AtomicLong reviewerCredentialRotatingCount = new AtomicLong();
 
     public RcaMetrics(MeterRegistry registry) {
         this.registry = registry;
@@ -54,6 +59,21 @@ public class RcaMetrics {
             "rca.notification.dead.letter.count",
             "Number of notification outbox events currently in dead-letter state",
             notificationDeadLetterCount
+        );
+        gauge(
+            "rca.agent.reviewer.credentials.unavailable.count",
+            "Number of reviewer credentials that are missing, invalid, or expired",
+            reviewerCredentialUnavailableCount
+        );
+        gauge(
+            "rca.agent.reviewer.credentials.expiring.count",
+            "Number of reviewer credentials close to expiry",
+            reviewerCredentialExpiringCount
+        );
+        gauge(
+            "rca.agent.reviewer.credentials.rotating.count",
+            "Number of reviewer credentials currently retaining a previous credential",
+            reviewerCredentialRotatingCount
         );
     }
 
@@ -352,6 +372,23 @@ public class RcaMetrics {
         analysisDeadLetterCount.set(Math.max(0, deadLetterCount));
         this.notificationQueueDepth.set(Math.max(0, notificationQueueDepth));
         this.notificationDeadLetterCount.set(Math.max(0, notificationDeadLetterCount));
+    }
+
+    public void refreshReviewerCredentialGauges(List<ReviewerCredentialStatus> statuses) {
+        long unavailable = statuses.stream()
+            .filter(status -> status.state() == ReviewerCredentialState.missing
+                || status.state() == ReviewerCredentialState.invalid
+                || status.state() == ReviewerCredentialState.expired)
+            .count();
+        long expiring = statuses.stream()
+            .filter(status -> status.state() == ReviewerCredentialState.expiring)
+            .count();
+        long rotating = statuses.stream()
+            .filter(status -> status.state() == ReviewerCredentialState.rotating)
+            .count();
+        reviewerCredentialUnavailableCount.set(unavailable);
+        reviewerCredentialExpiringCount.set(expiring);
+        reviewerCredentialRotatingCount.set(rotating);
     }
 
     private void increment(String name, String description, int amount, String... tags) {

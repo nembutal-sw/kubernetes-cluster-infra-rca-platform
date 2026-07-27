@@ -228,6 +228,7 @@ def validate_endpoint(endpoint: Endpoint) -> list[dict[str, object]]:
     if ("/export" in path or "/bundle" in path) and {"VIEWER", "APPROVER"} & roles:
         findings.append(endpoint_record(endpoint, "failed", "sensitive_export_allows_viewer_or_approver"))
     token_admin_path = path.endswith("/agent-token/rotate") or path.endswith("/agent-token/revoke") \
+        or "/reviewer-credential/" in path \
         or bool(re.fullmatch(r"/api/clusters/\{[^/]+}/agents/\{[^/]+}/token/revoke", path))
     if token_admin_path and roles != {"ADMIN"}:
         findings.append(endpoint_record(endpoint, "failed", "agent_token_lifecycle_must_be_admin_only"))

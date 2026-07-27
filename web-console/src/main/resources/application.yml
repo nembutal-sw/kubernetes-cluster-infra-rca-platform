@@ -106,6 +106,8 @@ rca:
     poll-interval-seconds: ${RCA_AGENT_POLL_INTERVAL_SECONDS:30}
     http-timeout-seconds: ${RCA_AGENT_HTTP_TIMEOUT_SECONDS:20}
     command-timeout-seconds: ${RCA_AGENT_COMMAND_TIMEOUT_SECONDS:10}
+    reviewer-credential-expiring-seconds: ${RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS:300}
+    reviewer-credential-maximum-grace-seconds: ${RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS:86400}
   llm:
     enabled: ${RCA_LLM_ENABLED:false}
     provider: ${RCA_LLM_PROVIDER:none}

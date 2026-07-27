@@ -12,8 +12,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -22,6 +20,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Function;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import org.springframework.http.HttpStatus;
@@ -35,6 +34,8 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
     private final ObjectMapper objectMapper;
+    private final ReviewerCredentialInspector credentialInspector;
+    private final ReviewerCredentialLifecycleService credentialLifecycle;
     private final Map<String, HttpClient> clients = Collections.synchronizedMap(
         new LinkedHashMap<>(32, 0.75f, true) {
             @Override
@@ -44,8 +45,14 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
         }
     );
 
-    public HttpKubernetesApiTransport(ObjectMapper objectMapper) {
+    public HttpKubernetesApiTransport(
+        ObjectMapper objectMapper,
+        ReviewerCredentialInspector credentialInspector,
+        ReviewerCredentialLifecycleService credentialLifecycle
+    ) {
         this.objectMapper = objectMapper;
+        this.credentialInspector = credentialInspector;
+        this.credentialLifecycle = credentialLifecycle;
     }
 
     @Override
@@ -56,15 +63,18 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
                 "kind", "TokenReview",
                 "spec", Map.of("token", token, "audiences", java.util.List.of(configuration.audience()))
             ));
-            HttpRequest request = requestBuilder(
+            return sendWithReviewerCredential(
                 configuration,
-                "/apis/authentication.k8s.io/v1/tokenreviews",
-                reviewerToken(configuration)
-            )
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
-            return send(configuration, request, "TokenReview");
+                "TokenReview",
+                reviewerToken -> requestBuilder(
+                    configuration,
+                    "/apis/authentication.k8s.io/v1/tokenreviews",
+                    reviewerToken
+                )
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build()
+            );
         } catch (ResponseStatusException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -79,25 +89,37 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
         String podName
     ) {
         String path = "/api/v1/namespaces/" + segment(namespace) + "/pods/" + segment(podName);
-        HttpRequest request = requestBuilder(configuration, path, reviewerToken(configuration)).GET().build();
-        return send(configuration, request, "Pod lookup");
+        return sendWithReviewerCredential(
+            configuration,
+            "Pod lookup",
+            reviewerToken -> requestBuilder(configuration, path, reviewerToken).GET().build()
+        );
     }
 
-    private String reviewerToken(AgentEnrollmentConfiguration configuration) {
-        try (InputStream input = Files.newInputStream(Path.of(configuration.reviewerTokenPath()))) {
-            String token = new String(
-                readBounded(input, 32768, "Kubernetes reviewer token"),
-                StandardCharsets.UTF_8
-            ).trim();
-            if (token.isEmpty() || token.chars().anyMatch(Character::isWhitespace)) {
-                throw unavailable("Kubernetes reviewer token file is empty or invalid", null);
+    JsonNode sendWithReviewerCredential(
+        AgentEnrollmentConfiguration configuration,
+        String operation,
+        Function<String, HttpRequest> requestFactory
+    ) {
+        Exception lastReadFailure = null;
+        boolean rejected = false;
+        for (String tokenPath : credentialLifecycle.activeTokenPaths(configuration)) {
+            try {
+                String reviewerToken = credentialInspector.readToken(tokenPath);
+                return send(configuration, requestFactory.apply(reviewerToken), operation);
+            } catch (ReviewerCredentialRejectedException exception) {
+                rejected = true;
+            } catch (IOException exception) {
+                lastReadFailure = exception;
             }
-            return token;
-        } catch (ResponseStatusException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw unavailable("Kubernetes reviewer token file could not be read", exception);
         }
+        if (rejected) {
+            throw new ResponseStatusException(
+                HttpStatus.UNAUTHORIZED,
+                operation + " reviewer credential was rejected"
+            );
+        }
+        throw unavailable("Kubernetes reviewer token file could not be read", lastReadFailure);
     }
 
     private HttpRequest.Builder requestBuilder(
@@ -111,7 +133,7 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
             .header("Authorization", "Bearer " + token);
     }
 
-    private JsonNode send(
+    JsonNode send(
         AgentEnrollmentConfiguration configuration,
         HttpRequest request,
         String operation
@@ -123,10 +145,14 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
             );
             try (InputStream bodyStream = response.body()) {
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    if (response.statusCode() == 401
-                        || response.statusCode() == 403
-                        || response.statusCode() == 404) {
-                        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, operation + " was rejected");
+                    if (response.statusCode() == 401 || response.statusCode() == 403) {
+                        throw new ReviewerCredentialRejectedException();
+                    }
+                    if (response.statusCode() == 404) {
+                        throw new ResponseStatusException(
+                            HttpStatus.UNAUTHORIZED,
+                            operation + " was rejected"
+                        );
                     }
                     throw unavailable(operation + " returned HTTP " + response.statusCode(), null);
                 }
@@ -199,5 +225,8 @@ public class HttpKubernetesApiTransport implements KubernetesApiTransport {
 
     private ResponseStatusException unavailable(String message, Throwable cause) {
         return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message, cause);
+    }
+
+    static final class ReviewerCredentialRejectedException extends RuntimeException {
     }
 }

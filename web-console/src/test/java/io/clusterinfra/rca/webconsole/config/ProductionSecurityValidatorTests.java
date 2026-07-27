@@ -59,6 +59,31 @@ class ProductionSecurityValidatorTests {
     }
 
     @Test
+    void productionRejectsUnsafeReviewerCredentialWindows() {
+        contextRunner
+            .withPropertyValues(
+                "rca.default-admin-username=platform-admin",
+                "rca.default-admin-password=a-strong-admin-password",
+                "rca.webhook-token=a-strong-webhook-token",
+                "spring.datasource.password=a-strong-database-password",
+                "rca.public-api-base-url=https://rca.example.com",
+                "rca.audit.enabled=true",
+                "rca.demo.enabled=false",
+                "rca.security.encryption-secret=a-strong-encryption-secret",
+                "rca.observability.metrics-token=a-strong-metrics-token",
+                "rca.llm.enabled=false",
+                "rca.agent.reviewer-credential-expiring-seconds=10",
+                "rca.agent.reviewer-credential-maximum-grace-seconds=1209600"
+            )
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasStackTraceContaining("RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS")
+                    .hasStackTraceContaining("RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS");
+            });
+    }
+
+    @Test
     void productionRejectsMissingOrReusedOpaqueTokenPepper() {
         contextRunner
             .withPropertyValues(

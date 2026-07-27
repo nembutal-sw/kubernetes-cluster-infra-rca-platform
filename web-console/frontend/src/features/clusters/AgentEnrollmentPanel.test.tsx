@@ -25,6 +25,14 @@ const detail: ClusterDetailState = {
     service_account: "cluster-infra-rca-agent",
     profile_version: 3,
     reviewer_token_path: "/var/run/secrets/kubernetes.io/serviceaccount/token",
+    reviewer_credential_version: 4,
+    reviewer_credential_status: {
+      state: "ready",
+      version: 4,
+      current_readable: true,
+      current_expires_at: "2026-07-22T01:00:00Z",
+      previous_available: false,
+    },
     expected_service_account_uid: "service-account-uid",
     expected_daemon_set_name: "cluster-infra-rca-agent",
     expected_daemon_set_uid: "daemonset-uid",
@@ -45,7 +53,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderDetail(canAdmin: boolean, onUpdate = vi.fn()) {
+function renderDetail(
+  canAdmin: boolean,
+  onUpdate = vi.fn(),
+  onRotateReviewerCredential = vi.fn(),
+  onRetirePreviousReviewerCredential = vi.fn(),
+) {
   render(
     <ClusterDetail
       cluster={cluster}
@@ -54,6 +67,8 @@ function renderDetail(canAdmin: boolean, onUpdate = vi.fn()) {
       onUpdateThresholds={vi.fn()}
       onClearThresholds={vi.fn()}
       onUpdateEnrollment={onUpdate}
+      onRotateReviewerCredential={onRotateReviewerCredential}
+      onRetirePreviousReviewerCredential={onRetirePreviousReviewerCredential}
       canOperate={canAdmin}
       canAdmin={canAdmin}
       t={(key) => key}
@@ -108,6 +123,8 @@ describe("Agent enrollment panel", () => {
         onUpdateThresholds={vi.fn()}
         onClearThresholds={vi.fn()}
         onUpdateEnrollment={onUpdate}
+        onRotateReviewerCredential={vi.fn()}
+        onRetirePreviousReviewerCredential={vi.fn()}
         canOperate
         canAdmin
         t={(key) => key}
@@ -131,5 +148,31 @@ describe("Agent enrollment panel", () => {
 
     expect(confirm).toHaveBeenCalledOnce();
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it("shows lifecycle status and uses the dedicated rotation callback", async () => {
+    const onRotate = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderDetail(true, vi.fn(), onRotate);
+
+    expect(screen.getByText("ready")).not.toBeNull();
+    expect(screen.getByText("v4")).not.toBeNull();
+    expect(
+      (screen.getByLabelText("Backend reviewer token path") as HTMLInputElement).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText("Next reviewer token path"), {
+      target: {
+        value: "/var/run/secrets/cluster-infra-rca-reviewers/reviewer-b/token",
+      },
+    });
+    fireEvent.click(screen.getByTestId("reviewer-credential-rotate"));
+
+    await waitFor(() => expect(onRotate).toHaveBeenCalledOnce());
+    expect(onRotate.mock.calls[0][0]).toEqual(cluster);
+    expect(onRotate.mock.calls[0][1]).toMatchObject({
+      next_token_path: "/var/run/secrets/cluster-infra-rca-reviewers/reviewer-b/token",
+      expected_version: 4,
+    });
+    expect(onRotate.mock.calls[0][1].previous_valid_until).toMatch(/T/);
   });
 });

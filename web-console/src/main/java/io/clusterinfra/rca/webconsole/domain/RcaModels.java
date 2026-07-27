@@ -42,6 +42,10 @@ public final class RcaModels {
         bootstrap_token, kubernetes_token_review
     }
 
+    public enum ReviewerCredentialState {
+        not_configured, ready, rotating, expiring, expired, missing, invalid, unknown_expiry
+    }
+
     public enum AgentHealthStatus {
         healthy, stale, offline, unauthorized, version_mismatch, collector_degraded
     }
@@ -239,6 +243,29 @@ public final class RcaModels {
     ) {
     }
 
+    public record ReviewerCredentialRotationRequest(
+        @NotBlank @Size(max = 4096) String nextTokenPath,
+        @NotNull @Min(1) Long expectedVersion,
+        @NotNull Instant previousValidUntil
+    ) {
+    }
+
+    public record ReviewerCredentialRetireRequest(
+        @NotNull @Min(1) Long expectedVersion
+    ) {
+    }
+
+    public record ReviewerCredentialStatus(
+        ReviewerCredentialState state,
+        long version,
+        boolean currentReadable,
+        Instant currentExpiresAt,
+        boolean previousAvailable,
+        Instant previousValidUntil,
+        Instant rotatedAt
+    ) {
+    }
+
     public record AgentEnrollmentProfile(
         String clusterId,
         AgentEnrollmentMode mode,
@@ -250,6 +277,11 @@ public final class RcaModels {
         String serviceAccount,
         long profileVersion,
         String reviewerTokenPath,
+        long reviewerCredentialVersion,
+        String reviewerPreviousTokenPath,
+        Instant reviewerPreviousValidUntil,
+        Instant reviewerCredentialRotatedAt,
+        ReviewerCredentialStatus reviewerCredentialStatus,
         String expectedServiceAccountUid,
         String expectedDaemonSetName,
         String expectedDaemonSetUid,
@@ -290,12 +322,47 @@ public final class RcaModels {
             boolean workloadIdentityReady,
             boolean bootstrapFallbackAllowed,
             boolean bootstrapTokenRotationRequired,
+            Instant legacyUnboundTokenGraceUntil,
+            List<LegacyUnboundAgent> legacyUnboundAgents,
             Instant updatedAt
         ) {
             this(
                 clusterId, mode, configured, apiServerUrl, caSha256, audience, namespace,
-                serviceAccount, profileVersion, reviewerTokenPath, expectedServiceAccountUid,
-                expectedDaemonSetName, expectedDaemonSetUid, requiredPodLabels,
+                serviceAccount, profileVersion, reviewerTokenPath, configured ? 1 : 0,
+                null, null, null, null, expectedServiceAccountUid, expectedDaemonSetName,
+                expectedDaemonSetUid, requiredPodLabels, allowedImageDigest,
+                workloadIdentityReady, bootstrapFallbackAllowed,
+                bootstrapTokenRotationRequired, legacyUnboundTokenGraceUntil,
+                legacyUnboundAgents, updatedAt
+            );
+        }
+
+        public AgentEnrollmentProfile(
+            String clusterId,
+            AgentEnrollmentMode mode,
+            boolean configured,
+            String apiServerUrl,
+            String caSha256,
+            String audience,
+            String namespace,
+            String serviceAccount,
+            long profileVersion,
+            String reviewerTokenPath,
+            String expectedServiceAccountUid,
+            String expectedDaemonSetName,
+            String expectedDaemonSetUid,
+            Map<String, String> requiredPodLabels,
+            String allowedImageDigest,
+            boolean workloadIdentityReady,
+            boolean bootstrapFallbackAllowed,
+            boolean bootstrapTokenRotationRequired,
+            Instant updatedAt
+        ) {
+            this(
+                clusterId, mode, configured, apiServerUrl, caSha256, audience, namespace,
+                serviceAccount, profileVersion, reviewerTokenPath, configured ? 1 : 0,
+                null, null, null, null, expectedServiceAccountUid, expectedDaemonSetName,
+                expectedDaemonSetUid, requiredPodLabels,
                 allowedImageDigest, workloadIdentityReady, bootstrapFallbackAllowed,
                 bootstrapTokenRotationRequired, null, List.of(), updatedAt
             );
@@ -316,6 +383,19 @@ public final class RcaModels {
                 null,
                 0,
                 null,
+                0,
+                null,
+                null,
+                null,
+                new ReviewerCredentialStatus(
+                    ReviewerCredentialState.not_configured,
+                    0,
+                    false,
+                    null,
+                    false,
+                    null,
+                    null
+                ),
                 null,
                 null,
                 null,

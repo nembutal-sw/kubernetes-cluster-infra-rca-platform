@@ -240,6 +240,40 @@ jobs:
           grep -q 'helm.sh/hook: pre-upgrade' <<< "${reviewer}"
           grep -q 'name: RCA_AGENT_ENROLLMENT_MIGRATION_MODE' <<< "${reviewer}"
           grep -q 'value: "audit"' <<< "${reviewer}"
+          grep -q 'name: RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS' <<< "${reviewer}"
+          grep -q 'name: RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS' <<< "${reviewer}"
+          external_reviewers="$(helm template rca charts/cluster-infra-rca-platform \
+            --set-json 'platform.kubernetesReviewer.externalCredentials=[
+              {"name":"cluster-a-current","secretName":"reviewer-cluster-a-current","secretKey":"token"},
+              {"name":"cluster-a-next","secretName":"reviewer-cluster-a-next","secretKey":"credential"}
+            ]')"
+          grep -q 'name: external-reviewer-cluster-a-current' <<< "${external_reviewers}"
+          grep -q 'mountPath: "/var/run/secrets/cluster-infra-rca-reviewers/cluster-a-current"' <<< "${external_reviewers}"
+          grep -q 'secretName: "reviewer-cluster-a-current"' <<< "${external_reviewers}"
+          grep -q 'key: "credential"' <<< "${external_reviewers}"
+          grep -q 'path: token' <<< "${external_reviewers}"
+          grep -q 'defaultMode: 0400' <<< "${external_reviewers}"
+          if helm template rca charts/cluster-infra-rca-platform \
+            --set-json 'platform.kubernetesReviewer.externalCredentials=[
+              {"name":"duplicate","secretName":"first","secretKey":"token"},
+              {"name":"duplicate","secretName":"second","secretKey":"token"}
+            ]' >/dev/null 2>&1; then
+            echo "external reviewer credential names must be unique" >&2
+            exit 1
+          fi
+          if helm template rca charts/cluster-infra-rca-platform \
+            --set-json 'platform.kubernetesReviewer.externalCredentials=[
+              {"name":"missing-secret","secretKey":"token"}
+            ]' >/dev/null 2>&1; then
+            echo "external reviewer credentials must reference an existing Secret" >&2
+            exit 1
+          fi
+          if helm template rca charts/cluster-infra-rca-platform \
+            --set platform.config.reviewerCredentialMaximumGraceSeconds=1209600 \
+            >/dev/null 2>&1; then
+            echo "reviewer credential grace must remain bounded" >&2
+            exit 1
+          fi
           preflight="$(helm template rca charts/cluster-infra-rca-platform \
             --show-only templates/platform-agent-enrollment-preflight-job.yaml)"
           grep -q 'app.kubernetes.io/component: platform' <<< "${preflight}"

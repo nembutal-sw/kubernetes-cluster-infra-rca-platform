@@ -85,6 +85,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         validateLlm(violations);
         validateNotification(violations);
         validateGitOps(violations);
+        validateReviewerCredentialLifecycle(violations);
         if (properties.getObservability().isEnabled()) {
             rejectUnsafe(
                 properties.getObservability().getMetricsToken(),
@@ -341,6 +342,22 @@ public class ProductionSecurityValidator implements InitializingBean {
             "RCA_GITOPS_WEBHOOK_SECRET must be a non-default secret when GitOps is enabled",
             violations
         );
+    }
+
+    private void validateReviewerCredentialLifecycle(List<String> violations) {
+        int expiringSeconds = properties.getAgent().getReviewerCredentialExpiringSeconds();
+        int maximumGraceSeconds = properties.getAgent()
+            .getReviewerCredentialMaximumGraceSeconds();
+        if (expiringSeconds < 60 || expiringSeconds > 86400) {
+            violations.add(
+                "RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS must be between 60 and 86400"
+            );
+        }
+        if (maximumGraceSeconds < 60 || maximumGraceSeconds > 604800) {
+            violations.add(
+                "RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS must be between 60 and 604800"
+            );
+        }
     }
 
     private void validateHttpsUrl(String value, String label, List<String> violations) {

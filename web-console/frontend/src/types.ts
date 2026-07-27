@@ -216,6 +216,25 @@ export interface ClusterDetailState {
 }
 
 export type AgentEnrollmentMode = "bootstrap_token" | "kubernetes_token_review";
+export type ReviewerCredentialState =
+  | "not_configured"
+  | "ready"
+  | "rotating"
+  | "expiring"
+  | "expired"
+  | "missing"
+  | "invalid"
+  | "unknown_expiry";
+
+export interface ReviewerCredentialStatus {
+  state: ReviewerCredentialState;
+  version: number;
+  current_readable: boolean;
+  current_expires_at?: string | null;
+  previous_available: boolean;
+  previous_valid_until?: string | null;
+  rotated_at?: string | null;
+}
 
 export interface LegacyUnboundAgent {
   node_name: string;
@@ -235,6 +254,11 @@ export interface AgentEnrollmentProfile {
   service_account?: string | null;
   profile_version: number;
   reviewer_token_path?: string | null;
+  reviewer_credential_version?: number;
+  reviewer_previous_token_path?: string | null;
+  reviewer_previous_valid_until?: string | null;
+  reviewer_credential_rotated_at?: string | null;
+  reviewer_credential_status?: ReviewerCredentialStatus | null;
   expected_service_account_uid?: string | null;
   expected_daemon_set_name?: string | null;
   expected_daemon_set_uid?: string | null;
@@ -263,6 +287,12 @@ export interface AgentEnrollmentUpdate {
   allowed_image_digest?: string;
   legacy_unbound_token_grace_until?: string | null;
   bootstrap_fallback_allowed?: boolean;
+}
+
+export interface ReviewerCredentialRotationRequest {
+  next_token_path: string;
+  expected_version: number;
+  previous_valid_until: string;
 }
 
 export interface ClusterThresholdSettings {

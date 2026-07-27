@@ -29,6 +29,26 @@
 {{- fail "platform.kubernetesReviewer.audience must be listed in platform.config.kubernetesApiAudiences" }}
 {{- end }}
 {{- end }}
+{{- if or (lt (int .Values.platform.config.reviewerCredentialExpiringSeconds) 60) (gt (int .Values.platform.config.reviewerCredentialExpiringSeconds) 86400) }}
+{{- fail "platform.config.reviewerCredentialExpiringSeconds must be between 60 and 86400" }}
+{{- end }}
+{{- if or (lt (int .Values.platform.config.reviewerCredentialMaximumGraceSeconds) 60) (gt (int .Values.platform.config.reviewerCredentialMaximumGraceSeconds) 604800) }}
+{{- fail "platform.config.reviewerCredentialMaximumGraceSeconds must be between 60 and 604800" }}
+{{- end }}
+{{- $externalReviewers := default (list) .Values.platform.kubernetesReviewer.externalCredentials }}
+{{- $externalReviewerNames := dict }}
+{{- range $credential := $externalReviewers }}
+{{- $name := required "platform.kubernetesReviewer.externalCredentials[].name is required" $credential.name }}
+{{- if or (gt (len $name) 40) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$" $name)) }}
+{{- fail "platform.kubernetesReviewer.externalCredentials[].name must be a DNS label up to 40 characters" }}
+{{- end }}
+{{- if hasKey $externalReviewerNames $name }}
+{{- fail "platform.kubernetesReviewer.externalCredentials[].name values must be unique" }}
+{{- end }}
+{{- $_ := set $externalReviewerNames $name true }}
+{{- $_ := required "platform.kubernetesReviewer.externalCredentials[].secretName is required" $credential.secretName }}
+{{- $_ := required "platform.kubernetesReviewer.externalCredentials[].secretKey is required" $credential.secretKey }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -113,6 +133,10 @@ spec:
               value: {{ join "," .Values.platform.config.kubernetesApiAudiences | quote }}
             - name: RCA_AGENT_OFFLINE_AFTER_SECONDS
               value: {{ .Values.platform.config.agentOfflineAfterSeconds | quote }}
+            - name: RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS
+              value: {{ .Values.platform.config.reviewerCredentialExpiringSeconds | quote }}
+            - name: RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS
+              value: {{ .Values.platform.config.reviewerCredentialMaximumGraceSeconds | quote }}
             - name: RCA_AGENT_EXPECTED_VERSION
               value: {{ .Values.platform.config.agentExpectedVersion | quote }}
             - name: RCA_AGENT_MINIMUM_SUPPORTED_VERSION
@@ -322,7 +346,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled }}
+          {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled (gt (len $externalReviewers) 0) }}
           volumeMounts:
             {{- if .Values.platform.tmpDir.enabled }}
             - name: tmp
@@ -333,8 +357,13 @@ spec:
               mountPath: {{ .Values.platform.kubernetesReviewer.tokenMountPath | quote }}
               readOnly: true
             {{- end }}
+            {{- range $credential := $externalReviewers }}
+            - name: {{ printf "external-reviewer-%s" $credential.name }}
+              mountPath: {{ printf "/var/run/secrets/cluster-infra-rca-reviewers/%s" $credential.name | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled }}
+      {{- if or .Values.platform.tmpDir.enabled .Values.platform.kubernetesReviewer.enabled (gt (len $externalReviewers) 0) }}
       volumes:
         {{- if .Values.platform.tmpDir.enabled }}
         - name: tmp
@@ -350,6 +379,15 @@ spec:
                   audience: {{ required "platform.kubernetesReviewer.audience is required" .Values.platform.kubernetesReviewer.audience | quote }}
                   expirationSeconds: {{ int .Values.platform.kubernetesReviewer.tokenExpirationSeconds }}
                   path: token
+        {{- end }}
+        {{- range $credential := $externalReviewers }}
+        - name: {{ printf "external-reviewer-%s" $credential.name }}
+          secret:
+            secretName: {{ $credential.secretName | quote }}
+            defaultMode: 0400
+            items:
+              - key: {{ $credential.secretKey | quote }}
+                path: token
         {{- end }}
       {{- end }}
       {{- with .Values.platform.nodeSelector }}

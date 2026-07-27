@@ -90,16 +90,38 @@ def main() -> int:
             exists("web-console/src/main/resources/db/migration/V23__agent_enrollment_profiles.sql")
             and exists("web-console/src/main/resources/db/migration/V24__agent_workload_identity.sql")
             and exists("web-console/src/main/resources/db/migration/V25__cluster_scoped_agent_legacy_grace.sql")
+            and exists("web-console/src/main/resources/db/migration/V26__reviewer_credential_lifecycle.sql")
             and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/security/AgentSecurityPolicy.java"
             )
             and exists(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/KubernetesTokenReviewService.java"
             )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ReviewerCredentialLifecycleService.java"
+            )
+            and exists(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ReviewerCredentialInspector.java"
+            )
             and contains(
                 "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/HttpKubernetesApiTransport.java",
-                "reviewerToken(configuration)",
-                "configuration.reviewerTokenPath()",
+                "sendWithReviewerCredential",
+                "credentialLifecycle.activeTokenPaths(configuration)",
+                "credentialInspector.readToken(tokenPath)",
+                "ReviewerCredentialRejectedException",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/service/ReviewerCredentialLifecycleService.java",
+                "previous_valid_until must be in the future",
+                "reviewer credential version changed",
+                "next reviewer credential is missing or invalid",
+            )
+            and contains(
+                "web-console/src/main/java/io/clusterinfra/rca/webconsole/controller/ClusterController.java",
+                "/reviewer-credential/rotate",
+                "/reviewer-credential/retire-previous",
+                "cluster.reviewer_credential.rotate",
+                "cluster.reviewer_credential.retire_previous",
             )
             and contains(
                 "charts/cluster-infra-rca-agent/templates/daemonset.yaml",
@@ -133,6 +155,8 @@ def main() -> int:
                 "agent-manifest-parity.py",
                 "Agent enrollment pre-upgrade hook must be audit-only",
                 "Agent enrollment pre-upgrade hook must not receive the full Platform Secret",
+                "external reviewer credential names must be unique",
+                "reviewer credential grace must remain bounded",
             )
             and contains(
                 "docker-compose.yml",
@@ -169,6 +193,8 @@ def main() -> int:
             and contains(
                 "charts/cluster-infra-rca-platform/templates/platform-deployment.yaml",
                 'rca.clusterinfra.io/database-client: "true"',
+                "externalCredentials",
+                "RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS",
             )
             and exists("scripts/render-agent-enrollment-migration-job.py")
             and contains(
@@ -184,6 +210,12 @@ def main() -> int:
             )
             and exists(
                 "web-console/src/test/java/io/clusterinfra/rca/webconsole/maintenance/AgentEnrollmentMigrationPackagedJarIT.java"
+            )
+            and exists(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/service/ReviewerCredentialLifecycleServiceTests.java"
+            )
+            and exists(
+                "web-console/src/test/java/io/clusterinfra/rca/webconsole/persistence/AgentEnrollmentRepositoryTests.java"
             )
             and exists("scripts/verify_agent_enrollment_migration_report.py")
             and contains(
@@ -208,7 +240,7 @@ def main() -> int:
                 "/agent-enrollment",
                 "platform_tokenreview_enrollment_completed",
             ),
-            "Agent enrollment uses a dedicated audience, an audit-only upgrade gate, and full Kind workload identity validation.",
+            "Agent enrollment uses a dedicated audience, bounded reviewer credential rotation, an audit-only upgrade gate, and full Kind workload identity validation.",
         ),
         check(
             "readiness-health",
