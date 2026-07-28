@@ -57,6 +57,23 @@ ServiceAccount에는 TokenReview 생성 권한을 부여하지 않는다.
 `/var/run/secrets/cluster-infra-rca-reviewers/<cluster>/token`에 mount한다. 일반 파일 경로나
 Agent projected token은 reviewer credential로 사용할 수 없다.
 
+Platform chart에서는 Secret 원문을 values에 넣지 않고 참조만 설정한다.
+
+```yaml
+platform:
+  kubernetesReviewer:
+    externalCredentials:
+      - name: cluster-a-current
+        secretName: reviewer-cluster-a-current
+        secretKey: token
+      - name: cluster-a-next
+        secretName: reviewer-cluster-a-next
+        secretKey: token
+```
+
+각 Secret key는 container에서
+`/var/run/secrets/cluster-infra-rca-reviewers/<name>/token`으로 읽기 전용 mount된다.
+
 ## Two-Step Binding
 
 Kubernetes object UID는 배포 후에 생성되므로 profile을 두 단계로 저장한다.
@@ -132,6 +149,24 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
 
 profile의 보안 필드가 바뀌면 `profile_version`이 증가하고 기존 node token은 모두 폐기된다.
 node token 검증 시 등록 당시 profile version과 현재 version도 비교한다.
+
+Reviewer credential 경로는 최초 profile 설정 후 일반 profile update로 바꿀 수 없다. 새 Secret을
+먼저 mount한 다음 Web Console의 **Reviewer credential rotation**에서 새 경로와 이전 credential
+유예 만료를 지정한다. Platform은 다음 순서로 처리한다.
+
+1. `expected_version`이 현재 reviewer credential version과 같은지 확인한다.
+2. 새 경로가 platform ServiceAccount token 또는 전용 reviewer root인지 확인한다.
+3. 새 token 파일이 읽히고 비어 있지 않으며, JWT라면 만료 또는 만료 임박 상태가 아닌지 확인한다.
+4. 새 경로를 current로 전환하고 기존 경로를 bounded grace의 previous로 보관한다.
+5. current 파일 읽기 실패 또는 Kubernetes API `401/403`에서만 previous로 한 번 fallback한다.
+6. 검증이 끝나면 **Retire previous**로 이전 경로를 즉시 제거한다.
+
+기본 만료 임박 구간은 300초, 최대 grace는 86400초다. 운영에서는 각각
+`RCA_REVIEWER_CREDENTIAL_EXPIRING_SECONDS`,
+`RCA_REVIEWER_CREDENTIAL_MAXIMUM_GRACE_SECONDS`로 설정하며 최대 grace는 7일을 넘길 수 없다.
+`GET /api/clusters/{cluster_id}/agent-enrollment`의 `reviewer_credential_status`에서
+`ready`, `rotating`, `expiring`, `expired`, `missing`, `invalid`, `unknown_expiry`를 확인한다.
+Raw token은 DB, API 응답, audit에 기록되지 않는다.
 
 V24 이전에 발급되어 `enrollment_profile_version`이 비어 있는 node token은 현재 profile이
 존재하면 기본 거부된다. 순차 재등록 유예는 Web Console의 cluster별 enrollment profile에서만

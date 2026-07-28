@@ -94,6 +94,12 @@ token Secret이 없으며, 전용 audience의 projected token을 Platform review
 
 - enrollment audience와 Kubernetes API audience를 분리합니다.
 - reviewer credential은 Agent ServiceAccount와 분리하고 TokenReview·Pod 조회 최소 RBAC만 부여합니다.
+- 외부 reviewer Secret은 `/var/run/secrets/cluster-infra-rca-reviewers/<name>/token`에 읽기 전용으로
+  mount하고 원문을 DB나 audit에 기록하지 않습니다.
+- 교체는 새 Secret mount를 먼저 배포한 뒤 Console의 credential rotation에서 새 경로와 최대 grace를
+  지정합니다. 상태가 `ready` 또는 `rotating`인지 확인한 뒤 이전 credential을 폐기합니다.
+- `missing`, `invalid`, `expired`, `expiring` 상태와
+  `rca.agent.reviewer.credentials.unavailable.count`를 경보 대상으로 사용합니다.
 - audience 변경은 Agent chart 선배포, Helm과 분리된 cluster allowlist one-shot Job, canary, 최종
   audit, Platform upgrade 순서로 진행합니다.
 - 자세한 전환과 복구는 [Agent Enrollment Upgrade](agent-enrollment-upgrade.md)를 따릅니다.

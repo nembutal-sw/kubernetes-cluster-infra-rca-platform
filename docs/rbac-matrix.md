@@ -20,7 +20,8 @@ Web Console API의 기본 역할 계약을 정리한다. 실제 회귀 검증은
 | Cluster delete | `ADMIN` | 운영 영향이 커서 관리자 전용 |
 | Bootstrap token rotate/revoke | `ADMIN` | 등록 credential 회전 또는 신규 등록 차단 |
 | Agent enrollment profile read | `ADMIN`, `OPERATOR`, `VIEWER` | CA 원문 없이 mode, fingerprint, workload binding 상태 조회 |
-| Agent enrollment profile update | `ADMIN` | reviewer 경로, immutable workload identity, bootstrap fallback 변경 |
+| Agent enrollment profile update | `ADMIN` | immutable workload identity와 bootstrap fallback 변경 |
+| Reviewer credential rotate/retire | `ADMIN` | 새 mount 검증, bounded grace, 이전 credential 즉시 폐기 |
 | Node token revoke | `ADMIN` | 단일 노드의 Agent API 접근 차단 |
 | Report list/detail | `ADMIN`, `OPERATOR`, `VIEWER`, `APPROVER` | 조회 전용 |
 | Report JSON export | `ADMIN`, `OPERATOR` | 운영 로그와 evidence 요약 포함 |

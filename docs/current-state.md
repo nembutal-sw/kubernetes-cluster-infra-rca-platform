@@ -2,8 +2,8 @@
 
 이 문서는 저장소의 현재 구현 기준을 한곳에 정리한 문서입니다.
 
-- 기준일: `2026-07-27`
-- 기준 단계: `Phase 39`
+- 기준일: `2026-07-28`
+- 기준 단계: `Phase 40`
 - 기준 브랜치: `main`
 
 세부 설계는 각 주제별 문서를 따르되, 기능 상태나 버전 설명이 서로 다르면 이 문서와 실제 코드·설정을
@@ -31,10 +31,10 @@ systemd·kernel, 디스크·inode·메모리·PID, NIC·conntrack, API Server·e
 | Web Console | React `19.2.7`, TypeScript, Vite `8.0.16`, Bootstrap `5.3.8` |
 | Node Agent | Python `3.10+`, Agent protocol `v2` |
 | Database | PostgreSQL `16` 또는 MariaDB `11.x`, 로컬 개발용 H2 |
-| Schema | Flyway V25, 총 25개 migration |
+| Schema | Flyway V26, 총 26개 migration |
 | Packaging | 단일 Spring Boot 애플리케이션에 React 정적 자산 포함 |
 
-Flyway migration은 SQL 24개와 Java migration `V14__widen_audit_outcome` 1개로 구성됩니다.
+Flyway migration은 SQL 25개와 Java migration `V14__widen_audit_outcome` 1개로 구성됩니다.
 JSP와 별도 Python Backend는 사용하지 않습니다.
 
 ## Components And Flow
@@ -81,7 +81,9 @@ Agent 등록 방식은 두 가지입니다.
 
 등록 후에는 node-scoped Bearer token만 사용합니다. Node token은 기본 30일마다 원자적으로
 회전하며 cluster/node/profile version에 결합됩니다. TokenReview enrollment audience는 Kubernetes API
-audience와 겹칠 수 없습니다.
+audience와 겹칠 수 없습니다. 외부 cluster reviewer credential은 raw token을 저장하지 않고 mount
+경로와 version만 관리합니다. 새 credential 검증 후 bounded grace로 교체하며, `401/403` 또는 파일
+읽기 실패에서만 이전 credential을 사용합니다.
 
 ## Platform Contract
 
@@ -123,10 +125,9 @@ RCA 품질 수치는 저장소의 golden, production-like, 내부 holdout corpus
 
 1. opaque token key 사용 현황과 이전 key 제거 준비 상태 가시화
 2. Helm과 Web Console Agent manifest의 구조적 parity 강화
-3. 외부 cluster reviewer credential 수명주기와 rotation
-4. 관리자 승인 기반 Agent identity rebind
-5. 24시간 Production Fleet와 EKS/AKS/GKE/OpenShift 실제 canary
-6. 실제 장애 corpus와 LLM burn-in 표본 확대
+3. 관리자 승인 기반 Agent identity rebind
+4. 24시간 Production Fleet와 EKS/AKS/GKE/OpenShift 실제 canary
+5. 실제 장애 corpus와 LLM burn-in 표본 확대
 
 진행 순서와 완료 기록은 [Roadmap](roadmap.md)을 참고합니다.
 

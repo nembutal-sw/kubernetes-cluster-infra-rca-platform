@@ -84,7 +84,8 @@ Platform -> optional LLM provider
 
 - bootstrap mode는 등록 credential이 Kubernetes Secret에 존재하므로 autoscaling 기간과 TTL을
   함께 설계해야 합니다. 장기 운영 cluster는 TokenReview mode를 권장합니다.
-- TokenReview mode의 Platform reviewer credential은 외부 cluster API에 접근하므로 rotation,
+- TokenReview mode의 Platform reviewer credential은 외부 cluster API에 접근하므로 사전 검증
+  rotation, bounded grace, 만료 감시,
   최소 RBAC, 만료 감시가 필요합니다.
 - legacy protocol v1 body credential은 rolling upgrade 호환 기간 동안만 허용되므로 제거 시점과
   Agent version 분포를 운영자가 관리해야 합니다.

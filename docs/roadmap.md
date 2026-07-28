@@ -639,8 +639,8 @@ audience 분리와 legacy profile binding 정책은 Phase 36에서 처리한다.
 - Web Console 전용 audience 기본값, Backend·Helm·Frontend 회귀 테스트
 
 Kubernetes 공식 ServiceAccount 지침에 따라 애플리케이션이 수락하는 audience를 명시하고 API
-Server audience와 분리한다. 다음 우선순위는 Helm과 Web Console manifest의 구조적 object diff,
-외부 cluster reviewer credential 수명주기, 승인 기반 Agent identity rebind다.
+Server audience와 분리한다. 다음 우선순위는 Helm과 Web Console manifest의 구조적 object diff와
+승인 기반 Agent identity rebind다.
 
 ## Phase 37. Agent Enrollment Upgrade Safety
 
@@ -683,6 +683,21 @@ rebind다.
 - Kind에서 unsafe audit 차단, one-shot migration, 최종 rollout과 Platform TokenReview 전체 등록 경로 추가
 
 로컬 정적·단위 검증 후 PostgreSQL·MariaDB Failsafe와 Kind E2E는 Docker 기반 CI에서 최종 판정한다.
+
+## Phase 40. External Reviewer Credential Lifecycle
+
+구현:
+
+- Flyway V26에 reviewer credential version, 이전 경로, grace 만료와 rotation 시각 저장
+- raw token을 저장하지 않는 경로 기반 수명주기와 JWT 만료 상태 감시
+- 허용 mount root, optimistic version, 새 token 가독성·만료 선행 검증
+- 현재 credential의 파일 읽기 실패 또는 Kubernetes API `401/403`에서만 bounded fallback
+- ADMIN 전용 rotate/retire API, audit event와 Prometheus 상태 gauge
+- Web Console 상태·만료·grace 표시, 확인 기반 rotation과 이전 credential 즉시 폐기
+- Helm external Secret 다중 mount, 0400 mode, 이름·Secret key·grace 범위 CI 검증
+- H2와 PostgreSQL/MariaDB 호환 fixture, transport fallback, RBAC 회귀 테스트
+
+다음 우선순위는 관리자 승인 기반 Agent workload identity rebind와 24시간 Production Fleet다.
 
 ## Positioning
 

@@ -44,7 +44,7 @@ Alertmanager / Platform Scheduler / Demo Scenario
 | Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
 | Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
 | Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway V25, 25 migrations | 신규 및 기존 schema 관리 |
+| Migration | Flyway V26, 26 migrations | 신규 및 기존 schema 관리 |
 
 Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
 
@@ -60,6 +60,7 @@ Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Bac
 - Evidence 단위 멱등 처리, stale worker fence와 Analysis/Notification lease heartbeat
 - manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
 - PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
+- 외부 Kubernetes reviewer credential의 만료 감시, 검증 선행 rotation, bounded fallback과 즉시 폐기
 - Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
 - 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
 
@@ -274,6 +275,12 @@ Agent protocol v2는 등록 후 모든 요청을 node-scoped Bearer token으로 
 - `bootstrap-token`: 기본 호환 모드입니다. 등록 전용 token은 기본 30분 후 만료되며 회전·폐기할 수 있습니다.
 - `kubernetes-token-review`: Agent projected token은 `cluster-infra-rca-agent-enrollment` 같은 전용 audience를 사용합니다. Platform의 별도 Kubernetes API audience reviewer credential이 TokenReview와 Pod 조회를 수행하며, ServiceAccount UID, Running Pod, cluster label, DaemonSet UID, image digest까지 일치해야 등록됩니다.
 
+외부 cluster reviewer credential은 Platform Helm chart의 `externalCredentials`로 Secret을 읽기 전용
+mount합니다. Web Console에서 새 경로와 이전 credential 유예 만료 시각을 입력하면 새 파일의 가독성과
+JWT 만료를 먼저 검사하고, 성공한 경우에만 version을 증가시킵니다. 유예 중에는 현재 credential의 파일
+읽기 실패 또는 Kubernetes API `401/403`에서만 이전 credential을 사용합니다. 원문 token은 DB, API,
+audit에 저장하지 않습니다.
+
 TokenReview profile은 배포 전 staged 상태로 저장한 뒤 ServiceAccount/DaemonSet UID와 image digest를
 바인딩하는 2단계 방식입니다. profile이 바뀌면 기존 node token을 폐기하고, 활성 node identity는
 명시적 revoke 없이 다른 Pod가 덮어쓸 수 없습니다. 설정 순서는 [Agent Enrollment](docs/agent-enrollment.md),
@@ -317,6 +324,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
 | AlertmanagerConfig | `--set platform.alertmanagerConfig.enabled=true`와 `clusterId` |
 | Demo | `--set platform.config.demoEnabled=true` |
 | Token pepper 회전 | [Opaque Token Pepper Rotation](docs/opaque-token-key-rotation.md) |
+| 외부 reviewer Secret | `platform.kubernetesReviewer.externalCredentials` |
 
 기본 image repository는 예시 값입니다. 실제 registry로 `platform.image.repository`, `platform.image.tag`, Agent의 `image.repository`, `image.tag`를 지정해야 합니다. 운영 secret은 CLI `--set`보다 기존 Secret 또는 External Secrets를 권장합니다.
 

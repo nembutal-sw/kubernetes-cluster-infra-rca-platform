@@ -225,7 +225,9 @@ class DatabaseCompatibilityTests {
         assertThat(enrollments.view(cluster.clusterId()).mode())
             .isEqualTo(AgentEnrollmentMode.kubernetes_token_review);
         assertThat(enrollments.view(cluster.clusterId()).caSha256()).isEqualTo("test-ca-sha256");
-        assertThat(enrollments.findConfiguration(cluster.clusterId()).orElseThrow())
+        AgentEnrollmentConfiguration enrollmentConfiguration =
+            enrollments.findConfiguration(cluster.clusterId()).orElseThrow();
+        assertThat(enrollmentConfiguration)
             .satisfies(configuration -> {
                 assertThat(configuration.reviewerCredentialVersion()).isEqualTo(8);
                 assertThat(configuration.reviewerPreviousTokenPath())
@@ -257,7 +259,7 @@ class DatabaseCompatibilityTests {
             ),
             Map.of(
                 "method", "kubernetes_token_review",
-                "profile_version", 1L,
+                "profile_version", enrollmentConfiguration.profileVersion(),
                 "service_account_uid", "test-service-account-uid",
                 "daemonset_uid", "test-daemonset-uid",
                 "pod_uid", "test-pod-uid"

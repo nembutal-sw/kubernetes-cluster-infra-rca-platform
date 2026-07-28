@@ -44,6 +44,7 @@ Web Console과 Backend API의 기본 보안 계약을 정리한다. 실제 정�
 - `VIEWER`, `APPROVER`는 report export와 evidence bundle download 권한을 갖지 않는다.
 - Agent bootstrap token rotation/revocation과 node token revocation은 `ADMIN` 전용이다.
 - Agent enrollment profile 변경은 `ADMIN` 전용이고 조회는 `ADMIN`, `OPERATOR`, `VIEWER`만 가능하다.
+- Reviewer credential rotate/retire는 `ADMIN` 전용이며 일반 profile update로 경로를 우회 변경할 수 없다.
 - Cluster delete는 `ADMIN` 전용이다.
 - Action workflow는 agent 자동 실행이 아니라 승인, 거절, 감사, 수동 처리 완료 기록을 중심으로 유지한다.
 
@@ -76,6 +77,7 @@ python3 scripts/verify-api-contract.py
 - Agent 전용 audience와 Kubernetes API audience 분리, 운영 기동 및 Helm 렌더링 fail-fast
 - enrollment profile version 변경에 따른 node token 폐기와 활성 node identity 덮어쓰기 차단
 - V24 이전 profile 미결합 node token의 기본 차단과 cluster별 최대 30일 재등록 유예
+- V26 reviewer credential version 충돌, 허용 경로, 만료, bounded grace와 `401/403` 제한 fallback
 - 실제 Kind API Server에서 전용 audience token의 API 접근 거부와 TokenReview 성공
 - protocol v1 body credential 호환 및 header/body 충돌 거부
 - Agent endpoint 인증 선차단

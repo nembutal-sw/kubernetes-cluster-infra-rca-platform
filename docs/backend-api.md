@@ -139,6 +139,8 @@ GET    /api/clusters/{cluster_id}/install-command
 GET    /api/clusters/{cluster_id}/agent-manifest
 GET    /api/clusters/{cluster_id}/agent-enrollment
 PUT    /api/clusters/{cluster_id}/agent-enrollment
+POST   /api/clusters/{cluster_id}/agent-enrollment/reviewer-credential/rotate
+POST   /api/clusters/{cluster_id}/agent-enrollment/reviewer-credential/retire-previous
 POST   /api/clusters/{cluster_id}/agent-token/rotate
 POST   /api/clusters/{cluster_id}/agent-token/revoke
 POST   /api/clusters/{cluster_id}/agents/{node_name}/token/revoke
@@ -167,6 +169,12 @@ Agent enrollment profile은 `bootstrap_token`과 `kubernetes_token_review` mode�
 token 폐기 여부를 함께 반환합니다. 보안 계약 변경은 기존 node token을 폐기하지만 grace 변경만으로
 이미 profile에 결합된 token을 폐기하지는 않습니다. 자세한 설정은
 [Agent Enrollment](agent-enrollment.md)을 참고합니다.
+
+V26 응답은 `reviewer_credential_version`, 현재 만료 시각, 이전 credential 가용 여부와 grace 만료를
+포함합니다. 두 mutation API는 `ADMIN` 전용이며 optimistic `expected_version`을 요구합니다. Rotation은
+허용된 mount root의 새 token을 먼저 읽고 만료 상태를 검사한 뒤 현재 경로를 이전 경로로 이동합니다.
+Retire API는 grace 종료 전에도 이전 credential을 즉시 제거합니다. Token 원문은 요청, DB, 응답,
+audit detail에 포함하지 않습니다.
 
 Evidence request lists support `node_name`, `status`, `before`, and `limit` filters.
 The default limit is 100 and the maximum is 200.

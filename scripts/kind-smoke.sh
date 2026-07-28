@@ -43,6 +43,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
+start_platform_port_forward() {
+  if [[ -n "${port_forward_pid}" ]]; then
+    kill "${port_forward_pid}" >/dev/null 2>&1 || true
+    wait "${port_forward_pid}" >/dev/null 2>&1 || true
+  fi
+
+  kubectl port-forward service/rca-platform "${port}:8080" > /tmp/rca-port-forward.log 2>&1 &
+  port_forward_pid="$!"
+  for _ in $(seq 1 60); do
+    if "${curl_command[@]}" "http://127.0.0.1:${port}/health/ready" >/dev/null; then
+      return
+    fi
+    if ! kill -0 "${port_forward_pid}" >/dev/null 2>&1; then
+      cat /tmp/rca-port-forward.log >&2 || true
+      echo "Platform port-forward exited before readiness succeeded" >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  "${curl_command[@]}" "http://127.0.0.1:${port}/health/ready" >/dev/null
+}
+
 if ! kind get clusters | grep -Fxq "${cluster_name}"; then
   kind create cluster --name "${cluster_name}"
 fi
@@ -155,15 +177,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
 kubectl rollout status statefulset/rca-db --timeout=240s
 kubectl rollout status deployment/rca-platform --timeout=480s
 
-kubectl port-forward service/rca-platform "${port}:8080" > /tmp/rca-port-forward.log 2>&1 &
-port_forward_pid="$!"
-for _ in $(seq 1 60); do
-  if "${curl_command[@]}" "http://127.0.0.1:${port}/health/ready" >/dev/null; then
-    break
-  fi
-  sleep 2
-done
-"${curl_command[@]}" "http://127.0.0.1:${port}/health/ready" >/dev/null
+start_platform_port_forward
 
 access_token="$("${curl_command[@]}" "http://127.0.0.1:${port}/api/auth/login" \
   -H 'Content-Type: application/json' \
@@ -237,6 +251,7 @@ helm upgrade rca charts/cluster-infra-rca-platform \
   --wait \
   --timeout=5m
 preflight_upgrade_status="completed"
+start_platform_port_forward
 
 cluster_json="$("${curl_command[@]}" "http://127.0.0.1:${port}/api/clusters" \
   -H "Authorization: Bearer ${access_token}" \

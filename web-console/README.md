@@ -75,7 +75,7 @@ export RCA_DB_PASSWORD='<database-password>'
 mvn -Pfrontend process-resources spring-boot:run
 ```
 
-Flyway가 신규 schema에는 V25까지 총 25개 migration을 적용합니다. SQL migration 24개와 Java
+Flyway가 신규 schema에는 V26까지 총 26개 migration을 적용합니다. SQL migration 25개와 Java
 migration V14 1개로 구성되며, 기존 Python/Alembic schema는 version 1에서 baseline한 뒤 나머지
 migration을 적용합니다.
 

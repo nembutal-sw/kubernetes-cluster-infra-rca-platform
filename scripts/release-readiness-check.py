@@ -1092,8 +1092,8 @@ def main() -> int:
             )
             and contains(
                 "docs/current-state.md",
-                "Flyway V25",
-                "총 25개 migration",
+                "Flyway V26",
+                "총 26개 migration",
                 "kubernetes-token-review",
                 "Current Priorities",
             ),

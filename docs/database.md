@@ -24,10 +24,11 @@ RCA_DB_PASSWORD=change-me
 
 Flyway가 `web-console/src/main/resources/db/migration`의 SQL을 실행합니다.
 
-현재 스키마는 Flyway version 25이며 총 25개 migration입니다. SQL migration 24개와 audit outcome을
+현재 스키마는 Flyway version 26이며 총 26개 migration입니다. SQL migration 25개와 audit outcome을
 확장하는 Java migration `V14` 1개로 구성됩니다. 주요 최근 변경은 bootstrap/node token lifecycle(`V21`),
 notification outbox(`V22`), 클러스터별 Agent enrollment profile(`V23`), workload identity와
-profile-version-bound node token(`V24`), cluster별 legacy token grace(`V25`)입니다. PostgreSQL,
+profile-version-bound node token(`V24`), cluster별 legacy token grace(`V25`), reviewer credential
+version·이전 경로·grace 상태(`V26`)입니다. 원문 reviewer token은 저장하지 않습니다. PostgreSQL,
 MariaDB, H2에서 동일한 migration 순서를 사용합니다.
 
 기계용 bootstrap/node token은 별도 schema 변경 없이 기존 `hmac_sha256$v1$...`와 key id를 포함한 `hmac_sha256$v2$<key-id>$...` 형식을 함께 읽습니다. 운영자가 rolling key 전환을 완료하고 lazy rehash를 활성화하면 인증된 token만 조건부 UPDATE로 현재 v2 key에 점진 전환됩니다. 기존 PBKDF2 hash도 같은 비교·재검증 경계를 사용하며, 동시에 회전·폐기가 발생하면 오래된 token을 승인하지 않습니다. 사용자 비밀번호의 PBKDF2 형식은 그대로 유지합니다.

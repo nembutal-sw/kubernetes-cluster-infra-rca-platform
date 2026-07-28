@@ -61,6 +61,12 @@ Agent protocol v2 supports two registration identities. `bootstrap-token` uses a
 
 TokenReview enrollment uses the Agent projected token only as the object being reviewed. Its dedicated enrollment audience must not match any configured Kubernetes API audience. TokenReview and Pod lookup authenticate with a separate Backend reviewer credential. The expected audience, ServiceAccount subject and UID, groups, Pod UID, namespace, requested node, Running state, required labels, DaemonSet controller UID, and Agent image digest must all match. Agent-provided API URLs, CA bundles, and enrollment metadata are never trusted. Raw identity tokens and CA contents are excluded from API responses and audit details.
 
+External reviewer credentials are mounted from dedicated Kubernetes Secrets. The platform stores only
+approved paths, a monotonically increasing credential version, rotation time, and bounded previous-token
+grace. A replacement must be readable and not expired or near expiry before activation. During grace,
+fallback is limited to current-file read failure or Kubernetes API `401/403`; unrelated API failures remain
+fail-closed. Raw reviewer tokens are never persisted or included in API and audit payloads.
+
 Subsequent agent calls must identify:
 
 - cluster
@@ -113,6 +119,7 @@ Production validation rejects unsafe settings, including:
 - demo mode enabled in production
 - audit disabled in production
 - missing encryption material
+- reviewer credential expiry/grace windows outside production bounds
 
 ## Export Security
 
@@ -157,7 +164,6 @@ the servlet container or upstream TLS termination configuration.
 - external SIEM delivery
 - OIDC/SAML external identity provider integration
 - customer-managed encryption key support
-- external Kubernetes reviewer credential rotation and expiry monitoring
 - approved Agent workload identity rebind workflow
 - opaque token key usage inventory and old-key retirement readiness
 - removal of protocol v1 credential compatibility after fleet migration

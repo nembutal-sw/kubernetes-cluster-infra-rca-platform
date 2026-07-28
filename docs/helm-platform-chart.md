@@ -125,6 +125,28 @@ platform:
 ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여하지 않는다. 외부 cluster는
 별도 reviewer credential을 `/var/run/secrets/cluster-infra-rca-reviewers/` 하위에 mount한다.
 
+외부 cluster Secret은 다음처럼 참조한다.
+
+```yaml
+platform:
+  kubernetesReviewer:
+    externalCredentials:
+      - name: cluster-a-current
+        secretName: reviewer-cluster-a-current
+        secretKey: token
+      - name: cluster-a-next
+        secretName: reviewer-cluster-a-next
+        secretKey: token
+  config:
+    reviewerCredentialExpiringSeconds: 300
+    reviewerCredentialMaximumGraceSeconds: 86400
+```
+
+각 항목은 `/var/run/secrets/cluster-infra-rca-reviewers/<name>/token`에 `0400`, read-only로
+mount된다. `name`은 40자 이하의 고유 DNS label이어야 하고 Secret 이름과 key를 반드시 지정한다.
+만료 임박 구간은 60~86400초, 최대 grace는 60~604800초만 허용한다. Secret을 먼저 배포한 뒤
+Web Console에서 rotation을 시작하며 raw token은 Helm values나 DB에 넣지 않는다.
+
 Reviewer audience는 `platform.config.kubernetesApiAudiences`에도 포함되어야 하며 누락하면 Helm
 렌더링이 실패한다. Backend는 이 목록과 동일한 audience를 Agent enrollment profile에 저장하지
 못하게 한다.
