@@ -64,7 +64,7 @@ platform:
   kubernetesReviewer:
     enabled: false
     rbacCreate: true
-    audience: https://kubernetes.default.svc
+    audience: https://kubernetes.default.svc.cluster.local
     tokenExpirationSeconds: 3600
     tokenMountPath: /var/run/secrets/kubernetes.io/serviceaccount
     # External cluster credentials are mounted as
@@ -283,7 +283,10 @@ platform:
   env: {}
   podAnnotations: {}
   podLabels: {}
-  podSecurityContext: {}
+  # Projected reviewer tokens use mode 0400; fsGroup makes them readable by the non-root Platform process.
+  podSecurityContext:
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
   securityContext:
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: false

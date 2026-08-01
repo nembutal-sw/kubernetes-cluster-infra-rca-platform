@@ -125,6 +125,12 @@ platform:
 ServiceAccount에 추가한다. Agent ServiceAccount에는 이 권한을 부여하지 않는다. 외부 cluster는
 별도 reviewer credential을 `/var/run/secrets/cluster-infra-rca-reviewers/` 하위에 mount한다.
 
+기본 reviewer audience는 Kubernetes 기본 issuer와 맞춘
+`https://kubernetes.default.svc.cluster.local`이다. Platform container는 UID/GID `65532`로 실행되며,
+기본 `platform.podSecurityContext.fsGroup=65532`가 `0400` projected token을 group-readable `0640`으로
+투영한다. `podSecurityContext`를 운영 overlay에서 교체할 때 reviewer token을 Platform process가
+읽을 수 있는지 반드시 확인한다.
+
 외부 cluster Secret은 다음처럼 참조한다.
 
 ```yaml

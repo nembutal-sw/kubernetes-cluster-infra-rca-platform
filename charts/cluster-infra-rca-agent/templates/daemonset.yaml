@@ -2,6 +2,8 @@
 {{- if not (has $mode (list "safe" "node-diagnostics" "ebpf")) -}}
 {{- fail "mode must be one of: safe, node-diagnostics, ebpf" -}}
 {{- end -}}
+{{- $hostNetwork := and (ne $mode "safe") .Values.hostNetwork -}}
+{{- $hostPID := and (ne $mode "safe") .Values.hostPID -}}
 {{- $enrollmentMode := lower (required "enrollment.mode is required" .Values.enrollment.mode) -}}
 {{- if not (has $enrollmentMode (list "bootstrap-token" "kubernetes-token-review")) -}}
 {{- fail "enrollment.mode must be one of: bootstrap-token, kubernetes-token-review" -}}
@@ -14,7 +16,7 @@
 {{- if has $enrollmentAudience .Values.enrollment.kubernetesApiAudiences -}}
 {{- fail "enrollment.audience must be dedicated and must not match a Kubernetes API audience" -}}
 {{- end -}}
-{{- required "clusterId is required for kubernetes-token-review workload binding" .Values.clusterId -}}
+{{- $_ := required "clusterId is required for kubernetes-token-review workload binding" .Values.clusterId -}}
 {{- if or (lt (int .Values.enrollment.tokenExpirationSeconds) 600) (gt (int .Values.enrollment.tokenExpirationSeconds) 86400) -}}
 {{- fail "enrollment.tokenExpirationSeconds must be between 600 and 86400" -}}
 {{- end -}}
@@ -57,9 +59,9 @@ spec:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
       {{- end }}
-      hostNetwork: {{ ne $mode "safe" }}
-      hostPID: {{ ne $mode "safe" }}
-      dnsPolicy: {{ ternary .Values.dnsPolicy "ClusterFirst" (ne $mode "safe") }}
+      hostNetwork: {{ $hostNetwork }}
+      hostPID: {{ $hostPID }}
+      dnsPolicy: {{ ternary .Values.dnsPolicy "ClusterFirst" $hostNetwork }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

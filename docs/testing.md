@@ -467,6 +467,12 @@ bash scripts/kind-smoke.sh
 - evidence request/response
 - incident 및 RCA report 생성
 
+2026-08-02 현재 코드 검증에서는 Kind v0.31.0, Kubernetes v1.35.0, 1 control-plane과 2 worker
+구성에서 bootstrap Agent와 TokenReview Agent가 각각 3/3 등록됐습니다. 3개 target의 smoke 수집
+성공률과 Evidence 품질은 100%, degraded collector는 0%, 수집 p95는 14.955초였고
+runtime/spool/quarantine 오류는 없었습니다. Platform projected reviewer token은 non-root process가
+읽을 수 있도록 `fsGroup=65532`와 실제 파일 mode `0640`도 확인했습니다.
+
 ## Real Cluster Agent E2E
 
 실제 Kubernetes 노드 한 대에 read-only canary Agent를 배포해 등록부터 RCA 보고서와 evidence

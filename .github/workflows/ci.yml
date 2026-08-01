@@ -236,6 +236,8 @@ jobs:
           grep -q 'resources: \["tokenreviews"\]' <<< "${reviewer}"
           grep -q 'resources: \["pods"\]' <<< "${reviewer}"
           grep -q 'name: kubernetes-reviewer-token' <<< "${reviewer}"
+          grep -q 'fsGroup: 65532' <<< "${reviewer}"
+          grep -q 'audience: "https://kubernetes.default.svc.cluster.local"' <<< "${reviewer}"
           grep -q 'name: RCA_KUBERNETES_API_AUDIENCES' <<< "${reviewer}"
           grep -q 'helm.sh/hook: pre-upgrade' <<< "${reviewer}"
           grep -q 'name: RCA_AGENT_ENROLLMENT_MIGRATION_MODE' <<< "${reviewer}"
@@ -336,6 +338,8 @@ jobs:
             --set clusterId=cluster-token-review \
             --set enrollment.mode=kubernetes-token-review \
             --set-string enrollment.audience=cluster-infra-rca-agent-enrollment)"
+          grep -q '^apiVersion: apps/v1$' <<< "${token_review}"
+          grep -q '^kind: DaemonSet$' <<< "${token_review}"
           grep -q 'name: AGENT_ENROLLMENT_MODE' <<< "${token_review}"
           grep -q 'value: "kubernetes-token-review"' <<< "${token_review}"
           grep -q 'name: AGENT_IDENTITY_TOKEN_PATH' <<< "${token_review}"

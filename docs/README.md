@@ -5,7 +5,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 ## Current Baseline
 
 - 현재 구현 기준: [current-state.md](current-state.md)
-- 마지막 전체 문서 감사: `2026-07-27`, Phase 38
+- 마지막 포트폴리오 문서 감사: `2026-08-02`, 3-node TokenReview smoke 재검증 기준
 - 기능 상태와 버전이 충돌하면 `current-state.md`와 실제 코드·설정을 우선합니다.
 - `code-review-action-plan-*`, `enterprise-improvement-plan`, `phase*`, `stabilization-roadmap`은 당시의
   의사결정과 완료 과정을 남긴 역사 문서입니다.
@@ -22,6 +22,16 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 | 6 | [web-console.md](web-console.md) | 화면과 운영자 workflow |
 | 7 | [security.md](security.md) | 인증, production 설정, secret |
 | 8 | [testing.md](testing.md) | 로컬, E2E, Helm, 실환경 검증 |
+
+## Portfolio
+
+| 문서 | 확인 내용 |
+| --- | --- |
+| [portfolio-demo.md](portfolio-demo.md) | 재현 가능한 내장 Demo와 실제 RKE2 Agent 시연 절차 |
+| [portfolio-release-checklist.md](portfolio-release-checklist.md) | 제출 전 검증, 현재 동결 판단과 남은 외부 gate |
+
+내장 Demo는 합성 Evidence이며 실제 RKE2 검증과 구분합니다. 최종 tag나 Release를 만들기 전에는
+release checklist의 미완료 항목과 최신 GitHub Actions 결과를 먼저 확인합니다.
 
 ## Architecture And Scope
 

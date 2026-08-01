@@ -17,6 +17,10 @@ preflight_upgrade_status="not_run"
 preflight_unsafe_rejection_status="not_run"
 migration_job_status="not_run"
 migration_profile_version="0"
+agent_label="app.kubernetes.io/name=cluster-infra-rca-agent"
+tokenreview_namespace="rca-tokenreview-system"
+tokenreview_release="rca-tokenreview-agent"
+tokenreview_name="rca-tokenreview-agent"
 
 case "${agent_soak_profile}" in
   smoke|standard|extended) ;;
@@ -25,14 +29,40 @@ esac
 [[ "${agent_soak_minimum_pods}" =~ ^[2-9][0-9]*$ ]] \
   || { echo "RCA_AGENT_SOAK_MINIMUM_PODS must be an integer of at least two" >&2; exit 2; }
 
+collect_agent_diagnostics() {
+  local pod
+
+  kubectl -n rca-system get pods -l "${agent_label}" -o wide >&2 || true
+  while IFS= read -r pod; do
+    [[ -n "${pod}" ]] || continue
+    echo "===== ${pod} logs =====" >&2
+    kubectl -n rca-system logs "${pod}" --all-containers --tail=200 >&2 || true
+    echo "===== ${pod} description =====" >&2
+    kubectl -n rca-system describe "${pod}" >&2 || true
+  done < <(kubectl -n rca-system get pods -l "${agent_label}" -o name 2>/dev/null || true)
+}
+
+collect_tokenreview_agent_diagnostics() {
+  local pod
+
+  kubectl -n "${tokenreview_namespace}" get pods -l "${agent_label}" -o wide >&2 || true
+  while IFS= read -r pod; do
+    [[ -n "${pod}" ]] || continue
+    echo "===== ${pod} TokenReview logs =====" >&2
+    kubectl -n "${tokenreview_namespace}" logs "${pod}" --all-containers --tail=200 >&2 || true
+    echo "===== ${pod} TokenReview description =====" >&2
+    kubectl -n "${tokenreview_namespace}" describe "${pod}" >&2 || true
+  done < <(kubectl -n "${tokenreview_namespace}" get pods -l "${agent_label}" -o name 2>/dev/null || true)
+}
+
 cleanup() {
   if [[ "${test_succeeded}" != "true" ]]; then
     echo "Kind smoke test failed. Collecting Kubernetes diagnostics." >&2
     kubectl get pods -A -o wide >&2 || true
     kubectl describe deployment/rca-platform >&2 || true
     kubectl logs deployment/rca-platform --all-containers --tail=200 >&2 || true
-    kubectl -n rca-system logs daemonset/rca-agent-cluster-infra-rca-agent \
-      --all-containers --tail=200 >&2 || true
+    collect_agent_diagnostics
+    collect_tokenreview_agent_diagnostics
   fi
   if [[ -n "${port_forward_pid}" ]]; then
     kill "${port_forward_pid}" >/dev/null 2>&1 || true
@@ -169,6 +199,7 @@ helm upgrade --install rca charts/cluster-infra-rca-platform \
   --set platform.image.tag=smoke \
   --set platform.image.pullPolicy=Never \
   --set platform.kubernetesReviewer.enabled=true \
+  --set-string platform.kubernetesReviewer.audience=https://kubernetes.default.svc.cluster.local \
   --set platform.networkPolicy.enabled=true \
   --set-json 'platform.networkPolicy.ingressFrom=[{"namespaceSelector":{}}]' \
   --set-string platform.secret.defaultAdminUsername=admin \
@@ -265,25 +296,50 @@ helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --set image.tag=smoke \
   --set image.pullPolicy=Never \
   --set mode=node-diagnostics \
+  --set hostNetwork=false \
   --set backendUrl=http://rca-platform.default.svc.cluster.local:8080 \
   --set secret.create=true \
   --set-string secret.clusterId="${cluster_id}" \
   --set-string secret.agentToken="${agent_token}"
 kubectl -n rca-system rollout status daemonset/rca-agent-cluster-infra-rca-agent --timeout=240s
 
-expected_agent_count="$(kubectl get nodes -o name | wc -l | tr -d '[:space:]')"
+expected_agent_nodes="$(kubectl get nodes -o json | jq -c '[.items[].metadata.name] | unique | sort')"
+expected_agent_count="$(jq length <<<"${expected_agent_nodes}")"
 test "${expected_agent_count}" -ge "${agent_soak_minimum_pods}"
 agent_count=0
-for _ in $(seq 1 60); do
-  agent_count="$("${curl_command[@]}" \
+registered_agent_nodes='[]'
+for attempt in $(seq 1 60); do
+  agent_response="$("${curl_command[@]}" \
     -H "Authorization: Bearer ${access_token}" \
-    "http://127.0.0.1:${port}/api/clusters/${cluster_id}/agents" | jq length)"
-  if [[ "${agent_count}" -ge "${expected_agent_count}" ]]; then
+    "http://127.0.0.1:${port}/api/clusters/${cluster_id}/agents")"
+  registered_agent_nodes="$(jq -c '[.[].node_name | select(type == "string")] | unique | sort' \
+    <<<"${agent_response}")"
+  agent_count="$(jq length <<<"${registered_agent_nodes}")"
+  if [[ "${registered_agent_nodes}" == "${expected_agent_nodes}" ]]; then
     break
+  fi
+  if (( attempt % 10 == 0 )); then
+    echo "Waiting for Agent fleet registration (${agent_count}/${expected_agent_count}); expected=${expected_agent_nodes}; registered=${registered_agent_nodes}" >&2
   fi
   sleep 2
 done
-test "${agent_count}" -ge "${expected_agent_count}"
+if [[ "${registered_agent_nodes}" != "${expected_agent_nodes}" ]]; then
+  missing_agent_nodes="$(jq -nc \
+    --argjson expected "${expected_agent_nodes}" \
+    --argjson registered "${registered_agent_nodes}" \
+    '$expected - $registered')"
+  unexpected_agent_nodes="$(jq -nc \
+    --argjson expected "${expected_agent_nodes}" \
+    --argjson registered "${registered_agent_nodes}" \
+    '$registered - $expected')"
+  echo "Agent fleet registration did not match the Kubernetes node set." >&2
+  echo "Expected nodes: ${expected_agent_nodes}" >&2
+  echo "Registered nodes: ${registered_agent_nodes}" >&2
+  echo "Missing nodes: ${missing_agent_nodes}" >&2
+  echo "Unexpected nodes: ${unexpected_agent_nodes}" >&2
+  collect_agent_diagnostics
+  exit 1
+fi
 
 node_name="$("${curl_command[@]}" \
   -H "Authorization: Bearer ${access_token}" \
@@ -328,13 +384,10 @@ python3 scripts/agent-soak-validation.py \
   --health-url "http://127.0.0.1:${port}/health/ready" \
   --output-dir "${agent_soak_output_dir}"
 
-tokenreview_namespace="rca-tokenreview-system"
-tokenreview_release="rca-tokenreview-agent"
-tokenreview_name="rca-tokenreview-agent"
-
 helm upgrade --install "${tokenreview_release}" charts/cluster-infra-rca-agent \
   --namespace "${tokenreview_namespace}" \
   --create-namespace \
+  --set namespace.create=false \
   --set namespace.name="${tokenreview_namespace}" \
   --set fullnameOverride="${tokenreview_name}" \
   --set image.repository=rca-agent \
@@ -416,7 +469,7 @@ jq -e \
   <<<"${tokenreview_profile}" >/dev/null
 
 tokenreview_agents="[]"
-for _ in $(seq 1 90); do
+for attempt in $(seq 1 90); do
   tokenreview_agents="$("${curl_command[@]}" \
     -H "Authorization: Bearer ${access_token}" \
     "http://127.0.0.1:${port}/api/clusters/${tokenreview_cluster_id}/agents")"
@@ -432,9 +485,16 @@ for _ in $(seq 1 90); do
        )' <<<"${tokenreview_agents}" >/dev/null; then
     break
   fi
+  if (( attempt % 10 == 0 )); then
+    echo "Waiting for TokenReview Agent fleet registration (${platform_tokenreview_agent_count}/${expected_agent_count})" >&2
+  fi
   sleep 2
 done
-test "${platform_tokenreview_agent_count}" -ge "${expected_agent_count}"
+if [[ "${platform_tokenreview_agent_count}" -lt "${expected_agent_count}" ]]; then
+  echo "TokenReview Agent fleet registration did not reach the expected node count (${platform_tokenreview_agent_count}/${expected_agent_count})." >&2
+  collect_tokenreview_agent_diagnostics
+  exit 1
+fi
 jq -e \
   'length > 0
    and all(.[];

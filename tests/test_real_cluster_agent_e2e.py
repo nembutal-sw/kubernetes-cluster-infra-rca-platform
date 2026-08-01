@@ -48,6 +48,12 @@ def test_agent_chart_canary_options_are_safe_by_default() -> None:
     assert "nodeSelector:\n  kubernetes.io/os: linux" in values
     assert 'or (eq $mode "safe") (not .Values.statePersistence.enabled)' in daemonset
     assert "mountPath: /app\n              readOnly: true" in daemonset
+    assert '{{- $hostNetwork := and (ne $mode "safe") .Values.hostNetwork -}}' in daemonset
+    assert '{{- $hostPID := and (ne $mode "safe") .Values.hostPID -}}' in daemonset
+    assert '{{- $_ := required "clusterId is required for kubernetes-token-review workload binding" .Values.clusterId -}}' in daemonset
+    assert "hostNetwork: {{ $hostNetwork }}" in daemonset
+    assert "hostPID: {{ $hostPID }}" in daemonset
+    assert 'dnsPolicy: {{ ternary .Values.dnsPolicy "ClusterFirst" $hostNetwork }}' in daemonset
 
 
 def test_k3s_demo_agent_deployment_is_opt_in_and_rolls_back() -> None:

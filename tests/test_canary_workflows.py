@@ -31,10 +31,34 @@ def test_agent_fleet_burn_in_is_manual_approval_gated_and_reuses_kind_fleet() ->
     assert "RCA_AGENT_SOAK_PLATFORM_ACCESS_TOKEN" in kind_script
     assert "--platform-evidence-fleet" in kind_script
     assert "--set mode=node-diagnostics" in kind_script
+    assert "--set hostNetwork=false" in kind_script
+
+
+def test_kind_smoke_requires_the_exact_node_fleet_and_captures_each_agent_log() -> None:
+    script = (ROOT / "scripts" / "kind-smoke.sh").read_text(encoding="utf-8")
+
+    required = (
+        "expected_agent_nodes",
+        "registered_agent_nodes",
+        "missing_agent_nodes",
+        "unexpected_agent_nodes",
+        "Agent fleet registration did not match the Kubernetes node set.",
+        'kubectl -n rca-system get pods -l "${agent_label}" -o name',
+        'kubectl -n rca-system logs "${pod}" --all-containers --tail=200',
+    )
+    for marker in required:
+        assert marker in script
+
+    assert 'test "${agent_count}" -ge "${expected_agent_count}"' not in script
 
 
 def test_kind_smoke_covers_migration_gate_and_full_tokenreview_enrollment() -> None:
     script = (ROOT / "scripts" / "kind-smoke.sh").read_text(encoding="utf-8")
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    platform_values = (
+        ROOT / "charts" / "cluster-infra-rca-platform" / "values.yaml"
+    ).read_text(encoding="utf-8")
+    database_values, platform_values_section = platform_values.split("\nplatform:\n", maxsplit=1)
 
     required = (
         "Pre-upgrade audit unexpectedly accepted an unsafe enrollment profile",
@@ -48,9 +72,25 @@ def test_kind_smoke_covers_migration_gate_and_full_tokenreview_enrollment() -> N
         "platform_tokenreview_enrollment_completed",
         'enrollment.mode=kubernetes-token-review',
         ".metadata._enrollment.method == \"kubernetes_token_review\"",
+        "platform.kubernetesReviewer.audience=https://kubernetes.default.svc.cluster.local",
     )
     for marker in required:
         assert marker in script
+
+    tokenreview_install = script.split(
+        'helm upgrade --install "${tokenreview_release}"', maxsplit=1
+    )[1].split('kubectl -n "${tokenreview_namespace}" rollout status', maxsplit=1)[0]
+    assert "--create-namespace" in tokenreview_install
+    assert "--set namespace.create=false" in tokenreview_install
+    assert '--set namespace.name="${tokenreview_namespace}"' in tokenreview_install
+
+    assert "grep -q '^apiVersion: apps/v1$'" in ci
+    assert "grep -q '^kind: DaemonSet$'" in ci
+    assert "grep -q 'fsGroup: 65532'" in ci
+    assert 'audience: \"https://kubernetes.default.svc.cluster.local\"' in ci
+    assert "podSecurityContext: {}" in database_values
+    assert "podSecurityContext:\n    fsGroup: 65532" in platform_values_section
+    assert "audience: https://kubernetes.default.svc.cluster.local" in platform_values
 
 
 def test_managed_canary_uses_scoped_runner_environment_and_redacted_artifact() -> None:

@@ -1,86 +1,176 @@
 # Kubernetes Cluster Infra RCA Platform
 
-Kubernetes 애플리케이션 로그가 아니라 **클러스터 노드와 Linux 시스템 계층의 장애 원인**을 수집하고 분석하는 RCA 플랫폼입니다.
+Kubernetes 애플리케이션 로그가 아니라 **노드와 Linux 시스템 계층의 Evidence를 수집해 Rule-based RCA 보고서를 생성하는 플랫폼**입니다.
 
-Node Agent가 노드 evidence를 읽기 전용으로 수집하고, Spring Boot Platform이 Rule-based 분석, 선택적 LLM 설명, Policy Engine, incident correlation을 거쳐 RCA 보고서를 만듭니다.
+Node Agent가 노드 상태를 읽기 전용으로 수집하고, Spring Boot Platform이 증거 전처리, 규칙 분석, 선택적 LLM 설명, 정책 판단과 Incident correlation을 수행합니다. 운영 변경 명령은 Platform이나 Agent가 직접 실행하지 않습니다.
 
-현재 구현 기준과 검증 범위는 [Current State](docs/current-state.md), 문서 전체 목록은
-[Documentation Index](docs/README.md)에서 확인합니다.
+- 현재 구현 기준: [Current State](docs/current-state.md)
+- 재현 가능한 시연: [Portfolio Demo](docs/portfolio-demo.md)
+- 제출 전 확인: [Portfolio Release Checklist](docs/portfolio-release-checklist.md)
+- 전체 문서: [Documentation Index](docs/README.md)
 
-## 진단 범위
+## Overview
+
+장애의 첫 증상은 `NodeNotReady`, `DiskPressure`, Pod Pending, CoreDNS 지연처럼 보이지만 실제 원인은 디스크 I/O, inode 고갈, kubelet·runtime 장애, kernel error, NIC flap, MTU, conntrack 또는 systemd 문제일 수 있습니다.
+
+이 프로젝트는 운영자가 노드에 접속해 확인하던 Linux/Kubernetes 증거 수집과 원인 후보 정리를 자동화합니다. 분석 결과에는 원인 후보, supporting evidence, 추가 확인 명령, 권장 조치와 정책 등급이 포함됩니다.
+
+주요 진단 범위:
 
 - `NodeNotReady`, `DiskPressure`, `MemoryPressure`, `PIDPressure`, `NetworkUnavailable`
-- kubelet, containerd, CRI runtime, CNI, DNS, CoreDNS 장애
+- kubelet, containerd·CRI runtime, CNI, DNS·CoreDNS 장애
 - API Server와 etcd 지연
-- 디스크 용량, inode 고갈, I/O latency, kernel I/O error
+- 디스크 용량·inode·I/O latency, kernel I/O error
 - systemd unit 실패와 restart loop
-- NIC link flap, MTU 문제, conntrack 고갈, 노드 네트워크 불안정
+- NIC link flap, MTU 불일치, conntrack 고갈
 
-Pod 상태, HTTP 5xx, Service endpoint, Ingress 오류는 원인 단서와 영향 범위를 보완하는 evidence로 사용합니다.
+Pod 상태, HTTP 5xx, Service endpoint와 Ingress 오류는 원인 단서와 영향 범위를 보완하는 Evidence로만 사용합니다.
 
-## 처리 흐름
+## Problem
 
-```text
-Alertmanager / Platform Scheduler / Demo Scenario
-  -> Evidence Request
-  -> Node Agent read-only collection
-  -> Durable Analysis Queue
-  -> Evidence preprocessing
-  -> Rule-based RCA
-  -> Optional LLM explanation
-  -> Policy Engine
-  -> Incident correlation
-  -> Report + Notification Outbox + Task completion (same DB transaction)
-  -> Timeline / Audit / Manual Action Workflow
+Kubernetes self-healing은 Pod 재시작이나 재스케줄링에는 강하지만, 노드와 Linux 계층의 근본 원인을 설명하지 않습니다. 일반적인 Pod 모니터링만으로는 다음 질문에 답하기 어렵습니다.
+
+- kubelet이 느린 이유가 디스크 I/O인지 runtime hang인지
+- DNS 실패가 CoreDNS 자체 문제인지 노드 resolver나 CNI MTU 문제인지
+- NodeNotReady 이전에 kernel, systemd, NIC에서 어떤 신호가 먼저 발생했는지
+- 같은 Evidence가 하나의 Incident로 이어졌는지
+- 운영자가 어떤 확인을 안전하게 수행해야 하는지
+
+Platform은 결정론적 규칙을 분석 기준으로 사용하고 LLM은 설명을 보강하는 역할로 제한합니다.
+
+## Core Workflow
+
+```mermaid
+flowchart TD
+    A["Alertmanager / Scheduler / Demo / Manual Collection"] --> B["Evidence Request"]
+    B --> C["Node Agent read-only collection"]
+    C --> D["Evidence Response"]
+    D --> E["Durable Analysis Task"]
+    E --> F["EvidencePreprocessingStage"]
+    F --> G["RuleAnalysisStage"]
+    G --> H["Optional LlmEnrichmentStage"]
+    H --> I["ReportAssemblyStage"]
+    I --> J["Incident correlation"]
+    J --> K["Report / Incident / Notification Outbox / Task completion"]
+    K --> L["Timeline / Audit / Manual Action Workflow"]
 ```
 
-운영 조치는 자동 실행하지 않습니다. 승인 요청, 승인/거절 기록, 수동 처리 완료, runbook, 검토된 GitOps PR 흐름만 제공합니다. LLM 조치는 항상 `automation_allowed=false`, `executable=false`입니다.
+`RcaAnalysisWorker`는 DB 기반 Analysis Task를 claim하고 worker lease, heartbeat renewal, Java virtual thread, 지수형 retry, `retry_wait`, `dead_letter`를 관리합니다. Kafka나 외부 메시지 브로커를 사용하는 구조는 아닙니다.
 
-## 구성
+## Architecture
 
-| Component | Stack | 역할 |
+| Component | Stack | 실제 책임 |
 | --- | --- | --- |
-| Platform | Spring Boot 3.5.15, Java 21 | API, 인증, DB, RCA, Policy, LLM, Web Console |
-| Web Console | React 19, TypeScript, Vite, Bootstrap 5 | 운영 대시보드와 관리 workflow |
-| Node Agent | Python 3.10+ | 노드 evidence와 optional eBPF event 수집 |
-| Database | PostgreSQL 16 또는 MariaDB 11.x | 운영 데이터 저장 |
-| Migration | Flyway V26, 26 migrations | 신규 및 기존 schema 관리 |
+| Platform | Spring Boot `3.5.15`, Java `21`, Spring AI `1.1.8` | API, 인증, durable task, RCA, Policy, Incident, Audit, Outbox |
+| Web Console | React `19.2.7`, TypeScript, Vite `8.0.16`, Bootstrap `5.3.8` | 운영 화면과 승인·수동 처리 workflow |
+| Node Agent | Python `3.10+`, Agent protocol `v2` | 노드 Evidence 수집, redaction, spool, token rotation, 선택적 eBPF event |
+| Database | PostgreSQL `16`, MariaDB `11.x`, local H2 | 운영 상태와 보고서 저장 |
+| Migration | Flyway V26, 26 migrations | 신규·기존 schema 관리 |
+| Packaging | 단일 Spring Boot 애플리케이션 | React 정적 자산과 API를 함께 제공 |
 
-Web Console은 React SPA 한 종류만 사용합니다. JSP나 별도 Python Backend는 사용하지 않습니다.
+Web Console은 React SPA 한 종류만 사용하며 JSP나 별도 Python Backend는 없습니다.
 
-## 현재 구현 상태
+### RCA pipeline
 
-- 클러스터 등록·삭제, bootstrap token 또는 Kubernetes TokenReview 기반 Agent 등록과 설치 명령 생성
-- session 인증, RBAC, audit 검색·필터·export
-- typed evidence와 전처리·규칙·LLM 보강·보고서 조립 단계가 분리된 RCA pipeline
-- 비식별 production-like corpus와 입력·정답을 분리한 19개 blind evaluation 품질 gate
-- Managed canary collector만 익명화하고 2인 독립 판정으로 봉인하는 blind sample intake
-- incident correlation, 장애 전파 timeline, 영향 범위
-- Transactional Outbox 기반 Slack·webhook 알림과 dead-letter 재처리
-- Evidence 단위 멱등 처리, stale worker fence와 Analysis/Notification lease heartbeat
-- manual-only action workflow와 Catalog GitOps 변경 추적·실패 재조정
-- PostgreSQL/MariaDB 호환 migration과 CI 실행 강제
-- 외부 Kubernetes reviewer credential의 만료 감시, 검증 선행 rotation, bounded fallback과 즉시 폐기
-- Helm, PrometheusRule, AlertmanagerConfig, 공급망 보안 gate
-- 영문/한글 locale 저장과 데스크톱/모바일 반응형 Console
+`RuleBasedRcaAnalyzer`는 다음 단계를 연결하는 작은 오케스트레이터입니다.
 
-`RuleBasedRcaAnalyzer`는 분석 단계의 실행 순서만 조정합니다. Web Console의 `App.tsx`도 인증과
-전역 shell을 담당하고, URL 동기화와 화면 선택은 별도 hook/component에서 처리합니다.
+1. `EvidencePreprocessingStage`: Evidence 정규화, 신호 탐지, 품질 평가, 민감정보 정제
+2. `RuleAnalysisStage`: 규칙 기반 후보, Evidence, 추가 확인과 권장 조치 생성
+3. `LlmEnrichmentStage`: 설정된 경우 설명과 낮은 우선순위 후보 보강
+4. `ReportAssemblyStage`: 보고서, 품질 정보와 정책 결과 조립
 
-Rule-based 품질은 합성 golden fixture, 저장소 E2E 구조를 비식별화한 13개 production-like 시나리오,
-입력과 sealed label을 분리한 19개 blind 시나리오로 검증합니다. Blind evaluator는 모든 detector 실행이
-끝난 뒤 label을 로드하며 입력·label SHA-256을 보고서에 기록합니다. 이 결과는 실운영 정확도 수치가
-아니며, managed cluster canary와 실제 장애 표본은 별도 검증 단계로 유지합니다.
+### Node Agent
 
-실제 DaemonSet Evidence 방식의 1시간 Standard와 5시간 Extended Fleet 검증을 완료했습니다. 남은 실환경 검증은
-24시간 Production Fleet와 EKS/AKS/GKE/OpenShift canary입니다. kubeadm은 Ubuntu 24.04 amd64,
-Kubernetes 1.33.13, containerd, Flannel 조합에서 검증했습니다.
+Collector registry에는 14개 Collector가 있습니다.
 
-## 운영 검증 상태
+```text
+node, kubernetes, systemd, kernel, disk, inode, memory, process,
+network, conntrack, runtime, kubelet, cni, dns
+```
 
-실환경 검증은 수동 `Operational Burn-in` workflow로 묶었습니다. Agent 반복 수집 품질, Pod 내부의 read-only 자원/spool 추세, Kubernetes readiness, 플랫폼 compatibility, provider 호출 없는 LLM readiness를 하나의 artifact로 확인할 수 있습니다. 3노드 장시간 검증은 승인형 `Agent Fleet Burn-in`, EKS/AKS/GKE/OpenShift는 플랫폼별 `Managed Cluster Canary` workflow를 사용합니다. 적용형 canary는 선택적으로 익명화 evidence 후보를 만들 수 있지만, 두 명의 독립 판정과 별도 PR 없이는 평가 corpus에 반영되지 않습니다. 자세한 실행 순서는 [Operational Burn-in](docs/operational-burn-in.md)과 [Real Cluster Validation](docs/real-cluster-validation.md)을 참고합니다.
+| Mode | 범위 |
+| --- | --- |
+| `safe` | `node`, `kubernetes`, `dns`; 비-root, hostPath 없음 |
+| `node-diagnostics` | 14개 Collector 전체; 필요한 host 자원을 읽기 전용 mount |
+| `ebpf` | `node-diagnostics`와 같은 Collector + `EBPF_ENABLED`일 때 realtime event |
 
-현재 real Agent E2E는 RKE2, K3s, kubeadm에서 완료했습니다. Kind 3노드에서는 각 DaemonSet Agent에 Platform Evidence Request를 보내는 방식으로 1시간 Standard와 5시간 Extended burn-in을 통과했습니다. Extended run `29857828475`는 checkpoint 300/300, Agent Evidence 900/900, target 3/3을 기록했고 수집 성공률과 evidence 품질은 100%, degraded collector와 runtime/spool/quarantine 오류는 0건이었습니다. Standard 대비 compatibility, absolute, regression gate도 모두 통과했습니다. CI는 push마다 3노드 smoke를 실행하고 장시간 Fleet는 별도 승인 workflow로 분리합니다. EKS는 Managed Node Group, Bottlerocket, Auto Mode, Fargate를, AKS는 system/user pool, NAP, Virtual Node, Windows pool을 공식 문서 기반 계약으로 분리해 검사합니다. 두 플랫폼 모두 실제 canary 전까지 `contract_fixture_only`이며 GKE와 OpenShift도 real managed-cluster canary가 남아 있습니다. LLM SLO readiness도 canonical 표본이 목표를 채울 때까지 기존 60초 기준을 유지합니다.
+eBPF는 15번째 일반 Collector가 아니라 별도의 realtime Evidence 경로입니다. Agent는 등록, heartbeat, Evidence Request polling, Collector 실행, 응답 제출, local spool 재전송과 node token rotation을 수행합니다.
+
+### Web Console
+
+구현된 화면은 `Overview`, `Clusters`, `RCA Reports`, `Incidents`, `Pipeline`, `Audit`, `Webhooks`, `Settings`입니다. Report 상세에서는 다음 정보를 확인할 수 있습니다.
+
+- Confidence, Rule signals, Quality gate, Evidence quality, Policy blocked 수, LLM 상태
+- Bundle verification, Cascading timeline, Rule evidence, LLM usage
+- Root cause candidates, Evidence summary, Additional checks
+- Policy gate, Recommended actions, Action requests, 수동 처리 완료 이력
+
+## What Is Actually Implemented
+
+- 클러스터 등록·삭제와 Agent 설치 명령 생성
+- bootstrap token 또는 Kubernetes TokenReview 기반 Agent 등록
+- session 인증, RBAC, Audit 검색·필터·export
+- DB 기반 durable Analysis Task와 fenced lease
+- Rule-based RCA, 선택적 LLM 보강, Incident correlation
+- 장애 전파 timeline과 영향 범위 표시
+- Transactional Outbox 기반 Slack·webhook 알림
+- 읽기 전용 Evidence 재수집과 approval/manual workflow
+- 승인된 Catalog override의 GitOps PR 생성 및 외부 배포 결과 추적
+- PostgreSQL·MariaDB 호환 migration과 backup·restore 검증
+- 외부 Kubernetes reviewer credential의 상태 확인과 bounded rotation
+- Docker Compose, Platform·Agent Helm chart, Prometheus·Alertmanager 연동
+- 한국어·영어 locale 저장과 반응형 운영 Console
+
+GitOps 자동화의 직접 대상은 `catalog_override_draft`입니다. 일반 RCA 조치가 자동으로 Kubernetes manifest PR로 변환되거나 배포되는 기능은 없습니다.
+
+## Safety Boundary
+
+| Policy | 의미 | Platform 동작 |
+| --- | --- | --- |
+| `AUTO_SAFE` | 추가 읽기 전용 확인 | Evidence Request 생성 가능 |
+| `APPROVAL_REQUIRED` | 사람이 검토해야 하는 변경 | 승인·거절 기록, Runbook 안내, 수동 완료 기록 |
+| `GITOPS_PR_ONLY` | 외부 변경 검토 필요 | 지원되는 Catalog override만 GitOps PR 추적 |
+| `NEVER_AUTO_EXECUTE` | 자동 실행 금지 | 실행 경로 없음 |
+
+- Rule-based 결과가 분석 기준입니다.
+- LLM은 선택적인 설명 보강이며 LLM-origin action은 `automation_allowed=false`, `executable=false`입니다.
+- Platform과 Agent는 reboot, restart, drain, delete, sysctl 변경 같은 운영 명령을 직접 실행하지 않습니다.
+- `POST /api/agents/action-executions`는 빈 목록을 반환합니다.
+- `POST /api/agents/action-results`는 의도적으로 `410 Gone`을 반환합니다.
+- 변경 작업은 승인, 수동 Runbook 또는 외부 GitOps 절차로 처리합니다.
+
+## Demo
+
+기본 포트폴리오 Scenario는 `cni-mtu-mismatch`입니다. CNI와 network Evidence를 함께 사용해 `NetworkUnavailable` 계열 원인 후보, 장애 전파 timeline과 정책 경계를 보여줍니다.
+
+두 가지 시연 경로를 제공합니다.
+
+1. **Track A - 내장 Demo:** 합성 Evidence를 사용해 누구나 동일한 RCA workflow를 재현합니다.
+2. **Track B - 실제 RKE2 Agent:** 실제 노드에서 Agent 연결, 수동 수집, 보고서와 Audit을 확인합니다.
+
+내장 Demo는 실제 RKE2 장애 수집 결과가 아닙니다. 단계별 진행과 필수 Screenshot은 [Portfolio Demo](docs/portfolio-demo.md)에 정리했습니다.
+
+## Validation Status
+
+검증 수준을 실제 Agent, Kind/CI, contract fixture로 구분합니다.
+
+| 환경 | 검증 수준 | 상태 |
+| --- | --- | --- |
+| RKE2 amd64/arm64 | Real Agent E2E | 완료 기록 존재 |
+| K3s amd64 | Real Agent E2E | 완료 기록 존재 |
+| kubeadm Ubuntu 24.04 amd64 | Real Agent E2E | 완료 기록 존재 |
+| Kind 3-node | Standard 1시간 / Extended 5시간 Fleet | 완료 기록 존재 |
+| Kind 3-node 현재 코드 smoke | Kind v0.31.0 / Kubernetes v1.35.0 | **통과 - bootstrap·TokenReview Agent 각각 3/3 등록** |
+| EKS | 공식 문서 기반 contract fixture | 실제 Canary 미완료 |
+| AKS | 공식 문서 기반 contract fixture | 실제 Canary 미완료 |
+| GKE | 공식 문서 기반 contract fixture | 실제 Canary 미완료 |
+| OpenShift | 공식 문서 기반 contract fixture | 실제 Canary 미완료 |
+
+Extended Fleet run `29857828475`는 checkpoint `300/300`, Platform Evidence `900/900`, target `3/3`, 수집 성공률과 Evidence 품질 `100%`, degraded와 runtime/spool/quarantine 오류 `0`을 기록했습니다. 이 수치는 해당 Kind burn-in 결과이며 실제 운영 정확도를 뜻하지 않습니다.
+
+2026-08-02 격리 Linux 환경의 현재 코드 smoke는 3개 target, 수집 성공률과 Evidence 품질 `100%`, degraded collector `0%`, 수집 p95 `14.955초`, runtime/spool/quarantine 오류 `0`을 기록했습니다. 위험 profile 차단과 migration, 전용 audience의 Kubernetes API 접근 거부, TokenReview 인증 및 전체 Agent 등록도 통과했습니다. 이전 `main` CI run `30363967144`의 등록 timeout은 수정 전 기록이며, 변경 커밋을 push한 뒤 동일 CI gate를 다시 확인해야 합니다.
+
+최신 Security run `30363966388`은 secret, SBOM, filesystem/image scan과 CodeQL을 통과했습니다.
 
 ## Quick Start
 
@@ -96,12 +186,13 @@ PowerShell:
 Copy-Item .env.example .env
 ```
 
-`.env`에서 최소 설정을 입력합니다.
+`.env`에 최소 설정을 입력합니다.
 
 ```dotenv
 RCA_DEFAULT_ADMIN_USERNAME=admin
 RCA_DEFAULT_ADMIN_PASSWORD=<strong-password>
 RCA_WEBHOOK_TOKEN=<random-webhook-token>
+RCA_DEMO_ENABLED=true
 ```
 
 ```bash
@@ -114,278 +205,90 @@ Web Console / API  http://localhost:8080
 Readiness          http://localhost:8080/health/ready
 ```
 
-자주 쓰는 관리 명령:
+첫 로그인 후 `Pipeline`에서 `cni-mtu-mismatch`를 실행합니다. 초기 계정은 코드에 고정되어 있지 않으며 환경 변수나 외부 Secret으로 생성합니다.
 
-```bash
-docker compose logs -f platform
-docker compose restart platform
-docker compose stop
-docker compose down
-```
+### Java local
 
-`docker compose down -v`는 DB volume까지 삭제하므로 테스트 데이터를 모두 버릴 때만 사용합니다.
-
-### Java 로컬 실행
-
-Docker 없이 H2 file DB로 실행할 수 있습니다. Java 21과 Maven 3.9 이상이 필요합니다.
+Java 21과 Maven 3.9 이상이 필요합니다. 별도 DB 설정이 없으면 local H2를 사용합니다.
 
 ```bash
 export RCA_DEFAULT_ADMIN_USERNAME=admin
 export RCA_DEFAULT_ADMIN_PASSWORD='<strong-password>'
 export RCA_WEBHOOK_TOKEN='<random-webhook-token>'
-cd web-console
-mvn -Pfrontend process-resources spring-boot:run
+export RCA_DEMO_ENABLED=true
+mvn -f web-console/pom.xml -Pfrontend process-resources spring-boot:run
 ```
 
-PowerShell:
+### Node Agent
 
-```powershell
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.10"
-$env:RCA_DEFAULT_ADMIN_USERNAME = "admin"
-$env:RCA_DEFAULT_ADMIN_PASSWORD = "<strong-password>"
-$env:RCA_WEBHOOK_TOKEN = "<random-webhook-token>"
-Set-Location web-console
-..\.dev-tools\apache-maven-3.9.9\bin\mvn.cmd -Pfrontend process-resources spring-boot:run
-```
-
-초기 계정은 코드에 고정되어 있지 않습니다. 첫 로그인 후 Settings에서 로그인 ID와 비밀번호를 변경할 수 있습니다.
-
-## 처음 사용하는 순서
-
-1. Web Console에 로그인합니다.
-2. **Clusters**에서 클러스터 이름과 환경을 등록합니다.
-3. 생성된 Agent 설치 명령을 대상 클러스터에서 실행합니다.
-4. Agent가 `healthy`로 표시되는지 확인합니다.
-5. 수동 수집, Alertmanager webhook 또는 Platform Scheduler로 evidence를 수집합니다.
-6. **Reports**에서 원인 후보, evidence, 확인 명령, 권장 조치와 정책 등급을 확인합니다.
-
-## 자주 쓰는 옵션
-
-### Database
-
-| 방식 | 설정 |
-| --- | --- |
-| H2 file | 설정 없음. 로컬 개발용 |
-| PostgreSQL | `RCA_JDBC_URL=jdbc:postgresql://host:5432/rca` |
-| MariaDB | `RCA_JDBC_URL=jdbc:mariadb://host:3306/rca` |
-
-외부 DB:
-
-```bash
-export RCA_JDBC_URL='jdbc:postgresql://postgres.example:5432/rca'
-export RCA_DB_USERNAME='rca'
-export RCA_DB_PASSWORD='<database-password>'
-```
-
-Docker Compose에서 MariaDB 사용:
-
-```dotenv
-RCA_JDBC_URL=jdbc:mariadb://mariadb:3306/rca
-RCA_DB_USERNAME=rca
-RCA_DB_PASSWORD=<database-password>
-MARIADB_PASSWORD=<database-password>
-MARIADB_ROOT_PASSWORD=<root-password>
-```
-
-```bash
-docker compose --profile mariadb up -d mariadb
-docker compose build platform
-docker compose --profile mariadb up -d --no-deps platform
-```
-
-### 기능 토글
-
-| 목적 | 환경 변수 |
-| --- | --- |
-| Demo UI와 RCA workflow | `RCA_DEMO_ENABLED=true` |
-| Prometheus 없는 자체 수집 | `RCA_MONITORING_ENABLED=true` |
-| Prometheus metrics | `RCA_OBSERVABILITY_ENABLED=true` |
-| Slack 또는 일반 webhook | `RCA_NOTIFICATION_ENABLED=true` |
-| Catalog GitOps PR/MR | `RCA_GITOPS_ENABLED=true` |
-| LLM 분석 보조 | `RCA_LLM_ENABLED=true` |
-
-자체 수집 기본 예시:
-
-```dotenv
-RCA_MONITORING_ENABLED=true
-RCA_MONITORING_INTERVAL_MS=60000
-RCA_MONITORING_HEALTHY_INTERVAL_MINUTES=15
-RCA_MONITORING_DEGRADED_INTERVAL_MINUTES=5
-RCA_MONITORING_STALE_INTERVAL_MINUTES=2
-```
-
-### LLM
-
-| Provider | Provider 값 | Chat model | Docker Compose credential |
-| --- | --- | --- | --- |
-| OpenAI | `openai` | `openai-sdk` | `OPENAI_API_KEY` |
-| Anthropic | `anthropic` | `anthropic` | `ANTHROPIC_API_KEY` |
-| Gemini | `gemini` | `google-genai` | `GEMINI_API_KEY` |
-| Ollama | `ollama` | `ollama` | `OLLAMA_BASE_URL` |
-| OpenAI-compatible | `openai_compatible` | `openai-sdk` | `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
-| Self-hosted | `self_hosted` | `openai-sdk` | `OPENAI_BASE_URL` |
-
-Gemini 예시:
-
-```dotenv
-RCA_LLM_ENABLED=true
-RCA_LLM_PROVIDER=gemini
-RCA_LLM_MODEL=gemini-3.1-flash-lite
-RCA_SPRING_AI_CHAT_MODEL=google-genai
-GEMINI_API_KEY=<api-key>
-```
-
-Java 직접 실행 시 credential은 `SPRING_AI_OPENAI_SDK_API_KEY`, `SPRING_AI_ANTHROPIC_API_KEY`, `SPRING_AI_GOOGLE_GENAI_API_KEY`, `SPRING_AI_OLLAMA_BASE_URL`을 사용합니다. 상세 예시는 [web-console/README.md](web-console/README.md)에 있습니다.
-
-반복 LLM 검증은 GitHub Actions의 수동 `LLM Burn-in` workflow를 사용합니다. 기본값은 dry-run이고 실제 실행은 provider 호출 예산 1회, 명시적 확인, change reference, `llm-burn-in` Environment 승인을 요구합니다. `RCA_LLM_BURN_IN_HISTORY_RUN_ID` repository variable이 canonical artifact를 자동 연결하며 같은 8시간 구간에서는 추가 호출하지 않습니다. 실패 artifact는 알려진 검증기 오탐만 provider 재호출 없이 재검증하고, 그 밖의 오류는 거부합니다. 로컬 승인 표본은 원본 대신 비민감 planning baseline으로 계획에만 반영하고 SLO readiness에는 포함하지 않습니다. 세부 설정은 [docs/llm-analyzer.md](docs/llm-analyzer.md#manual-burn-in-workflow)에 있습니다.
-
-## Node Agent 설치
-
-Web Console이 생성한 설치 명령을 사용하는 방법이 가장 간단합니다. 수동 설치 시 Agent Secret을 먼저 만듭니다.
-
-```bash
-kubectl create namespace rca-system --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n rca-system create secret generic cluster-infra-rca-agent \
-  --from-literal=cluster-id='<cluster-id>' \
-  --from-literal=agent-token='<agent-token>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
+Web Console에서 클러스터를 등록한 뒤 생성된 설치 명령을 사용하는 것이 기본 경로입니다. 수동 Helm 예시는 다음과 같습니다.
 
 ```bash
 helm upgrade --install rca-agent charts/cluster-infra-rca-agent \
   --namespace rca-system \
+  --create-namespace \
   --set backendUrl=https://rca.example.com \
-  --set secret.existingSecret.name=cluster-infra-rca-agent \
   --set mode=node-diagnostics \
-  --set systemdCollectorMode=file
+  --set secret.existingSecret.name=agent-auth
 ```
 
-Mode별 추가 옵션:
+운영 환경에서는 실제 registry image와 외부 Secret을 사용합니다. TokenReview 등록, 권한과 canary 절차는 [Agent Enrollment](docs/agent-enrollment.md)과 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
 
-| Mode | Helm option | 용도 |
-| --- | --- | --- |
-| Safe | `--set mode=safe` | hostPath 없는 제한 수집 |
-| Node diagnostics | `--set mode=node-diagnostics` | Linux 노드 evidence 수집 |
-| eBPF | `--set mode=ebpf --set ebpf.enabled=true` | 실시간 kernel/network event |
-| Canary | `--set nodeSelector.cluster-infra-rca\.io/agent-canary=true` | label된 노드만 배포 |
-| mTLS | `--set tls.enabled=true --set tls.existingSecret=<tls-secret>` | Agent client 인증서 사용 |
+### Common options
 
-Agent protocol v2는 등록 후 모든 요청을 node-scoped Bearer token으로 인증합니다. 등록 identity는 다음 두 방식 중 하나를 사용합니다.
-
-- `bootstrap-token`: 기본 호환 모드입니다. 등록 전용 token은 기본 30분 후 만료되며 회전·폐기할 수 있습니다.
-- `kubernetes-token-review`: Agent projected token은 `cluster-infra-rca-agent-enrollment` 같은 전용 audience를 사용합니다. Platform의 별도 Kubernetes API audience reviewer credential이 TokenReview와 Pod 조회를 수행하며, ServiceAccount UID, Running Pod, cluster label, DaemonSet UID, image digest까지 일치해야 등록됩니다.
-
-외부 cluster reviewer credential은 Platform Helm chart의 `externalCredentials`로 Secret을 읽기 전용
-mount합니다. Web Console에서 새 경로와 이전 credential 유예 만료 시각을 입력하면 새 파일의 가독성과
-JWT 만료를 먼저 검사하고, 성공한 경우에만 version을 증가시킵니다. 유예 중에는 현재 credential의 파일
-읽기 실패 또는 Kubernetes API `401/403`에서만 이전 credential을 사용합니다. 원문 token은 DB, API,
-audit에 저장하지 않습니다.
-
-TokenReview profile은 배포 전 staged 상태로 저장한 뒤 ServiceAccount/DaemonSet UID와 image digest를
-바인딩하는 2단계 방식입니다. profile이 바뀌면 기존 node token을 폐기하고, 활성 node identity는
-명시적 revoke 없이 다른 Pod가 덮어쓸 수 없습니다. 설정 순서는 [Agent Enrollment](docs/agent-enrollment.md),
-권한과 canary 절차는 [Agent Helm Chart](docs/helm-agent-chart.md)를 확인합니다.
-
-Agent audience와 Kubernetes API audience가 같으면 profile 저장과 운영 기동, Agent Helm 렌더링이
-거부됩니다. Platform Helm upgrade는 기본 `audit` pre-upgrade hook으로 기존 DB의 위험 profile을
-먼저 검사하며, 발견하면 배포를 중단합니다. Apply는 Helm values가 아니라
-`render-agent-enrollment-migration-job.py`로 생성한 one-shot Job에서 cluster별로 수행합니다.
-모든 unsafe profile이 사라진 최종 audit 후에만 Platform을 upgrade합니다. V24 이전 profile 미결합
-node token은 기본적으로 거부하며, 필요한 cluster에만 Web Console에서 최대 30일의 재등록 유예를
-설정할 수 있습니다. 자세한 절차는
-[Agent Enrollment Upgrade](docs/agent-enrollment-upgrade.md)를 확인합니다.
-
-Node token은 기본 30일마다 자동 교체합니다. 새 token은 로컬 state에 원자적으로 보관하고 heartbeat 인증이 성공한 뒤 활성화합니다. 재시작이나 일시적 통신 실패가 발생해도 이전 token으로 복구하며, 주기와 재시도 간격은 `nodeTokenRotationDays`, `nodeTokenRotationRetrySeconds`로 조정합니다.
-
-기존 protocol v1의 body credential은 rolling upgrade를 위해 임시 호환됩니다.
-
-## Platform Helm 설치
-
-개발용 기본 예시:
-
-```bash
-helm upgrade --install rca charts/cluster-infra-rca-platform \
-  --namespace rca-system \
-  --create-namespace \
-  --values charts/cluster-infra-rca-platform/values-dev.yaml \
-  --set-string platform.secret.defaultAdminUsername=admin \
-  --set-string platform.secret.defaultAdminPassword='<strong-password>' \
-  --set-string platform.secret.webhookToken='<webhook-token>'
-```
-
-선택 옵션:
-
-| 목적 | Helm option |
+| 목적 | 환경 변수 |
 | --- | --- |
-| MariaDB | `--set database.type=mariadb` |
-| 외부 DB | `--set database.enabled=false`와 `platform.secret.jdbcUrl` |
-| ServiceMonitor | `--set platform.serviceMonitor.enabled=true` |
-| LLM PrometheusRule | `--set platform.prometheusRule.enabled=true` |
-| AlertmanagerConfig | `--set platform.alertmanagerConfig.enabled=true`와 `clusterId` |
-| Demo | `--set platform.config.demoEnabled=true` |
-| Token pepper 회전 | [Opaque Token Pepper Rotation](docs/opaque-token-key-rotation.md) |
-| 외부 reviewer Secret | `platform.kubernetesReviewer.externalCredentials` |
+| PostgreSQL | `RCA_JDBC_URL=jdbc:postgresql://host:5432/rca` |
+| MariaDB | `RCA_JDBC_URL=jdbc:mariadb://host:3306/rca` |
+| 내장 Demo | `RCA_DEMO_ENABLED=true` |
+| 자체 수집 Scheduler | `RCA_MONITORING_ENABLED=true` |
+| Prometheus metrics | `RCA_OBSERVABILITY_ENABLED=true` |
+| Slack·webhook | `RCA_NOTIFICATION_ENABLED=true` |
+| Catalog GitOps | `RCA_GITOPS_ENABLED=true` |
+| LLM 보강 | `RCA_LLM_ENABLED=true` |
 
-기본 image repository는 예시 값입니다. 실제 registry로 `platform.image.repository`, `platform.image.tag`, Agent의 `image.repository`, `image.tag`를 지정해야 합니다. 운영 secret은 CLI `--set`보다 기존 Secret 또는 External Secrets를 권장합니다.
+LLM provider는 OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible, self-hosted endpoint를 지원합니다. Provider 설정이 없어도 Rule-based RCA는 동작합니다. 자세한 설정은 [LLM Analyzer](docs/llm-analyzer.md)를 참고합니다.
 
-운영 배포는 `values-production.yaml`을 사용합니다. 이 overlay는 외부 DB와 기존 Secret, Platform 2 replicas, NetworkPolicy, topology spread, read-only root filesystem을 강제합니다. 이미지 digest를 생략하면 Helm render 단계에서 실패합니다.
-
-```bash
-helm upgrade --install rca charts/cluster-infra-rca-platform \
-  --namespace rca-system \
-  --create-namespace \
-  --values charts/cluster-infra-rca-platform/values-production.yaml \
-  --set-string platform.image.repository=ghcr.io/<org>/cluster-infra-rca-web-console \
-  --set-string platform.image.digest=sha256:<64-hex-digest>
-```
-
-기존 Secret `cluster-infra-rca-platform`에는 최소한 `RCA_JDBC_URL`, `RCA_DB_USERNAME`, `RCA_DB_PASSWORD`, `RCA_DEFAULT_ADMIN_USERNAME`, `RCA_DEFAULT_ADMIN_PASSWORD`, `RCA_WEBHOOK_TOKEN`, `RCA_ENCRYPTION_SECRET`, `RCA_OPAQUE_TOKEN_PEPPER`를 준비합니다. 회전 중에는 `RCA_OPAQUE_TOKEN_PREVIOUS_KEYS`도 같은 Secret에 둡니다. Pepper는 32자 이상의 별도 난수로 만들고 암호화 키와 같은 값을 사용하지 않습니다. 무중단 교체는 [회전 runbook](docs/opaque-token-key-rotation.md)의 reader 준비, writer 전환, lazy rehash 순서를 따릅니다.
-
-## 검증 명령
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts\windows-dev-check.ps1 -BootstrapMaven -Validate
-```
+### Validation commands
 
 ```bash
-bash scripts/linux-dev-check.sh --full
-```
-
-컴포넌트별 실행:
-
-```bash
-python -m pytest -q
-mvn -f web-console/pom.xml verify
-cd web-console/frontend && npm ci && npm test && npm run build
-mvn -f web-console/pom.xml -Pfrontend -DskipTests package
 python3 scripts/verify-documentation.py
 python3 scripts/release-readiness-check.py
+python3 scripts/verify-api-contract.py
+python3 scripts/verify-container-pinning.py
+python3 scripts/verify-operational-catalog.py
+python3 scripts/verify-supply-chain-workflows.py
+python -m pytest -q
+mvn -f web-console/pom.xml verify
+cd web-console/frontend && npm ci --no-audit --no-fund && npm test && npm run build && npm run smoke:routes
 ```
 
-기본 `mvn verify`는 Java Backend만 검증하며 Node.js나 npm registry를 사용하지 않습니다. React가
-포함된 실행 JAR과 Docker image는 명시적으로 `frontend` Maven profile을 사용합니다.
+`npm run smoke:routes`는 기본적으로 `http://127.0.0.1:8080`에서 실행 중인 통합 애플리케이션을 검사합니다. DB, Playwright, Helm과 실환경 검증 명령은 [Testing](docs/testing.md)과 [Portfolio Release Checklist](docs/portfolio-release-checklist.md)를 확인합니다.
 
-DB 호환 테스트가 실제 실행됐는지 확인:
+## Known Limitations
 
-```bash
-mvn -f web-console/pom.xml -Dtest=DatabaseCompatibilityTests test
-python3 scripts/verify_database_compatibility_report.py
-```
+1. 현재 3-node Kind smoke는 통과했지만 변경 커밋 기준 GitHub Actions 재검증은 아직 실행하지 않았습니다.
+2. EKS, AKS, GKE, OpenShift는 contract fixture까지만 검증됐고 실제 managed canary가 남아 있습니다.
+3. RCA 품질 지표는 golden, production-like, 내부 holdout corpus의 회귀 결과이며 실운영 정확도가 아닙니다.
+4. 24시간 Production Fleet와 충분한 LLM 실표본 검증은 완료되지 않았습니다.
+5. 실제 RKE2 시연 Screenshot과 민감정보 검토는 저장소 소유자가 최종 제출 전에 추가해야 합니다.
 
-두 번째 명령은 Docker 미탐지로 DB 테스트가 skip된 경우에도 실패합니다. 브라우저 E2E, Helm, Alertmanager와 실클러스터 검증 명령은 [docs/README.md](docs/README.md)와 [docs/testing.md](docs/testing.md)에 정리되어 있습니다.
+## AI-Assisted Development Disclosure
 
-## 저장소 구조
+요구사항과 제품 경계, Kubernetes/Linux 장애 분석 방향, 안전 정책과 실제 인프라 검증 기준은 프로젝트 소유자가 정의했습니다.
 
-```text
-web-console/  Spring Boot Platform과 React Web Console
-node_agent/   Python Node Agent
-charts/       Platform과 Agent Helm chart
-manifests/    Agent 예제 manifest
-scripts/      개발 및 운영 검증 도구
-tests/        Python과 운영 스크립트 테스트
-docs/         설계, 보안, 운영 문서
-examples/     webhook과 report 예제
-```
+코드 생성, 반복 구현, 테스트 보강, 리팩터링과 문서화 일부에는 생성형 AI와 Codex를 활용했습니다. 생성된 결과는 테스트, 실제 클러스터 검증, 코드 리뷰와 운영 안전 경계 확인을 통해 검토했습니다.
 
-API 인증 경계는 [docs/api-security-contract.md](docs/api-security-contract.md), 역할별 권한은 [docs/rbac-matrix.md](docs/rbac-matrix.md), 전체 문서 목록은 [docs/README.md](docs/README.md)를 참고합니다.
+## Documentation
+
+| 문서 | 목적 |
+| --- | --- |
+| [Current State](docs/current-state.md) | 현재 stack, 구현 범위와 검증 기준 |
+| [Portfolio Demo](docs/portfolio-demo.md) | 내장 Demo와 실제 RKE2 시연 절차 |
+| [Portfolio Release Checklist](docs/portfolio-release-checklist.md) | 제출 전 검증과 동결 판단 |
+| [Architecture](docs/architecture.md) | 전체 컴포넌트와 데이터 흐름 |
+| [Security](docs/security.md) | 인증, Secret과 production guardrail |
+| [Testing](docs/testing.md) | 로컬·CI·실환경 검증 명령 |
+| [Roadmap](docs/roadmap.md) | 완료 범위와 Post-Portfolio Backlog |
+
+저장소 구조와 전체 문서 목록은 [Documentation Index](docs/README.md)에서 확인할 수 있습니다.

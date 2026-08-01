@@ -118,6 +118,13 @@ EKS, AKS, GKE, OpenShift는 공식 문서 기반 contract fixture까지만 검�
 남아 있습니다. 1시간 Standard와 5시간 Extended Fleet 검증은 완료했고 24시간 Production Fleet는
 남아 있습니다.
 
+2026-08-02 현재 코드로 Kind v0.31.0과 Kubernetes v1.35.0의 3-node smoke를 다시 실행했습니다.
+bootstrap Agent와 TokenReview Agent가 각각 3/3 등록됐고, audit-only upgrade 차단, one-shot audience
+migration, reviewer credential, Evidence 수집, Incident와 RCA Report 생성이 모두 통과했습니다. smoke
+수집 성공률과 Evidence 품질은 100%, degraded collector는 0%, 수집 p95는 14.955초였으며
+runtime/spool/quarantine 오류는 없었습니다. 이 결과는 격리된 Kind 검증이며 managed Kubernetes
+실환경 결과를 대신하지 않습니다.
+
 RCA 품질 수치는 저장소의 golden, production-like, 내부 holdout corpus에 대한 회귀 결과입니다.
 실운영 정확도를 의미하지 않으며 managed canary와 비식별 실제 장애 표본으로 별도 검증해야 합니다.
 

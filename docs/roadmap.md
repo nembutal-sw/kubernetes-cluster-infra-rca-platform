@@ -157,6 +157,35 @@
 - Reports, Incidents, Pipeline UI에 검색과 이전/다음 탐색 연결
 - 기존 배열 API는 호환성을 위해 유지
 
+## Portfolio Freeze Boundary
+
+이 저장소는 다음 항목을 기준으로 포트폴리오 구현 범위를 동결합니다.
+
+- Node Agent 기반 Kubernetes/Linux Evidence 수집
+- DB 기반 durable Analysis Task
+- Rule-based RCA와 선택적 LLM 보강
+- Incident correlation
+- Policy-gated Action Request
+- 읽기 전용 Evidence 재수집
+- 승인·거절·수동 완료 Audit
+- Catalog override GitOps PR 추적
+- Docker Compose와 Helm
+- Backend, Frontend, Agent, DB, Helm, supply-chain 검증
+
+아래 Active Backlog는 제품화 또는 추가 실환경 검증 대상이며 포트폴리오 기능 범위의 완료를 막는
+필수 조건이 아닙니다. 이전 `main` CI run `30363967144`의 Kind 3-node 등록 timeout은 DaemonSet의
+고정 host port 충돌, TokenReview chart 렌더링, namespace 생성 경계, reviewer token 권한과 audience를
+수정한 뒤 2026-08-02 격리된 3-node Kind 환경에서 재검증을 통과했습니다. 최종 tag 전에는 해당
+변경 커밋 기준 GitHub Actions 결과를 확인합니다.
+
+### Post-Portfolio Backlog
+
+1. 24시간 Production Fleet burn-in
+2. EKS·AKS·GKE·OpenShift 실제 managed canary
+3. 장애 유형별 LLM canonical 표본 20개 이상 확보
+4. 비식별 실제 장애와 복합·누락·시간 역전 corpus 확대
+5. Credential lifecycle UX와 Agent manifest 구조 parity 추가 강화
+
 ## Active Backlog
 
 현재 기준과 세부 상태는 [Current State](current-state.md)를 우선합니다.
@@ -164,7 +193,7 @@
 ### P1: Credential Lifecycle
 
 - opaque token key별 credential 사용 현황과 old-key 제거 readiness 제공
-- 외부 Kubernetes reviewer credential rotation, 만료 감시, fail-closed 검증
+- 완료 기록: 외부 Kubernetes reviewer credential rotation, 만료 감시, fail-closed 검증
 - 관리자 승인과 audit을 포함한 Agent workload identity rebind
 - fleet migration 완료 후 protocol v1 body credential 제거
 
@@ -190,11 +219,11 @@
 
 ## Next Priority
 
-1. 문서 기준선과 코드 계약을 CI로 고정
-2. opaque token key inventory와 제거 readiness 구현
-3. Helm·Web Console Agent manifest 구조 parity 확대
-4. 외부 reviewer credential lifecycle과 승인 기반 identity rebind
-5. Production Fleet 및 managed Kubernetes 실제 canary
+1. opaque token key inventory와 제거 readiness 구현
+2. Helm·Web Console Agent manifest 구조 parity 확대
+3. 승인 기반 Agent workload identity rebind
+4. Production Fleet 및 managed Kubernetes 실제 canary
+5. 실제 장애 corpus와 LLM burn-in 표본 확대
 
 Gemini staging smoke는 2026-07-21에 `gemini-3.1-flash-lite`와 provider 호출 예산
 1로 성공했습니다. DiskPressure evidence 기반 report가 완료됐고 LLM root cause
