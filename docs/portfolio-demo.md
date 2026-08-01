@@ -41,7 +41,10 @@ mvn -f web-console/pom.xml -Pfrontend process-resources spring-boot:run
 2. Demo Scenario에서 `CNI MTU Mismatch`를 선택합니다.
 3. 실행 확인 절차를 거쳐 Scenario를 시작합니다.
 4. 생성된 Analysis Task ID를 기록합니다.
-5. 상태가 `queued`에서 `processing`, `completed`로 변경되는지 확인합니다.
+5. Analysis Task가 `queued` 이후 최종적으로 `completed`가 되는지 확인합니다.
+
+처리 속도와 화면 갱신 시점에 따라 `processing` 상태는 화면에서 보이지 않을 수 있습니다. Task가
+`failed`, `retry_wait`, `dead_letter`로 끝나면 정상 결과로 설명하지 않습니다.
 
 API로 같은 작업을 수행할 때는 로그인 후 발급된 access token을 사용합니다.
 
@@ -49,19 +52,38 @@ API로 같은 작업을 수행할 때는 로그인 후 발급된 access token을
 curl -X POST http://localhost:8080/api/demo/scenarios/cni-mtu-mismatch/run \
   -H 'Authorization: Bearer <access-token>' \
   -H 'Content-Type: application/json' \
-  -d '{"confirmed":true,"nodeName":"demo-worker-01"}'
+  -d '{"confirmed":true,"node_name":"demo-worker-01"}'
 ```
 
-응답의 `analysisTask.taskId`, `analysisTask.evidenceId`, `cluster.clusterId`를 기록합니다.
+등록된 특정 Demo cluster를 사용하려는 경우에만 `cluster_id`를 추가합니다.
+
+```json
+{
+  "confirmed": true,
+  "cluster_id": "<cluster-id>",
+  "node_name": "demo-worker-01"
+}
+```
+
+`cluster_id`를 생략하면 서비스는 `environment=demo`인 기존 cluster를 찾고, 없으면 Demo cluster를
+생성합니다. 응답의 `analysis_task.task_id`, `analysis_task.evidence_id`, `cluster.cluster_id`를
+기록합니다.
 
 ### 2. Analysis Task 확인
 
 `Pipeline` 화면에서 다음을 확인합니다.
 
-- task source가 Demo인지
+- `alert_name` 또는 `task_id`가 실행한 Scenario와 대응하는지
 - `cluster_id`와 `node_name`이 Scenario 응답과 일치하는지
-- retry 또는 dead letter 없이 `completed`인지
-- 완료 후 Report 링크가 표시되는지
+- 최종 상태가 `completed`인지
+- `failed`, `retry_wait`, `dead_letter`로 종료되지 않았는지
+
+Pipeline Task 목록에는 Report 링크가 없습니다. Report는 다음 순서로 찾습니다.
+
+1. Analysis Task의 최종 상태가 `completed`인지 확인합니다.
+2. `RCA Reports` 화면으로 이동합니다.
+3. `cluster_id`, `node_name`, Scenario 실행 시각을 기준으로 생성된 Report를 찾습니다.
+4. Report ID와 Analysis Task의 cluster·node 정보가 일치하는지 확인합니다.
 
 ### 3. RCA Report 확인
 
@@ -103,6 +125,13 @@ POST /api/rca/action-requests/{actionRequestId}/complete-manual
 
 이름에 `execute`가 포함된 첫 endpoint도 Agent 명령을 실행하지 않고 정책에 맞는 Action Request 또는 읽기 전용 Evidence Request를 생성합니다.
 
+역할별 권한은 다음과 같이 구분합니다.
+
+- Action Request 생성: `ADMIN` 또는 `OPERATOR`
+- Action Request 승인·거절: `ADMIN` 또는 `APPROVER`
+- 수동 처리 완료 기록: `ADMIN` 또는 `OPERATOR`
+- Audit 화면 조회와 Audit export: `ADMIN` 또는 `AUDITOR`
+
 ### 5. Audit 확인
 
 `Audit` 화면에서 Scenario 실행 시각과 사용자 ID를 기준으로 검색합니다.
@@ -114,7 +143,7 @@ POST /api/rca/action-requests/{actionRequestId}/complete-manual
 - 수동 완료 기록
 - request ID, client IP, 결과와 timestamp
 
-Audit export는 역할 정책에 따라 `ADMIN` 또는 `AUDITOR`만 사용할 수 있습니다.
+Audit 화면과 Audit export는 `ADMIN` 또는 `AUDITOR`만 사용할 수 있습니다.
 
 ## Track B: Real RKE2 Agent Demo
 
