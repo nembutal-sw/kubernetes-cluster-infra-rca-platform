@@ -29,6 +29,25 @@ main branch의 blocking gate는 `CRITICAL` 기준입니다.
 - image scan은 base image와 transitive dependency 영향이 커서 main 개발 흐름을 과도하게 막을 수 있음
 - release 단계에서는 더 엄격한 gate를 적용할 수 있음
 
+## Development Images
+
+`main`에 push하면 먼저 `.github/workflows/ci.yml`이 실행됩니다.
+CI가 성공한 push에 대해서만 `.github/workflows/publish-images.yml`이 검증된 커밋을 다시 checkout하고 GHCR에 개발용 이미지를 push합니다.
+
+자동으로 발행되는 이미지:
+
+```text
+ghcr.io/nembutal-sw/cluster-infra-rca-platform:edge
+ghcr.io/nembutal-sw/cluster-infra-rca-platform:sha-<12자리 커밋 SHA>
+ghcr.io/nembutal-sw/cluster-infra-rca-agent:edge
+ghcr.io/nembutal-sw/cluster-infra-rca-agent:sha-<12자리 커밋 SHA>
+```
+
+개발용 이미지는 현재 `linux/amd64`로 발행합니다.
+`edge`는 최신 main 검증본을 가리키므로 운영 배포에서는 고정된 `sha-*` 태그나 digest를 사용합니다.
+워크플로는 GitHub가 자동 제공하는 `GITHUB_TOKEN`으로 GHCR에 로그인하므로 별도 Docker Hub 비밀번호나 PAT를 저장소에 넣지 않습니다.
+필요할 때 Actions 화면에서 `Publish Edge Images`를 수동 실행할 수도 있습니다.
+
 ## Release Assets
 
 `v*` tag를 push하면 `.github/workflows/release.yml`이 실행됩니다.
