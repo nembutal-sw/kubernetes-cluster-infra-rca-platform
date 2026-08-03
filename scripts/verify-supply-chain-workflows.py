@@ -24,16 +24,19 @@ def contains_all(text: str, values: list[str]) -> bool:
 def main() -> int:
     errors: list[str] = []
     security_path = ROOT / ".github/workflows/security.yml"
+    publish_path = ROOT / ".github/workflows/publish-images.yml"
     release_path = ROOT / ".github/workflows/release.yml"
     dependabot_path = ROOT / ".github/dependabot.yml"
 
     require(security_path.exists(), "security workflow is missing", errors)
+    require(publish_path.exists(), "development image publish workflow is missing", errors)
     require(release_path.exists(), "release workflow is missing", errors)
     require(dependabot_path.exists(), "dependabot config is missing", errors)
     if errors:
         return fail(errors)
 
     security = read(".github/workflows/security.yml")
+    publish = read(".github/workflows/publish-images.yml")
     release = read(".github/workflows/release.yml")
     dependabot = read(".github/dependabot.yml")
 
@@ -99,6 +102,44 @@ def main() -> int:
         errors,
     )
     require("retention-days:" in security, "security artifacts must declare retention", errors)
+
+    require("workflow_dispatch:" in publish, "development image workflow must support manual dispatch", errors)
+    require("workflow_run:" in publish, "development image workflow must run after CI", errors)
+    require("- CI" in publish, "development image workflow must follow the CI workflow", errors)
+    require(
+        "github.event.workflow_run.conclusion == 'success'" in publish,
+        "development images must only publish after successful CI",
+        errors,
+    )
+    require("packages: write" in publish, "development image workflow must be able to push images", errors)
+    require("contents: read" in publish, "development image workflow should use read-only contents permission", errors)
+    require(
+        contains_all(
+            publish,
+            [
+                "Dockerfile.web-console",
+                "Dockerfile.agent",
+                "cluster-infra-rca-platform",
+                "cluster-infra-rca-agent",
+            ],
+        ),
+        "development image workflow must publish both platform and agent images",
+        errors,
+    )
+    require("docker/login-action" in publish, "development image workflow must log in to GHCR", errors)
+    require("docker/build-push-action" in publish, "development image workflow must build and push images", errors)
+    require("password: ${{ secrets.GITHUB_TOKEN }}" in publish, "development image workflow must use GITHUB_TOKEN", errors)
+    require("type=raw,value=edge" in publish, "development image workflow must publish an edge tag", errors)
+    require(
+        "type=raw,value=sha-${{ steps.source.outputs.short_sha }}" in publish,
+        "development image workflow must publish immutable commit tags",
+        errors,
+    )
+    require(
+        "ref: ${{ steps.source.outputs.sha }}" in publish,
+        "development image workflow must build the exact tested revision",
+        errors,
+    )
 
     require("id-token: write" in release, "release workflow must allow keyless signing OIDC", errors)
     require("packages: write" in release, "release workflow must be able to push images", errors)
