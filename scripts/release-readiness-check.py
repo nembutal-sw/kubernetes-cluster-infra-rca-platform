@@ -1055,17 +1055,24 @@ def main() -> int:
         check(
             "supply-chain-static-guard",
             exists("scripts/verify-supply-chain-workflows.py")
+            and exists("tests/test_supply_chain_workflows.py")
             and contains(
                 "scripts/verify-supply-chain-workflows.py",
-                "workflow_dispatch:",
-                "dependency-review:",
-                "secret-scan:",
-                "filesystem-scan:",
-                "sbom-and-grype:",
-                "image-sbom-scan:",
-                "codeql:",
+                "import yaml",
+                "def validate_security(",
+                "def validate_publish(",
+                "def validate_release(",
+                "def validate_dependabot(",
+                "def verify(",
+            )
+            and contains(
+                "tests/test_supply_chain_workflows.py",
+                "test_invalid_workflow_yaml_fails_clearly",
+                "test_publish_workflow_requires_same_repository_main_push",
+                "test_publish_workflow_requires_successful_ci_for_manual_runs",
+                "test_publish_workflow_requires_existing_dockerfiles",
             ),
-            "Static supply-chain guard validates the required security workflow shape.",
+            "Parsed supply-chain guards validate workflow structure and unsafe edge publishing regressions.",
         ),
         check(
             "release-supply-chain-assets",
