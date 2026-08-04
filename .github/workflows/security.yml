@@ -129,7 +129,7 @@ jobs:
             image: cluster-infra-rca-agent
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4.1.0
+      - uses: docker/setup-buildx-action@v4.2.0
       - name: Build ${{ matrix.component }} image for scanning
         uses: docker/build-push-action@v7.2.0
         with:
