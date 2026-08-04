@@ -7,7 +7,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8,<9",
+    "pytest>=8,<10",
     "PyYAML>=6,<7",
 ]
 
