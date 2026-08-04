@@ -517,6 +517,17 @@ jobs:
             scripts/agent-soak-revalidate.py \
             scripts/agent-soak-comparison.py \
             scripts/managed-platform-contract-check.py
+      - name: Lint GitHub Actions workflows
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_LINUX_AMD64_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "${archive}" actionlint
+          ./actionlint -shellcheck= -pyflakes=
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py
       - name: Validate blind evaluation corpus separation
