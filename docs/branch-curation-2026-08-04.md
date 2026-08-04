@@ -5,9 +5,11 @@
 - 저장소: `nembutal-sw/kubernetes-cluster-infra-rca-platform`
 - 기준 브랜치: `main`
 - 기준 commit: `406a9a8143e4d235612d833bbb496389606ef2ae`
-- 검토 대상: `main`을 제외한 원격 브랜치 19개
-- 연결된 GitHub PR: 0개
-- 통합 작업 브랜치: `codex/curate-remote-branches-20260804`
+- 최초 검토 대상: `main`을 제외한 원격 브랜치 19개
+- 최초 브랜치에 연결된 GitHub PR: 19개
+- 1차 통합 PR: `#29` (`codex/curate-remote-branches-20260804`)
+- 작업 중 추가된 Dependabot 브랜치: 2개 (`postcss`, `undici`)
+- 2차 통합 PR: `#33` (`integrate/transitive-deps-20260804`)
 
 브랜치 commit을 그대로 병합하지 않고 최신 `main`에 필요한 변경만 다시 적용했다. 메이저 runtime/framework 변경은 현재 지원 기준과 분리했으며, Dependabot이 같은 메이저 변경을 반복 생성하지 않도록 명시적으로 제한했다.
 
@@ -27,6 +29,8 @@
 | `dependabot/npm_and_yarn/web-console/frontend/vite-8.1.4` | 최신 마이너로 대체 | Vite `8.2.0` 적용 | `e6ca9ea` |
 | `dependabot/npm_and_yarn/web-console/frontend/vitejs/plugin-react-6.0.3` | 최신 패치로 대체 | React plugin `6.0.5` 적용 | `e6ca9ea` |
 | `dependabot/pip/pytest-gte-8-and-lt-10` | 재적용 | pytest 9 허용 후 전체 Python test 검증 | `691aca7` |
+| `dependabot/npm_and_yarn/web-console/frontend/postcss-8.5.25` | 이미 반영 | 1차 통합의 lockfile 갱신에 PostCSS `8.5.25`와 Nano ID `3.3.17`이 포함됨 | `e6ca9ea` |
+| `dependabot/npm_and_yarn/web-console/frontend/undici-7.29.0` | 재적용 | 최신 `main`에 lockfile-only 패치 업데이트 | PR `#33` |
 
 ## 반영하지 않은 메이저 변경
 
@@ -48,7 +52,7 @@
 
 1. 이 문서와 대체 변경을 포함한 PR이 `main`에 병합됨
 2. PR의 CI와 Security 검사가 성공함
-3. 원본 브랜치에 연결된 열린 PR이 없음
+3. 원본 브랜치에 연결된 PR을 대체 관계와 사유를 남기고 닫음
 4. 삭제 직전 원격 tip과 분류 결과가 달라지지 않았음
 
 `main`과 통합 작업 브랜치는 이 정리 대상에 포함하지 않는다.
