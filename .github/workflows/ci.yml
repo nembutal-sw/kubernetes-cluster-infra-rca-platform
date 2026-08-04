@@ -67,7 +67,7 @@ jobs:
         run: python3 scripts/verify_agent_enrollment_migration_report.py
       - name: Upload RCA analysis quality reports
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: rule-analysis-quality
           path: |
@@ -108,7 +108,7 @@ jobs:
         run: npm run e2e
       - name: Upload Playwright diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: console-workflow-e2e
           path: |
@@ -473,7 +473,7 @@ jobs:
             --timeout 300
       - name: Upload Operator delivery diagnostics
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: prometheus-operator-delivery-e2e
           path: validation-results/prometheus-operator-delivery
@@ -491,6 +491,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install validation dependencies
+        run: python -m pip install -r requirements-dev.txt
       - name: Compile operational scripts
         run: |
           python -m py_compile \
@@ -517,6 +521,17 @@ jobs:
             scripts/agent-soak-revalidate.py \
             scripts/agent-soak-comparison.py \
             scripts/managed-platform-contract-check.py
+      - name: Lint GitHub Actions workflows
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_LINUX_AMD64_SHA256}  ${archive}" | sha256sum --check
+          tar -xzf "${archive}" actionlint
+          ./actionlint -shellcheck= -pyflakes=
       - name: Validate API security contract
         run: python scripts/verify-api-contract.py
       - name: Validate blind evaluation corpus separation
@@ -557,7 +572,7 @@ jobs:
             dockerfile: Dockerfile.agent
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4.1.0
+      - uses: docker/setup-buildx-action@v4.2.0
       - name: Build ${{ matrix.component }} image
         uses: docker/build-push-action@v7.2.0
         with:

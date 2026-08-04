@@ -76,7 +76,7 @@ release checklist의 미완료 항목과 최신 GitHub Actions 결과를 먼저 
 | [audit-and-actions.md](audit-and-actions.md) | Audit와 승인/거절/수동 완료 lifecycle |
 | [threat-model.md](threat-model.md) | 자산, 신뢰 경계, abuse case |
 | [security.md](security.md) | Production fail-fast와 secret 관리 |
-| [supply-chain.md](supply-chain.md) | SBOM, secret scan, image scan, signing |
+| [supply-chain.md](supply-chain.md) | Edge/release image, SBOM, scan, signing |
 
 ## Deployment And Operations
 
@@ -114,6 +114,7 @@ release checklist의 미완료 항목과 최신 GitHub Actions 결과를 먼저 
 | [stabilization-roadmap.md](stabilization-roadmap.md) | 구조 안정화 phase 상태 |
 | [code-review-action-plan-2026-07-10.md](code-review-action-plan-2026-07-10.md) | 코드 리뷰 후속 작업 |
 | [enterprise-improvement-plan.md](enterprise-improvement-plan.md) | 엔터프라이즈 고도화 기준 |
+| [branch-curation-2026-08-04.md](branch-curation-2026-08-04.md) | 원격 브랜치 선별 반영과 정리 근거 |
 | [phase1-structure-stabilization.md](phase1-structure-stabilization.md) | 초기 구조 안정화 기록 |
 | [phase3-testing-ci.md](phase3-testing-ci.md) | 테스트와 CI 구축 기록 |
 
