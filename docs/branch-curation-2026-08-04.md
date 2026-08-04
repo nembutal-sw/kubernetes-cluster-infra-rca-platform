@@ -8,8 +8,9 @@
 - 최초 검토 대상: `main`을 제외한 원격 브랜치 19개
 - 최초 브랜치에 연결된 GitHub PR: 19개
 - 1차 통합 PR: `#29` (`codex/curate-remote-branches-20260804`)
-- 작업 중 추가된 Dependabot 브랜치: 2개 (`postcss`, `undici`)
+- 작업 중 추가된 Dependabot 브랜치: 4개 (`postcss`, `undici`, `CodeQL`, `Spring Boot`)
 - 2차 통합 PR: `#33` (`integrate/transitive-deps-20260804`)
+- 3차 통합 브랜치: `integrate/safe-patches-20260804`
 
 브랜치 commit을 그대로 병합하지 않고 최신 `main`에 필요한 변경만 다시 적용했다. 메이저 runtime/framework 변경은 현재 지원 기준과 분리했으며, Dependabot이 같은 메이저 변경을 반복 생성하지 않도록 명시적으로 제한했다.
 
@@ -31,6 +32,8 @@
 | `dependabot/pip/pytest-gte-8-and-lt-10` | 재적용 | pytest 9 허용 후 전체 Python test 검증 | `691aca7` |
 | `dependabot/npm_and_yarn/web-console/frontend/postcss-8.5.25` | 이미 반영 | 1차 통합의 lockfile 갱신에 PostCSS `8.5.25`와 Nano ID `3.3.17`이 포함됨 | `e6ca9ea` |
 | `dependabot/npm_and_yarn/web-console/frontend/undici-7.29.0` | 재적용 | 최신 `main`에 lockfile-only 패치 업데이트 | PR `#33` |
+| `dependabot/github_actions/github/codeql-action-4.37.4` | 재적용 | CodeQL v4의 패치 버전을 명시적으로 고정하고 구조 검증이 v4 패치 태그를 허용하도록 보강 | 3차 통합 브랜치 |
+| `dependabot/maven/web-console/org.springframework.boot-spring-boot-starter-parent-3.5.16` | 재적용 | 현재 3.5 지원선의 Spring Boot 패치 업데이트 | 3차 통합 브랜치 |
 
 ## 반영하지 않은 메이저 변경
 
