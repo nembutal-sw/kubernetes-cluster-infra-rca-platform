@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -59,6 +60,10 @@ def find_step_by_name(job: Any, name: str) -> Mapping[str, Any]:
 
 def has_action(workflow: Mapping[str, Any], action: str) -> bool:
     return any(str(step.get("uses", "")).startswith(f"{action}@") for step in action_steps(workflow))
+
+
+def is_codeql_v4_reference(value: str) -> bool:
+    return re.fullmatch(r"github/codeql-action/[^@]+@v4(?:\.\d+\.\d+)?", value) is not None
 
 
 def validate_security(workflow: Mapping[str, Any], errors: list[str]) -> None:
@@ -132,7 +137,11 @@ def validate_security(workflow: Mapping[str, Any], errors: list[str]) -> None:
         for step in action_steps(workflow)
         if str(step.get("uses", "")).startswith("github/codeql-action/")
     ]
-    require(codeql_uses and all(value.endswith("@v4") for value in codeql_uses), "all CodeQL actions must use v4", errors)
+    require(
+        codeql_uses and all(is_codeql_v4_reference(value) for value in codeql_uses),
+        "all CodeQL actions must use the v4 release line",
+        errors,
+    )
 
     upload_steps = [
         step
