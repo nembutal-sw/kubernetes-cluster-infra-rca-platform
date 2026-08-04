@@ -46,6 +46,39 @@ Release 작업:
 Release image gate는 `CRITICAL,HIGH` 기준입니다.
 High 이상 취약점이 남아 있으면 release job은 실패해야 합니다.
 
+## Edge Images
+
+`main` push의 `CI` workflow가 성공하면 `.github/workflows/publish-images.yml`이 같은 commit SHA를 다시 checkout해 GHCR에 개발 이미지를 발행합니다. PR 또는 실패한 CI 결과는 이미지를 발행하지 않습니다.
+
+발행 이미지:
+
+```text
+ghcr.io/nembutal-sw/cluster-infra-rca-platform:edge
+ghcr.io/nembutal-sw/cluster-infra-rca-platform:sha-<12자리 commit SHA>
+ghcr.io/nembutal-sw/cluster-infra-rca-agent:edge
+ghcr.io/nembutal-sw/cluster-infra-rca-agent:sha-<12자리 commit SHA>
+```
+
+- `edge`: 가장 최근에 발행된 `main` 검증본
+- `sha-*`: 동일 이미지를 다시 식별할 수 있는 commit tag
+- 지원 아키텍처: `linux/amd64`
+- 포함 정보: BuildKit provenance와 SBOM attestation
+
+운영 배포에는 이동하는 `edge` 대신 `sha-*` 또는 digest를 사용합니다. ARM64 운영 이미지는 multi-architecture release image를 사용합니다.
+
+Actions 화면의 `Publish Edge Images` 수동 실행은 `main`에서만 허용됩니다. 선택한 SHA에 성공한 `main` push CI가 없으면 발행을 거부하므로 수동 실행도 검증을 우회하지 않습니다.
+
+GHCR 인증에는 별도 PAT나 Docker Hub password를 사용하지 않습니다. job에 부여된 `contents: read`, `actions: read`, `packages: write` 권한과 GitHub가 제공하는 `GITHUB_TOKEN`만 사용합니다. 저장소와 연결된 package에 GitHub Actions write access가 허용되어 있어야 합니다.
+
+Edge 발행 단계는 image signing이나 취약점 gate를 중복 실행하지 않습니다. `Security` workflow가 `main`의 filesystem과 image를 검사하고, `v*` release workflow가 multi-architecture image signing, SBOM, Trivy gate를 수행합니다.
+
+로컬에서 동일 build context를 확인하는 명령:
+
+```bash
+docker build -f Dockerfile.web-console -t cluster-infra-rca-platform:local .
+docker build -f Dockerfile.agent -t cluster-infra-rca-agent:local .
+```
+
 ## Local Checks
 
 로컬에서 빠르게 확인할 항목:
