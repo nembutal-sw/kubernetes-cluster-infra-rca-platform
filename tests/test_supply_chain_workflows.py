@@ -39,6 +39,16 @@ def test_repository_supply_chain_contract_passes() -> None:
     assert MODULE.verify(ROOT) == []
 
 
+def test_codeql_patch_release_is_accepted_but_next_major_is_rejected(tmp_path: Path) -> None:
+    root = copy_contract(tmp_path)
+    path = root / ".github/workflows/security.yml"
+    replace(path, "github/codeql-action/init@v4.37.4", "github/codeql-action/init@v5.0.0")
+
+    errors = MODULE.verify(root)
+
+    assert "all CodeQL actions must use the v4 release line" in errors
+
+
 def test_invalid_workflow_yaml_fails_clearly(tmp_path: Path) -> None:
     root = copy_contract(tmp_path)
     (root / ".github/workflows/publish-images.yml").write_text("jobs: [unterminated", encoding="utf-8")
