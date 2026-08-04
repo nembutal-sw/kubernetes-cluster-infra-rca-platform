@@ -301,6 +301,31 @@ def validate_dependabot(config: Mapping[str, Any], errors: list[str]) -> None:
     required = {"maven", "pip", "npm", "docker", "github-actions"}
     require(required <= ecosystems, "dependabot must cover Maven, pip, npm, Docker, and GitHub Actions", errors)
 
+    expected_major_ignores = {
+        "maven": {
+            "org.springframework.boot:spring-boot-starter-parent",
+            "org.springframework.ai:spring-ai-bom",
+            "com.github.eirslett:frontend-maven-plugin",
+        },
+        "npm": {"typescript"},
+        "docker": {"eclipse-temurin", "maven", "python"},
+    }
+    for ecosystem, expected_dependencies in expected_major_ignores.items():
+        update = next(
+            (entry for entry in updates if entry.get("package-ecosystem") == ecosystem),
+            {},
+        )
+        ignored_major_dependencies = {
+            str(rule.get("dependency-name", ""))
+            for rule in (as_mapping(item) for item in as_list(as_mapping(update).get("ignore")))
+            if "version-update:semver-major" in as_list(rule.get("update-types"))
+        }
+        require(
+            expected_dependencies <= ignored_major_dependencies,
+            f"dependabot {ecosystem} config must isolate planned major migrations",
+            errors,
+        )
+
 
 def verify(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
