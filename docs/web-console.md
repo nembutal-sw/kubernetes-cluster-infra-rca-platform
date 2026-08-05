@@ -31,8 +31,9 @@ UI 메시지는 “자동 처리”보다 “근거 기반 RCA와 안전한 수�
 The Web Console is bundled inside the Spring Boot platform. It uses:
 
 - Spring Boot static asset shell
-- React 19 UI
-- Bootstrap 5 styling
+- React 19.2.7 UI with React Router 8.3.0
+- TypeScript 6.0.3 and Vite 8.2.0
+- Bootstrap 5.3.8 styling
 - same-origin API calls
 
 There is no separate frontend server or API proxy.

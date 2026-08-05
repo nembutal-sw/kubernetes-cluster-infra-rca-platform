@@ -77,7 +77,7 @@ $env:SPRING_AI_GOOGLE_GENAI_API_KEY = "..."
 ```
 
 Spring AI `1.1.8`의 기본 Google SDK보다 최신 authorization key 흐름을 반영하기
-위해 Google GenAI Java SDK `1.61.0`을 명시적으로 사용합니다. Spring AI를
+위해 Google GenAI Java SDK `1.64.0`을 명시적으로 사용합니다. Spring AI를
 업그레이드할 때는 이 override가 계속 필요한지 공식 의존성과 함께 확인합니다.
 `AQ.` 형식 키에서 `401 ACCESS_TOKEN_TYPE_UNSUPPORTED`가 발생하면 호출을
 재시도하지 말고 AI Studio에서 키의 상태와 연결된 service account/IAM binding을

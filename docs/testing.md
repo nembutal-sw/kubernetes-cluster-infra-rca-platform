@@ -257,7 +257,7 @@ docker run --rm --network host \
   -e CONSOLE_BASE_URL=http://127.0.0.1:18080 \
   -e CONSOLE_USERNAME=admin \
   -e CONSOLE_PASSWORD='<admin-password>' \
-  mcr.microsoft.com/playwright:v1.57.0-noble \
+  mcr.microsoft.com/playwright:v1.62.1-noble \
   sh -lc 'npm ci --no-audit --no-fund && npm run smoke:routes'
 ```
 

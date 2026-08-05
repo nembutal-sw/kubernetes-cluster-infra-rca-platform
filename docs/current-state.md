@@ -2,9 +2,10 @@
 
 이 문서는 저장소의 현재 구현 기준을 한곳에 정리한 문서입니다.
 
-- 기준일: `2026-07-28`
-- 기준 단계: `Phase 40`
+- 기준일: `2026-08-05`
+- 기준 단계: `Phase 40` 완료 후 dependency·supply-chain·security maintenance
 - 기준 브랜치: `main`
+- 기준 코드 커밋: `17c4807e05dc4eba5d7fc6877c3cced9f0163ad0`
 
 세부 설계는 각 주제별 문서를 따르되, 기능 상태나 버전 설명이 서로 다르면 이 문서와 실제 코드·설정을
 우선합니다. 과거 계획과 단계별 완료 기록은 역사 문서로 보존합니다.
@@ -27,9 +28,10 @@ systemd·kernel, 디스크·inode·메모리·PID, NIC·conntrack, API Server·e
 
 | 영역 | 현재 기준 |
 | --- | --- |
-| Platform | Spring Boot `3.5.15`, Java `21`, Spring AI `1.1.8` |
-| Web Console | React `19.2.7`, TypeScript, Vite `8.0.16`, Bootstrap `5.3.8` |
-| Node Agent | Python `3.10+`, Agent protocol `v2` |
+| Platform | Spring Boot `3.5.16`, Java `21`, Spring AI `1.1.8`, Google GenAI SDK `1.64.0` |
+| Web Console | React `19.2.7`, React Router `8.3.0`, TypeScript `6.0.3`, Vite `8.2.0`, Bootstrap `5.3.8` |
+| Frontend toolchain | Node.js `22.22.0`, npm `11.3.0`, Vitest `4.1.x`, Playwright `1.62.1` |
+| Node Agent | Python `3.10+` 지원, container·CI 기준 `3.12`, Agent protocol `v2` |
 | Database | PostgreSQL `16` 또는 MariaDB `11.x`, 로컬 개발용 H2 |
 | Schema | Flyway V26, 총 26개 migration |
 | Packaging | 단일 Spring Boot 애플리케이션에 React 정적 자산 포함 |
@@ -91,7 +93,7 @@ audience와 겹칠 수 없습니다. 외부 cluster reviewer credential은 raw t
 - Agent 인증: 등록 identity + node-scoped Bearer token, 선택적 mTLS
 - Webhook 인증: 전용 webhook credential
 - Manifest 인증: 짧은 TTL의 1회용 token
-- Export 권한: `ADMIN`, `OPERATOR`
+- Report·Evidence export: `ADMIN`, `OPERATOR`; Audit export: `ADMIN`, `AUDITOR`
 - 운영 관찰: audit, request ID, Prometheus metric, health/readiness
 - DB 호환: PostgreSQL·MariaDB fresh schema 및 Alembic baseline migration CI
 - LLM provider: OpenAI, Anthropic, Google GenAI, Ollama, OpenAI-compatible endpoint
@@ -125,6 +127,11 @@ migration, reviewer credential, Evidence 수집, Incident와 RCA Report 생성�
 runtime/spool/quarantine 오류는 없었습니다. 이 결과는 격리된 Kind 검증이며 managed Kubernetes
 실환경 결과를 대신하지 않습니다.
 
+2026-08-05 기준 `main` 커밋 `17c4807e`의 CI run `30963465762`는 Frontend, Node Agent,
+Spring Boot, PostgreSQL·MariaDB, Playwright, Helm, 3-node Kind, Prometheus Operator 전달,
+Platform·Agent image build를 모두 통과했습니다. Security run `30963465765`, Edge image 게시 run
+`30963845100`, Demo 배포 run `30963845114`도 같은 커밋에서 성공했습니다.
+
 RCA 품질 수치는 저장소의 golden, production-like, 내부 holdout corpus에 대한 회귀 결과입니다.
 실운영 정확도를 의미하지 않으며 managed canary와 비식별 실제 장애 표본으로 별도 검증해야 합니다.
 
@@ -149,5 +156,5 @@ RCA 품질 수치는 저장소의 golden, production-like, 내부 holdout corpus
 | Agent collector·mode | `node_agent/collectors/registry.py`, `node_agent/collectors/modes.py` |
 | Agent protocol | `node_agent/__init__.py` |
 | Helm 설정 | `charts/cluster-infra-rca-platform`, `charts/cluster-infra-rca-agent` |
-| Platform compatibility | `config/platform-compatibility.json` |
+| Platform compatibility | `config/platform-compatibility-matrix.json` |
 | CI 계약 | `.github/workflows`, `scripts/release-readiness-check.py` |

@@ -38,14 +38,12 @@ The chart can render:
 platform:
   agentEnrollmentPreflight:
     enabled: true
-    mode: audit
     targetAudience: cluster-infra-rca-agent-enrollment
-    clusters: []
-    confirm: ""
+    backoffLimit: 0
   kubernetesReviewer:
     enabled: false
     rbacCreate: true
-    audience: https://kubernetes.default.svc
+    audience: https://kubernetes.default.svc.cluster.local
     tokenExpirationSeconds: 3600
     tokenMountPath: /var/run/secrets/kubernetes.io/serviceaccount
   service:
@@ -102,8 +100,8 @@ platform:
     gitopsBaseBranch: main
     gitopsFilePath: ops/catalog/operational-catalog.override.json
   secret:
-    defaultAdminUsername: admin
-    defaultAdminPassword: admin
+    defaultAdminUsername: ""
+    defaultAdminPassword: ""
     webhookToken: dev-webhook-token
     metricsToken: ""
     encryptionSecret: ""

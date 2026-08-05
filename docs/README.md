@@ -5,7 +5,7 @@ Kubernetes Cluster Infra RCA Platform의 설계, API, 보안, 배포와 운영 �
 ## Current Baseline
 
 - 현재 구현 기준: [current-state.md](current-state.md)
-- 마지막 포트폴리오 문서 감사: `2026-08-02`, 3-node TokenReview smoke 재검증 기준
+- 마지막 전체 문서 감사: `2026-08-05`, `main` 커밋 `17c4807e`와 CI run `30963465762` 기준
 - 기능 상태와 버전이 충돌하면 `current-state.md`와 실제 코드·설정을 우선합니다.
 - `code-review-action-plan-*`, `enterprise-improvement-plan`, `phase*`, `stabilization-roadmap`은 당시의
   의사결정과 완료 과정을 남긴 역사 문서입니다.

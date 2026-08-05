@@ -61,9 +61,9 @@ flowchart TD
 
 | Component | Stack | 실제 책임 |
 | --- | --- | --- |
-| Platform | Spring Boot `3.5.15`, Java `21`, Spring AI `1.1.8` | API, 인증, durable task, RCA, Policy, Incident, Audit, Outbox |
-| Web Console | React `19.2.7`, TypeScript, Vite `8.0.16`, Bootstrap `5.3.8` | 운영 화면과 승인·수동 처리 workflow |
-| Node Agent | Python `3.10+`, Agent protocol `v2` | 노드 Evidence 수집, redaction, spool, token rotation, 선택적 eBPF event |
+| Platform | Spring Boot `3.5.16`, Java `21`, Spring AI `1.1.8`, Google GenAI SDK `1.64.0` | API, 인증, durable task, RCA, Policy, Incident, Audit, Outbox |
+| Web Console | React `19.2.7`, React Router `8.3.0`, TypeScript `6.0.3`, Vite `8.2.0`, Bootstrap `5.3.8` | 운영 화면과 승인·수동 처리 workflow |
+| Node Agent | Python `3.10+` 지원, container·CI 기준 `3.12`, Agent protocol `v2` | 노드 Evidence 수집, redaction, spool, token rotation, 선택적 eBPF event |
 | Database | PostgreSQL `16`, MariaDB `11.x`, local H2 | 운영 상태와 보고서 저장 |
 | Migration | Flyway V26, 26 migrations | 신규·기존 schema 관리 |
 | Packaging | 단일 Spring Boot 애플리케이션 | React 정적 자산과 API를 함께 제공 |
@@ -168,9 +168,9 @@ GitOps 자동화의 직접 대상은 `catalog_override_draft`입니다. 일반 R
 
 Extended Fleet run `29857828475`는 checkpoint `300/300`, Platform Evidence `900/900`, target `3/3`, 수집 성공률과 Evidence 품질 `100%`, degraded와 runtime/spool/quarantine 오류 `0`을 기록했습니다. 이 수치는 해당 Kind burn-in 결과이며 실제 운영 정확도를 뜻하지 않습니다.
 
-2026-08-02 격리 Linux 환경의 현재 코드 smoke는 3개 target, 수집 성공률과 Evidence 품질 `100%`, degraded collector `0%`, 수집 p95 `14.955초`, runtime/spool/quarantine 오류 `0`을 기록했습니다. 위험 profile 차단과 migration, 전용 audience의 Kubernetes API 접근 거부, TokenReview 인증 및 전체 Agent 등록도 통과했습니다. 이전 `main` CI run `30363967144`의 등록 timeout은 수정 전 기록이며, 변경 커밋을 push한 뒤 동일 CI gate를 다시 확인해야 합니다.
+2026-08-02 격리 Linux 환경 smoke는 3개 target, 수집 성공률과 Evidence 품질 `100%`, degraded collector `0%`, 수집 p95 `14.955초`, runtime/spool/quarantine 오류 `0`을 기록했습니다. 위험 profile 차단과 migration, 전용 audience의 Kubernetes API 접근 거부, TokenReview 인증 및 전체 Agent 등록도 통과했습니다.
 
-최신 Security run `30363966388`은 secret, SBOM, filesystem/image scan과 CodeQL을 통과했습니다.
+2026-08-05 기준 `main` 커밋 `17c4807e`의 CI run `30963465762`는 Java·Frontend·Agent·DB·Helm·Kind·Prometheus Operator 전달·Docker build gate를 모두 통과했습니다. 같은 커밋의 Security run `30963465765`도 secret, SBOM, filesystem/image scan과 Java·Python CodeQL을 통과했습니다. Edge image 게시 run `30963845100`과 Demo 배포 run `30963845114`도 성공했습니다.
 
 ## Quick Start
 
@@ -267,11 +267,10 @@ cd web-console/frontend && npm ci --no-audit --no-fund && npm test && npm run bu
 
 ## Known Limitations
 
-1. 현재 3-node Kind smoke는 통과했지만 변경 커밋 기준 GitHub Actions 재검증은 아직 실행하지 않았습니다.
-2. EKS, AKS, GKE, OpenShift는 contract fixture까지만 검증됐고 실제 managed canary가 남아 있습니다.
-3. RCA 품질 지표는 golden, production-like, 내부 holdout corpus의 회귀 결과이며 실운영 정확도가 아닙니다.
-4. 24시간 Production Fleet와 충분한 LLM 실표본 검증은 완료되지 않았습니다.
-5. 실제 RKE2 시연 Screenshot과 민감정보 검토는 저장소 소유자가 최종 제출 전에 추가해야 합니다.
+1. EKS, AKS, GKE, OpenShift는 contract fixture까지만 검증됐고 실제 managed canary가 남아 있습니다.
+2. RCA 품질 지표는 golden, production-like, 내부 holdout corpus의 회귀 결과이며 실운영 정확도가 아닙니다.
+3. 24시간 Production Fleet와 충분한 LLM 실표본 검증은 완료되지 않았습니다.
+4. 실제 RKE2 시연 Screenshot과 민감정보 검토는 저장소 소유자가 최종 제출 전에 추가해야 합니다.
 
 ## AI-Assisted Development Disclosure
 
