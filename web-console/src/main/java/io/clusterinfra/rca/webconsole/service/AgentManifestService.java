@@ -543,7 +543,7 @@ public class AgentManifestService {
 
     public String validateBackendUrl(String value) {
         try {
-            String normalized = value.trim().replaceAll("/+$", "");
+            String normalized = stripTrailingSlashes(value.trim());
             URI uri = URI.create(normalized);
             if (!Set.of("http", "https").contains(uri.getScheme()) || uri.getHost() == null) {
                 throw new IllegalArgumentException("backend_url must be an absolute http or https URL");
@@ -556,6 +556,14 @@ public class AgentManifestService {
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException("backend_url must be an absolute http or https URL");
         }
+    }
+
+    private String stripTrailingSlashes(String value) {
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '/') {
+            end--;
+        }
+        return value.substring(0, end);
     }
 
     private String validateKubernetesName(String value, String fieldName) {

@@ -20,14 +20,17 @@
 - CodeQL Java/Python 분석
 
 Trivy SARIF는 모든 severity를 보고서로 남깁니다.
-main branch의 blocking gate는 `CRITICAL` 기준입니다.
-`HIGH` 이하 취약점은 GitHub Code Scanning과 workflow artifact에서 확인하고, triage 후 의존성 업데이트나 base image 교체로 처리합니다.
+PR과 main branch의 blocking gate는 수정 가능한 `CRITICAL,HIGH` 기준입니다.
+Dependency Review도 새로 유입되는 High 이상 취약점을 차단합니다. Grype와 Trivy gate는 수정판이 없는 항목으로 빌드를 영구 차단하지 않도록 `only-fixed` 또는 `ignore-unfixed`를 적용합니다.
+`MEDIUM`과 `LOW`는 GitHub Code Scanning과 workflow artifact에서 계속 추적하고, 영향 범위와 노출 가능성을 triage한 뒤 의존성 업데이트나 base image 교체로 처리합니다.
 
-이렇게 분리한 이유:
+프로젝트 단계 차단 기준:
 
-- SARIF 생성 step이 실패하면 보고서가 누락될 수 있음
-- image scan은 base image와 transitive dependency 영향이 커서 main 개발 흐름을 과도하게 막을 수 있음
-- release 단계에서는 더 엄격한 gate를 적용할 수 있음
+- 실제 secret 또는 credential 탐지는 severity와 관계없이 차단
+- 수정 가능한 High/Critical 취약점은 filesystem, repository SBOM, container image에서 차단
+- CodeQL High 이상 true positive는 수정이 원칙이며, 보완 통제가 있는 경우에만 근거와 회귀 테스트를 남기고 예외 처리
+- Medium/Low는 보고와 backlog 관리를 유지하되 기본 CI 차단 대상에서는 제외
+- 예외는 영향 분석, 보완 통제, 담당자, 재검토 시점을 기록한 경우에만 허용
 
 ## Release Assets
 

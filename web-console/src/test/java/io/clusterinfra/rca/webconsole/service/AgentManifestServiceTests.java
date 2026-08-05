@@ -75,6 +75,19 @@ class AgentManifestServiceTests {
     }
 
     @Test
+    void backendUrlRemovesTrailingSlashesWithoutChangingTheAuthority() {
+        assertThat(manifests.validateBackendUrl("https://rca.example.com:8443/api///"))
+            .isEqualTo("https://rca.example.com:8443/api");
+    }
+
+    @Test
+    void backendUrlRejectsAnEmptyOrAuthorityOnlyValueAfterNormalization() {
+        assertThatThrownBy(() -> manifests.validateBackendUrl("////"))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("absolute http or https URL");
+    }
+
+    @Test
     void bootstrapManifestRetainsExistingSecretContract() throws Exception {
         Cluster cluster = cluster("bootstrap-secret");
         when(enrollments.configuration(cluster.clusterId())).thenReturn(null);

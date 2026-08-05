@@ -49,6 +49,28 @@ def test_codeql_patch_release_is_accepted_but_next_major_is_rejected(tmp_path: P
     assert "all CodeQL actions must use the v4 release line" in errors
 
 
+def test_security_workflow_must_block_actionable_high_findings(tmp_path: Path) -> None:
+    root = copy_contract(tmp_path)
+    path = root / ".github/workflows/security.yml"
+    replace(path, "SECURITY_BLOCKING_SEVERITIES: HIGH,CRITICAL", "SECURITY_BLOCKING_SEVERITIES: CRITICAL")
+    replace(path, "severity-cutoff: high", "severity-cutoff: critical")
+
+    errors = MODULE.verify(root)
+
+    assert "security workflow must block fixable high and critical vulnerabilities" in errors
+    assert "Grype must block high and critical findings" in errors
+
+
+def test_dependency_review_must_reject_new_high_vulnerabilities(tmp_path: Path) -> None:
+    root = copy_contract(tmp_path)
+    path = root / ".github/workflows/security.yml"
+    replace(path, "fail-on-severity: high", "fail-on-severity: critical")
+
+    errors = MODULE.verify(root)
+
+    assert "dependency review must block newly introduced high and critical vulnerabilities" in errors
+
+
 def test_invalid_workflow_yaml_fails_clearly(tmp_path: Path) -> None:
     root = copy_contract(tmp_path)
     (root / ".github/workflows/publish-images.yml").write_text("jobs: [unterminated", encoding="utf-8")

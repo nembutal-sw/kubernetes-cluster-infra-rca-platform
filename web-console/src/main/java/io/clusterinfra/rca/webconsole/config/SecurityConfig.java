@@ -38,6 +38,8 @@ public class SecurityConfig {
         ObjectMapper objectMapper
     ) throws Exception {
         return http
+            // Cookie-authenticated mutations are guarded by SameOriginMutationFilter below.
+            // Agent and webhook endpoints use bearer credentials and are not browser sessions.
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.disable())
             .formLogin(form -> form.disable())

@@ -142,21 +142,22 @@ def detect_platform(
         label_keys = {str(key).lower() for key in labels}
         annotation_keys = {str(key).lower() for key in annotations}
 
-        if "rke2" in version or provider.startswith("rke2://"):
+        scheme = provider_scheme(provider)
+        if "rke2" in version or scheme == "rke2":
             add_evidence(matches, "rke2", "kubelet/provider signal")
-        if "k3s" in version or provider.startswith("k3s://"):
+        if "k3s" in version or scheme == "k3s":
             add_evidence(matches, "k3s", "kubelet/provider signal")
-        if "microk8s" in version or any(key.startswith("microk8s.io/") for key in label_keys):
+        if "microk8s" in version or has_qualified_key(label_keys, "microk8s.io"):
             add_evidence(matches, "microk8s", "kubelet/label signal")
-        if "k0s" in version or any(key.startswith("k0sproject.io/") for key in label_keys):
+        if "k0s" in version or has_qualified_key(label_keys, "k0sproject.io"):
             add_evidence(matches, "k0s", "kubelet/label signal")
-        if provider.startswith("aws://") or any(key.startswith("eks.amazonaws.com/") for key in label_keys):
+        if scheme == "aws" or has_qualified_key(label_keys, "eks.amazonaws.com"):
             add_evidence(matches, "eks", "AWS provider/EKS label signal")
-        if provider.startswith("azure://") or any(key.startswith("kubernetes.azure.com/") for key in label_keys):
+        if scheme == "azure" or has_qualified_key(label_keys, "kubernetes.azure.com"):
             add_evidence(matches, "aks", "Azure provider/AKS label signal")
-        if provider.startswith("gce://") or "cloud.google.com/gke-nodepool" in label_keys:
+        if scheme == "gce" or "cloud.google.com/gke-nodepool" in label_keys:
             add_evidence(matches, "gke", "GCE provider/GKE label signal")
-        if "node.openshift.io/os_id" in label_keys or any(key.startswith("machine.openshift.io/") for key in label_keys):
+        if "node.openshift.io/os_id" in label_keys or has_qualified_key(label_keys, "machine.openshift.io"):
             add_evidence(matches, "openshift", "OpenShift node label signal")
         if "kubeadm.alpha.kubernetes.io/cri-socket" in annotation_keys:
             add_evidence(matches, "kubeadm", "kubeadm CRI annotation signal")
@@ -251,7 +252,7 @@ def detect_cni(
     for node in node_items:
         annotations = object_value(node.get("metadata", {}).get("annotations"))
         annotation_keys = {str(key).lower() for key in annotations}
-        if any(key.startswith("flannel.alpha.coreos.com/") for key in annotation_keys):
+        if has_qualified_key(annotation_keys, "flannel.alpha.coreos.com"):
             add_evidence(matches, "flannel", "node flannel annotation")
     for pod in pod_items:
         metadata = pod.get("metadata", {})
@@ -410,6 +411,15 @@ def provider_scheme(provider_id: str) -> str:
     if "://" not in provider_id:
         return ""
     return provider_id.split("://", 1)[0].lower()
+
+
+def has_qualified_key(keys: Iterable[str], namespace: str) -> bool:
+    """Match a Kubernetes qualified key by its complete DNS namespace."""
+    for key in keys:
+        qualifier, separator, name = key.partition("/")
+        if separator and qualifier == namespace and name:
+            return True
+    return False
 
 
 def add_evidence(matches: dict[str, list[str]], family: str, value: str) -> None:
