@@ -30,6 +30,7 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `image.repository` | `ghcr.io/example/cluster-infra-rca-agent` | agent 이미지 repository |
 | `image.tag` | `latest` | agent 이미지 tag |
 | `backendUrl` | `""` | backend API URL |
+| `mode` | `safe` | `safe`, `node-diagnostics`, `ebpf` 중 하나 |
 | `clusterId` | `""` | TokenReview workload label에 사용하는 cluster ID |
 | `enrollment.mode` | `bootstrap-token` | `bootstrap-token` 또는 `kubernetes-token-review` |
 | `enrollment.audience` | `cluster-infra-rca-agent-enrollment` | Platform 등록 전용 projected token audience |
@@ -40,10 +41,14 @@ kubectl -n rca-system create secret generic cluster-infra-rca-agent \
 | `nodeTokenRotationDays` | `30` | node token 자동 교체 주기, `0`이면 비활성화 |
 | `nodeTokenRotationRetrySeconds` | `3600` | rotation 실패 후 최소 재시도 간격 |
 | `runtimeSocketPaths` | `""` | 비표준 CRI socket 경로 override |
-| `hostNetwork` | `true` | API/control-plane probe를 위해 host network 사용 |
-| `hostPID` | `true` | 노드 프로세스 상태 확인용 host PID 사용 |
+| `hostNetwork` | `true` | raw opt-in 값. `safe`에서는 강제로 `false`, 나머지 mode에서만 적용 |
+| `hostPID` | `true` | raw opt-in 값. `safe`에서는 강제로 `false`, 나머지 mode에서만 적용 |
 | `tolerations` | `Exists` | control-plane, tainted node까지 수집 대상 포함 |
-| `nodeSelector` | `{}` | canary나 특정 node pool 제한 |
+| `nodeSelector` | `kubernetes.io/os: linux` | Linux node 기본 제한. canary나 특정 node pool 조건 추가 가능 |
+
+기본 `safe` mode는 raw `hostNetwork`, `hostPID`, root security context 값을 사용하지 않습니다.
+템플릿이 host namespace를 비활성화하고 UID/GID `65532`, capability `ALL` drop, hostPath 없음으로
+렌더링합니다. `node-diagnostics`와 `ebpf`에서만 위 raw opt-in 값과 read-only hostPath가 적용됩니다.
 
 ## Kubernetes TokenReview 등록
 

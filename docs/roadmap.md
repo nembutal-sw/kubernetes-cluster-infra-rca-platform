@@ -2,6 +2,17 @@
 
 이 문서는 현재 구현 상태와 다음 고도화 대상을 정리한다. 목표는 Kubernetes 애플리케이션 장애가 아니라, 노드와 Linux 시스템 레벨 장애를 근거 기반으로 수집하고 분석하는 Cluster RCA Console이다.
 
+## Current Maintenance Baseline
+
+- 기준일: `2026-08-05`
+- 기준 코드: `main` 커밋 `17c4807e`
+- Platform: Spring Boot `3.5.16`, Java `21`, Spring AI `1.1.8`
+- Web Console: React `19.2.7`, React Router `8.3.0`, TypeScript `6.0.3`, Vite `8.2.0`
+- 검증: CI run `30963465762`, Security run `30963465765`, Edge image 게시 run `30963845100`, Demo 배포 run `30963845114` 통과
+
+아래 완료 단계와 실행 번호는 당시 작업 기록입니다. 현재 기능·버전·검증 기준은
+[Current State](current-state.md)를 우선합니다.
+
 ## Completed Phases
 
 ### Phase 1: Platform Foundation
@@ -175,8 +186,8 @@
 아래 Active Backlog는 제품화 또는 추가 실환경 검증 대상이며 포트폴리오 기능 범위의 완료를 막는
 필수 조건이 아닙니다. 이전 `main` CI run `30363967144`의 Kind 3-node 등록 timeout은 DaemonSet의
 고정 host port 충돌, TokenReview chart 렌더링, namespace 생성 경계, reviewer token 권한과 audience를
-수정한 뒤 2026-08-02 격리된 3-node Kind 환경에서 재검증을 통과했습니다. 최종 tag 전에는 해당
-변경 커밋 기준 GitHub Actions 결과를 확인합니다.
+수정한 뒤 2026-08-02 격리된 3-node Kind 환경에서 재검증을 통과했습니다. 해당 변경을 포함한
+`main` 커밋 `17c4807e`의 CI run `30963465762`도 2026-08-05 전체 gate를 통과했습니다.
 
 ### Post-Portfolio Backlog
 

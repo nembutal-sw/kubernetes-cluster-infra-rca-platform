@@ -1,6 +1,6 @@
 # Cluster Infra RCA Platform
 
-Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다. React Web Console을 빌드 결과에 포함하므로 Backend와 UI가 같은 origin에서 실행됩니다.
+Spring Boot 3.5.16과 Java 21 기반의 중앙 Platform 모듈입니다. React Web Console을 빌드 결과에 포함하므로 Backend와 UI가 같은 origin에서 실행됩니다.
 
 ## 포함 기능
 
@@ -12,7 +12,7 @@ Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다. React W
 - manual-only action request와 Catalog GitOps workflow
 - PostgreSQL/MariaDB JDBC repository와 Flyway migration
 - Micrometer, Actuator, Prometheus metric
-- React 19, TypeScript, Vite, Bootstrap 5 Web Console
+- React 19.2.7, React Router 8.3.0, TypeScript 6.0.3, Vite 8.2.0, Bootstrap 5.3.8 Web Console
 
 ## Requirements
 
@@ -20,7 +20,8 @@ Spring Boot 3.5.15와 Java 21 기반의 중앙 Platform 모듈입니다. React W
 | --- | --- |
 | Java | 21 |
 | Maven | 3.9 이상 |
-| Node.js | `frontend` Maven profile 사용 시 자동 설치 |
+| Node.js | `frontend` Maven profile에서 `22.22.0` 자동 설치 |
+| npm | `frontend` Maven profile에서 `11.3.0` 자동 설치 |
 | Docker | DB 호환 Testcontainers 실행 시 필요 |
 
 ## Local Run
@@ -264,7 +265,8 @@ python3 scripts/verify_database_compatibility_report.py
 | `/actuator/metrics` | metrics token | metric 조회 |
 | `/actuator/prometheus` | metrics token | Prometheus scrape |
 | `/api/webhooks/alertmanager` | webhook token | Alertmanager ingest |
-| `/api/agents/**` | cluster/node token | Agent lifecycle |
+| `/api/agents/register` | bootstrap token 또는 Kubernetes identity | Agent 최초 등록 |
+| `/api/agents/**` runtime endpoints | node Bearer token, 선택적 mTLS | heartbeat, Evidence, token rotation |
 | `/api/v1/platform/info` | session | version과 기능 상태 |
 | `/api/llm/diagnostics` | session | LLM 설정 진단 |
 
