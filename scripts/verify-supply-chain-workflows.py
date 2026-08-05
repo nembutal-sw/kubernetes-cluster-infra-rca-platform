@@ -111,6 +111,30 @@ def validate_security(workflow: Mapping[str, Any], errors: list[str]) -> None:
         "security workflow must separate report and blocking severities",
         errors,
     )
+    require(
+        workflow_env.get("SECURITY_REPORT_SEVERITIES") == "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+        "security workflow must report every vulnerability severity",
+        errors,
+    )
+    require(
+        workflow_env.get("SECURITY_BLOCKING_SEVERITIES") == "HIGH,CRITICAL",
+        "security workflow must block fixable high and critical vulnerabilities",
+        errors,
+    )
+
+    dependency_review = next(
+        (
+            step
+            for step in action_steps(workflow)
+            if str(step.get("uses", "")).startswith("actions/dependency-review-action@")
+        ),
+        {},
+    )
+    require(
+        as_mapping(dependency_review.get("with")).get("fail-on-severity") == "high",
+        "dependency review must block newly introduced high and critical vulnerabilities",
+        errors,
+    )
 
     step_names = {str(step.get("name", "")) for job in security_jobs.values() for step in steps(job)}
     require("Gate filesystem vulnerabilities" in step_names, "filesystem vulnerabilities must have a blocking gate", errors)
@@ -131,6 +155,8 @@ def validate_security(workflow: Mapping[str, Any], errors: list[str]) -> None:
     grype_inputs = as_mapping(grype_step.get("with"))
     require(grype_inputs.get("path") == ".", "Grype must scan the repository path", errors)
     require(grype_inputs.get("fail-build") == "true", "Grype must fail on blocking findings", errors)
+    require(grype_inputs.get("severity-cutoff") == "high", "Grype must block high and critical findings", errors)
+    require(grype_inputs.get("only-fixed") == "true", "Grype must block only actionable findings", errors)
 
     codeql_uses = [
         str(step.get("uses", ""))
