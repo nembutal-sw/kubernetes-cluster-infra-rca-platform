@@ -35,6 +35,12 @@ Authentication is handled at the Spring Security filter chain boundary.
 | Metrics access | `MetricsAuthenticationFilter` |
 | Browser mutation guard | `SameOriginMutationFilter` |
 
+Spring Security's session CSRF handler is disabled because the API is stateless and also serves
+non-browser Agent, webhook, manifest, and metrics protocols. Browser mutations authenticated by the
+`RCA_SESSION` cookie instead require an exact same-origin `Origin` or `Referer`; missing and cross-origin
+values fail closed. Bearer-authenticated machine calls do not use browser cookies. This compensating
+control is covered by `SameOriginMutationFilterTests` and the HTTP security boundary regression suite.
+
 ## User Roles
 
 Current roles:
