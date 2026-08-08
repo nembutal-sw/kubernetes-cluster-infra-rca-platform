@@ -253,7 +253,7 @@ jobs:
 
       - name: Connect runner to Tailscale
         if: ${{ inputs.runner == 'github-hosted' && inputs.use_tailscale && !inputs.dry_run && env.TAILSCALE_AUTHKEY != '' }}
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           authkey: ${{ env.TAILSCALE_AUTHKEY }}
 
