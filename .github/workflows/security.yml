@@ -60,7 +60,7 @@ jobs:
           severity: ${{ env.SECURITY_BLOCKING_SEVERITIES }}
           ignore-unfixed: true
           exit-code: "1"
-      - uses: github/codeql-action/upload-sarif@v4.37.4
+      - uses: github/codeql-action/upload-sarif@v4.37.6
         if: always()
         with:
           sarif_file: trivy-results.sarif
@@ -102,7 +102,7 @@ jobs:
           severity-cutoff: high
           only-fixed: true
       - name: Upload Grype SARIF
-        uses: github/codeql-action/upload-sarif@v4.37.4
+        uses: github/codeql-action/upload-sarif@v4.37.6
         if: always() && steps.grype.outputs.sarif != ''
         with:
           sarif_file: ${{ steps.grype.outputs.sarif }}
@@ -169,7 +169,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Upload ${{ matrix.component }} image SARIF
-        uses: github/codeql-action/upload-sarif@v4.37.4
+        uses: github/codeql-action/upload-sarif@v4.37.6
         if: always()
         with:
           sarif_file: ${{ matrix.component }}-image-trivy.sarif
@@ -202,7 +202,7 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: web-console/pom.xml
-      - uses: github/codeql-action/init@v4.37.4
+      - uses: github/codeql-action/init@v4.37.6
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'java-kotlin' && 'manual' || 'none' }}
@@ -210,4 +210,4 @@ jobs:
         if: matrix.language == 'java-kotlin'
         working-directory: web-console
         run: mvn --batch-mode --no-transfer-progress -DskipTests package
-      - uses: github/codeql-action/analyze@v4.37.4
+      - uses: github/codeql-action/analyze@v4.37.6
