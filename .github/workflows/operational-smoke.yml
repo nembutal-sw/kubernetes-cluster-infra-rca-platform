@@ -139,7 +139,7 @@ jobs:
 
       - name: Connect runner to Tailscale
         if: ${{ inputs.use_tailscale && env.TAILSCALE_AUTHKEY != '' }}
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           authkey: ${{ env.TAILSCALE_AUTHKEY }}
 
