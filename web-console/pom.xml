@@ -25,7 +25,7 @@
     <google-genai.version>1.64.0</google-genai.version>
     <flyway.version>12.11.0</flyway.version>
     <postgresql.version>42.7.13</postgresql.version>
-    <mcp.version>1.1.3</mcp.version>
+    <mcp.version>2.0.0</mcp.version>
     <jackson-bom.version>2.21.5</jackson-bom.version>
     <tools-jackson.version>3.1.5</tools-jackson.version>
     <commons-lang3.version>3.18.0</commons-lang3.version>
