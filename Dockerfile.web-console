@@ -14,7 +14,7 @@ COPY web-console/src ./src
 COPY config/agent-manifest-contract.json ./config/agent-manifest-contract.json
 RUN mvn -B -ntp -Pfrontend verify
 
-FROM eclipse-temurin:21-jre@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55
+FROM eclipse-temurin:21-jre@sha256:371da296b8cb74c7e53fbe7083d5374befc0011b493231d97d45fa789915e434
 
 WORKDIR /app
 
