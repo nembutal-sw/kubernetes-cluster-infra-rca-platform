@@ -31,12 +31,8 @@ PY
   # Push the scanned immutable local ID, even if a mutable local tag changes.
   podman push --tls-verify=true --authfile "$authfile" --digestfile "$CI_STATE/$item.digest" "$gated_id" "$destination" >/dev/null
 done
-for item in platform agent; do
-  digest=$(cat "$CI_STATE/$item.digest")
-  [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]] || fail 'invalid registry digest'
-  if [[ $item == platform ]]; then repository=10.7.254.6:5000/rca-platform; else repository=10.7.254.6:5000/rca-node-agent; fi
-  podman manifest inspect --authfile "$authfile" "$repository@$digest" >/dev/null || fail 'published digest verification failed'
-done
+# Verify raw manifest/config bytes and the pushed digest files with the TLS client.
+# Podman 4.9 manifest inspect incorrectly treats single OCI images as manifest lists.
 printf '%s' "$REGISTRY_PASSWORD" | env -u REGISTRY_PASSWORD "$CI_STATE/venv/bin/python" "$CI_HELPERS/verify-delivery-evidence.py" registry
 unset REGISTRY_PASSWORD
 "$CI_STATE/venv/bin/python" - <<'PY'
