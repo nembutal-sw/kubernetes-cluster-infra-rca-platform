@@ -1,0 +1,113 @@
+// Review draft: install as ci/Jenkinsfile on a separate reviewed pipeline branch.
+pipeline {
+  agent { label 'linux-ci' }
+  options {
+    skipDefaultCheckout(true)
+    disableConcurrentBuilds()
+    timestamps()
+    timeout(time: 90, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '15', artifactNumToKeepStr: '10'))
+  }
+  triggers { pollSCM('H/10 * * * *') }
+  parameters {
+    booleanParam(name: 'PUBLISH_IMAGES', defaultValue: false,
+      description: 'Publish both tested immutable images after all gates pass.')
+    booleanParam(name: 'OPEN_GITOPS_PR', defaultValue: false,
+      description: 'Open a Platform digest PR only. Does not merge or deploy Agent.')
+    booleanParam(name: 'RUN_BROWSER_TESTS', defaultValue: false,
+      description: 'Optional Playwright E2E/routes; requires preinstalled browser OS dependencies.')
+  }
+  environment {
+    CI = 'true'
+    SOURCE_REPOSITORY = 'https://github.com/nembutal-sw/kubernetes-cluster-infra-rca-platform.git'
+    REGISTRY = '10.7.254.6:5000'
+    // Configure these references in the new job; never paste credential values here.
+    REGISTRY_CREDENTIAL_ID = 'rca-registry-build'
+    GITOPS_CREDENTIAL_ID = 'rca-gitops-github'
+    GITOPS_REPOSITORY = 'nembutal-sw/rca-platform-gitops'
+    GITOPS_BASE_BRANCH = 'main'
+    GITOPS_VALUES_PATH = 'environments/onprem/platform/values.yaml'
+  }
+  stages {
+    stage('Reviewed pipeline and source') {
+      steps {
+        script {
+          def pipelineCheckout
+          dir('pipeline-src') { pipelineCheckout = checkout scm }
+          env.PIPELINE_SHA = pipelineCheckout.GIT_COMMIT ?: sh(returnStdout: true,
+            script: 'git -C "$WORKSPACE/pipeline-src" rev-parse HEAD').trim()
+          if (!(env.PIPELINE_SHA ==~ /[a-f0-9]{40}/)) { error('Invalid pipeline revision') }
+          dir('source') {
+            checkout([$class: 'GitSCM', branches: [[name: env.PIPELINE_SHA]],
+              userRemoteConfigs: [[url: env.SOURCE_REPOSITORY]],
+              extensions: [[$class: 'CleanBeforeCheckout']]])
+          }
+          env.CI_HELPERS = "${env.WORKSPACE}/pipeline-src/ci/scripts"
+          env.CI_SOURCE = "${env.WORKSPACE}/source"
+          env.CI_STATE = "${env.WORKSPACE}/.rca-ci/build-${env.BUILD_NUMBER}"
+          env.SOURCE_SHA = sh(returnStdout: true,
+            script: 'git -C "$CI_SOURCE" rev-parse HEAD').trim()
+          if (!(env.SOURCE_SHA ==~ /[a-f0-9]{40}/)) { error('Invalid source revision') }
+          if (env.SOURCE_SHA != env.PIPELINE_SHA) { error('Pipeline and source revision differ') }
+          currentBuild.description = "commit ${env.SOURCE_SHA.take(12)}"
+        }
+      }
+    }
+    stage('Runtime prerequisites') {
+      steps { sh 'bash "$CI_HELPERS/preflight.sh"' }
+    }
+    stage('Backend Tests') {
+      steps { sh 'bash "$CI_HELPERS/test.sh" backend' }
+      post { always {
+        junit allowEmptyResults: true, testResults: 'source/web-console/target/surefire-reports/TEST-*.xml,source/web-console/target/failsafe-reports/TEST-*.xml'
+      } }
+    }
+    stage('Frontend Tests') {
+      steps { sh 'bash "$CI_HELPERS/test.sh" frontend' }
+      post { always {
+        junit allowEmptyResults: true, testResults: ".rca-ci/build-${env.BUILD_NUMBER}/frontend-junit.xml"
+      } }
+    }
+    stage('Python Agent Tests') {
+      steps { sh 'bash "$CI_HELPERS/test.sh" python' }
+      post { always {
+        junit allowEmptyResults: true, testResults: ".rca-ci/build-${env.BUILD_NUMBER}/python-junit.xml"
+      } }
+    }
+    stage('Integration Package') {
+      steps { sh 'bash "$CI_HELPERS/test.sh" aggregate' }
+    }
+    stage('Build and non-root image gates') {
+      steps { sh 'bash "$CI_HELPERS/build-gate.sh"' }
+    }
+    stage('Publish immutable images') {
+      when { expression { params.PUBLISH_IMAGES } }
+      steps {
+        withCredentials([usernamePassword(credentialsId: env.REGISTRY_CREDENTIAL_ID,
+          usernameVariable: 'REGISTRY_USERNAME', passwordVariable: 'REGISTRY_PASSWORD')]) {
+          sh 'bash "$CI_HELPERS/publish.sh"'
+        }
+      }
+    }
+    stage('Propose Platform GitOps digest') {
+      when { expression { params.OPEN_GITOPS_PR } }
+      steps {
+        script {
+          if (!params.PUBLISH_IMAGES) { error('GitOps PR requires published image digests') }
+        }
+        withCredentials([string(credentialsId: env.GITOPS_CREDENTIAL_ID,
+          variable: 'GITHUB_TOKEN')]) {
+          sh '"$CI_STATE/venv/bin/python" "$CI_HELPERS/open-gitops-pr.py"'
+        }
+      }
+    }
+  }
+  post {
+    always {
+      // This removes only the job-owned temporary registry authentication file.
+      sh 'set +x; if [ -n "${CI_STATE:-}" ] && [ "$CI_STATE" = "$WORKSPACE/.rca-ci/build-$BUILD_NUMBER" ]; then rm -f -- "$CI_STATE/registry-auth.json"; fi'
+      archiveArtifacts allowEmptyArchive: true,
+        artifacts: ".rca-ci/build-${env.BUILD_NUMBER}/build-evidence.json,.rca-ci/build-${env.BUILD_NUMBER}/published-images.json,.rca-ci/build-${env.BUILD_NUMBER}/gitops-pr.json,source/web-console/target/*quality-report.json,source/web-console/target/*corpus-report.json,source/web-console/target/blind-evaluation-report.json"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Same pinned runtime base as the audited upstream Dockerfile.web-console.
+# The integrated JAR was already built and verified by this pipeline.
+FROM eclipse-temurin:21-jre@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55
+ARG VERSION
+ARG VCS_REF
+ARG BUILD_DATE
+LABEL org.opencontainers.image.title="Cluster Infra RCA Platform" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/nembutal-sw/kubernetes-cluster-infra-rca-platform"
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && groupadd --gid 65532 rca \
+    && useradd --uid 65532 --gid 65532 --create-home --shell /usr/sbin/nologin rca \
+    && mkdir -p /app/data \
+    && chown -R 65532:65532 /app \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --chown=65532:65532 --chmod=0444 platform.jar /app/platform.jar
+USER 65532:65532
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl --fail --silent http://127.0.0.1:8080/health/ready || exit 1
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/platform.jar"]
