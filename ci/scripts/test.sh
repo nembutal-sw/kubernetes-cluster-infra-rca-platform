@@ -3,8 +3,12 @@ source "$(dirname "$0")/common.sh"
 cd -- "$CI_SOURCE"
 case ${1:-} in
   backend)
-    socket_path="$CI_STATE/podman-test.sock"
-    [[ ! -e $socket_path && ${#socket_path} -lt 104 ]] || fail 'test API socket path already exists or is too long'
+    runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+    [[ -d $runtime_dir && -O $runtime_dir && ! -L $runtime_dir ]] || fail 'owned rootless runtime directory unavailable'
+    socket_dir=$(mktemp -d "$runtime_dir/rca-ci-XXXXXXXX")
+    chmod 700 -- "$socket_dir"
+    socket_path="$socket_dir/p.sock"
+    [[ ${#socket_path} -lt 104 ]] || fail 'test API socket path is too long'
     # Per-build child process only; no persistent service or host socket mount.
     podman system service --time=0 "unix://$socket_path" >"$CI_STATE/podman-api.log" 2>&1 &
     api_pid=$!
@@ -12,6 +16,7 @@ case ${1:-} in
       kill "$api_pid" >/dev/null 2>&1 || true
       wait "$api_pid" >/dev/null 2>&1 || true
       rm -f -- "$socket_path"
+      rmdir -- "$socket_dir" >/dev/null 2>&1 || true
     }
     trap cleanup_api EXIT
     for _ in {1..50}; do
