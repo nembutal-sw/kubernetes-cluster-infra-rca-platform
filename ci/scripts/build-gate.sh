@@ -37,7 +37,7 @@ for image in "$PLATFORM_IMAGE" "$AGENT_IMAGE"; do
   [[ $(podman image inspect --format '{{.Config.User}}' "$image") == 65532:65532 ]] || fail 'image default user is not 65532:65532'
   [[ $(podman image inspect --format '{{index .Labels "org.opencontainers.image.revision"}}' "$image") == "$SOURCE_SHA" ]] || fail 'OCI revision label mismatch'
 done
-podman run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges --cpus 1 --memory 256m --pids-limit 128 --entrypoint python "$AGENT_IMAGE" -c 'import os,node_agent.main,node_agent.client,node_agent.collectors; assert os.getuid()==65532; print("Agent non-root import passed")'
+podman run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges --cpus 1 --memory 256m --pids-limit 128 --entrypoint python "$AGENT_IMAGE" -c 'import importlib.util,os,node_agent.main,node_agent.client,node_agent.collectors; assert os.getuid()==65532; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None; print("Agent non-root import passed")'
 [[ $(podman run --rm --network none --read-only --user 65532:65532 --cap-drop ALL --security-opt no-new-privileges --cpus 1 --memory 256m --entrypoint id "$PLATFORM_IMAGE" -u) == 65532 ]] || fail 'Platform non-root gate failed'
 # Isolated H2 fixture; no production configuration, credentials or cluster API.
 name="rca-ci-smoke-${BUILD_NUMBER}-$$"

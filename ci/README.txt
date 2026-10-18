@@ -19,7 +19,10 @@ Mandatory stage sequence
    counts, and React assets in the existing JAR. Maven is not run a second time.
 6. Build and non-root image gates: package the tested JAR into the Platform image,
    build Agent from the same source, require UID65532 and the complete OCI revision.
-   Agent imports in a read-only, network-none sandbox. Platform passes local-only
+   Agent imports in a read-only, network-none sandbox, which also requires pip and
+   ensurepip to be absent. The Agent has no third-party runtime dependencies, so
+   its image removes the installer and bundled wheels rather than shipping their
+   unused vendored dependencies. Platform passes local-only
    readiness against an isolated H2 fixture. Podman builds use one CPU via supported
    --cpu-period/--cpu-quota and 2GiB memory, OCI isolation and verified Registry TLS.
 7. Agent safe observation mode: run the built image's real capability CLI and one
