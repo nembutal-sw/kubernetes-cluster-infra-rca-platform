@@ -1,6 +1,6 @@
 # Same pinned runtime base as the audited upstream Dockerfile.web-console.
 # The integrated JAR was already built and verified by this pipeline.
-FROM eclipse-temurin:21-jre@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55
+FROM eclipse-temurin:21-jre-noble@sha256:35501d3f93173b420ac9001658eb68157e813316b865087e345c187fca422c4c
 ARG VERSION
 ARG VCS_REF
 ARG BUILD_DATE
@@ -10,6 +10,7 @@ LABEL org.opencontainers.image.title="Cluster Infra RCA Platform" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.source="https://github.com/nembutal-sw/kubernetes-cluster-infra-rca-platform"
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends curl \
     && groupadd --gid 65532 rca \
     && useradd --uid 65532 --gid 65532 --create-home --shell /usr/sbin/nologin rca \

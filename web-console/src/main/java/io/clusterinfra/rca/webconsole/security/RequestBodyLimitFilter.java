@@ -71,7 +71,7 @@ public class RequestBodyLimitFilter extends OncePerRequestFilter {
             objectMapper,
             request,
             response,
-            HttpStatus.PAYLOAD_TOO_LARGE.value(),
+            HttpStatus.CONTENT_TOO_LARGE.value(),
             "request body exceeds " + limit + " bytes"
         );
     }

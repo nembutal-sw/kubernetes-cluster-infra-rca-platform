@@ -32,7 +32,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
-import org.springframework.ai.openaisdk.OpenAiSdkChatOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -282,7 +282,7 @@ public class LlmAnalysisService {
                 .prompt()
                 .system(systemPrompt)
                 .user(input);
-            ChatOptions options = chatOptions();
+            ChatOptions.Builder<?> options = chatOptions();
             if (options != null) {
                 request = request.options(options);
             }
@@ -567,46 +567,42 @@ public class LlmAnalysisService {
         return content;
     }
 
-    private ChatOptions chatOptions() {
+    private ChatOptions.Builder<?> chatOptions() {
         String provider = properties.getLlm().getProvider().trim().toLowerCase(Locale.ROOT);
         String model = properties.getLlm().getModel().trim();
         int maxTokens = Math.max(128, properties.getLlm().getMaxOutputTokens());
         return switch (provider) {
             case "openai", "openai-sdk", "openai_compatible", "self_hosted" -> {
-                OpenAiSdkChatOptions.Builder builder = OpenAiSdkChatOptions.builder()
-                    .maxCompletionTokens(maxTokens)
-                    .internalToolExecutionEnabled(false);
+                OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
+                    .maxCompletionTokens(maxTokens);
                 if (!model.isBlank()) {
                     builder.model(model);
                 }
-                yield builder.build();
+                yield builder;
             }
             case "anthropic", "claude" -> {
                 AnthropicChatOptions.Builder builder = AnthropicChatOptions.builder()
-                    .maxTokens(maxTokens)
-                    .internalToolExecutionEnabled(false);
+                    .maxTokens(maxTokens);
                 if (!model.isBlank()) {
                     builder.model(model);
                 }
-                yield builder.build();
+                yield builder;
             }
             case "gemini", "google", "google-genai" -> {
                 GoogleGenAiChatOptions.Builder builder = GoogleGenAiChatOptions.builder()
-                    .maxOutputTokens(maxTokens)
-                    .internalToolExecutionEnabled(false);
+                    .maxOutputTokens(maxTokens);
                 if (!model.isBlank()) {
                     builder.model(model);
                 }
-                yield builder.build();
+                yield builder;
             }
             case "ollama" -> {
                 OllamaChatOptions.Builder builder = OllamaChatOptions.builder()
-                    .numPredict(maxTokens)
-                    .internalToolExecutionEnabled(false);
+                    .numPredict(maxTokens);
                 if (!model.isBlank()) {
                     builder.model(model);
                 }
-                yield builder.build();
+                yield builder;
             }
             default -> null;
         };

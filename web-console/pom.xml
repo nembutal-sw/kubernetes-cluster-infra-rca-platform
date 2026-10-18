@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.5.16</version>
+    <version>4.1.1</version>
     <relativePath />
   </parent>
 
@@ -21,13 +21,14 @@
 
   <properties>
     <java.version>21</java.version>
-    <spring-ai.version>1.1.8</spring-ai.version>
+    <spring-ai.version>2.0.1</spring-ai.version>
     <google-genai.version>1.64.0</google-genai.version>
     <flyway.version>12.11.0</flyway.version>
     <postgresql.version>42.7.13</postgresql.version>
-    <mcp.version>1.1.3</mcp.version>
-    <jackson-bom.version>2.21.5</jackson-bom.version>
-    <tools-jackson.version>3.1.5</tools-jackson.version>
+    <jackson-2-bom.version>2.21.8</jackson-2-bom.version>
+    <jackson-bom.version>3.1.8</jackson-bom.version>
+    <tomcat.version>11.0.27</tomcat.version>
+    <httpcore5.version>5.4.4</httpcore5.version>
     <commons-lang3.version>3.18.0</commons-lang3.version>
     <frontend.node.version>v22.22.0</frontend.node.version>
     <frontend.npm.version>11.3.0</frontend.npm.version>
@@ -42,33 +43,18 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
-      <dependency>
-        <groupId>io.modelcontextprotocol.sdk</groupId>
-        <artifactId>mcp-core</artifactId>
-        <version>${mcp.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>tools.jackson.core</groupId>
-        <artifactId>jackson-core</artifactId>
-        <version>${tools-jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>tools.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>${tools-jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.modelcontextprotocol.sdk</groupId>
-        <artifactId>mcp-json-jackson2</artifactId>
-        <version>${mcp.version}</version>
-      </dependency>
     </dependencies>
   </dependencyManagement>
 
   <dependencies>
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+    <!-- Keep the existing persistence and HTTP JSON contract during the Boot 4 migration. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-jackson2</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -92,8 +78,8 @@
       <scope>runtime</scope>
     </dependency>
     <dependency>
-      <groupId>org.flywaydb</groupId>
-      <artifactId>flyway-core</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-flyway</artifactId>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
@@ -120,7 +106,7 @@
     </dependency>
     <dependency>
       <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-model-openai-sdk</artifactId>
+      <artifactId>spring-ai-starter-model-openai</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.ai</groupId>
@@ -147,27 +133,42 @@
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
+      <artifactId>spring-boot-starter-webmvc-test</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-test</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-resttestclient</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-restclient</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>postgresql</artifactId>
+      <artifactId>testcontainers-postgresql</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>mariadb</artifactId>
+      <artifactId>testcontainers-mariadb</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

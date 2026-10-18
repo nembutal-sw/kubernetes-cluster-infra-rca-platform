@@ -1,4 +1,4 @@
-// Review draft: install as ci/Jenkinsfile on a separate reviewed pipeline branch.
+// Delivery from one immutable revision; every publication requires all test and image gates.
 pipeline {
   agent { label 'linux-ci' }
   options {
@@ -10,9 +10,9 @@ pipeline {
   }
   triggers { pollSCM('H/10 * * * *') }
   parameters {
-    booleanParam(name: 'PUBLISH_IMAGES', defaultValue: false,
+    booleanParam(name: 'PUBLISH_IMAGES', defaultValue: true,
       description: 'Publish both tested immutable images after all gates pass.')
-    booleanParam(name: 'OPEN_GITOPS_PR', defaultValue: false,
+    booleanParam(name: 'OPEN_GITOPS_PR', defaultValue: true,
       description: 'Open a Platform digest PR only. Does not merge or deploy Agent.')
     booleanParam(name: 'RUN_BROWSER_TESTS', defaultValue: false,
       description: 'Optional Playwright E2E/routes; requires preinstalled browser OS dependencies.')
@@ -80,6 +80,12 @@ pipeline {
     stage('Build and non-root image gates') {
       steps { sh 'bash "$CI_HELPERS/build-gate.sh"' }
     }
+    stage('Agent safe observation mode') {
+      steps { sh 'bash "$CI_HELPERS/agent-safe-runtime.sh"' }
+    }
+    stage('Image security scan and SBOM') {
+      steps { sh 'bash "$CI_HELPERS/image-security.sh"' }
+    }
     stage('Publish immutable images') {
       when { expression { params.PUBLISH_IMAGES } }
       steps {
@@ -107,7 +113,7 @@ pipeline {
       // This removes only the job-owned temporary registry authentication file.
       sh 'set +x; if [ -n "${CI_STATE:-}" ] && [ "$CI_STATE" = "$WORKSPACE/.rca-ci/build-$BUILD_NUMBER" ]; then rm -f -- "$CI_STATE/registry-auth.json"; fi'
       archiveArtifacts allowEmptyArchive: true,
-        artifacts: ".rca-ci/build-${env.BUILD_NUMBER}/build-evidence.json,.rca-ci/build-${env.BUILD_NUMBER}/published-images.json,.rca-ci/build-${env.BUILD_NUMBER}/gitops-pr.json,source/web-console/target/*quality-report.json,source/web-console/target/*corpus-report.json,source/web-console/target/blind-evaluation-report.json"
+        artifacts: ".rca-ci/build-${env.BUILD_NUMBER}/build-evidence.json,.rca-ci/build-${env.BUILD_NUMBER}/test-evidence.json,.rca-ci/build-${env.BUILD_NUMBER}/registry-verification.json,.rca-ci/build-${env.BUILD_NUMBER}/agent-safe-mode-runtime.json,.rca-ci/build-${env.BUILD_NUMBER}/published-images.json,.rca-ci/build-${env.BUILD_NUMBER}/gitops-pr.json,.rca-ci/build-${env.BUILD_NUMBER}/security/*.json,.rca-ci/build-${env.BUILD_NUMBER}/security/*-gate.exit,source/web-console/target/*quality-report.json,source/web-console/target/*corpus-report.json,source/web-console/target/blind-evaluation-report.json"
     }
   }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/common.sh"
-for tool in git python3 java mvn node npm podman curl flock mktemp; do
+for tool in git python3 java mvn node npm podman curl flock mktemp timeout systemd-run sha256sum; do
   command -v "$tool" >/dev/null || fail "missing tool: $tool"
 done
 java_version=$(java -version 2>&1)
@@ -22,4 +22,5 @@ python3 -m venv --without-pip "$CI_STATE/venv"
 PYTHONPATH="$pip_wheel" "$CI_STATE/venv/bin/python" -m pip --isolated install --no-index --no-deps "$pip_wheel"
 unset PYTHONPATH
 "$CI_STATE/venv/bin/python" -m pip --isolated install --disable-pip-version-check -r "$CI_SOURCE/requirements-dev.txt"
+"$CI_STATE/venv/bin/python" -m unittest discover -s "$CI_HELPERS/../tests" -p 'test_*.py'
 printf 'Prerequisites passed for source %s\n' "$SOURCE_SHA"

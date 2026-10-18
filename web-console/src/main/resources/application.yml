@@ -2,20 +2,21 @@ server:
   port: 8080
   forward-headers-strategy: framework
   servlet:
-    encoding:
-      charset: UTF-8
-      enabled: true
-      force: true
     session:
       cookie:
         http-only: true
         same-site: strict
 
 spring:
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
   application:
     name: cluster-infra-rca-platform
   autoconfigure:
-    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${RCA_JDBC_URL:jdbc:h2:file:./data/rca;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH}
     username: ${RCA_DB_USERNAME:sa}
@@ -30,11 +31,14 @@ spring:
     baseline-on-migrate: true
     baseline-version: 1
     locations: classpath:db/migration
-  jackson:
+  jackson2:
     default-property-inclusion: non_null
     property-naming-strategy: SNAKE_CASE
     deserialization:
       fail-on-unknown-properties: false
+  http:
+    converters:
+      preferred-json-mapper: jackson2
   web:
     resources:
       cache:
@@ -48,9 +52,9 @@ spring:
       moderation: ${RCA_SPRING_AI_MODERATION_MODEL:none}
     retry:
       max-attempts: ${RCA_SPRING_AI_RETRY_MAX_ATTEMPTS:1}
-    openai-sdk:
-      api-key: ${SPRING_AI_OPENAI_SDK_API_KEY:${RCA_LLM_API_KEY:}}
-      base-url: ${SPRING_AI_OPENAI_SDK_BASE_URL:${RCA_LLM_BASE_URL:}}
+    openai:
+      api-key: ${SPRING_AI_OPENAI_API_KEY:${SPRING_AI_OPENAI_SDK_API_KEY:${RCA_LLM_API_KEY:}}}
+      base-url: ${SPRING_AI_OPENAI_BASE_URL:${SPRING_AI_OPENAI_SDK_BASE_URL:${RCA_LLM_BASE_URL:}}}
     anthropic:
       api-key: ${SPRING_AI_ANTHROPIC_API_KEY:${RCA_LLM_API_KEY:}}
     google:

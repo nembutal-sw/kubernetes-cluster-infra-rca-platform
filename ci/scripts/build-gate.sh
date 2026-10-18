@@ -30,7 +30,7 @@ for p in (state/'agent-context').rglob('*'):
 (state/'jar-evidence.json').write_text(json.dumps({'source_revision':os.environ['SOURCE_SHA'],'pipeline_revision':os.environ['PIPELINE_SHA'],'jar_sha256':hashlib.sha256(jar.read_bytes()).hexdigest()}))
 PY
 build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-flags=(--format oci --isolation=oci --tls-verify=true --http-proxy=false --jobs 1 --cpus 1 --memory 2g --network slirp4netns:allow_host_loopback=false --build-arg "VERSION=0.1.0-ci.${BUILD_NUMBER}" --build-arg "VCS_REF=$SOURCE_SHA" --build-arg "BUILD_DATE=$build_date")
+flags=(--format oci --isolation=oci --tls-verify=true --http-proxy=false --jobs 1 --cpu-period 100000 --cpu-quota 100000 --memory 2g --network slirp4netns:allow_host_loopback=false --build-arg "VERSION=0.1.0-ci.${BUILD_NUMBER}" --build-arg "VCS_REF=$SOURCE_SHA" --build-arg "BUILD_DATE=$build_date")
 podman build "${flags[@]}" --file "$CI_HELPERS/../Dockerfile.platform-runtime" --tag "$PLATFORM_IMAGE" "$CI_STATE/platform-context"
 podman build "${flags[@]}" --file "$CI_SOURCE/Dockerfile.agent" --tag "$AGENT_IMAGE" "$CI_STATE/agent-context"
 for image in "$PLATFORM_IMAGE" "$AGENT_IMAGE"; do

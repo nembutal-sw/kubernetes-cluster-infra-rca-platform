@@ -64,7 +64,11 @@ class WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             workspace=pathlib.Path(temporary)
             state=workspace/'.rca-ci/build-7';state.mkdir(parents=True)
-            (state/'published-images.json').write_text(json.dumps({'source_revision':REV,'pipeline_revision':REV,'platform':{'digest':NEW,'pinned_image':pr.EXPECTED_IMAGE+'@'+NEW}}))
+            def row(number):return {'tests':number,'passed':number,'failures':0,'errors':0,'skipped':0}
+            (state/'published-images.json').write_text(json.dumps({'source_revision':REV,'pipeline_revision':REV,
+                'platform':{'digest':NEW,'pinned_image':pr.EXPECTED_IMAGE+'@'+NEW},
+                'test_counts':{'java_surefire':row(377),'java_failsafe':row(2),'java_total':row(379),'frontend':row(24),'python':row(219)},
+                'security':{'passed':True,'source_revision':REV,'trivy_version':'0.76.0'}}))
             env={'WORKSPACE':str(workspace),'BUILD_NUMBER':'7','CI_STATE':str(state),'SOURCE_SHA':REV,'PIPELINE_SHA':REV,
                  'GITOPS_REPOSITORY':'example/gitops','GITOPS_VALUES_PATH':'environments/onprem/values-platform.yaml',
                  'GITHUB_TOKEN':'test-fixture-only'}
@@ -77,6 +81,10 @@ class WorkflowTests(unittest.TestCase):
         changed=base64.b64decode(writes[0][2]['content']).decode()
         self.assertEqual(changed,TEXT.replace('"'+OLD+'"','"'+NEW+'"'))
         self.assertFalse(any('/merge' in path for _,path,_ in calls))
+        body=next(payload['body'] for method,path,payload in calls if method=='POST' and path=='/pulls')
+        self.assertIn('Java 379 passed / 0 skipped',body)
+        self.assertIn('Frontend 24 passed / 0 skipped',body)
+        self.assertIn('Python 219 passed / 0 skipped',body)
     def test_placeholder_repository_rejected(self):
         with self.assertRaises(pr.Blocked):pr.GitHub('REPLACE_WITH_OWNER/repo','fixture')
     def test_pipeline_source_mismatch_blocks_before_api(self):

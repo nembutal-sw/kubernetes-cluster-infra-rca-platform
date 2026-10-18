@@ -66,6 +66,7 @@ with zipfile.ZipFile(jar) as z:
     assert any(n.startswith('BOOT-INF/classes/static/assets/') and n.endswith('.js') for n in names), 'React JS missing'
 print('Three suite markers and integrated JAR verified; Maven was not rerun')
 PY
+    "$CI_STATE/venv/bin/python" "$CI_HELPERS/verify-delivery-evidence.py" tests
     if [[ ${RUN_BROWSER_TESTS:-false} == true ]]; then
       # User-cache browser install only; missing OS dependencies fail this opt-in.
       (cd web-console/frontend && npx --no-install playwright install chromium && \

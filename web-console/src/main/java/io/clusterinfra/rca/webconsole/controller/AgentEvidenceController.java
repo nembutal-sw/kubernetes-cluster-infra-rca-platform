@@ -36,7 +36,7 @@ import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
-import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_CONTENT;
 
 @RestController
 public class AgentEvidenceController {
@@ -150,7 +150,7 @@ public class AgentEvidenceController {
         if (request.statusOrDefault() != EvidenceRequestStatus.completed
             && request.statusOrDefault() != EvidenceRequestStatus.failed) {
             throw new ResponseStatusException(
-                UNPROCESSABLE_ENTITY,
+                UNPROCESSABLE_CONTENT,
                 "evidence response status must be completed or failed"
             );
         }

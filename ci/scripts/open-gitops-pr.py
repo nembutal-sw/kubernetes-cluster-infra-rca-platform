@@ -99,6 +99,20 @@ def main() -> int:
     digest=evidence['platform']['digest']
     if evidence['platform']['pinned_image']!=EXPECTED_IMAGE+'@'+digest:
         raise Blocked('published Platform image mismatch')
+    counts=evidence.get('test_counts',{})
+    for name in ('java_surefire','java_failsafe','java_total','frontend','python'):
+        row=counts.get(name,{})
+        if (any(type(row.get(k)) is not int or row[k]<0 for k in ('tests','passed','failures','errors','skipped'))
+            or row['passed']<=0 or row['failures'] or row['errors']
+            or row['tests']!=row['passed']+row['skipped']):
+            raise Blocked('actual passing test counts are missing or inconsistent')
+    if any(counts['java_total'][key]!=counts['java_surefire'][key]+counts['java_failsafe'][key] for key in ('tests','passed','failures','errors','skipped')):
+        raise Blocked('Java aggregate test counters differ from suites')
+    security=evidence.get('security',{})
+    if security.get('passed') is not True or security.get('source_revision')!=revision or security.get('trivy_version')!='0.76.0':
+        raise Blocked('published image security gate is not proven')
+    test_line=', '.join(label+' '+str(counts[key]['passed'])+' passed / '+str(counts[key]['skipped'])+' skipped'
+        for label,key in (('Java','java_total'),('Frontend','frontend'),('Python','python')))
     repo=os.environ.get('GITOPS_REPOSITORY','')
     base=os.environ.get('GITOPS_BASE_BRANCH','main')
     path=os.environ.get('GITOPS_VALUES_PATH','')
@@ -122,7 +136,9 @@ def main() -> int:
     api.request('PUT','/contents/'+encoded_path,{'message':'Update RCA Platform to '+revision[:12],
         'content':base64.b64encode(changed.encode()).decode(),'sha':item['sha'],'branch':branch})
     pr=api.request('POST','/pulls',{'title':'Update RCA Platform image '+revision[:12],
-        'head':branch,'base':base,'body':'All Python, Java, frontend and isolated runtime gates passed.\n\n'
+        'head':branch,'base':base,'body':'Application test, isolated runtime, Agent safe mode and image security gates passed.\n\n'
+        +'Actual JUnit testcase counts: '+test_line+'.\n'
+        +'Trivy0.76.0: OS/library fixable HIGH/CRITICAL gate passed; SBOM and scan evidence are retained in Jenkins.\n\n'
         +'Source: '+revision+'\nPlatform digest: '+digest+'\n\n'
         +'Changes only platform.image.digest. Agent, DB, RBAC and storage are unchanged. '
         +'Review and merge manually; this CI never merges or invokes Argo CD.'})

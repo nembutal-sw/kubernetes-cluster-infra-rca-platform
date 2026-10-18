@@ -1,153 +1,71 @@
-RCA CI/CD review draft — 2026-10-18
+RCA delivery CI candidate
 
-These files are an implemented local draft. They have not been installed in Jenkins,
-executed on ci-agent-01, pushed to Git, or used to publish any image or pull request.
-The original source clone and existing successful Jenkins job were not changed.
+Use a separate reviewed SCM job. Pipeline checkout and application checkout must
+share the same full 40-character Git SHA. SCM polling runs every ten minutes at a
+Jenkins-selected offset; disableConcurrentBuilds serializes this job. Publication,
+GitOps PR creation default to true after all mandatory gates. Optional browser tests
+remain false. A manual verification build can explicitly disable publication and PRs.
 
-Intended separate pipeline branch layout:
-  ci/Jenkinsfile                 <- this Jenkinsfile
-  ci/Dockerfile.platform-runtime <- this Dockerfile.platform-runtime
-  ci/scripts/*                  <- scripts/*
-  ci/tests/*                    <- tests/* (local logic tests; optional in CI)
-Create a separate Jenkins Pipeline from SCM test job pointing at ci/Jenkinsfile.
-Do not paste this into or replace the existing rca-platform-ci inline pipeline.
-The pipeline records SCM.GIT_COMMIT of its own reviewed branch, then checks out that
-exact full 40-character SHA separately as the application source. It rejects unequal
-pipeline/source SHAs. A feature-branch trial therefore tests that feature commit;
-after adoption, a main-branch build tests that exact main commit. Both SHAs are
-recorded in image/JAR publication evidence; no separate moving main checkout is used.
+Mandatory stage sequence
+1. Runtime prerequisites: rootless local Podman, cgroup v2 CPU/memory delegation,
+   Java21, Maven, Node>=22.22, Python>=3.12 and user-owned isolated Python venv.
+2. Backend Tests: one canonical mvn -Pfrontend clean verify. This builds the React
+   assets and integrated Spring JAR, runs Java tests and real DB integration tests.
+   A private short-lived Podman API child serves Testcontainers for this stage only.
+   Existing DB/enrollment report gates reject silent integration-test skips.
+3. Frontend Tests: npm ci, Vitest with JUnit output, then frontend type-check/build.
+4. Python Agent Tests: compileall and pytest with JUnit output.
+5. Integration Package: check all three same-SHA markers, actual JUnit testcase
+   counts, and React assets in the existing JAR. Maven is not run a second time.
+6. Build and non-root image gates: package the tested JAR into the Platform image,
+   build Agent from the same source, require UID65532 and the complete OCI revision.
+   Agent imports in a read-only, network-none sandbox. Platform passes local-only
+   readiness against an isolated H2 fixture. Podman builds use one CPU via supported
+   --cpu-period/--cpu-quota and 2GiB memory, OCI isolation and verified Registry TLS.
+7. Agent safe observation mode: run the built image's real capability CLI and one
+   register/heartbeat/evidence cycle against in-container loopback fixtures. Require
+   safe mode, disabled privileged/eBPF collectors, no forbidden external commands, no mutating
+   Kubernetes requests and evidence <=64KiB. Only exact read-only uname -p is allowed
+   for CPython platform metadata; dmesg/eBPF/systemctl are forbidden. No host mounts
+   or real cluster access.
+8. Image security scan and SBOM: scan both actual local image IDs with Trivy0.76.0,
+   OS and library packages, before entering any publishing credential scope. Reject
+   fixable HIGH/CRITICAL findings, unsupported coverage, stale DBs, scanner failures
+   or missing evidence. Reports include all severities under the same ignore-unfixed
+   policy. Retain CycloneDX SBOMs and JSON evidence even if the gate fails. Each scan
+   uses a user transient scope with CPU100%, memory1GiB, tasks128 and concurrency1.
+9. Gated automatic publication: all runtime, safe-mode and security markers must
+   match the full SHA. Require scanned image IDs to match both runtime and scanner
+   evidence, push those immutable local IDs under full-SHA/build-number remote tags,
+   and reject an existing Registry tag. Verify tag manifest raw bytes, digest header
+   and push digest file agree; verify config blob hash, full OCI revision and UID.
+   Remote config digest must equal the scanned image ID. TLS never bypasses CA or
+   hostname checks. Two image pushes are not transactional; failure blocks the PR.
+10. Automatic GitOps proposal: change only the Platform digest at one immutable
+   GitOps main snapshot and open a review PR. Never merge, sync Argo, auto-deploy
+   Agent, or modify DB/PVC/RBAC. No automatic prune or self-healing is configured.
 
-Actual Jenkins facts supplied by the coordinating agent:
-- Jenkins 2.580.1; existing job rca-platform-ci is an inline four-stage job.
-- Its stages are Git Checkout / Env / Backend Test / Integrated Package.
-- Java 21.0.12.1 and Maven 3.9.9 are present; node/npm were absent from the normal PATH.
-- Existing Jenkins credential inventory had ci-agent-01-ssh, no registry credential.
-- New private GitOps repository: nembutal-sw/rca-platform-gitops, main branch.
-These are observed facts from the coordinating agent; this subtask performed no
-infrastructure access or credential inspection.
+Pinned user-owned tools, provisioned separately without sudo or system changes
+- Node22.23.3: ~/.local/share/rca-cicd/node-v22.23.3-linux-x64/bin.
+- pip26.2.1 wheel: ~/.local/share/rca-cicd/pip-26.2.1-py3-none-any.whl;
+  SHA25671138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e.
+  Create venv --without-pip, then install that verified wheel offline into the venv.
+- Trivy0.76.0: ~/.local/share/rca-cicd/trivy-v0.76.0/trivy;
+  executable SHA2561f889576636db0623539cb339df7d06c40ebf39e7919489eafa1160e29808f19.
+  Fresh official GHCR vulnerability/Java databases are mandatory before frozen scans.
 
-Configured targets and credential REFERENCES
-- Agent label: linux-ci; effective user jenkins-agent; hostname ci-agent-01.
-- Source: nembutal-sw/kubernetes-cluster-infra-rca-platform at the pipeline SCM SHA.
-- Registry: HTTPS 10.7.254.6:5000, TLS verification remains enabled.
-- Jenkins username/password credential ID: rca-registry-build (build account only).
-- Jenkins secret-text fine-grained GitHub token ID: rca-gitops-github.
-- GitOps values path: environments/onprem/platform/values.yaml.
-- Default user Node path: ~/.local/share/rca-cicd/node-v22.23.3-linux-x64/bin.
-  Official archive SHA-256 supplied for installation verification:
-  df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
-  Set RCA_NODE_BIN in the new job if the checksum-verified user installation uses
-  another path. Java 21, Maven, Python >=3.12 with venv, curl, flock and rootless
-  Podman with delegated cgroup-v2 CPU/memory controllers must be available.
-- The GitOps token must be limited to the GitOps repository, Contents: read/write
-  and Pull requests: read/write; Metadata read is implicit. It grants no access to
-  the source repository, Jenkins, Registry, cluster or Argo CD.
-Credential values do not belong in these files. The registry credential is bound
-only while publishing and stored in a job-owned temporary authfile, deleted on exit.
-The GitHub token is bound only in the PR stage, used in memory in HTTPS headers,
-and never passed in a URL, shell argument, Git remote, response log or artifact.
+Credentials are folder-scoped Jenkins references rca-registry-build and
+rca-gitops-github. The public GitOps repository is nembutal-sw/rca-platform-gitops.
+No credentials, auth files, OCI tar archives or scanner caches are archived. Archive
+patterns explicitly select public test/runtime/scan/SBOM/digest/PR evidence only.
 
-Gates and resulting behavior
-1. Poll source SCM every ten minutes using H/10, not every minute. Concurrent builds
-   of this new job are disabled; a queued build does not interrupt the previous one.
-2. Jenkins exposes Backend Tests, Frontend Tests, Python Agent Tests and Integration
-   Package as separate visible stages. test.sh accepts only the corresponding fixed
-   modes backend, frontend, python and aggregate. All three suites write their own
-   success marker containing the same full source SHA.
-3. Backend Tests runs mvn -Pfrontend clean verify once. This includes Java unit tests, packaging and
-   Failsafe integration tests. Then require both existing XML-report verifiers:
-   scripts/verify_database_compatibility_report.py (four DB compatibility methods),
-   scripts/verify_agent_enrollment_migration_report.py (two packaged CLI methods).
-   Missing/skipped DB tests fail the new job. The earlier user-provided 377-test
-   result with skips is not treated as proof that these full gates passed.
-   Because the canonical Maven frontend profile packages React assets, the integrated
-   JAR is already produced in this stage; Maven is not run again later.
-   Frontend Tests runs locked npm install, Vitest with one worker plus default/JUnit
-   reporters, TypeScript check and Vite build. Python Agent Tests compiles Python
-   and runs all tests under tests/. Jenkins publishes frontend and Python XML along
-   with Surefire/Failsafe XML from Backend Tests.
-   Integration Package requires all three current-SHA markers, rechecks XML evidence
-   and validates React index/JS assets in the existing integrated JAR. These are
-   inexpensive evidence checks, not another test or package run.
-4. Native Maven Testcontainers connects to a job-owned, ephemeral rootless Podman
-   API child process only in Backend Tests. Other test modes do not start that API.
-   No host/socket bind mount, Docker daemon, sudo, privileged
-   container, persistent system service, or change to another CI job is used.
-   Ryuk is disabled for this rootless setup. Normal JUnit/Testcontainers teardown
-   removes test DB containers; the job stops its own API child on exit. A forced
-   agent/process termination may leave test containers; this draft deliberately
-   performs no global prune or cleanup of other jobs' containers.
-5. Build Platform runtime from the exact tested integrated JAR, checking React index
-   and JS assets in the JAR first. The runtime Dockerfile preserves the audited
-   upstream pinned runtime base and non-root settings. This avoids rerunning Maven
-   inside an image build where DB tests could otherwise silently skip.
-6. Build Agent from the exact checkout's Dockerfile.agent with a separate owned
-   source context. Normalize copied Python files to 0644/directories 0755 to prevent
-   the previously observed umask077/non-root import failure. No source bytes change.
-7. Both images receive full-SHA OCI revision labels and tags git-FULLSHA-bBUILD.
-   Builds explicitly use OCI isolation, TLS verification and no inherited HTTP proxy,
-   with one CPU, 2GiB, one Buildah job and rootless networking. Both images
-   must default to 65532:65532. Agent must import its runtime modules as that user
-   with network disabled and read-only filesystem. Platform must run non-root and
-   pass readiness in a temporary isolated H2 fixture bound only to 127.0.0.1:18088.
-   No production DB, node, Secret, Agent enrollment or external app is contacted.
-8. PUBLISH_IMAGES defaults false. When true, both preceding gates must have passed.
-   A tag lookup must specifically prove it is missing; errors and existing tags
-   fail closed. Push uses normal TLS verification and digest files. Both resulting
-   repo@sha256 references must be remotely readable before publication is confirmed.
-   Tags are treated as immutable by CI; server-side immutability is not assumed.
-   Two Registry pushes are not a transaction: if the second push fails, the first
-   immutable image may remain. No GitOps PR is then created; nothing is rolled back.
-9. OPEN_GITOPS_PR defaults false and requires PUBLISH_IMAGES. The helper reads the
-   values file at one immutable GitOps main SHA, creates a new branch at that same
-   SHA, changes exactly platform.image.digest and opens a review PR. The helper
-   preserves other bytes/comments and rejects ambiguous mappings or another image
-   repository. It does not merge, invoke Argo CD or update Agent/DB/RBAC/storage.
-   Failed/unknown API writes are not automatically retried; inspect candidate
-   branch and PR state first to avoid duplicate external writes.
+The pipeline never installs host packages, mounts host sockets, uses privileged
+containers, changes Jenkins global settings, prunes images or touches other jobs.
+Playwright is optional and never installs OS packages. Fixture passwords/tokens are
+public synthetic test data. Runtime gates do not certify production connectivity,
+bootstrap token lifetime, Agent re-enrollment, production RBAC or host diagnostics.
 
-First execute the separate test job with PUBLISH_IMAGES=false and OPEN_GITOPS_PR=false.
-After all real gates pass and both scoped Jenkins credentials are provisioned,
-explicitly change the approved production job defaults to enable image publication
-and GitOps review PR creation on SCM changes. The draft deliberately does not enable
-external writes before that validation. Existing single-executor scheduling and
-disableConcurrentBuilds serialize this job; every tag includes full SHA/build number
-and an existing registry tag is rejected. No global lock or other job is modified.
-
-Optional browser verification
-RUN_BROWSER_TESTS defaults false. Vitest/type-check/build are always required.
-When requested, Playwright downloads Chromium to the user cache, runs existing
-isolated H2 workflow E2E, and tests routes against the temporary image fixture.
-It never requests --with-deps or sudo. Missing browser OS dependencies fail only
-the explicitly requested browser run. Test fixture passwords in build-gate.sh and
-the upstream E2E config are public, isolated test data, not operating credentials.
-
-Source audit (read-only, commit af730cd657581dde532526be04b6478555351c52)
-- No repository Jenkinsfile or nested AGENTS.md was found. Workspace AGENTS.md says
-  sources/ is read-only; no synced source was changed.
-- .github/workflows/ci.yml:13-28 Python compile/pytest; :30-48 frontend unit/build;
-  :50-67 Maven verify plus both report gates; :80-108 optional browser reference.
-- web-console/pom.xml:23 Java21; :32-33 Node22.22.0/npm11.3.0; :200 Failsafe;
-  :231-244 integrated frontend install/build; :253-281 copy/check React assets.
-  The frontend Maven profile builds assets but does not execute npm test.
-- web-console/frontend/package.json:7 Node floor; :11-16 build/test/e2e/routes.
-- pyproject.toml:5 supports Python>=3.10; :15-16 test discovery; existing CI uses3.12.
-- DatabaseCompatibilityTests.java:81 and AgentEnrollmentMigrationPackagedJarIT.java:21
-  use disabledWithoutDocker=true; skipped tests alone can therefore yield green Maven.
-- Dockerfile.agent:23 COPY then :25 USER65532; OCI labels at :7-11.
-- Dockerfile.web-console:15 integrated verify; :39 JAR copy; :43 USER65532;
-  OCI labels at :25-29. The draft runtime image consumes the gated JAR instead.
-- playwright.config.ts:11 one worker; :28-47 isolated local H2 server settings.
-
-Local validation performed
-- All five shell helper files passed bash -n (syntax only; helpers not executed).
-- Python source parsed successfully; eleven local unittest cases passed, including
-  digest-only edits, comments/CRLF, duplicate and repository rejection, immutable
-  GitOps base snapshot, one-file PUT, no merge request and pipeline/source mismatch
-  rejection before any API access. The API was a fake object;
-  no network or operating credential was used.
-- Original source git status remained clean.
-Pending real validation: Jenkins declarative validation, new-job checkout and tool
-paths, Python venv support, Podman API/Testcontainers compatibility, zero-skip DB
-results, image/runtime gates, Registry credential creation/TLS push and real PR.
-No runtime success is claimed for those pending checks.
+One-time user-owned prerequisites can be installed with ci/install-node-user.sh,
+ci/install-pip-user.sh and ci/install-trivy-user.sh under jenkins-agent. These
+installers do not grant sudo or install system packages. Java21/Maven3.9.9 and
+rootless Podman/cgroup delegation remain existing host prerequisites.

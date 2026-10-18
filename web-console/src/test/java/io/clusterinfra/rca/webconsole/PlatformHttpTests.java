@@ -18,8 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -30,7 +31,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureObservability
+@AutoConfigureMetrics
+@AutoConfigureTestRestTemplate
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PlatformHttpTests {
     private static final String PUBLIC_API_BASE_URL = "https://rca.example.com";
@@ -433,7 +435,7 @@ class PlatformHttpTests {
             new HttpEntity<>(oversized, headers),
             String.class
         );
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
         assertThat(response.getBody()).contains("request body exceeds 1024 bytes");
     }
 
@@ -896,7 +898,7 @@ class PlatformHttpTests {
             HttpMethod.POST,
             Map.of("current_password", "admin", "new_password", "short")
         );
-        assertThat(tooShort.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(tooShort.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
 
         ResponseEntity<String> changed = exchange(
             "/api/auth/change-password",
@@ -973,7 +975,7 @@ class PlatformHttpTests {
             HttpMethod.GET,
             null
         );
-        assertThat(invalidExport.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(invalidExport.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
     }
 
     @Test
@@ -1096,6 +1098,8 @@ class PlatformHttpTests {
         assertThat(setupBody.path("restart_required").asBoolean()).isTrue();
         assertThat(setupBody.path("providers")).isNotEmpty();
         assertThat(setup.getBody())
+            .contains("SPRING_AI_OPENAI_API_KEY")
+            .contains("SPRING_AI_OPENAI_BASE_URL")
             .contains("SPRING_AI_OPENAI_SDK_API_KEY")
             .contains("SPRING_AI_OLLAMA_BASE_URL")
             .contains("gemini-3.1-flash-lite")

@@ -49,11 +49,11 @@ public class LlmConfigurationService {
             normalize(llm.getModel()),
             springAiChatModel(),
             credentialRequired,
-            credentialRequired && !normalize(environment.getProperty(credentialProperty, "")).isBlank(),
+            credentialRequired && configuredProperty(credentialProperty),
             credentialProperty == null ? "" : credentialProperty,
             credentialEnv(provider),
             baseUrlRequired,
-            baseUrlRequired && !normalize(environment.getProperty(baseUrlProperty, "")).isBlank(),
+            baseUrlRequired && configuredProperty(baseUrlProperty),
             baseUrlProperty == null ? "" : baseUrlProperty,
             baseUrlEnv(provider),
             llm.getTimeoutSeconds(),
@@ -102,13 +102,13 @@ public class LlmConfigurationService {
                 providerOption(
                     "openai",
                     "OpenAI",
-                    "openai-sdk",
-                    "SPRING_AI_OPENAI_SDK_API_KEY",
+                    "openai",
+                    "SPRING_AI_OPENAI_API_KEY",
                     "",
                     true,
                     false,
                     List.of("gpt-model-name"),
-                    "Use for OpenAI-hosted models through Spring AI OpenAI SDK."
+                    "Use Spring AI's unified OpenAI starter. Legacy openai-sdk and SPRING_AI_OPENAI_SDK_API_KEY remain supported aliases."
                 ),
                 providerOption(
                     "anthropic",
@@ -146,24 +146,24 @@ public class LlmConfigurationService {
                 providerOption(
                     "openai_compatible",
                     "OpenAI-compatible endpoint",
-                    "openai-sdk",
-                    "SPRING_AI_OPENAI_SDK_API_KEY",
-                    "SPRING_AI_OPENAI_SDK_BASE_URL",
+                    "openai",
+                    "SPRING_AI_OPENAI_API_KEY",
+                    "SPRING_AI_OPENAI_BASE_URL",
                     true,
                     true,
                     List.of("provider-model-name"),
-                    "Use for hosted gateways that implement the OpenAI-compatible API."
+                    "Use for OpenAI-compatible gateways. Legacy SPRING_AI_OPENAI_SDK_API_KEY and SPRING_AI_OPENAI_SDK_BASE_URL remain supported aliases."
                 ),
                 providerOption(
                     "self_hosted",
                     "Self-hosted OpenAI-compatible model",
-                    "openai-sdk",
+                    "openai",
                     "",
-                    "SPRING_AI_OPENAI_SDK_BASE_URL",
+                    "SPRING_AI_OPENAI_BASE_URL",
                     false,
                     true,
                     List.of("local-rca-model"),
-                    "Use only after the model endpoint is reachable from the Platform pod or process."
+                    "Use only after the endpoint is reachable from the Platform. Legacy SPRING_AI_OPENAI_SDK_BASE_URL remains supported."
                 )
             )
         );
@@ -282,7 +282,7 @@ public class LlmConfigurationService {
 
     private static String credentialProperty(String provider) {
         return switch (provider) {
-            case "openai", "openai-sdk", "openai_compatible" -> "spring.ai.openai-sdk.api-key";
+            case "openai", "openai-sdk", "openai_compatible" -> "spring.ai.openai.api-key";
             case "anthropic", "claude" -> "spring.ai.anthropic.api-key";
             case "google", "google-genai", "gemini" -> "spring.ai.google.genai.api-key";
             case "self_hosted", "ollama" -> null;
@@ -292,7 +292,7 @@ public class LlmConfigurationService {
 
     private static String credentialEnv(String provider) {
         return switch (provider) {
-            case "openai", "openai-sdk", "openai_compatible" -> "SPRING_AI_OPENAI_SDK_API_KEY";
+            case "openai", "openai-sdk", "openai_compatible" -> "SPRING_AI_OPENAI_API_KEY";
             case "anthropic", "claude" -> "SPRING_AI_ANTHROPIC_API_KEY";
             case "google", "google-genai", "gemini" -> "SPRING_AI_GOOGLE_GENAI_API_KEY";
             default -> "";
@@ -301,7 +301,7 @@ public class LlmConfigurationService {
 
     private static String baseUrlProperty(String provider) {
         return switch (provider) {
-            case "openai_compatible", "self_hosted" -> "spring.ai.openai-sdk.base-url";
+            case "openai_compatible", "self_hosted" -> "spring.ai.openai.base-url";
             case "ollama" -> "spring.ai.ollama.base-url";
             default -> "";
         };
@@ -309,7 +309,7 @@ public class LlmConfigurationService {
 
     private static String baseUrlEnv(String provider) {
         return switch (provider) {
-            case "openai_compatible", "self_hosted" -> "SPRING_AI_OPENAI_SDK_BASE_URL";
+            case "openai_compatible", "self_hosted" -> "SPRING_AI_OPENAI_BASE_URL";
             case "ollama" -> "SPRING_AI_OLLAMA_BASE_URL";
             default -> "";
         };
@@ -322,6 +322,21 @@ public class LlmConfigurationService {
         String remediation
     ) {
         return new LlmDiagnosticCheck(key, status, message, remediation);
+    }
+
+    private boolean configuredProperty(String property) {
+        if (!normalize(environment.getProperty(property, "")).isBlank()) {
+            return true;
+        }
+        return switch (property) {
+            case "spring.ai.openai.api-key" -> !normalize(environment.getProperty("spring.ai.openai-sdk.api-key", "")).isBlank()
+                || !normalize(environment.getProperty("RCA_LLM_API_KEY", "")).isBlank();
+            case "spring.ai.openai.base-url" -> !normalize(environment.getProperty("spring.ai.openai-sdk.base-url", "")).isBlank()
+                || !normalize(environment.getProperty("RCA_LLM_BASE_URL", "")).isBlank();
+            case "spring.ai.anthropic.api-key", "spring.ai.google.genai.api-key" ->
+                !normalize(environment.getProperty("RCA_LLM_API_KEY", "")).isBlank();
+            default -> false;
+        };
     }
 
     private static LlmProviderSetupOption providerOption(

@@ -238,7 +238,7 @@ public class ProductionSecurityValidator implements InitializingBean {
         }
 
         String credentialProperty = switch (provider) {
-            case "openai", "openai-sdk", "openai_compatible" -> "spring.ai.openai-sdk.api-key";
+            case "openai", "openai-sdk", "openai_compatible" -> "spring.ai.openai.api-key";
             case "anthropic", "claude" -> "spring.ai.anthropic.api-key";
             case "google", "google-genai", "gemini" -> "spring.ai.google.genai.api-key";
             case "self_hosted", "ollama" -> null;
@@ -247,13 +247,15 @@ public class ProductionSecurityValidator implements InitializingBean {
         if ("".equals(credentialProperty)) {
             violations.add("RCA_LLM_PROVIDER is not supported: " + provider);
         } else if (credentialProperty != null
-            && !hasAnyConfiguredValue(credentialProperty, "RCA_LLM_API_KEY")) {
+            && !hasAnyConfiguredValue(credentialProperty, "RCA_LLM_API_KEY")
+            && !("spring.ai.openai.api-key".equals(credentialProperty)
+                && hasAnyConfiguredValue("spring.ai.openai-sdk.api-key"))) {
             violations.add(credentialProperty + " or RCA_LLM_API_KEY is required for the configured LLM provider");
         }
         if (("openai_compatible".equals(provider) || "self_hosted".equals(provider))
-            && !hasAnyConfiguredValue("spring.ai.openai-sdk.base-url", "RCA_LLM_BASE_URL")) {
+            && !hasAnyConfiguredValue("spring.ai.openai.base-url", "spring.ai.openai-sdk.base-url", "RCA_LLM_BASE_URL")) {
             violations.add(
-                "spring.ai.openai-sdk.base-url or RCA_LLM_BASE_URL is required for RCA_LLM_PROVIDER=" + provider
+                "spring.ai.openai.base-url or RCA_LLM_BASE_URL is required for RCA_LLM_PROVIDER=" + provider
             );
         }
     }
