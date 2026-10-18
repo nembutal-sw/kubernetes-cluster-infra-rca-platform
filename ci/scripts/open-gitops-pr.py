@@ -14,6 +14,7 @@ import yaml
 
 EXPECTED_IMAGE = '10.7.254.6:5000/rca-platform'
 DIGEST_RE = re.compile(r'sha256:[0-9a-f]{64}')
+DELIVERY_JOBS = {'rca-delivery/rca-platform-delivery', 'rca-delivery/rca-platform-main-delivery'}
 
 class Blocked(Exception):
     pass
@@ -87,8 +88,13 @@ class GitHub:
             raise Blocked(f'GitHub {method} outcome unknown; inspect candidate branch before retry') from None
 
 def main() -> int:
+    build_number=os.environ.get('BUILD_NUMBER','')
+    job_name=os.environ.get('JOB_NAME','')
+    if (not re.fullmatch(r'[1-9][0-9]{0,9}',build_number)
+        or int(build_number)>2_147_483_647 or job_name not in DELIVERY_JOBS):
+        raise Blocked('unexpected Jenkins delivery job or build number')
     state=pathlib.Path(os.environ.get('CI_STATE',''))
-    expected=pathlib.Path(os.environ['WORKSPACE'])/'.rca-ci'/('build-'+os.environ['BUILD_NUMBER'])
+    expected=pathlib.Path(os.environ['WORKSPACE'])/'.rca-ci'/('build-'+build_number)
     if state!=expected:
         raise Blocked('unexpected build state directory')
     evidence=json.loads((state/'published-images.json').read_text())
@@ -97,8 +103,10 @@ def main() -> int:
         or os.environ.get('PIPELINE_SHA')!=revision or evidence.get('pipeline_revision')!=revision):
         raise Blocked('published source revision does not match')
     digest=evidence['platform']['digest']
-    if evidence['platform']['pinned_image']!=EXPECTED_IMAGE+'@'+digest:
+    if (not isinstance(digest,str) or not DIGEST_RE.fullmatch(digest)
+        or evidence['platform']['pinned_image']!=EXPECTED_IMAGE+'@'+digest):
         raise Blocked('published Platform image mismatch')
+    pinned_image=evidence['platform']['pinned_image']
     counts=evidence.get('test_counts',{})
     for name in ('java_surefire','java_failsafe','java_total','frontend','python'):
         row=counts.get(name,{})
@@ -121,17 +129,25 @@ def main() -> int:
     api=GitHub(repo,os.environ.get('GITHUB_TOKEN',''))
     encoded_path=urllib.parse.quote(path,safe='/')
     base_ref=api.request('GET','/git/ref/heads/main')['object']['sha']
+    if not isinstance(base_ref,str) or not re.fullmatch(r'[a-f0-9]{40}',base_ref):
+        raise Blocked('GitOps base revision is not an immutable commit SHA')
     # Read file at immutable base SHA, then branch at exactly that same SHA.
     item=api.request('GET','/contents/'+encoded_path+'?ref='+base_ref)
     if item.get('type')!='file' or item.get('encoding')!='base64':
         raise Blocked('GitOps values is not a regular file')
     text=base64.b64decode(item['content'],validate=False).decode('utf-8')
     changed=replace_digest(text,digest)
+    # replace_digest validated the repository, old digest and exact editable field
+    # in this file fetched at base_ref. Do not trust an old digest from build input.
+    old_digest=yaml.safe_load(text)['platform']['image']['digest']
+    proposal={'source_revision':revision,'digest':digest,'previous_digest':old_digest,
+        'new_digest':digest,'pinned_image':pinned_image,'gitops_base_revision':base_ref,
+        'jenkins_job':job_name,'jenkins_build_number':int(build_number),'test_counts':counts}
     if changed==text:
-        (state/'gitops-pr.json').write_text(json.dumps({'status':'no-change','source_revision':revision,'digest':digest},indent=2)+'\n')
+        (state/'gitops-pr.json').write_text(json.dumps({'status':'no-change',**proposal},indent=2)+'\n')
         print('GitOps Platform digest already matches; no PR needed')
         return 0
-    branch='ci/rca-platform-'+revision[:12]+'-b'+os.environ['BUILD_NUMBER']
+    branch='ci/rca-platform-'+revision[:12]+'-b'+build_number
     api.request('POST','/git/refs',{'ref':'refs/heads/'+branch,'sha':base_ref})
     api.request('PUT','/contents/'+encoded_path,{'message':'Update RCA Platform to '+revision[:12],
         'content':base64.b64encode(changed.encode()).decode(),'sha':item['sha'],'branch':branch})
@@ -139,13 +155,21 @@ def main() -> int:
         'head':branch,'base':base,'body':'Application test, isolated runtime, Agent safe mode and image security gates passed.\n\n'
         +'Actual JUnit testcase counts: '+test_line+'.\n'
         +'Trivy0.76.0: OS/library fixable HIGH/CRITICAL gate passed; SBOM and scan evidence are retained in Jenkins.\n\n'
-        +'Source: '+revision+'\nPlatform digest: '+digest+'\n\n'
-        +'Changes only platform.image.digest. Agent, DB, RBAC and storage are unchanged. '
+        +'Source Git commit: `'+revision+'`\n'
+        +'Jenkins build: `'+job_name+' #'+build_number+'`\n'
+        +'Registry image: `'+pinned_image+'`\n'
+        +'Previous image digest: `'+old_digest+'`\n'
+        +'New image digest: `'+digest+'`\n'
+        +'GitOps base commit: `'+base_ref+'`\n\n'
+        +'Changes only `platform.image.digest`. Expected Kubernetes change: '
+        +'`Deployment/rca-platform` image replacement and a rolling replacement of its Pods. '
+        +'Confirm the rendered diff, capacity and rollout plan before an approved manual Argo CD sync. '
+        +'This proposal does not edit Agent, DB, RBAC or storage settings. '
         +'Review and merge manually; this CI never merges or invokes Argo CD.'})
     url=pr.get('html_url','')
     if not url.startswith('https://github.com/'+repo+'/pull/'):
         raise Blocked('unexpected pull request URL')
-    (state/'gitops-pr.json').write_text(json.dumps({'status':'opened','url':url,'source_revision':revision,'digest':digest},indent=2)+'\n')
+    (state/'gitops-pr.json').write_text(json.dumps({'status':'opened','url':url,**proposal},indent=2)+'\n')
     print('GitOps review PR: '+url)
     return 0
 
