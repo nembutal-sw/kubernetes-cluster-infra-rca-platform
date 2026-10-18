@@ -103,6 +103,7 @@ release checklist의 미완료 항목과 최신 GitHub Actions 결과를 먼저 
 | [linux-node-collector-validation.md](linux-node-collector-validation.md) | 실제 Linux collector 검증 |
 | [real-cluster-validation.md](real-cluster-validation.md) | 실제 Kubernetes canary 절차 |
 | [runtime-compatibility.md](runtime-compatibility.md) | 배포판, runtime, CNI compatibility matrix |
+| [supported-stack-migration.md](supported-stack-migration.md) | 지원되는 Spring Boot·Spring AI 전환과 릴리스 검증 |
 | [operational-burn-in.md](operational-burn-in.md) | Agent 장시간 안정성, cluster readiness, LLM 상태 통합 검증 |
 | [release-readiness.md](release-readiness.md) | Release gate와 완료 조건 |
 

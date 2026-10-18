@@ -15,10 +15,11 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -30,7 +31,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureObservability
+@AutoConfigureMetrics
+@AutoConfigureTestRestTemplate
 class RbacHttpAuthorizationTests {
     private static final String PASSWORD = "rbac-password";
 
@@ -214,7 +216,7 @@ class RbacHttpAuthorizationTests {
         assertStatus(auditor, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
         assertStatus(approver, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.OK);
         assertStatus(null, HttpMethod.GET, "/api/v1/overview/summary", null, HttpStatus.UNAUTHORIZED);
-        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/reports?cursor=invalid", null, HttpStatus.UNPROCESSABLE_ENTITY);
+        assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/reports?cursor=invalid", null, HttpStatus.UNPROCESSABLE_CONTENT);
         assertStatus(viewer, HttpMethod.GET, "/api/v1/rca/incidents?status=invalid", null, HttpStatus.BAD_REQUEST);
 
         assertStatus(viewer, HttpMethod.GET, "/api/rca/reports/export", null, HttpStatus.FORBIDDEN);

@@ -45,7 +45,7 @@ public class ApiExceptionHandler {
             .findFirst()
             .map(error -> error.getField() + ": " + error.getDefaultMessage())
             .orElse("request validation failed");
-        return ApiErrorResponse.response(request, HttpStatus.UNPROCESSABLE_ENTITY, "validation_failed", detail);
+        return ApiErrorResponse.response(request, HttpStatus.UNPROCESSABLE_CONTENT, "validation_failed", detail);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -160,7 +160,7 @@ public class ApiExceptionHandler {
     ) {
         return ApiErrorResponse.response(
             request,
-            HttpStatus.UNPROCESSABLE_ENTITY,
+            HttpStatus.UNPROCESSABLE_CONTENT,
             "invalid_argument",
             exception.getMessage()
         );

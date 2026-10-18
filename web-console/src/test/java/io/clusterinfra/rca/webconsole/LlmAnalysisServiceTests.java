@@ -27,6 +27,10 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.ObjectProvider;
 
 class LlmAnalysisServiceTests {
@@ -358,6 +362,13 @@ class LlmAnalysisServiceTests {
     }
 
     private LlmAnalysisService service(ChatModel model, RcaConsoleProperties properties) {
+        // Spring AI 2 merges the supplied builder with the concrete model's defaults.
+        when(model.getOptions()).thenReturn(switch (properties.getLlm().getProvider()) {
+            case "anthropic", "claude" -> AnthropicChatOptions.builder().build();
+            case "gemini", "google", "google-genai" -> GoogleGenAiChatOptions.builder().build();
+            case "ollama" -> OllamaChatOptions.builder().build();
+            default -> OpenAiChatOptions.builder().build();
+        });
         @SuppressWarnings("unchecked")
         ObjectProvider<ChatModel> provider = mock(ObjectProvider.class);
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(model));

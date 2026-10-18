@@ -229,7 +229,7 @@ public class EvidenceBundleExportService {
         rawBytes[0] += content.length;
         if (rawBytes[0] > maxBytes) {
             throw new ResponseStatusException(
-                HttpStatus.PAYLOAD_TOO_LARGE,
+                HttpStatus.CONTENT_TOO_LARGE,
                 "evidence bundle exceeds the configured export size limit"
             );
         }

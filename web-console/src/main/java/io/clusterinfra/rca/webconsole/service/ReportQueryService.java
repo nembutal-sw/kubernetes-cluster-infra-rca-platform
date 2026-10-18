@@ -112,7 +112,7 @@ public class ReportQueryService {
 
     private void requireJson(String format) {
         if (!"json".equalsIgnoreCase(format == null ? "" : format.trim())) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "only json export is supported");
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "only json export is supported");
         }
     }
 

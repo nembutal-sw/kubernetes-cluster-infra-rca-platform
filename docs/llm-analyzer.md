@@ -10,15 +10,21 @@ LLM이 실패하거나 응답 형식이 틀려도 RCA report 생성은 중단되
 
 | Provider | Spring AI chat model |
 | --- | --- |
-| `openai` | `openai-sdk` |
+| `openai` | `openai` |
 | `anthropic`, `claude` | `anthropic` |
 | `gemini`, `google`, `google-genai` | `google-genai` |
 | `ollama` | `ollama` |
-| `openai_compatible` | `openai-sdk` |
-| `self_hosted` | `openai-sdk` |
+| `openai_compatible` | `openai` |
+| `self_hosted` | `openai` |
 | `none` | `none` |
 
 기본값은 `RCA_LLM_ENABLED=false`, `RCA_LLM_PROVIDER=none`입니다.
+
+Spring AI 2에서는 OpenAI SDK starter가 `openai`로 통합되었습니다. 기존
+`RCA_SPRING_AI_CHAT_MODEL=openai-sdk`, `SPRING_AI_OPENAI_SDK_API_KEY`,
+`SPRING_AI_OPENAI_SDK_BASE_URL` 및 `spring.ai.openai-sdk.*` 설정도 호환 계층으로
+계속 사용할 수 있습니다. 새 `spring.ai.openai.*` 설정이 함께 있으면 새 설정을
+우선합니다. LLM에는 도구 callback을 등록하지 않으며 인프라 수정 기능을 부여하지 않습니다.
 
 ## Environment
 
@@ -28,10 +34,10 @@ LLM이 실패하거나 응답 형식이 틀려도 RCA report 생성은 중단되
 | `RCA_LLM_PROVIDER` | provider 이름 |
 | `RCA_LLM_MODEL` | provider model name |
 | `RCA_SPRING_AI_CHAT_MODEL` | Spring AI chat model |
-| `SPRING_AI_OPENAI_SDK_API_KEY` | OpenAI 또는 OpenAI-compatible API key |
+| `SPRING_AI_OPENAI_API_KEY` | OpenAI 또는 OpenAI-compatible API key |
 | `SPRING_AI_ANTHROPIC_API_KEY` | Claude API key |
 | `SPRING_AI_GOOGLE_GENAI_API_KEY` | Gemini API key |
-| `SPRING_AI_OPENAI_SDK_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint |
+| `SPRING_AI_OPENAI_BASE_URL` | OpenAI-compatible 또는 self-hosted endpoint |
 | `SPRING_AI_OLLAMA_BASE_URL` | Ollama endpoint |
 | `RCA_LLM_TIMEOUT_SECONDS` | provider 호출 timeout, 기본 `30` |
 | `RCA_LLM_MAX_OUTPUT_TOKENS` | 최대 출력 token, 기본 `1800`, 최소 `128` |
@@ -52,8 +58,8 @@ OpenAI:
 $env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "openai"
 $env:RCA_LLM_MODEL = "gpt-4.1-mini"
-$env:RCA_SPRING_AI_CHAT_MODEL = "openai-sdk"
-$env:SPRING_AI_OPENAI_SDK_API_KEY = "..."
+$env:RCA_SPRING_AI_CHAT_MODEL = "openai"
+$env:SPRING_AI_OPENAI_API_KEY = "..."
 ```
 
 Claude:
@@ -99,8 +105,8 @@ Self-hosted 또는 OpenAI-compatible:
 $env:RCA_LLM_ENABLED = "true"
 $env:RCA_LLM_PROVIDER = "self_hosted"
 $env:RCA_LLM_MODEL = "local-rca-model"
-$env:RCA_SPRING_AI_CHAT_MODEL = "openai-sdk"
-$env:SPRING_AI_OPENAI_SDK_BASE_URL = "http://localhost:11434/v1"
+$env:RCA_SPRING_AI_CHAT_MODEL = "openai"
+$env:SPRING_AI_OPENAI_BASE_URL = "http://localhost:11434/v1"
 ```
 
 ## Input Contract

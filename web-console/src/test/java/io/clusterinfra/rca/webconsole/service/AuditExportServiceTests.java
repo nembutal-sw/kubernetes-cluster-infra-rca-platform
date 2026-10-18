@@ -160,7 +160,7 @@ class AuditExportServiceTests {
             USER,
             new MockHttpServletRequest()
         )).isInstanceOfSatisfying(ResponseStatusException.class, exception ->
-            assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+            assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT));
         verify(audits, never()).search(any());
     }
 

@@ -221,7 +221,7 @@ class ProductionSecurityValidatorTests {
             .run(context -> {
                 assertThat(context).hasFailed();
                 assertThat(context.getStartupFailure())
-                    .hasStackTraceContaining("spring.ai.openai-sdk.api-key or RCA_LLM_API_KEY");
+                    .hasStackTraceContaining("spring.ai.openai.api-key or RCA_LLM_API_KEY");
             });
     }
 
@@ -333,7 +333,7 @@ class ProductionSecurityValidatorTests {
             .run(context -> {
                 assertThat(context).hasFailed();
                 assertThat(context.getStartupFailure())
-                    .hasStackTraceContaining("spring.ai.openai-sdk.base-url");
+                    .hasStackTraceContaining("spring.ai.openai.base-url");
             });
     }
 

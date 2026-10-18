@@ -112,8 +112,8 @@ OpenAI:
 export RCA_LLM_ENABLED=true
 export RCA_LLM_PROVIDER=openai
 export RCA_LLM_MODEL='<model-name>'
-export RCA_SPRING_AI_CHAT_MODEL=openai-sdk
-export SPRING_AI_OPENAI_SDK_API_KEY='<api-key>'
+export RCA_SPRING_AI_CHAT_MODEL=openai
+export SPRING_AI_OPENAI_API_KEY='<api-key>'
 mvn -Pfrontend process-resources spring-boot:run
 ```
 

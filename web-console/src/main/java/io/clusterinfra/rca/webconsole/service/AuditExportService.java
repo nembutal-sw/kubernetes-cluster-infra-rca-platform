@@ -95,7 +95,7 @@ public class AuditExportService {
         String normalizedFormat = format == null ? "" : format.trim().toLowerCase();
         if (!EXPORT_FORMATS.contains(normalizedFormat)) {
             throw new ResponseStatusException(
-                HttpStatus.UNPROCESSABLE_ENTITY,
+                HttpStatus.UNPROCESSABLE_CONTENT,
                 "format must be json or csv"
             );
         }
