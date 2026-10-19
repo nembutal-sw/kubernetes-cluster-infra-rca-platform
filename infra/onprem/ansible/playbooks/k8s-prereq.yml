@@ -1,0 +1,10 @@
+---
+- name: Kubernetes 노드 공통 환경 구성
+  hosts: k8s
+  become: true
+  gather_facts: true
+
+  roles:
+    - common
+    - containerd
+    - kubernetes

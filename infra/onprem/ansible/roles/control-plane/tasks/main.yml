@@ -1,0 +1,42 @@
+---
+- name: Control Plane 초기화 여부 확인
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_initialized
+
+- name: kubeadm init 실행
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - --node-name=k8s-cp-01
+      - --apiserver-advertise-address=10.7.254.10
+      - --control-plane-endpoint=k8s-api.lab:6443
+      - --pod-network-cidr=172.20.0.0/16
+      - --service-cidr=172.21.0.0/16
+      - --cri-socket=unix:///run/containerd/containerd.sock
+      - --skip-token-print
+  when: not kubeadm_initialized.stat.exists
+
+- name: Kubernetes API Server 대기
+  ansible.builtin.wait_for:
+    host: 10.7.254.10
+    port: 6443
+    timeout: 180
+
+- name: ubuntu 사용자 kubeconfig 디렉터리 생성
+  ansible.builtin.file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0700"
+
+- name: kubeconfig 설정
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/ubuntu/.kube/config
+    remote_src: true
+    owner: ubuntu
+    group: ubuntu
+    mode: "0600"

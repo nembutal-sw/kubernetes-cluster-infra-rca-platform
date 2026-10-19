@@ -1,0 +1,53 @@
+---
+- name: APT 키 디렉터리 생성
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Kubernetes GPG 키 다운로드
+  ansible.builtin.get_url:
+    url: https://pkgs.k8s.io/core:/stable:/v1.36/deb/Release.key
+    dest: /tmp/kubernetes-v1.36-release.key
+    mode: "0644"
+
+- name: Kubernetes GPG 키 등록
+  ansible.builtin.command:
+    argv:
+      - gpg
+      - --batch
+      - --dearmor
+      - -o
+      - /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      - /tmp/kubernetes-v1.36-release.key
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Kubernetes APT 저장소 등록
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.36/deb/ /
+    mode: "0644"
+
+- name: Kubernetes 패키지 설치
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: true
+
+- name: Kubernetes 패키지 버전 고정
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: kubelet 부팅 시 자동 실행 설정
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true

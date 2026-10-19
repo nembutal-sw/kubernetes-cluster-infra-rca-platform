@@ -1,0 +1,33 @@
+# Local Terraform working data and credentials
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/tfplan
+**/*.tfvars
+**/*.tfvars.json
+**/override.tf
+**/*_override.tf
+**/crash.log
+**/.terraformrc
+**/terraform.rc
+
+# Authentication files and execution output
+**/.env
+**/.env.*
+!**/.env.example
+**/*.retry
+**/.vault-password*
+**/vault_password*
+**/secrets.yml
+**/secrets.yaml
+**/*.key
+**/*.pem
+**/id_rsa*
+**/id_ed25519*
+**/kubeconfig*
+**/admin.conf
+**/auth.json
+
+# Keep the provider dependency lock file in version control.
+!**/.terraform.lock.hcl

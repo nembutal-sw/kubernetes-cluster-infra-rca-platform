@@ -1,0 +1,41 @@
+---
+- name: Ubuntu 서버 초기 설정
+  hosts: lab
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: APT 패키지 목록 갱신
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: 기본 패키지 설치
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - git
+          - vim
+          - htop
+          - jq
+          - unzip
+          - net-tools
+          - ca-certificates
+        state: present
+
+    - name: SSH 서비스 활성화
+      ansible.builtin.service:
+        name: ssh
+        enabled: true
+        state: started
+
+    - name: Ansible 관리 서버 표시
+      ansible.builtin.copy:
+        dest: /etc/infra-platform-managed
+        content: |
+          Managed by Ansible
+          Project: infra-platform
+        owner: root
+        group: root
+        mode: "0644"

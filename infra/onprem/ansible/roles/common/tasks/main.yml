@@ -1,0 +1,47 @@
+---
+- name: 기본 패키지 설치
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - gnupg
+      - ca-certificates
+      - apt-transport-https
+      - software-properties-common
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Swap 영구 비활성화
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(?!\s*#)(\S+\s+\S+\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: 실행 중인 Swap 비활성화
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | int > 0
+
+- name: 커널 모듈 자동 로드 설정
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: "0644"
+
+- name: 커널 모듈 로드
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
+
+- name: Kubernetes 네트워크 설정
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.ipv4.ip_forward = 1
+    mode: "0644"
+  notify: Apply Kubernetes sysctl

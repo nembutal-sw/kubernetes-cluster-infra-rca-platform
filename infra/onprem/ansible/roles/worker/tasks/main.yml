@@ -1,0 +1,28 @@
+---
+- name: Worker Join 여부 확인
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: worker_joined
+
+- name: Control Plane에서 Join 명령 생성
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - token
+      - create
+      - --ttl
+      - 2h
+      - --print-join-command
+  delegate_to: k8s-cp-01
+  register: join_command
+  when: not worker_joined.stat.exists
+  no_log: true
+
+- name: Kubernetes Worker Join
+  ansible.builtin.shell: >
+    {{ join_command.stdout }}
+    --cri-socket unix:///run/containerd/containerd.sock
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  when: not worker_joined.stat.exists
+  no_log: true

@@ -1,0 +1,90 @@
+---
+- name: Calico 작업 디렉터리 생성
+  ansible.builtin.file:
+    path: /opt/infra-platform/calico
+    state: directory
+    mode: "0755"
+
+- name: Calico CRD 매니페스트 다운로드
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/v3_projectcalico_org.yaml
+    dest: /opt/infra-platform/calico/crds.yaml
+    mode: "0644"
+
+- name: Tigera Operator 매니페스트 다운로드
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/tigera-operator.yaml
+    dest: /opt/infra-platform/calico/operator.yaml
+    mode: "0644"
+
+- name: Calico Installation 설정 복사
+  ansible.builtin.copy:
+    src: installation.yaml
+    dest: /opt/infra-platform/calico/installation.yaml
+    mode: "0644"
+
+- name: Calico CRD 설치 여부 확인
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - crd
+      - installations.operator.tigera.io
+  register: calico_crd_check
+  changed_when: false
+  failed_when: false
+
+- name: Calico CRD 설치
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - create
+      - -f
+      - /opt/infra-platform/calico/crds.yaml
+  when: calico_crd_check.rc != 0
+
+- name: Calico CRD 준비 대기
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - wait
+      - --for=condition=Established
+      - crd/installations.operator.tigera.io
+      - --timeout=180s
+  changed_when: false
+
+- name: Tigera Operator 설치
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - apply
+      - -f
+      - /opt/infra-platform/calico/operator.yaml
+  register: operator_apply
+  changed_when: >
+    'created' in operator_apply.stdout or
+    'configured' in operator_apply.stdout
+
+- name: Tigera Operator 준비 대기
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - rollout
+      - status
+      - deployment/tigera-operator
+      - -n
+      - tigera-operator
+      - --timeout=600s
+  changed_when: false
+
+- name: Calico Installation 적용
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - apply
+      - -f
+      - /opt/infra-platform/calico/installation.yaml
+  register: calico_apply
+  changed_when: >
+    'created' in calico_apply.stdout or
+    'configured' in calico_apply.stdout

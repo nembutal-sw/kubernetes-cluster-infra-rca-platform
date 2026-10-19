@@ -8,6 +8,7 @@ Node Agent가 노드 상태를 읽기 전용으로 수집하고, Spring Boot Pla
 - 재현 가능한 시연: [Portfolio Demo](docs/portfolio-demo.md)
 - 제출 전 확인: [Portfolio Release Checklist](docs/portfolio-release-checklist.md)
 - 전체 문서: [Documentation Index](docs/README.md)
+- 온프레미스 구성 코드: [Terraform · Ansible](infra/onprem/README.md)
 
 ## Overview
 

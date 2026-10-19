@@ -1,0 +1,112 @@
+---
+- name: Kubernetes 노드 사전 설정
+  hosts: k8s
+  become: true
+
+  tasks:
+    - name: containerd 실행 상태 확인
+      ansible.builtin.command: systemctl is-active containerd
+      register: containerd_status
+      changed_when: false
+
+    - name: Swap 상태 확인
+      ansible.builtin.command: swapon --show --noheadings
+      register: swap_status
+      changed_when: false
+
+    - name: 사전 조건 검증
+      ansible.builtin.assert:
+        that:
+          - containerd_status.stdout == 'active'
+          - swap_status.stdout == ''
+        fail_msg: "containerd 또는 Swap 설정을 확인하세요."
+
+    - name: Kubernetes API 엔드포인트 등록
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^\S+\s+k8s-api\.lab(\s|$)'
+        line: "10.7.254.10 k8s-api.lab"
+        state: present
+
+    - name: NetworkManager 활성화 여부 확인
+      ansible.builtin.command: systemctl is-active NetworkManager
+      register: nm_status
+      changed_when: false
+      failed_when: false
+
+    - name: NetworkManager에서 Calico 인터페이스 제외
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/calico.conf
+        content: |
+          [keyfile]
+          unmanaged-devices=interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:vxlan-v6.calico;interface-name:wireguard.cali;interface-name:wg-v6.cali
+        mode: "0644"
+      when: nm_status.stdout == 'active'
+      register: nm_calico_config
+
+    - name: NetworkManager 설정 다시 읽기
+      ansible.builtin.command: nmcli general reload
+      when: nm_calico_config.changed | default(false)
+      changed_when: false
+
+- name: Kubernetes Control Plane 초기화
+  hosts: k8s_control_plane
+  become: true
+
+  roles:
+    - control-plane
+
+- name: Calico 설치
+  hosts: k8s_control_plane
+  become: true
+
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+  roles:
+    - calico
+
+- name: Kubernetes Worker Join
+  hosts: k8s_workers
+  become: true
+  serial: 1
+
+  roles:
+    - worker
+
+- name: Kubernetes 클러스터 검증
+  hosts: k8s_control_plane
+  become: true
+
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+  tasks:
+    - name: 모든 노드 Ready 대기
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - wait
+          - nodes
+          - --all
+          - --for=condition=Ready
+          - --timeout=900s
+      changed_when: false
+
+    - name: 노드 목록 조회
+      ansible.builtin.command: kubectl get nodes -o wide
+      register: k8s_nodes
+      changed_when: false
+
+    - name: 노드 조회 결과 출력
+      ansible.builtin.debug:
+        var: k8s_nodes.stdout_lines
+
+    - name: Calico 상태 조회
+      ansible.builtin.command: kubectl get tigerastatus
+      register: calico_status
+      changed_when: false
+
+    - name: Calico 상태 출력
+      ansible.builtin.debug:
+        var: calico_status.stdout_lines

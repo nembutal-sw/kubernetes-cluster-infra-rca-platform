@@ -1,0 +1,55 @@
+---
+- name: containerd 설치
+  ansible.builtin.apt:
+    name:
+      - containerd
+      - runc
+    state: present
+    update_cache: true
+
+- name: containerd 버전 확인
+  ansible.builtin.command: containerd --version
+  register: containerd_version_info
+  changed_when: false
+
+- name: containerd 지원 버전 검증
+  ansible.builtin.assert:
+    that:
+      - "containerd_version_info.stdout.split()[2] is version('2.2.0', '>=')"
+    fail_msg: "Kubernetes 1.36용 containerd 2.2 이상이 필요합니다."
+
+- name: containerd 설정 디렉터리 생성
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: containerd 기본 설정 생성
+  ansible.builtin.shell: |
+    containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+  notify: Restart containerd
+
+- name: CRI 플러그인 활성화
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: '^disabled_plugins\s*=\s*\[[^\]]*\]'
+    replace: 'disabled_plugins = []'
+  notify: Restart containerd
+
+- name: systemd cgroup 활성화
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: '^(\s*SystemdCgroup\s*=\s*)false'
+    replace: '\1true'
+  notify: Restart containerd
+
+- name: containerd 서비스 활성화
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+
+- name: containerd Handler 적용
+  ansible.builtin.meta: flush_handlers
